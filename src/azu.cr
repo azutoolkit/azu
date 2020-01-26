@@ -1,6 +1,9 @@
-# TODO: Write documentation for `Azu`
-module Azu
-  VERSION = "0.1.0"
+require "http"
+require "radix"
+require "./azu/**"
 
-  # TODO: Put your code here
+module Azu
+  VERSION  = "0.1.0"
+  ROUTES   = Radix::Tree(Tuple(Symbol, Endpoint.class)).new
+  PIPELINE = Pipeline.new
 end
