@@ -1,9 +1,18 @@
 require "./spec_helper"
 
-describe Azu do
-  # TODO: Write tests
+class ExampleEndpoint < Azu::Endpoint
+end
 
-  it "works" do
-    false.should eq(true)
+describe Azu::Router do
+  router = Azu::Router.new
+  path = "/example_router"
+  
+  it "adds endpoint" do
+    router.add :web, Azu::Method::Get, "/", ExampleEndpoint
+  end
+
+  it "defines rest resources" do
+    router.resources :web, path, ExampleEndpoint
   end
 end
+ 
