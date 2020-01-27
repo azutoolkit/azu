@@ -4,7 +4,7 @@ describe Azu::Pipeline do
   pipeline = Azu::Pipeline.new
   renderer = HTTP::ErrorHandler.new
   scope = :test_scope
-  
+
   pipeline.build scope do
     plug renderer
   end

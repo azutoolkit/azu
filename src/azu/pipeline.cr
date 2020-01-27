@@ -1,24 +1,26 @@
 module Azu
-  # This class picks the correct pipeline based on the request
-  # and executes it.
   class Pipeline
+    include HTTP::Handler
     include Enumerable({Symbol, Array(HTTP::Handler)})
+
     forward_missing_to @pipelines
+
+    CONTENT_TYPE = "Content-Type"
 
     class EmptyPipeline < Exception
     end
-    
+
+    class RouteNotFound < Exception
+    end
+
     property namespace = :web
     getter pipelines = {} of Symbol => Array(HTTP::Handler)
-    getter handlers = {} of Symbol => (HTTP::Handler | (HTTP::Server::Context ->))
+    getter handlers = {} of Symbol => HTTP::Handler
 
     def call(context : HTTP::Server::Context)
-      raise RouteNotFound.new unless result = ROUTES.find(path(context))
-      namespace, endpoint = result.payload
+      raise RouteNotFound.new unless context.request.route = Router::ROUTES.find(path(context))
+      namespace, endpoint = context.request.route.not_nil!.payload
       @handlers[namespace].call(context) if @handlers[namespace]
-      endpoint.new(context, result.params).call
-    rescue e
-      Error(500).new(e)
     end
 
     def each
@@ -37,20 +39,25 @@ module Azu
 
     def prepare
       keys.each do |scope|
-        pipes = self[scope]
-        raise EmptyPipeline.new if pipes.empty?
-        return @handlers[namespace] = pipes.first if pipes.size == 1
-
-        0.upto(pipes.size - 1) { |i| pipes[i].next = pipes[i + 1] }
-        @handlers[namespace] = pipes.first
+        @handlers[namespace] = build_pipeline(self[scope], last_pipe: Render.new)
       end
     end
 
-    private def path(context)
+    def build_pipeline(pipes, last_pipe : HTTP::Handler)
+      if pipes.empty?
+        last_pipe
+      else
+        0.upto(pipes.size - 2) { |i| pipes[i].next = pipes[i + 1] }
+        pipes.last.next = last_pipe if last_pipe
+        pipes.first
+      end
+    end
+
+    protected def path(context)
       upgrade_path(context) + context.request.method.downcase + context.request.path.rstrip('/')
     end
 
-    private def upgrade_path(context)
+    protected def upgrade_path(context)
       return "/ws" if context.request.headers.includes_word?("Upgrade", "Websocket")
       "/"
     end

@@ -1,9 +1,24 @@
 require "http"
+require "logger"
 require "radix"
+require "colorize"
+
 require "./azu/**"
 
 module Azu
-  VERSION  = "0.1.0"
-  ROUTES   = Radix::Tree(Tuple(Symbol, Endpoint.class)).new
-  PIPELINE = Pipeline.new
+  include Server
+  VERSION = "0.1.0"
+  CONFIG  = Configuration.new
+
+  def self.configure
+    with CONFIG yield
+  end
+
+  def self.pipelines
+    with CONFIG.pipelines yield
+  end
+
+  def self.router
+    with CONFIG.router yield
+  end
 end

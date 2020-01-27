@@ -1,7 +1,8 @@
 module Azu
   class Router
     alias Path = String
-    RESOURCES =  %w(connect delete get head options patch post put trace)
+    ROUTES    = Radix::Tree(Tuple(Symbol, Endpoint.class)).new
+    RESOURCES = %w(connect delete get head options patch post put trace)
 
     class RouteNotFound < Azu::Error(404)
     end
@@ -26,12 +27,6 @@ module Azu
       {% end %}
     end
     {% end %}
-
-    def resources(namespace : Symbol, path : Path, endpoint : Endpoint.class)
-      RESOURCES.each do |method|
-        add namespace, Method.parse(method), path, endpoint
-      end
-    end
 
     def add(namespace : Symbol, method : Method, path : Path, endpoint : Endpoint.class)
       ROUTES.add "/#{method.to_s.downcase}#{path}", {namespace, endpoint}
