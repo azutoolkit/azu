@@ -4,9 +4,6 @@ class HTTP::Request
   property route : Radix::Result(Tuple(Symbol, Azu::Endpoint.class))? = nil
   @accept : Array(MIME::MediaType)? = nil
 
-  # An lazy array of `MIME::MediaType` this request accepts
-  # determined by the `"Accept"` header or nil if it is empty.
-  # The array is sorted by the [q-factor](https://developer.mozilla.org/en-US/docs/Glossary/quality_values).
   def accept : Array(MIME::MediaType) | Nil
     @accept ||= (
       if header = headers["Accept"]?
