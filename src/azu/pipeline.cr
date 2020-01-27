@@ -19,7 +19,7 @@ module Azu
 
     def call(context : HTTP::Server::Context)
       raise RouteNotFound.new unless context.request.route = Router::ROUTES.find(path(context))
-      namespace, endpoint = context.request.route.not_nil!.payload
+      namespace, endpoint = context.request.route.not_nil!.payload.not_nil!
       @handlers[namespace].call(context) if @handlers[namespace]
     end
 
