@@ -10,9 +10,9 @@ module Azu
   end
 
   class Params
-    class InvalidParam < Exception
+    class MissingParam < Exception
     end
-
+    CONTENT_TYPE = "Content-Type"
     URL_ENCODED_FORM = "application/x-www-form-urlencoded"
     MULTIPART_FORM   = "multipart/form-data"
     APPLICATION_JSON = "application/json"
@@ -26,7 +26,7 @@ module Azu
       @query = request.query_params
       @path = request.route.not_nil!.params
 
-      case request.headers["Content-Type"]? || ""
+      case request.headers[CONTENT_TYPE]? || ""
       when .starts_with?(APPLICATION_JSON) then @params = ParamsJson.parse(request)
       when .starts_with?(URL_ENCODED_FORM) then @params = ParamsForm.parse(request)
       when .starts_with?(MULTIPART_FORM)   then @params, @files = Multipart.parse(request)
@@ -35,7 +35,7 @@ module Azu
     end
 
     def [](key : Types::Key)
-      self.[key]? || raise InvalidParam.new(key)
+      self.[key]? || raise MissingParam.new("Param key #{key} is not present!")
     end
 
     def []?(key : Types::Key)
