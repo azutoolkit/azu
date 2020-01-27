@@ -8,7 +8,7 @@ end
 
 Azu.pipelines do
   build :web do
-    # plug HTTP::LogHandler.new
+    plug Azu::LogHandler.new(Azu.log)
   end
 end
 
