@@ -29,8 +29,8 @@ module Azu
       case request.headers["Content-Type"]? || ""
       when .starts_with?(APPLICATION_JSON) then @params = ParamsJson.parse(request)
       when .starts_with?(URL_ENCODED_FORM) then @params = ParamsForm.parse(request)
-      when .starts_with?(MULTIPART_FORM) then @params, @files = Multipart.parse(request)
-      else @params = Hash(String, String).new
+      when .starts_with?(MULTIPART_FORM)   then @params, @files = Multipart.parse(request)
+      else                                      @params = Hash(String, String).new
       end
     end
 
