@@ -8,11 +8,12 @@ end
 
 Azu.pipelines do
   build :web do
+    # plug HTTP::LogHandler.new
   end
 end
 
 Azu.router do
-  add :web, Azu::Method::Get, "/hello", HelloWorld
+  get :web, "/hello", HelloWorld
 end
 
 Azu::Server.start

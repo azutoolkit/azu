@@ -14,7 +14,7 @@ module Azu
     end
 
     {% for method in RESOURCES %}
-    def {{method.id}}(namespace : Symbol, path : Path, endpoint : Endpoint)
+    def {{method.id}}(namespace : Symbol, path : Path, endpoint : Endpoint.class)
       method = Method.parse({{method}})
       add namespace, method, path, endpoint
 
