@@ -12,7 +12,8 @@ module Azu
   class Params
     class MissingParam < Exception
     end
-    CONTENT_TYPE = "Content-Type"
+
+    CONTENT_TYPE     = "Content-Type"
     URL_ENCODED_FORM = "application/x-www-form-urlencoded"
     MULTIPART_FORM   = "multipart/form-data"
     APPLICATION_JSON = "application/json"
