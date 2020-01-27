@@ -21,4 +21,8 @@ module Azu
   def self.router
     with CONFIG.router yield
   end
+
+  def self.log
+    CONFIG.log
+  end
 end
