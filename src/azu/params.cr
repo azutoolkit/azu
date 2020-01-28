@@ -10,9 +10,6 @@ module Azu
   end
 
   class Params
-    class MissingParam < Exception
-    end
-
     CONTENT_TYPE     = "Content-Type"
     URL_ENCODED_FORM = "application/x-www-form-urlencoded"
     MULTIPART_FORM   = "multipart/form-data"
@@ -36,7 +33,7 @@ module Azu
     end
 
     def [](key : Types::Key)
-      self.[key]? || raise MissingParam.new("Param key #{key} is not present!")
+      self.[key]? || raise MissingParam.new(detail: "Param key #{key} is not present!", source: key.inspect)
     end
 
     def []?(key : Types::Key)
@@ -60,7 +57,7 @@ module Azu
     def json(key : Types::Key)
       JSON.parse(self[key]?.to_s)
     rescue JSON::ParseException
-      raise "Value of params.json(#{key.inspect}) is not JSON!"
+      raise InvalidJson.new(detail: "Value of params.json(#{key.inspect}) is not JSON!", source: key.inspect)
     end
 
     def to_h : Types::Params

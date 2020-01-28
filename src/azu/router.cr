@@ -4,9 +4,6 @@ module Azu
     ROUTES    = Radix::Tree(Tuple(Symbol, Endpoint.class)).new
     RESOURCES = %w(connect delete get head options patch post put trace)
 
-    class RouteNotFound < Azu::Error(404)
-    end
-
     class DuplicateRoute < Exception
       def initialize(@namespace : Symbol, @method : Method, @path : Path, @endpoint : Endpoint.class)
         super "namespace: #{namespace}, http_method: #{method}, path: #{path}, endpoint: #{endpoint}"

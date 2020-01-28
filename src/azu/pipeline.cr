@@ -3,24 +3,26 @@ module Azu
     include HTTP::Handler
     include Enumerable({Symbol, Array(HTTP::Handler)})
 
-    forward_missing_to @pipelines
-
     CONTENT_TYPE = "Content-Type"
-
-    class EmptyPipeline < Exception
-    end
-
-    class RouteNotFound < Error(404)
-    end
 
     property namespace = :web
     getter pipelines = {} of Symbol => Array(HTTP::Handler)
     getter handlers = {} of Symbol => HTTP::Handler
 
+    forward_missing_to @pipelines
+
     def call(context : HTTP::Server::Context)
-      raise RouteNotFound.new unless context.request.route = Router::ROUTES.find(path(context))
-      namespace, endpoint = context.request.route.not_nil!.payload.not_nil!
+      unless context.request.route = Router::ROUTES.find(path(context))
+        raise NotFound.new(detail: "Path #{context.request.path} not defined", source: context.request.path)
+      end
       @handlers[namespace].call(context) if @handlers[namespace]
+    rescue ex : Error
+      context.response.status_code = ex.status
+      Render.new.error(context, ex)
+    rescue ex : Exception
+      ex = InternalServerError.new(ex)
+      context.response.status_code = ex.status
+      Render.new.error(context, ex)
     end
 
     def each

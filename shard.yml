@@ -11,4 +11,7 @@ license: MIT
 dependencies:
   radix:
     github: luislavena/radix
+  
+  exception_page:
+    github: crystal-loot/exception_page
     

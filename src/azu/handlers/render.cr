@@ -1,9 +1,11 @@
 module Azu
   class Render
     include HTTP::Handler
-
-    class NotAcceptable < Error(406)
-    end
+    NOT_ACCEPTABLE_MSG = <<-TITLE
+    The server cannot produce a response matching the list of 
+    acceptable values defined in the request's proactive content 
+    negotiation headers
+    TITLE
 
     def call(context)
       route = context.request.route.not_nil!
@@ -16,6 +18,14 @@ module Azu
       end
 
       call_next(context) if self.next
+    end
+
+    def error(context : HTTP::Server::Context, ex : Azu::Error)
+      view = Views::Error.new(context, ex)
+      context.response.output << render(context, view).to_s
+      call_next(context) if self.next
+    rescue ex : NotAcceptable
+      context.response.output << view.not_nil!.text
     end
 
     private def render(context, view)
@@ -36,7 +46,7 @@ module Azu
         when .includes? "*" 
           context.response.content_type = a.to_s
           return view.text
-        else raise NotAcceptable.new
+        else raise NotAcceptable.new(detail: NOT_ACCEPTABLE_MSG, source: context.request.path)
         end
       end
     end
