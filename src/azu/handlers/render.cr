@@ -4,7 +4,7 @@ module Azu
 
     def call(context)
       route = context.request.route.not_nil!
-      _endpoint, endpoint = route.payload
+      _namespace, endpoint = route.payload
       context.response.output << endpoint.new(context, route.params).call
     end
   end
