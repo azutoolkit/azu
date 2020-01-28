@@ -7,8 +7,8 @@ module Helpers
     context.request.headers
   end
 
-  private def headers(key, value)
-    context.response.headers
+  private def headers(key : String, value : String)
+    context.response.headers[key] = value
   end
 
   private def redirect(to : String, status : Int32)
