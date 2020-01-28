@@ -1,0 +1,31 @@
+execution:
+- concurrency: 10000
+  hold-for: 3m
+  ramp-up: 1s
+  throughput: 80000
+  scenario: sample
+  
+scenarios:
+  sample:
+    headers:
+      Accept: text/plain
+    requests:
+    - http://localhost:4000/hello?name=Elias
+
+reporting:
+- module: final-stats
+- module: console
+
+modules:
+  jmeter:
+    path: ./local/jmeter
+    properties:
+        log_level: DEBUG
+  console:
+    disable: false
+    
+settings:
+  check-interval: 1s
+  default-executor: jmeter
+
+provisioning: local
