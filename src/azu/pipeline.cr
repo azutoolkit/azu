@@ -10,7 +10,7 @@ module Azu
     class EmptyPipeline < Exception
     end
 
-    class RouteNotFound < Exception
+    class RouteNotFound < Error(404)
     end
 
     property namespace = :web
