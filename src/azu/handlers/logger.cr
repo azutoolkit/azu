@@ -29,10 +29,7 @@ module Azu
         str << " "
         str << context.request.resource.colorize(light_blue).underline()
         str << " at ".colorize(white)
-        str << time.colorize(yellow)
-        str << " "
         str << '\u21c4'.colorize(green)
-        str << " "
         str << " Responded with "
         str << http_status(context.response.status_code)
         str << " in "
