@@ -11,7 +11,7 @@ module Azu
     getter white = Colorize::ColorRGB.new(197, 200, 198)
     getter green = Colorize::ColorRGB.new(93, 166, 2)
 
-    def initialize(@log : ::Logger)
+    def initialize(@log : ::Logger = Azu.log)
       @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
         io << datetime.to_s("%I:%M:%S").colorize(blue)
         io << " AZU | ".colorize(blue).bold

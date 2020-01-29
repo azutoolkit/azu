@@ -1,4 +1,4 @@
-require "./spec_helper"
+require "../spec_helper"
 
 class ExampleEndpoint < Azu::Endpoint
 end
@@ -8,10 +8,12 @@ describe Azu::Router do
   path = "/example_router"
 
   it "adds endpoint" do
-    router.add :web, Azu::Method::Get, "/", ExampleEndpoint
+    router.add "/", ExampleEndpoint, :web, Azu::Method::Get
   end
 
   it "defines rest resources" do
-    router.resources :web, path, ExampleEndpoint
+    router.routes :web do
+      get path, ExampleEndpoint
+    end
   end
 end
