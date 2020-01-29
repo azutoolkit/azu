@@ -11,7 +11,7 @@ module Azu
 
     forward_missing_to @pipelines
 
-    delegate :log, to: Azu
+    delegate :log, :env, to: Azu
     delegate :find, to: Router::ROUTES
 
     def call(context : HTTP::Server::Context)
@@ -24,12 +24,14 @@ module Azu
       context.response.status_code = ex.status
       Render.new.error(context, ex)
       log.error ex.detail
+      log.error ex.inspect_with_backtrace if env.dev?
       context
     rescue ex : Exception
       ex = InternalServerError.new(ex)
       context.response.status_code = ex.status
       Render.new.error(context, ex)
       log.error ex.detail
+      log.error ex.inspect_with_backtrace if env.dev?
       context
     end
 

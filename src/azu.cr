@@ -10,6 +10,7 @@ module Azu
   include Server
   VERSION = "0.1.0"
   CONFIG  = Configuration.new
+  ENVIRONMENT = Environment.new
 
   def self.configure
     with CONFIG yield
@@ -25,5 +26,9 @@ module Azu
 
   def self.log
     CONFIG.log
+  end
+
+  def self.env
+    ENVIRONMENT
   end
 end

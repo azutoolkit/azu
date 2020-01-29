@@ -1,10 +1,7 @@
 module Azu
-  class Env
+  class Environment
     KEY = "CRYSTAL_ENV"
-
-    def initialize(@env : String = ENV[KEY]? || "development")
-      ENV[KEY] = @env
-    end
+    getter env : String = ENV.fetch(KEY, "dev")
 
     def in?(env_list : Array(Symbol))
       env_list.any? { |env2| self == env2 }
@@ -24,7 +21,7 @@ module Azu
 
     macro method_missing(call)
       env_name = {{call.name.id.stringify}}
-      (env_name.ends_with?('?') && self == env_name[0..-2])
+      (env_name.ends_with?('?') && env == env_name[0..-2])
     end
   end
 end

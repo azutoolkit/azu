@@ -9,15 +9,19 @@ module Azu
         )
       end
     end
+    
+    delegate :env, to: Azu
 
     def initialize(@context : HTTP::Server::Context, @ex : Azu::Error)
     end
 
     def html
-      ExceptionPage.for_runtime_exception(@context, @ex)
+      return ExceptionPage.for_runtime_exception(@context, @ex) if env.dev?
+      # TODO Render generic error page
     end
 
     def json
+      # TODO Append backtrace
       @ex.to_json
     end
 
@@ -28,6 +32,7 @@ module Azu
       Title: #{@ex.title}
       Detail: #{@ex.detail}
       Source: #{@ex.source}
+      Backtrace: #{@ex.inspect_with_backtrace} 
       TEXT
     end
   end

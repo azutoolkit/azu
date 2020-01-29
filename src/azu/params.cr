@@ -24,6 +24,7 @@ module Azu
       @query = request.query_params
       @path = request.route.not_nil!.params
 
+      # TODO: Refactor to parse media type out of content type
       case request.headers[CONTENT_TYPE]? || ""
       when .starts_with?(APPLICATION_JSON) then @params = ParamsJson.parse(request)
       when .starts_with?(URL_ENCODED_FORM) then @params = ParamsForm.parse(request)
