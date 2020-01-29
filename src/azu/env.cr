@@ -23,8 +23,8 @@ module Azu
     end
 
     macro method_missing(call)
-          env_name = {{call.name.id.stringify}}
-          (env_name.ends_with?('?') && self == env_name[0..-2])
-        end
+      env_name = {{call.name.id.stringify}}
+      (env_name.ends_with?('?') && self == env_name[0..-2])
+    end
   end
 end

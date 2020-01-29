@@ -10,10 +10,10 @@ module Azu
     def call(context)
       route = context.request.route.not_nil!
       _namespace, endpoint = route.payload.not_nil!
-      
+
       if view = endpoint.new(context, route.params).call
         return context if context.request.ignore_body?
-        
+
         context.response.output << render(context, view).to_s
       end
 
@@ -34,18 +34,18 @@ module Azu
 
       accept.each do |a|
         case a.sub_type.not_nil!
-        when "html"  
+        when "html"
           context.response.content_type = a.to_s
           return view.html
-        when "json" 
+        when "json"
           context.response.content_type = a.to_s
           return view.json
         when "plain", "*"
           context.response.content_type = a.to_s
           return view.text
-        else 
+        else
           raise NotAcceptable.new(
-            detail: NOT_ACCEPTABLE_MSG, 
+            detail: NOT_ACCEPTABLE_MSG,
             source: context.request.path)
         end
       end

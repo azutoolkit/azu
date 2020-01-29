@@ -13,7 +13,7 @@ class HelloView < Azu::View
   end
 
   def json
-    { hello: @name }.to_json
+    {hello: @name}.to_json
   end
 end
 

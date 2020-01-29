@@ -34,7 +34,7 @@ module Azu
         str << " "
         str << context.request.method.colorize(green)
         str << " "
-        str << context.request.resource.colorize(light_blue).underline()
+        str << context.request.resource.colorize(light_blue).underline
         str << " "
         str << '\u21c4'.colorize(green)
         str << " Responded with "
@@ -64,9 +64,9 @@ module Azu
 
     private def severity(severity)
       case severity
-      when Logger::Severity::INFO then severity.colorize(:green)
+      when Logger::Severity::INFO  then severity.colorize(:green)
       when Logger::Severity::DEBUG then severity.colorize(:blue)
-      when Logger::Severity::WARN then severity.colorize(:yellow)
+      when Logger::Severity::WARN  then severity.colorize(:yellow)
       when Logger::Severity::ERROR then severity.colorize(:red)
       when Logger::Severity::FATAL then severity.colorize(:red).bold.underline
       else

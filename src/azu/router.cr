@@ -22,7 +22,7 @@ module Azu
     end
 
     def routes(namespace : Symbol, scope : String = "")
-      with Builder.new(self, namespace, scope) yield 
+      with Builder.new(self, namespace, scope) yield
     end
 
     {% for method in RESOURCES %}
@@ -39,7 +39,7 @@ module Azu
       {% end %}
     end
     {% end %}
-    
+
     def root(endpoint : Endpoint.class)
       ROUTES.add "/", {:root, endpoint}
     end

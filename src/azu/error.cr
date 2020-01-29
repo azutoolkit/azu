@@ -18,12 +18,12 @@ module Azu
 
     def to_json
       {
-        status: status, 
-        link: link, 
-        title: title, 
-        detail: detail, 
-        source: source
-    }.to_json
+        status: status,
+        link:   link,
+        title:  title,
+        detail: detail,
+        source: source,
+      }.to_json
     end
   end
 
@@ -43,7 +43,6 @@ module Azu
   end
 
   class NotAcceptable < Error
-
     getter title = "Not acceptable"
     getter status : Int32 = 406
   end
