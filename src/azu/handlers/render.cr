@@ -30,7 +30,7 @@ module Azu
 
     private def render(context, view)
       accept = context.request.accept
-      raise NotAcceptable.new unless accept
+      return view.text unless accept
 
       accept.each do |a|
         case a.sub_type.not_nil!
@@ -43,8 +43,10 @@ module Azu
         when "plain", "*"
           context.response.content_type = a.to_s
           return view.text
-        else raise NotAcceptable.new(detail: NOT_ACCEPTABLE_MSG, source: context.request.path)
-          
+        else 
+          raise NotAcceptable.new(
+            detail: NOT_ACCEPTABLE_MSG, 
+            source: context.request.path)
         end
       end
     end
