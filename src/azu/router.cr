@@ -25,6 +25,10 @@ module Azu
     end
     {% end %}
 
+    def root(endpoint : Endpoint.class)
+      ROUTES.add "/", {:root, endpoint}
+    end
+
     def add(namespace : Symbol, method : Method, path : Path, endpoint : Endpoint.class)
       ROUTES.add "/#{method.to_s.downcase}#{path}", {namespace, endpoint}
     rescue ex : Radix::Tree::DuplicateError

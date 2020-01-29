@@ -33,7 +33,7 @@ module Azu
     end
 
     def [](key : Types::Key)
-      self.[key]? || raise MissingParam.new(detail: "Param key #{key} is not present!", source: key.inspect)
+      self.[key]? || raise MissingParam.new(detail: "Param key {#{key}} is not present!", source: key.inspect)
     end
 
     def []?(key : Types::Key)

@@ -11,18 +11,25 @@ module Azu
 
     forward_missing_to @pipelines
 
+    delegate :log, to: Azu
+
     def call(context : HTTP::Server::Context)
-      unless context.request.route = Router::ROUTES.find(path(context))
+      unless (context.request.route = Router::ROUTES.find(path(context)))
         raise NotFound.new(detail: "Path #{context.request.path} not defined", source: context.request.path)
       end
       @handlers[namespace].call(context) if @handlers[namespace]
     rescue ex : Error
+      p "========= NOT FOUND"
       context.response.status_code = ex.status
       Render.new.error(context, ex)
+      log.error ex.detail
+      context
     rescue ex : Exception
       ex = InternalServerError.new(ex)
       context.response.status_code = ex.status
       Render.new.error(context, ex)
+      log.error ex.detail
+      context
     end
 
     def each
@@ -61,7 +68,7 @@ module Azu
 
     protected def upgrade_path(context)
       return "/ws" if context.request.headers.includes_word?("Upgrade", "Websocket")
-      "/"
+      '/' 
     end
   end
 end

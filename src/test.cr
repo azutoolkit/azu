@@ -25,11 +25,13 @@ end
 
 Azu.pipelines do
   build :web do
-    # plug Azu::LogHandler.new(Azu.log)
+    plug Azu::LogHandler.new(Azu.log)
   end
 end
 
 Azu.router do
+  root HelloWorld
+  get :web, "/", HelloWorld
   get :web, "/hello", HelloWorld
 end
 

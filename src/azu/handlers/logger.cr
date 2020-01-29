@@ -12,6 +12,13 @@ module Azu
     getter green = Colorize::ColorRGB.new(93, 166, 2)
 
     def initialize(@log : ::Logger)
+      @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
+        io << datetime.to_s("%I:%M:%S").colorize(blue)
+        io << " AZU | ".colorize(blue).bold
+        io << "#{severity(severity)}".colorize(light_blue)
+        io << " "
+        io << message.colorize(white)
+      end
     end
 
     def call(context : HTTP::Server::Context)
@@ -28,7 +35,7 @@ module Azu
         str << context.request.method.colorize(green)
         str << " "
         str << context.request.resource.colorize(light_blue).underline()
-        str << " at ".colorize(white)
+        str << " "
         str << '\u21c4'.colorize(green)
         str << " Responded with "
         str << http_status(context.response.status_code)
@@ -52,6 +59,18 @@ module Azu
       when 500..599 then status.colorize(:red)
       else
         status.colorize(:white)
+      end
+    end
+
+    private def severity(severity)
+      case severity
+      when Logger::Severity::INFO then severity.colorize(:green)
+      when Logger::Severity::DEBUG then severity.colorize(:blue)
+      when Logger::Severity::WARN then severity.colorize(:yellow)
+      when Logger::Severity::ERROR then severity.colorize(:red)
+      when Logger::Severity::FATAL then severity.colorize(:red).bold.underline
+      else
+        severity.colorize(:white)
       end
     end
   end

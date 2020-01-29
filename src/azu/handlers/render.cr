@@ -18,14 +18,14 @@ module Azu
       end
 
       call_next(context) if self.next
+      context
     end
 
     def error(context : HTTP::Server::Context, ex : Azu::Error)
       view = Views::Error.new(context, ex)
       context.response.output << render(context, view).to_s
       call_next(context) if self.next
-    rescue ex : NotAcceptable
-      context.response.output << view.not_nil!.text
+      context
     end
 
     private def render(context, view)
@@ -34,19 +34,17 @@ module Azu
 
       accept.each do |a|
         case a.sub_type.not_nil!
-        when .includes? "html"  
+        when "html"  
           context.response.content_type = a.to_s
           return view.html
-        when .includes? "json" 
+        when "json" 
           context.response.content_type = a.to_s
           return view.json
-        when .includes? "plain" 
-          context.response.content_type = a.to_s
-          return view.text
-        when .includes? "*" 
+        when "plain", "*"
           context.response.content_type = a.to_s
           return view.text
         else raise NotAcceptable.new(detail: NOT_ACCEPTABLE_MSG, source: context.request.path)
+          
         end
       end
     end
