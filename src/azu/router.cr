@@ -1,8 +1,7 @@
 module Azu
-  ROUTES    = Radix::Tree(Tuple(Symbol, Endpoint.class)).new
-  
   class Router
     alias Path = String
+    ROUTES    = Radix::Tree(Tuple(Symbol, Endpoint.class)).new
     RESOURCES = %w(connect delete get head options patch post put trace)
 
     class DuplicateRoute < Exception
@@ -17,7 +16,7 @@ module Azu
 
       {% for method in RESOURCES %}
       def {{method.id}}(path : Path, endpoint : Endpoint.class)
-        @router.{{method.id}}("/#{@scope}/#{path}", endpoint, @namespace)
+        @router.{{method.id}}("#{@scope}#{path}", endpoint, @namespace)
       end
       {% end %}
     end

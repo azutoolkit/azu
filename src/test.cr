@@ -31,8 +31,6 @@ end
 
 Azu.router do
   root HelloWorld
-  get :web, "/", HelloWorld
-  get :web, "/hello", HelloWorld
   routes :web, "/test" do
     get "/hello", HelloWorld
   end
