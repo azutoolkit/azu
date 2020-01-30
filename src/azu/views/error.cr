@@ -1,3 +1,4 @@
+require "ecr"
 require "exception_page"
 
 module Azu
@@ -9,15 +10,16 @@ module Azu
         )
       end
     end
-    
+
     delegate :env, to: Azu
+
+    ECR.def_to_s "./src/azu/views/error.ecr"
 
     def initialize(@context : HTTP::Server::Context, @ex : Azu::Error)
     end
 
     def html
-      return ExceptionPage.for_runtime_exception(@context, @ex) if env.dev?
-      # TODO Render generic error page
+      return ExceptionPage.for_runtime_exception(@context, @ex) if env.development?
     end
 
     def json

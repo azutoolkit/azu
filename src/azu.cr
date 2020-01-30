@@ -8,9 +8,9 @@ require "./azu/**"
 
 module Azu
   include Server
-  VERSION = "0.1.0"
-  CONFIG  = Configuration.new
-  ENVIRONMENT = Environment.new
+  VERSION     = "0.1.0"
+  CONFIG      = Configuration.new
+  ENVIRONMENT = Environment.parse ENV.fetch("CRYSTAL_ENV", "development")
 
   def self.configure
     with CONFIG yield

@@ -24,14 +24,14 @@ module Azu
       context.response.status_code = ex.status
       Render.new.error(context, ex)
       log.error ex.detail
-      log.error ex.inspect_with_backtrace if env.dev?
+      log.error ex.inspect_with_backtrace if env.development?
       context
     rescue ex : Exception
       ex = InternalServerError.new(ex)
       context.response.status_code = ex.status
       Render.new.error(context, ex)
       log.error ex.detail
-      log.error ex.inspect_with_backtrace if env.dev?
+      log.error ex.inspect_with_backtrace if env.development?
       context
     end
 

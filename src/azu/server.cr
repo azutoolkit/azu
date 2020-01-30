@@ -19,6 +19,7 @@ module Azu
       loop do
         begin
           log.info "Server started in #{time}."
+          log.info "Environment: #{Azu.env.colorize(:light_blue).underline.bold}"
           log.info "Startup Time #{Time.local - time}".colorize(:white)
           server.listen
           break
