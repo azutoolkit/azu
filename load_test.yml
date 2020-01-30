@@ -1,8 +1,9 @@
 execution:
-- concurrency: 10000
-  hold-for: 3m
+- concurrency: 500
+  hold-for: 30s 
   ramp-up: 1s
-  throughput: 80000
+  throughput: 30000
+  steps: 1
   scenario: sample
   
 scenarios:
@@ -10,7 +11,7 @@ scenarios:
     headers:
       Accept: text/plain
     requests:
-    - http://localhost:4000/hello?name=Elias
+    - http://localhost:4000/test/hello?name=Elias
 
 reporting:
 - module: final-stats
