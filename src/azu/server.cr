@@ -19,16 +19,16 @@ module Azu
       end
 
       server_info = String.build do |s|
-        s << "Environment: #{Azu.env.colorize(:light_blue).underline.bold}"
-        s << "Host: #{config.host.colorize(:light_blue).underline.bold}"
-        s << "Port: #{config.port.colorize(:light_blue).underline.bold}"
+        s << "Server started in #{time}. "
+        s << "Environment: #{Azu.env.colorize(:light_blue).underline.bold} "
+        s << "Host: #{config.host.colorize(:light_blue).underline.bold} "
+        s << "Port: #{config.port.colorize(:light_blue).underline.bold} "
+        s << "Startup Time #{(Time.local - time).total_milliseconds} millis".colorize(:white)
       end
 
       loop do
         begin
-          log.info "Server started in #{time}."
           log.info server_info
-          log.info "Startup Time #{Time.local - time}".colorize(:white)
           server.listen
           break
         rescue e : Errno
