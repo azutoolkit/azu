@@ -37,7 +37,7 @@ module Azu
         str << context.request.resource.colorize(light_blue).underline
         str << " "
         str << '\u21c4'.colorize(green)
-        str << " Responded with "
+        str << "  Responded with "
         str << http_status(context.response.status_code)
         str << " in "
         str << elapsed(Time.local - time).colorize(blue)
