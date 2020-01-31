@@ -40,8 +40,8 @@ module Azu
     end
     {% end %}
 
-    def root(endpoint : Endpoint.class)
-      ROUTES.add "/", {:root, endpoint}
+    def root(namespace : Symbol, endpoint : Endpoint.class)
+      ROUTES.add "/", {namespace, endpoint}
     end
 
     def add(path : Path, endpoint : Endpoint.class, namespace : Symbol, method : Method)
