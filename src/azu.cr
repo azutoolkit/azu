@@ -31,4 +31,8 @@ module Azu
   def self.env
     ENVIRONMENT
   end
+
+  def self.config
+    CONFIG
+  end
 end
