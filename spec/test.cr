@@ -1,4 +1,7 @@
-require "./azu"
+require "../src/azu"
+
+Azu.configure do
+end
 
 class HelloView < Azu::View
   def initialize(@name : String)
@@ -19,6 +22,8 @@ end
 
 class HelloWorld < Azu::Endpoint
   def call
+    header "Custom", "Fake custom header"
+    status 300
     HelloView.new(params["name"].as(String))
   end
 end
@@ -30,10 +35,10 @@ Azu.pipelines do
 end
 
 Azu.router do
-  root HelloWorld
+  root :web, HelloWorld
   routes :web, "/test" do
     get "/hello", HelloWorld
   end
 end
 
-Azu::Server.start
+Azu::Server.start if Azu.env.development?
