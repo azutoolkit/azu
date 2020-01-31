@@ -4,6 +4,14 @@ class HTTP::Request
   property route : Radix::Result(Tuple(Symbol, Azu::Endpoint.class))? = nil
   @accept : Array(MIME::MediaType)? = nil
 
+  def content_type : MIME::MediaType
+    if content = headers["Content-Type"]?
+      MIME::MediaType.parse(content) 
+    else
+      MIME::MediaType.parse("text/plain")
+    end
+  end
+
   def accept : Array(MIME::MediaType) | Nil
     @accept ||= (
       if header = headers["Accept"]?

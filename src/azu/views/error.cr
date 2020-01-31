@@ -34,6 +34,7 @@ module Azu
       Title: #{@ex.title}
       Detail: #{@ex.detail}
       Source: #{@ex.source}
+      Errors: #{@ex.errors} 
       Backtrace: #{@ex.inspect_with_backtrace} 
       TEXT
     end

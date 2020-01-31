@@ -14,4 +14,8 @@ dependencies:
   
   exception_page:
     github: crystal-loot/exception_page
+
+development_dependencies:
+  schema:
+    github: eliasjpr/schema
     

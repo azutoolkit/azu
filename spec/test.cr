@@ -1,4 +1,5 @@
 require "../src/azu"
+require "schema"
 
 Azu.configure do
 end
@@ -21,10 +22,21 @@ class HelloView < Azu::View
 end
 
 class HelloWorld < Azu::Endpoint
+  schema HelloRequest do
+    param name : String, message: "Param name must be string.", presence: true
+  end
+
   def call
+    hello_request = HelloRequest.new(params.query)
+    errors(hello_request.errors) unless hello_request.valid?
     header "Custom", "Fake custom header"
     status 300
-    HelloView.new(params["name"].as(String))
+    HelloView.new(params.query["name"].as(String))
+  end
+
+  private def errors(errors)
+    err = errors.map { |e| e.message }
+    raise Azu::MissingParam.new(errors: err)
   end
 end
 

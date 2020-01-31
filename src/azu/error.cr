@@ -4,6 +4,7 @@ module Azu
     getter title : String = name.underscore.gsub("_", " ").capitalize
     getter detail : String = ""
     getter source : String = ""
+    getter errors : Array(String)? = nil
 
     def initialize(@detail = "", @source = "")
     end
@@ -22,6 +23,7 @@ module Azu
         link:   link,
         title:  title,
         detail: detail,
+        errors: errors,
         source: source,
       }.to_json
     end
@@ -30,6 +32,9 @@ module Azu
   class MissingParam < Error
     getter title = "Missing params"
     getter status : Int32 = 400
+
+    def initialize(@errors = Array(String).new)
+    end
   end
 
   class InvalidJson < Error

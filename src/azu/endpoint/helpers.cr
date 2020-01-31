@@ -7,6 +7,14 @@ module Helpers
     context.request.headers
   end
 
+  def body
+    context.request.body
+  end
+
+  def json
+    JSON.parse(body.to_s)
+  end
+
   def header(key : String, value : String)
     context.response.headers[key] = value
   end

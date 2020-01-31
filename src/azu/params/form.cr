@@ -1,6 +1,6 @@
 module ParamsForm
   def self.parse(request : HTTP::Request)
-    parse_part(request.body).not_nil!
+    parse_part(request.body)
   end
 
   def self.parse_part(input : IO) : HTTP::Params

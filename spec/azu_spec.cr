@@ -10,7 +10,7 @@ describe Azu do
       response = client.get invalid_path
 
       response.status_code.should eq 404
-      response.body.should contain "Path #{invalid_path} not defined"
+      response.body.should contain %q(Path /invalid_path not defined)
     end
 
     it "returns params missing" do
@@ -18,26 +18,20 @@ describe Azu do
       response = client.get invalid_path
 
       response.status_code.should eq 400
-      response.body.should contain "Param key {name} is not present!"
+      response.body.should contain %q(Missing param name: ".name")
     end
   end
 
   describe "Http headers" do
+    path = "/test/hello?name=Elias"
+    response = client.get path
+
     it "can set headers" do
-      path = "/test/hello?name=Elias"
-      response = client.get path
-
-      response.headers["Custom"].should contain "Fake custom header"
+      response.headers["Custom"].should contain %q(Fake custom header)
     end
-  end
 
-  describe "Status Code" do
-    it "sets status code" do 
-      path = "/test/hello?name=Elias"
-      response = client.get path
-
+    it "sets status code" do
       response.status_code.should eq 300
-      response.headers["Custom"].should contain "Fake custom header"
     end
   end
 end
