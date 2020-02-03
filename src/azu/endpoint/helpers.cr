@@ -19,9 +19,9 @@ module Helpers
     context.response.headers[key] = value
   end
 
-  def redirect(to locaton : String, status : Int32)
+  def redirect(to location : String, status : Int32 = 301)
     status status
-    header location
+    header "Location", location
   end
 
   def cookies
