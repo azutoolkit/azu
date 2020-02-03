@@ -6,7 +6,7 @@ class HTTP::Request
 
   def content_type : MIME::MediaType
     if content = headers["Content-Type"]?
-      MIME::MediaType.parse(content) 
+      MIME::MediaType.parse(content)
     else
       MIME::MediaType.parse("text/plain")
     end

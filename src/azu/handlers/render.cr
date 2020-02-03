@@ -13,7 +13,6 @@ module Azu
 
       if view = endpoint.new(context, route.params).call
         return context if context.request.ignore_body?
-
         context.response.output << render(context, view).to_s
       end
 
@@ -30,6 +29,7 @@ module Azu
 
     private def render(context, view)
       accept = context.request.accept
+
       return view.text unless accept
 
       accept.each do |a|

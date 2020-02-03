@@ -20,6 +20,7 @@ module Azu
 
     def html
       return ExceptionPage.for_runtime_exception(@context, @ex) if env.development?
+      to_s
     end
 
     def json

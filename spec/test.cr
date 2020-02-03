@@ -53,4 +53,4 @@ Azu.router do
   end
 end
 
-Azu::Server.start if Azu.env.development?
+Azu::Server.start
