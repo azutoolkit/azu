@@ -8,6 +8,10 @@ crystal: 0.32.1
 
 license: MIT
 
+targets:
+  test:
+    main: spec/test.cr
+
 dependencies:
   radix:
     github: luislavena/radix

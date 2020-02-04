@@ -1,6 +1,6 @@
 language: crystal
 
 script:
-  - shards install
+  - shards build test
   - crystal spec
   - crystal tool format --check

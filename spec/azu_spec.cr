@@ -17,7 +17,7 @@ describe Azu do
       invalid_path = "/test/hello"
       response = client.get invalid_path
 
-      response.status_code.should eq 400
+      response.status_code.should eq 500
       response.body.should contain %q(Missing param name: ".name")
     end
   end
