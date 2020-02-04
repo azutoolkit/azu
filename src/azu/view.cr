@@ -8,5 +8,8 @@ module Azu
 
     def text
     end
+
+    def xml
+    end
   end
 end

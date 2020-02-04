@@ -13,9 +13,9 @@ module Azu
 
       if view = endpoint.new(context, route.params).call
         return context if context.request.ignore_body?
-        return context if (300..310).includes? context.response.status_code
-        return context if  context.response
-        context.response.output << render(context, view).to_s
+        return context if (300..308).includes? context.response.status_code
+
+        context.response.output << render(context, view)
       end
 
       call_next(context) if self.next
@@ -29,32 +29,37 @@ module Azu
       context
     end
 
-    private def render(context, view)
-      accept = context.request.accept
-      return view.text unless accept
+    private def render(context, view : Nil)
+      context.response.status_code = 204
+      ""
+    end
 
-      case view
-      when String 
-        context.response.content_type = "text/plain"
-        return view
-      when Azu::View
-        accept.each do |a|
-          case a.sub_type.not_nil!
-          when "html"
-            context.response.content_type = a.to_s
-            return view.html
-          when "json"
-            context.response.content_type = a.to_s
-            return view.json
-          when "plain", "*"
-            context.response.content_type = a.to_s
-            return view.text
-          else
-            raise NotAcceptable.new(detail: NOT_ACCEPTABLE_MSG, source: context.request.path)
-          end
+    private def render(context, view : String)
+      context.response.content_type = "text/plain"
+      view
+    end
+
+    private def render(context, view : Azu::View)
+      accept = context.request.accept.not_nil!
+      raise NotAcceptable.new unless accept
+      
+      accept.each do |a|
+        case a.sub_type.not_nil!
+        when "html"
+          context.response.content_type = a.to_s
+          return view.html
+        when "json"
+          context.response.content_type = a.to_s
+          return view.json
+        when "xml"
+          context.response.content_type = a.to_s
+          return view.xml
+        when "plain", "*"
+          context.response.content_type = a.to_s
+          return view.text
+        else
+          return view
         end
-      else
-        raise NotAcceptable.new(detail: NOT_ACCEPTABLE_MSG, source: context.request.path)
       end
     end
   end
