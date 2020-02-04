@@ -37,6 +37,11 @@ module Azu
     end
   end
 
+  class BadRequest < Error
+    getter title = "Invalid json"
+    getter status : Int32 = 400
+  end
+
   class InvalidJson < Error
     getter title = "Invalid json"
     getter status : Int32 = 400

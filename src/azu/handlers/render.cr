@@ -13,6 +13,8 @@ module Azu
 
       if view = endpoint.new(context, route.params).call
         return context if context.request.ignore_body?
+        return context if (300..310).includes? context.response.status_code
+        return context if  context.response
         context.response.output << render(context, view).to_s
       end
 
@@ -22,32 +24,37 @@ module Azu
 
     def error(context : HTTP::Server::Context, ex : Azu::Error)
       view = Views::Error.new(context, ex)
-      context.response.output << render(context, view).to_s
+      context.response.output << render(context, view)
       call_next(context) if self.next
       context
     end
 
     private def render(context, view)
       accept = context.request.accept
-
       return view.text unless accept
 
-      accept.each do |a|
-        case a.sub_type.not_nil!
-        when "html"
-          context.response.content_type = a.to_s
-          return view.html
-        when "json"
-          context.response.content_type = a.to_s
-          return view.json
-        when "plain", "*"
-          context.response.content_type = a.to_s
-          return view.text
-        else
-          raise NotAcceptable.new(
-            detail: NOT_ACCEPTABLE_MSG,
-            source: context.request.path)
+      case view
+      when String 
+        context.response.content_type = "text/plain"
+        return view
+      when Azu::View
+        accept.each do |a|
+          case a.sub_type.not_nil!
+          when "html"
+            context.response.content_type = a.to_s
+            return view.html
+          when "json"
+            context.response.content_type = a.to_s
+            return view.json
+          when "plain", "*"
+            context.response.content_type = a.to_s
+            return view.text
+          else
+            raise NotAcceptable.new(detail: NOT_ACCEPTABLE_MSG, source: context.request.path)
+          end
         end
+      else
+        raise NotAcceptable.new(detail: NOT_ACCEPTABLE_MSG, source: context.request.path)
       end
     end
   end
