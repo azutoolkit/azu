@@ -2,7 +2,7 @@ require "./spec_helper.cr"
 require "http/client"
 
 describe Azu do
-  client = HTTP::Client.new Azu.config.host, Azu.config.port
+  client = HTTP::Client.new "localhost", Azu.config.port
 
   describe "Http Errors" do
     it "returns request not found" do
