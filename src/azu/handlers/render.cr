@@ -1,5 +1,5 @@
 module Azu
-  class Render
+  class content
     include HTTP::Handler
     NOT_ACCEPTABLE_MSG = <<-TITLE
     The server cannot produce a response matching the list of 
@@ -15,7 +15,7 @@ module Azu
         return context if context.request.ignore_body?
         return context if (300..308).includes? context.response.status_code
 
-        context.response.output << render(context, view)
+        context.response.output << content(context, view)
       end
 
       call_next(context) if self.next
@@ -24,22 +24,22 @@ module Azu
 
     def error(context : HTTP::Server::Context, ex : Azu::Error)
       view = Views::Error.new(context, ex)
-      context.response.output << render(context, view)
+      context.response.output << content(context, view)
       call_next(context) if self.next
       context
     end
 
-    private def render(context, view : Nil)
+    private def content(context, view : Nil)
       context.response.status_code = 204
       ""
     end
 
-    private def render(context, view : String)
+    private def content(context, view : String)
       context.response.content_type = "text/plain"
       view
     end
 
-    private def render(context, view : Azu::View)
+    private def content(context, view : Azu::View)
       accept = context.request.accept.not_nil!
       raise NotAcceptable.new unless accept
       
