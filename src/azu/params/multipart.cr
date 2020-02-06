@@ -23,8 +23,8 @@ module Multipart
   end
 
   def self.parse(request : HTTP::Request)
-    multipart_params = Azu::Types::Params.new
-    files = Azu::Types::Files.new
+    multipart_params = HTTP::Params.new
+    files = Hash(String, Multipart::File).new
 
     HTTP::FormData.parse(request) do |upload|
       next unless upload
