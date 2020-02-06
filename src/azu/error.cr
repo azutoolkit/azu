@@ -8,7 +8,7 @@ module Azu
 
     delegate :log, :env, to: Azu
 
-    def initialize(@detail = "", @source = "")
+    def initialize(@detail = "", @source = "", @errors = Array(String).new)
     end
 
     def self.from_exception(ex)
@@ -41,14 +41,6 @@ module Azu
     private def print_log
       log.error detail
       log.error inspect_with_backtrace if env.development?
-    end
-  end
-
-  class MissingParam < Error
-    getter title = "Missing params"
-    getter status : Int32 = 400
-
-    def initialize(@errors = Array(String).new)
     end
   end
 

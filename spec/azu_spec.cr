@@ -15,7 +15,7 @@ describe Azu do
     it "returns params missing" do
       response = client.get "/test/hello", headers: HTTP::Headers{"Accept" => "text/plain"}
 
-      response.status_code.should eq 500
+      response.status_code.should eq 400
       response.body.should contain %q(Missing param name: ".name")
     end
   end

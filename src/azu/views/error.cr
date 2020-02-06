@@ -13,7 +13,7 @@ module Azu
 
     delegate :env, to: Azu
 
-    ECR.def_to_s "./src/azu/views/error.ecr"
+    ECR.def_to_s "#{__DIR__}/error.ecr"
 
     def initialize(@context : HTTP::Server::Context, @ex : Azu::Error)
     end

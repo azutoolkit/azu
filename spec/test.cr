@@ -27,16 +27,13 @@ class HelloWorld < Azu::Endpoint
   end
 
   def call
-    hello_request = HelloRequest.new(params.query)
-    errors(hello_request.errors) unless hello_request.valid?
+    req = HelloRequest.new(params.query)
+    Azu::BadRequest.new(errors: req.errors.messages) unless req.valid?
     header "Custom", "Fake custom header"
     status 300
     HelloView.new(params.query["name"].as(String))
-  end
-
-  private def errors(errors)
-    err = errors.map { |e| e.message }
-    raise Azu::MissingParam.new(errors: err)
+  rescue ex
+    raise Azu::BadRequest.from_exception(ex)
   end
 end
 
