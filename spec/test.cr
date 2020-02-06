@@ -32,8 +32,6 @@ class HelloWorld < Azu::Endpoint
     header "Custom", "Fake custom header"
     status 300
     HelloView.new(params.query["name"].as(String))
-  rescue ex
-    raise Azu::BadRequest.from_exception(ex)
   end
 
   private def errors(errors)

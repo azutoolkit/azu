@@ -6,7 +6,7 @@ describe Azu do
 
   describe "Http Errors" do
     it "returns request not found" do
-      response = client.get "/invalid_path"
+      response = client.get "/invalid_path", headers: HTTP::Headers{"Accept" => "text/plain"}
 
       response.status_code.should eq 404
       response.body.should contain %q(Path /invalid_path not defined)
@@ -15,7 +15,7 @@ describe Azu do
     it "returns params missing" do
       response = client.get "/test/hello", headers: HTTP::Headers{"Accept" => "text/plain"}
 
-      response.status_code.should eq 400
+      response.status_code.should eq 500
       response.body.should contain %q(Missing param name: ".name")
     end
   end
