@@ -2,7 +2,7 @@ require "ecr"
 require "exception_page"
 
 module Azu
-  class Views::Error < View
+  class ErrorView < View
     class ExceptionPage < ::ExceptionPage
       def styles : ExceptionPage::Styles
         ::ExceptionPage::Styles.new(
@@ -24,8 +24,15 @@ module Azu
     end
 
     def json
-      # TODO Append backtrace
-      @ex.to_json
+      {
+        Status:    @ex.status,
+        Link:      @ex.link,
+        Title:     @ex.title,
+        Detail:    @ex.detail,
+        Source:    @ex.source,
+        Errors:    @ex.errors,
+        Backtrace: @ex.inspect_with_backtrace,
+      }.to_json
     end
 
     def text

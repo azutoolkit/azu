@@ -1,16 +1,18 @@
 module Azu
   class Error < Exception
     getter status : Int32 = 500
-    getter title : String = name.underscore.gsub("_", " ").capitalize
-    getter detail : String = ""
+    getter title : String = "Internal Server Error"
+    getter detail : String = "Internal Server Error"
     getter source : String = ""
     getter errors : Array(String)? = nil
+
+    delegate :log, :env, to: Azu
 
     def initialize(@detail = "", @source = "")
     end
 
-    def initialize(ex : Exception)
-      @detail = ex.message.not_nil!
+    def self.from_exception(ex)
+      new detail: ex.message.not_nil!
     end
 
     def link
@@ -26,6 +28,42 @@ module Azu
         errors: errors,
         source: source,
       }.to_json
+    end
+
+    def render(context)
+      view = ErrorView.new(context, self)
+      context.response.reset
+      context.response.status_code = status
+      context.response.print content(context, view)
+      print_log
+    end
+
+    private def print_log
+      log.error detail
+      log.error inspect_with_backtrace if env.development?
+    end
+
+    def content(context, view : Azu::View)
+      accept = context.request.accept
+      return view.text unless accept
+      accept.each do |a|
+        case a.sub_type.not_nil!
+        when "html"
+          context.response.content_type = a.to_s
+          return view.html
+        when "json"
+          context.response.content_type = a.to_s
+          return view.json
+        when "xml"
+          context.response.content_type = a.to_s
+          return view.xml
+        when "plain", "*"
+          context.response.content_type = a.to_s
+          return view.text
+        else
+          return view
+        end
+      end
     end
   end
 
@@ -55,10 +93,5 @@ module Azu
   class NotAcceptable < Error
     getter title = "Not acceptable"
     getter status : Int32 = 406
-  end
-
-  class InternalServerError < Error
-    getter title = "Internal Server Error"
-    getter status : Int32 = 500
   end
 end

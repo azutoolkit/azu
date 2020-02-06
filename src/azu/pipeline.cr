@@ -11,7 +11,6 @@ module Azu
 
     forward_missing_to @pipelines
 
-    delegate :log, :env, to: Azu
     delegate :find, to: Router::ROUTES
 
     def call(context : HTTP::Server::Context)
@@ -20,19 +19,10 @@ module Azu
         raise NotFound.new(detail: "Path #{context.request.path} not defined", source: context.request.path)
       end
       @handlers[namespace].call(context) if @handlers[namespace]
-    rescue ex : Error
-      context.response.status_code = ex.status
-      Render.new.error(context, ex)
-      log.error ex.detail
-      log.error ex.inspect_with_backtrace if env.development?
-      context
+    rescue ex : Azu::Error
+      ex.render(context)
     rescue ex : Exception
-      ex = InternalServerError.new(ex)
-      context.response.status_code = ex.status
-      Render.new.error(context, ex)
-      log.fatal ex.detail
-      log.fatal ex.inspect_with_backtrace if env.development?
-      context
+      Error.from_exception(ex).render(context)
     end
 
     def each
