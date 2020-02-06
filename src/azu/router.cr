@@ -32,10 +32,10 @@ module Azu
 
       {% if method == "get" %}
       add path, endpoint, namespace, Method::Head
-      {% end %}
 
       {% if !%w(trace connect options head).includes? method %}
       add path, endpoint, namespace, Method::Options if method.add_options?
+      {% end %}
       {% end %}
     end
     {% end %}
