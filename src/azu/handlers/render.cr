@@ -3,8 +3,8 @@ module Azu
     include HTTP::Handler
 
     def call(context)
-      route = context.request.route.not_nil!
-      _namespace, endpoint = route.payload.not_nil!
+      route = context.request.route
+      _namespace, endpoint = route.payload
 
       if view = endpoint.new(context, route.params).call
         return context if context.request.ignore_body?

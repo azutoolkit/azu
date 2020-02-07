@@ -14,11 +14,13 @@ module Azu
     delegate :find, to: Router::ROUTES
 
     def call(context : HTTP::Server::Context)
-      context.request.route = find(path(context))
-      unless context.request.route.not_nil!.found?
+      result = find(path(context))
+      unless result.found?
         raise NotFound.new(detail: "Path #{context.request.path} not defined", source: context.request.path)
       end
-      @handlers[namespace].call(context) if @handlers[namespace]
+      namespace, _endpoint = result.payload
+      context.request.route = result
+      handlers[namespace].call(context) if handlers[namespace]
     rescue ex : Azu::Error
       ex.render(context)
     rescue ex : Exception
@@ -40,8 +42,8 @@ module Azu
     end
 
     def prepare
-      keys.each do |scope|
-        @handlers[namespace] = build_pipeline(self[scope], last_pipe: Render.new)
+      keys.each do |pipeline|
+        handlers[pipeline] = build_pipeline(self[pipeline], last_pipe: Render.new)
       end
     end
 
