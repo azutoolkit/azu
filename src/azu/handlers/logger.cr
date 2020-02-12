@@ -23,7 +23,7 @@ module Azu
 
     def call(context : HTTP::Server::Context)
       call_next(context)
-      log.info message(context)
+      spawn { log.info message(context) }
       context
     end
 
