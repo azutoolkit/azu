@@ -12,7 +12,7 @@ module Azu
     getter files = Hash(String, Multipart::File).new
     getter query : HTTP::Params
     getter path : Hash(String, String)
-    getter form : HTTP::Params | JSON::Any
+    getter form : HTTP::Params
 
     def initialize(request : HTTP::Request)
       @query = request.query_params
