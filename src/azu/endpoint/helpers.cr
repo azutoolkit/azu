@@ -8,7 +8,7 @@ module Helpers
   end
 
   def body
-    context.request.body
+    context.request.body.not_nil!.gets_to_end
   end
 
   def json
