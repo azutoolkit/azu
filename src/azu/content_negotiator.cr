@@ -30,7 +30,7 @@ module Azu
           context.response.content_type = a.to_s
           return view.text
         else
-          return view
+          next
         end
       end
     end
