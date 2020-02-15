@@ -41,7 +41,7 @@ module Azu
     {% end %}
 
     def root(namespace : Symbol, endpoint : Endpoint.class)
-      ROUTES.add "/", {namespace, endpoint}
+      ROUTES.add "/get/", {namespace, endpoint}
     end
 
     def add(path : Path, endpoint : Endpoint.class, namespace : Symbol, method : Method)
