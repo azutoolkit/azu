@@ -35,4 +35,11 @@ module Helpers
   def status(status : Int32)
     context.response.status_code = status
   end
+
+  def error(title, message, status_code)
+    error = Azu::Error.new(detail: message)
+    error.title = title
+    error.status = status_code
+    raise error
+  end
 end
