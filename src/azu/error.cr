@@ -1,10 +1,10 @@
 module Azu
   class Error < Exception
-    getter status : Int32 = 500
-    getter title : String = "Internal Server Error"
-    getter detail : String = "Internal Server Error"
-    getter source : String = ""
-    getter errors : Array(String)? = nil
+    property status : Int32 = 500
+    property title : String = "Internal Server Error"
+    property detail : String = "Internal Server Error"
+    property source : String = ""
+    property errors : Array(String)? = nil
 
     delegate :log, :env, to: Azu
 
