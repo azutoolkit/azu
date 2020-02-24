@@ -39,6 +39,9 @@ module Azu
     end
 
     private def print_log
+      log.error "#{status}: #{title}"
+      errors.not_nil!.each { |e| log.error e}
+      log.error source
       log.error detail
       log.error inspect_with_backtrace if env.development?
     end
