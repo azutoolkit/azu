@@ -41,8 +41,8 @@ module Azu
     private def print_log
       log.error "#{status}: #{title}"
       errors.not_nil!.each { |e| log.error e}
-      log.error source
-      log.error detail
+      log.error "Source: #{source}" if source
+      log.error "Detail: #{detail}" if details
       log.error inspect_with_backtrace if env.development?
     end
   end
