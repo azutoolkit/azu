@@ -1,5 +1,3 @@
-require "colorize"
-
 module Azu
   class LogHandler
     include HTTP::Handler
@@ -13,7 +11,9 @@ module Azu
 
     def initialize(@log : ::Logger = Azu.log)
       @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
-        io << message.to_json.colorize(white)
+        io << "Progname: " << progname << ", "
+        io << "Severity: " << severity << ", "
+        io << message.colorize(white)
       end
     end
 
@@ -26,17 +26,15 @@ module Azu
     private def message(context)
       time = Time.local
 
-      {
-        time: time,
-        program: "Reviun",
-        http_method: context.request.method, 
-        path: context.request.resource, 
-        status_code: context.response.status_code, 
-        latency: elapsed(Time.local - time),
-        host: context.request.host,
-        user_agent: context.request.headers["User-Agent"]?,
-        headers: context.request.headers
-      }
+      String.build do |s|
+        s << "Time:" << time << ", "
+        s << "Method:" << context.request.method << ", "
+        s << "Resource:" << context.request.resource << ", "
+        s << "Status:" << context.response.status_code  << ", "
+        s << "Latency:" << elapsed(Time.local - time) << ", "
+        s << "Duration:" << (Time.local - time) << ", "
+        s << "Host:" << context.request.host << ", "
+      end
     end
 
     private def elapsed(elapsed)
