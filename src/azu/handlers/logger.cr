@@ -13,10 +13,12 @@ module Azu
 
     def initialize(@log : ::Logger = Azu.log)
       @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
-        io << datetime.to_s("%I:%M:%S").colorize(blue)
-        io << " AZU | ".colorize(blue).bold
-        io << "#{severity(severity)}".colorize(light_blue)
-        io << " "
+        io << datetime
+        io << " - "
+        io << progname
+        io << " - "
+        io << severity
+        io << " -- "
         io << message.colorize(white)
       end
     end
@@ -29,19 +31,18 @@ module Azu
 
     private def message(context)
       time = Time.local
-      String.build do |str|
-        str << '\u21e5'.colorize(blue)
-        str << " "
-        str << context.request.method.colorize(green)
-        str << " "
-        str << context.request.resource.colorize(light_blue).underline
-        str << " "
-        str << '\u21c4'.colorize(green)
-        str << "  Responded with "
-        str << http_status(context.response.status_code)
-        str << " in "
-        str << elapsed(Time.local - time).colorize(blue)
-      end
+
+      {
+        time: time,
+        program: "Reviun",
+        http_method: context.request.method, 
+        path: context.request.resource, 
+        status_code: context.response.status_code, 
+        latency: elapsed(Time.local - time),
+        host: context.request.host,
+        user_agent: context.request.headers["User-Agent"]?,
+        headers: context.request.headers
+      }.to_json
     end
 
     private def elapsed(elapsed)
