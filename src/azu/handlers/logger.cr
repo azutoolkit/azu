@@ -1,3 +1,5 @@
+require "colorize"
+
 module Azu
   class LogHandler
     include HTTP::Handler
@@ -11,29 +13,36 @@ module Azu
 
     def initialize(@log : ::Logger = Azu.log)
       @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
-        io << "Progname: " << progname << ", "
-        io << "Severity: " << severity << ", "
+        io << datetime.to_s("%I:%M:%S").colorize(blue)
+        io << " AZU | ".colorize(blue).bold
+        io << "#{severity(severity)}".colorize(light_blue)
+        io << " "
         io << message.colorize(white)
       end
     end
 
     def call(context : HTTP::Server::Context)
       call_next(context)
-      spawn { log.info message(context) }
+      log.info message(context)
       context
     end
 
     private def message(context)
       time = Time.local
-
-      String.build do |s|
-        s << "Time:" << time << ", "
-        s << "Method:" << context.request.method << ", "
-        s << "Resource:" << context.request.resource << ", "
-        s << "Status:" << context.response.status_code  << ", "
-        s << "Latency:" << elapsed(Time.local - time) << ", "
-        s << "Duration:" << (Time.local - time) << ", "
-        s << "Host:" << context.request.host << ", "
+      String.build do |str|
+        str << '\u21e5'.colorize(blue) if Colorize.enabled?
+        str << " Method: "
+        str << context.request.method.colorize(green)
+        str << " Path: "
+        str << context.request.resource.colorize(light_blue).underline
+        str << " "
+        str << '\u21c4'.colorize(green) if Colorize.enabled?
+        str << " Status: "
+        str << http_status(context.response.status_code)
+        str << " Duration: "
+        str << elapsed(Time.local - time).colorize(blue)
+        str << " Latency: "
+        str << (Time.local - time).colorize(blue)
       end
     end
 
