@@ -43,6 +43,8 @@ module Azu
         str << elapsed(Time.local - time).colorize(blue)
         str << " Latency: "
         str << (Time.local - time).colorize(blue)
+        str << " Headers: "
+        str << context.request.headers.to_json
       end
     end
 
