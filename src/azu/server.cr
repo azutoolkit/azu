@@ -1,7 +1,7 @@
 module Azu
   module Server
     class_getter config : Configuration = CONFIG
-    class_getter log : Logger = CONFIG.log
+    class_getter log : ::Log = CONFIG.log
     class_getter server : HTTP::Server? = nil
 
     delegate :env, to: Azu
@@ -14,7 +14,7 @@ module Azu
 
       Signal::INT.trap do
         Signal::INT.reset
-        log.info "Shutting down server"
+        log.info { "Shutting down server" }
         server.close
       end
 
@@ -28,15 +28,15 @@ module Azu
 
       loop do
         begin
-          log.info server_info
+          log.info { server_info }
           server.listen
           break
-        rescue e : Errno
-          if e.errno == Errno::EMFILE
-            log.info "Restarting server..."
+        rescue e
+          if e == Errno
+            log.info(exception: e) { "Restarting server..." }
             sleep 1
           else
-            log.error e.message
+            log.error(exception: e) { "Server failed to start!" }
             break
           end
         end

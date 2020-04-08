@@ -3,7 +3,7 @@ require "colorize"
 module Azu
   class LogHandler
     include HTTP::Handler
-    getter log : ::Logger
+    getter log : ::Log
 
     getter blue = Colorize::ColorRGB.new(65, 122, 179)
     getter light_blue = Colorize::ColorRGB.new(193, 221, 255)
@@ -11,19 +11,19 @@ module Azu
     getter white = Colorize::ColorRGB.new(197, 200, 198)
     getter green = Colorize::ColorRGB.new(93, 166, 2)
 
-    def initialize(@log : ::Logger = Azu.log)
-      @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
-        io << datetime.to_s("%I:%M:%S").colorize(blue)
+    def initialize(@log : ::Log = Azu.log)
+      Log::Formatter.new do |entry, io|
+        io << entry.timestamp.to_s("%I:%M:%S").colorize(blue)
         io << " AZU | ".colorize(blue).bold
-        io << "#{severity(severity)}".colorize(light_blue)
-        io << " "
-        io << message.colorize(white)
+        io << "#{entry.severity}".colorize(light_blue)
+        io << " Source: #{entry.source} "
+        io << entry.message.colorize(white)
       end
     end
 
     def call(context : HTTP::Server::Context)
       call_next(context)
-      log.info message(context)
+      log.info { message(context) }
       context
     end
 
@@ -68,11 +68,11 @@ module Azu
 
     private def severity(severity)
       case severity
-      when Logger::Severity::INFO  then severity.colorize(:green)
-      when Logger::Severity::DEBUG then severity.colorize(:blue)
-      when Logger::Severity::WARN  then severity.colorize(:yellow)
-      when Logger::Severity::ERROR then severity.colorize(:red)
-      when Logger::Severity::FATAL then severity.colorize(:red).bold.underline
+      when Log::Severity::INFO  then severity.colorize(:green)
+      when Log::Severity::DEBUG then severity.colorize(:blue)
+      when Log::Severity::WARN  then severity.colorize(:yellow)
+      when Log::Severity::ERROR then severity.colorize(:red)
+      when Log::Severity::FATAL then severity.colorize(:red).bold.underline
       else
         severity.colorize(:white)
       end
