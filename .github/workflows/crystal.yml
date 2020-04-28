@@ -16,7 +16,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    
+
     - name: Install dependencies
       run: shards install
     
@@ -25,6 +25,13 @@ jobs:
       
     - name: Check code style
       run: crystal tool format --check
-      
+    
     - name: Run tests
       run: crystal spec
+      env:
+        CRYSTAL_ENV: development
+        CRYSTAL_LOG_SOURCES: "*"
+        CRYSTAL_LOG_LEVEL: DEBUG
+        PORT: 4000
+        PORT_REUSE: false
+        HOST: 0.0.0.0
