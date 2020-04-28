@@ -1,6 +1,0 @@
-language: crystal
-
-script:
-  - shards build test
-  - crystal spec
-  - crystal tool format --check
