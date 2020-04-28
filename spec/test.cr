@@ -39,8 +39,8 @@ end
 
 Azu.pipelines do
   build :web do
-    plug Azu::LogHandler.new
     plug Azu::Rescuer.new
+    plug Azu::LogHandler.new
   end
 end
 

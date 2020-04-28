@@ -5,9 +5,12 @@ module Azu
     def call(context)
       call_next(context) if self.next
     rescue ex : Azu::Error
+      ex.print_log
       ex.render(context)
     rescue ex : Exception
-      Error.from_exception(ex).render(context)
+      error = Error.from_exception(ex)
+      error.print_log
+      error.render(context)
     end
   end
 end

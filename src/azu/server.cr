@@ -1,7 +1,7 @@
 module Azu
   module Server
     class_getter config : Configuration = CONFIG
-    class_getter log : ::Log = CONFIG.log
+    class_getter log : ::Log = Azu.log.for(self)
     class_getter server : HTTP::Server? = nil
 
     delegate :env, to: Azu

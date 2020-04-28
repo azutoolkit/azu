@@ -16,7 +16,8 @@ module Azu
     def call(context : HTTP::Server::Context)
       result = find(path(context))
       unless result.found?
-        raise NotFound.new(detail: "Path #{context.request.path} not defined", source: context.request.path)
+        return NotFound.new(detail: "Path #{context.request.path} not defined", source: context.request.path)
+          .render(context)
       end
       namespace, _endpoint = result.payload
       context.request.route = result

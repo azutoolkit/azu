@@ -35,10 +35,10 @@ module Azu
       context.response.reset
       context.response.status_code = status
       context.response.print ContentNegotiator.content(context, view)
-      print_log
+      context
     end
 
-    private def print_log
+    def print_log
       log.error { "#{status}: #{title}" }
       errors.not_nil!.each { |e| log.error { e } }
       log.error { "Source: #{source}" } if source
