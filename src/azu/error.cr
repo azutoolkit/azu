@@ -48,22 +48,12 @@ module Azu
   end
 
   class BadRequest < Error
-    getter title = "Invalid json"
-    getter status : Int32 = 400
-  end
-
-  class InvalidJson < Error
-    getter title = "Invalid json"
+    getter title = "Bad Request"
     getter status : Int32 = 400
   end
 
   class NotFound < Error
     getter title = "Not found"
     getter status : Int32 = 404
-  end
-
-  class NotAcceptable < Error
-    getter title = "Not acceptable"
-    getter status : Int32 = 406
   end
 end
