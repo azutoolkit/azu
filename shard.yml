@@ -4,7 +4,7 @@ version: 0.1.0
 authors:
   - Elias J. Perez <eliasjpr@gmail.com>
 
-crystal: 0.32.1
+crystal: 0.34.0
 
 license: MIT
 

@@ -21,10 +21,6 @@ module Azu
       namespace, _endpoint = result.payload
       context.request.route = result
       handlers[namespace].call(context) if handlers[namespace]
-    rescue ex : Azu::Error
-      ex.render(context)
-    rescue ex : Exception
-      Error.from_exception(ex).render(context)
     end
 
     def each
