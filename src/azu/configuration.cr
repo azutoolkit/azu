@@ -10,8 +10,5 @@ module Azu
     property env : String = ENV.fetch("CRYSTAL_ENV", "development")
     property router : Router = Router.new
     property pipelines : Pipeline = Pipeline.new
-
-    def initialize
-    end
   end
 end
