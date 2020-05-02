@@ -11,15 +11,13 @@ module Azu
       end
     end
 
-    delegate :env, to: Azu
-
     ECR.def_to_s "#{__DIR__}/error.ecr"
 
     def initialize(@context : HTTP::Server::Context, @ex : Azu::Error)
     end
 
     def html
-      return ExceptionPage.for_runtime_exception(@context, @ex) if env.development?
+      return ExceptionPage.for_runtime_exception(@context, @ex) if ENVIRONMENT.development?
       to_s
     end
 
@@ -42,8 +40,8 @@ module Azu
       Title: #{@ex.title}
       Detail: #{@ex.detail}
       Source: #{@ex.source}
-      Errors: #{@ex.errors} 
-      Backtrace: #{@ex.inspect_with_backtrace} 
+      Errors: #{@ex.errors}
+      Backtrace: #{@ex.inspect_with_backtrace}
       TEXT
     end
   end

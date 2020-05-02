@@ -19,7 +19,7 @@ module Azu
         return NotFound.new(detail: "Path #{context.request.path} not defined", source: context.request.path)
           .render(context)
       end
-      namespace, _endpoint = result.payload
+      namespace, _ = result.payload
       context.request.route = result
       handlers[namespace].call(context) if handlers[namespace]
     end

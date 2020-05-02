@@ -1,12 +1,12 @@
 module Azu
   class Error < Exception
+    getter env : Environment = ENVIRONMENT
+    getter log : ::Log = CONFIG.log
     property status : Int32 = 500
     property title : String = "Internal Server Error"
     property detail : String = "Internal Server Error"
     property source : String = ""
     property errors : Array(String)? = nil
-
-    delegate :log, :env, to: Azu
 
     def initialize(@detail = "", @source = "", @errors = Array(String).new)
     end
