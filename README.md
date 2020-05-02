@@ -4,15 +4,15 @@ TODO: Write a description here
 
 ## Installation
 
-1. Add the dependency to your `shard.yml`:
+1.  Add the dependency to your `shard.yml`:
 
-   ```yaml
-   dependencies:
-     azu:
-       github: your-github-user/azu
-   ```
+    ```yaml
+    dependencies:
+      azu:
+        github: your-github-user/azu
+    ```
 
-2. Run `shards install`
+2.  Run `shards install`
 
 ## Usage
 
@@ -28,12 +28,12 @@ TODO: Write development instructions here
 
 ## Contributing
 
-1. Fork it (<https://github.com/your-github-user/azu/fork>)
-2. Create your feature branch (`git checkout -b my-new-feature`)
-3. Commit your changes (`git commit -am 'Add some feature'`)
-4. Push to the branch (`git push origin my-new-feature`)
-5. Create a new Pull Request
+1.  Fork it (<https://github.com/your-github-user/azu/fork>)
+2.  Create your feature branch (`git checkout -b my-new-feature`)
+3.  Commit your changes (`git commit -am 'Add some feature'`)
+4.  Push to the branch (`git push origin my-new-feature`)
+5.  Create a new Pull Request
 
 ## Contributors
 
-- [Elias J. Perez](https://github.com/your-github-user) - creator and maintainer
+-   [Elias J. Perez](https://github.com/your-github-user) - creator and maintainer

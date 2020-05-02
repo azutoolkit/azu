@@ -4,7 +4,7 @@ module Azu
 
     def call(context)
       route = context.request.route
-      _namespace, endpoint = route.payload
+      _, endpoint = route.payload
 
       if view = endpoint.new(context, route.params).call
         return context if context.request.ignore_body?
