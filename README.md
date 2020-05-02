@@ -1,5 +1,7 @@
 # azu
 
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/d72cda5e5fe44e6999c49337c457e1e3)](https://app.codacy.com/manual/eliasjpr/azu?utm_source=github.com&utm_medium=referral&utm_content=eliasjpr/azu&utm_campaign=Badge_Grade_Settings)
+
 TODO: Write a description here
 
 ## Installation
