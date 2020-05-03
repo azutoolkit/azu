@@ -55,12 +55,12 @@ module Azu
     end
 
     protected def path(context)
-      upgrade_path(context) + context.request.method.downcase + context.request.path.rstrip('/')
-    end
-
-    protected def upgrade_path(context)
-      return "/ws" if context.request.headers.includes_word?("Upgrade", "Websocket")
-      "/"
+      str = String.build do |str|
+        str << "/"
+        str << "ws" if context.request.headers.includes_word?("Upgrade", "Websocket")
+        str << context.request.method.downcase 
+        str << context.request.path.rstrip('/')
+      end 
     end
   end
 end
