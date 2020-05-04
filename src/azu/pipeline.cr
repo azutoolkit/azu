@@ -43,9 +43,10 @@ module Azu
       if pipes.empty?
         last_pipe
       else
-        0.upto(pipes.size - 2) { |i| pipes[i].next = pipes[i + 1] }
-        pipes.last.next = last_pipe if last_pipe
-        pipes.first
+        dup = pipes.map &.dup
+        0.upto(dup.size - 2) { |i| dup[i].next = dup[i + 1] }
+        dup.last.next = last_pipe if last_pipe
+        dup.first
       end
     end
 
