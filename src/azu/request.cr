@@ -1,6 +1,7 @@
 require "mime"
 
 class HTTP::Request
+  @path_params = uninitialized Hash(String, String)
   @accept : Array(MIME::MediaType)? = nil
 
   def content_type : MIME::MediaType
@@ -9,6 +10,14 @@ class HTTP::Request
     else
       MIME::MediaType.parse("text/plain")
     end
+  end
+
+  def path_params
+    @path_params
+  end
+
+  def path_params=(params)
+    @path_params = params
   end
 
   def accept : Array(MIME::MediaType) | Nil

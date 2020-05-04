@@ -11,6 +11,7 @@ module Azu
       resource = path context
       result = RADIX.find resource
       raise NotFound.new(context.request.path) unless result.found?
+      context.request.path_params = result.params
       result.payload.call(context)
     rescue ex : Azu::Error
       view = ErrorView.new(context, ex)

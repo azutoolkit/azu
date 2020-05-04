@@ -12,11 +12,11 @@ module Azu
     getter files = Hash(String, Multipart::File).new
     getter query : HTTP::Params
     getter form : HTTP::Params
-    getter path : = Hash(String, String).new
+    getter path : Hash(String, String)
 
     def initialize(request : HTTP::Request)
       @query = request.query_params
-      @path = path
+      @path = request.path_params
 
       case request.content_type.sub_type
       when "x-www-form-urlencoded" then @form = ParamsForm.parse(request)
