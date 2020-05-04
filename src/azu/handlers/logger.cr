@@ -1,7 +1,7 @@
 require "colorize"
 
 module Azu
-  class LogHandler
+  class Logger
     include HTTP::Handler
     getter log : ::Log
 
@@ -11,7 +11,7 @@ module Azu
     getter white = Colorize::ColorRGB.new(197, 200, 198)
     getter green = Colorize::ColorRGB.new(93, 166, 2)
 
-    def initialize(@log : ::Log)
+    def initialize(@log : ::Log = CONFIG.log)
       Log::Formatter.new do |entry, io|
         io << entry.timestamp.to_s("%I:%M:%S").colorize(blue)
         io << " AZU | ".colorize(blue).bold

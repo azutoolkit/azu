@@ -3,6 +3,7 @@ module Azu
     extend self
 
     def content(context, view : Nil)
+      context.response.reset
       context.response.status_code = 204
       ""
     end
@@ -10,6 +11,16 @@ module Azu
     def content(context, view : String)
       context.response.content_type = "text/plain"
       view
+    end
+
+    def content(context, view : JSON)
+      context.response.content_type = "application/json"
+      view.json
+    end
+
+    def content(context, view : XML)
+      context.response.content_type = "application/xml"
+      view.xml
     end
 
     def content(context, view : Azu::View)

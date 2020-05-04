@@ -29,7 +29,7 @@ describe Azu do
     end
 
     it "sets status code" do
-      response.status_code.should eq 300
+      response.status_code.should eq 200
     end
   end
 end

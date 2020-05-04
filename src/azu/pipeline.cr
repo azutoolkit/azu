@@ -1,50 +1,44 @@
 module Azu
   class Pipeline
     include HTTP::Handler
-    include Enumerable({Symbol, Array(HTTP::Handler)})
 
     CONTENT_TYPE = "Content-Type"
+    RADIX        = Radix::Tree(HTTP::Handler).new
 
-    property namespace = :web
     getter pipelines = {} of Symbol => Array(HTTP::Handler)
-    getter handlers = {} of Symbol => HTTP::Handler
-
-    forward_missing_to @pipelines
-
-    delegate :find, to: Router::ROUTES
 
     def call(context : HTTP::Server::Context)
-      result = find(path(context))
-      unless result.found?
-        return NotFound.new(detail: "Path #{context.request.path} not defined", source: context.request.path)
-          .render(context)
-      end
-      namespace, _ = result.payload
-      context.request.route = result
-      handlers[namespace].call(context) if handlers[namespace]
-    end
-
-    def each
-      @pipelines.each { |pipeline| yield pipeline }
+      resource = path context
+      result = RADIX.find resource
+      raise NotFound.new(context.request.path) unless result.found?
+      result.payload.call(context)
+    rescue ex : Azu::Error
+      view = ErrorView.new(context, ex)
+      context.response.reset
+      context.response.status_code = ex.status
+      context.response.print ContentNegotiator.content(context, view)
+      context
     end
 
     def build(namespace : Symbol, &block)
       @namespace = namespace
-      self[namespace] = [] of HTTP::Handler unless has_key? namespace
+      @pipelines[namespace] = [] of HTTP::Handler unless @pipelines.has_key? namespace
       with self yield
     end
 
     def plug(pipe : HTTP::Handler)
-      self[namespace] << pipe
+      @pipelines[@namespace] << pipe
     end
 
     def prepare
-      keys.each do |pipeline|
-        handlers[pipeline] = build_pipeline(self[pipeline], last_pipe: Render.new)
+      Router::ROUTES.each do |route|
+        pipes = @pipelines[route.namespace]
+        handler = build_pipeline(pipes, last_pipe: route.endpoint)
+        RADIX.add route.resource, handler
       end
     end
 
-    def build_pipeline(pipes, last_pipe : HTTP::Handler)
+    def build_pipeline(pipes : Array(HTTP::Handler), last_pipe : HTTP::Handler)
       if pipes.empty?
         last_pipe
       else
@@ -55,12 +49,12 @@ module Azu
     end
 
     protected def path(context)
-      str = String.build do |str|
+      String.build do |str|
         str << "/"
         str << "ws" if context.request.headers.includes_word?("Upgrade", "Websocket")
-        str << context.request.method.downcase 
+        str << context.request.method.downcase
         str << context.request.path.rstrip('/')
-      end 
+      end
     end
   end
 end

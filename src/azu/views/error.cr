@@ -11,9 +11,11 @@ module Azu
       end
     end
 
-    ECR.def_to_s "#{__DIR__}/error.ecr"
-
     def initialize(@context : HTTP::Server::Context, @ex : Azu::Error)
+    end
+
+    def render
+      ECR.render "#{__DIR__}/error.ecr"
     end
 
     def html

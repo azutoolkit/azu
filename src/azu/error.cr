@@ -30,14 +30,6 @@ module Azu
       }.to_json
     end
 
-    def render(context)
-      view = ErrorView.new(context, self)
-      context.response.reset
-      context.response.status_code = status
-      context.response.print ContentNegotiator.content(context, view)
-      context
-    end
-
     def print_log
       log.error { "#{status}: #{title}" }
       errors.not_nil!.each { |e| log.error { e } }
@@ -55,5 +47,10 @@ module Azu
   class NotFound < Error
     getter title = "Not found"
     getter status : Int32 = 404
+
+    def initialize(path : String)
+      @detail = "Path #{path} not defined"
+      @source = path
+    end
   end
 end

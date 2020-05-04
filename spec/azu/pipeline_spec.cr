@@ -10,11 +10,6 @@ describe Azu::Pipeline do
   end
 
   it "can build a pipeline" do
-    pipeline[scope].should eq [renderer]
-  end
-
-  it "prepares pipeles" do
-    pipeline.prepare
-    pipeline.handlers[scope].should eq renderer
+    pipeline.pipelines[scope].should eq [renderer]
   end
 end

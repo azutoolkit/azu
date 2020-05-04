@@ -1,8 +1,10 @@
 module Azu
   class Router
     alias Path = String
-    ROUTES    = Radix::Tree(Tuple(Symbol, Endpoint.class)).new
+    ROUTES    = Set(Route).new
     RESOURCES = %w(connect delete get head options patch post put trace)
+
+    record Route, namespace : Symbol, endpoint : Endpoint, resource : String
 
     class DuplicateRoute < Exception
       def initialize(@namespace : Symbol, @method : Method, @path : Path, @endpoint : Endpoint.class)
@@ -41,11 +43,11 @@ module Azu
     {% end %}
 
     def root(namespace : Symbol, endpoint : Endpoint.class)
-      ROUTES.add "/get/", {namespace, endpoint}
+      ROUTES.add Route.new(namespace: namespace, endpoint: endpoint.new, resource: "/get/")
     end
 
     def add(path : Path, endpoint : Endpoint.class, namespace : Symbol, method : Method)
-      ROUTES.add "/#{method.to_s.downcase}#{path}", {namespace, endpoint}
+      ROUTES.add Route.new(namespace: namespace, endpoint: endpoint.new, resource: "/#{method.to_s.downcase}#{path}")
     rescue ex : Radix::Tree::DuplicateError
       raise DuplicateRoute.new(namespace, method, path, endpoint)
     end

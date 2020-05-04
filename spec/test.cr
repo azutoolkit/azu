@@ -13,27 +13,32 @@ module TestApp
     end
 
     def text
-      "Hello #{@name}!"
+      "Hello World!"
     end
 
     def json
-      {hello: @name}.to_json
+      {hello: "world"}.to_json
+    end
+
+    def xml
+      "<hello>world!<hello>"
+    end
+  end
+
+  class LoadTest < Azu::Endpoint
+    def call
+      "Hello World!"
     end
   end
 
   class HelloWorld < Azu::Endpoint
-    schema HelloRequest do
-      param name : String, message: "Param name must be string.", presence: true
-    end
-
     def call
-      req = HelloRequest.new(params.query)
-      Azu::BadRequest.new(errors: req.errors.messages) unless req.valid?
+      name = params.query["name"]
+      raise Azu::BadRequest.new(errors: ["No name is present"]) if name.empty?
       header "Custom", "Fake custom header"
-      status 300
-      HelloView.new(params.query["name"].as(String))
+      HelloView.new name
     rescue ex
-      raise Azu::BadRequest.from_exception(ex)
+      raise Azu::BadRequest.from_exception ex
     end
   end
 end
@@ -44,14 +49,22 @@ end
 TestApp.pipelines do
   build :web do
     plug Azu::Rescuer.new
-    plug Azu::LogHandler.new TestApp.log
+    plug Azu::Logger.new
+  end
+
+  build :loadtest do
   end
 end
 
 TestApp.router do
   root :web, TestApp::HelloWorld
+
   routes :web, "/test" do
     get "/hello", TestApp::HelloWorld
+  end
+
+  routes :loadtest do
+    get "/helloworld", TestApp::LoadTest
   end
 end
 

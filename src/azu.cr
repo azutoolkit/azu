@@ -2,6 +2,7 @@ require "http"
 require "logger"
 require "radix"
 require "json"
+require "xml"
 require "colorize"
 
 require "./azu/**"

@@ -1,6 +1,8 @@
 require "../spec_helper"
 
 class ExampleEndpoint < Azu::Endpoint
+  def call
+  end
 end
 
 describe Azu::Router do
