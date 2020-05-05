@@ -10,6 +10,6 @@ describe Azu::Pipeline do
   end
 
   it "can build a pipeline" do
-    pipeline.pipelines[scope].should eq [renderer]
+    pipeline.pipelines[scope].should eq Set{renderer}
   end
 end

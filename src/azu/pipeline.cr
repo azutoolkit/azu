@@ -5,7 +5,7 @@ module Azu
     CONTENT_TYPE = "Content-Type"
     RADIX        = Radix::Tree(HTTP::Handler).new
 
-    getter pipelines = {} of Symbol => Array(HTTP::Handler)
+    getter pipelines = {} of Symbol => Set(HTTP::Handler)
 
     def call(context : HTTP::Server::Context)
       resource = path context
@@ -23,7 +23,7 @@ module Azu
 
     def build(namespace : Symbol, &block)
       @namespace = namespace
-      @pipelines[namespace] = [] of HTTP::Handler unless @pipelines.has_key? namespace
+      @pipelines[namespace] = Set(HTTP::Handler).new unless @pipelines.has_key? namespace
       with self yield
     end
 
@@ -39,7 +39,7 @@ module Azu
       end
     end
 
-    def build_pipeline(pipes : Array(HTTP::Handler), last_pipe : HTTP::Handler)
+    def build_pipeline(pipes : Set(HTTP::Handler), last_pipe : HTTP::Handler)
       if pipes.empty?
         last_pipe
       else
