@@ -31,6 +31,32 @@ module TestApp
     end
   end
 
+  class HiChannel < Azu::Channel
+    SUBSCRIBERS = [] of HTTP::WebSocket
+
+    def on_connect
+      SUBSCRIBERS << socket.not_nil!
+      @socket.not_nil!.send SUBSCRIBERS.size.to_s
+    end
+
+    def on_binary(binary)
+    end
+
+    def on_pong(message)
+    end
+
+    def on_ping(message)
+    end
+
+    def on_message(message)
+      SUBSCRIBERS.each { |s| s.send "Polo!" }
+    end
+
+    def on_close(code, message = nil)
+      SUBSCRIBERS.delete socket
+    end
+  end
+
   class HelloWorld < Azu::Endpoint
     def call
       name = params.query["name"]
@@ -58,6 +84,8 @@ end
 
 TestApp.router do
   root :web, TestApp::HelloWorld
+
+  ws "/hi", TestApp::HiChannel
 
   routes :web, "/test" do
     get "/hello", TestApp::HelloWorld

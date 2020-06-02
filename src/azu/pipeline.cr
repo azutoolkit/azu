@@ -37,6 +37,10 @@ module Azu
         handler = build_pipeline(pipes, last_pipe: route.endpoint)
         RADIX.add route.resource, handler
       end
+
+      Router::SOCKETS.each do |socket|
+        RADIX.add socket.resource, socket.channel
+      end
     end
 
     def build_pipeline(pipes : Set(HTTP::Handler), last_pipe : HTTP::Handler)
@@ -51,12 +55,19 @@ module Azu
     end
 
     protected def path(context)
+      upgraded = upgrade?(context)
       String.build do |str|
         str << "/"
-        str << "ws" if context.request.headers.includes_word?("Upgrade", "Websocket")
-        str << context.request.method.downcase
+        str << "ws" if upgraded
+        str << context.request.method.downcase unless upgraded
         str << context.request.path.rstrip('/')
       end
+    end
+
+    private def upgrade?(context)
+      return unless upgrade = context.request.headers["Upgrade"]?
+      return unless upgrade.compare("websocket", case_insensitive: true) == 0
+      context.request.headers.includes_word?("Connection", "Upgrade")
     end
   end
 end

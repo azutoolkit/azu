@@ -1,10 +1,14 @@
+require "http/web_socket"
+
 module Azu
   class Router
     alias Path = String
     ROUTES    = Set(Route).new
+    SOCKETS   = Set(Socket).new
     RESOURCES = %w(connect delete get head options patch post put trace)
 
     record Route, namespace : Symbol, endpoint : Endpoint, resource : String
+    record Socket, namespace : Symbol, channel : HTTP::WebSocketHandler, resource : String
 
     class DuplicateRoute < Exception
       def initialize(@namespace : Symbol, @method : Method, @path : Path, @endpoint : Endpoint.class)
@@ -44,6 +48,14 @@ module Azu
 
     def root(namespace : Symbol, endpoint : Endpoint.class)
       ROUTES.add Route.new(namespace: namespace, endpoint: endpoint.new, resource: "/get/")
+    end
+
+    def ws(path : String, channel : Channel.class)
+      handler = HTTP::WebSocketHandler.new do |socket, context|
+        channel.new(socket).call(context)
+      end
+
+      SOCKETS.add Socket.new(:websocket, handler, "/ws#{path}")
     end
 
     def add(path : Path, endpoint : Endpoint.class, namespace : Symbol, method : Method)
