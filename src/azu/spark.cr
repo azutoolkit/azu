@@ -1,16 +1,30 @@
+require "uuid"
+
 module Azu
   class Spark < Channel
+    def self.javascript_tags
+      <<-HTML
+        <script src="https://unpkg.com/preact@8.4.2/dist/preact.min.js""></script>
+        <script src="https://unpkg.com/preact-html-converter@0.4.2/dist/preact-html-converter.browser.js"></script>
+        <script src="/assets/js/data.js"></script>
+      HTML
+    end
+
     COMPONENTS = {} of String => SparkView
 
+    def on_binary(binary); end
+
+    def on_ping(message); end
+
+    def on_pong(message); end
+
     def on_connect
-      @connected = true
     end
 
     def on_close(code, message)
-      @connected = false
-      channel_names.each do |channel_name|
-        COMPONENTS[channel_name].unmount(socket)
-        COMPONENTS.delete channel_name
+      COMPONENTS.each do |id, component|
+        component.unmount
+        COMPONENTS.delete id
       end
     end
 
@@ -18,29 +32,21 @@ module Azu
       json = JSON.parse(message)
 
       if channel = json["subscribe"]?
-        COMPONENTS[channel.to_s]
-        COMPONENTS[channel.to_s].connected = true
-        COMPONENTS[channel.to_s].socket = socket
-        COMPONENTS[channel.to_s].mount
+        spark = channel.to_s
+        COMPONENTS[spark].connected = true
+        COMPONENTS[spark].socket = socket
+        COMPONENTS[spark].mount
       elsif event_name = json["event"]?
-        channel_name = json["channel"].not_nil!.as_s
-        data = json["data"].not_nil!.as_s
-        on_event(event_name.as_s, data, socket)
+        spark = json["channel"].not_nil!
+        data = json["data"].not_nil!
+        COMPONENTS[spark].on_event(event_name.not_nil!, data)
       end
     end
   end
 
-  class LiveView < Channel
-    def self.javascript_tag
-      <<-HTML
-        <script src="https://unpkg.com/preact@10.4.4/dist/preact.min.js"></script>
-        <script src="https://unpkg.com/preact-html-converter@0.4.2/dist/preact-html-converter.browser.js"></script>
-        <script src="https://cdn.jsdelivr.net/gh/jgaskins/live_view/js/live-view.min.js"></script>
-      HTML
-    end
-
-    getter? connected = false
-    getter spark_id = UUID.random.to_s
+  class SparkView
+    property? connected = false
+    getter spark_id : String = UUID.random.to_s
     @socket = uninitialized HTTP::WebSocket
 
     def initialize
@@ -48,10 +54,16 @@ module Azu
     end
 
     # Start: Live View API
-    def on_event(name : String, data : String)
+    def mount
     end
 
-    def render(io = IO::Memory.new)
+    def unmount
+    end
+
+    def on_event(name, data)
+    end
+
+    def render(io)
     end
 
     def refresh(buffer = IO::Memory.new)
@@ -61,12 +73,12 @@ module Azu
         id:     spark_id,
       }.to_json
 
-      socket.send json
+      @socket.not_nil!.send json
     end
 
     def refresh(buffer = IO::Memory.new)
       yield
-      refresh socket, buffer
+      refresh buffer
     end
 
     def every(duration : Time::Span, &block)
@@ -76,6 +88,10 @@ module Azu
           block.call if connected?
         end
       end
+    end
+
+    def socket=(other)
+      @socket = other
     end
 
     def to_s(io)
