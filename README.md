@@ -7,7 +7,7 @@ Join a growing community of developers using AZU to craft clean efficient APIs, 
 
 ## Architecture
 
-At its core, AZU is lightweight, fast and expresive without locking you to a a specific patter but instead offering the building blocks for your needs. Focus on your business domain, bring immediate productivity and long-term code maintainability. 
+At its core, AZU is lightweight, fast and expresive without locking you to a a specific pattern but instead offering the building blocks for your needs. Focus on your business domain, bring immediate productivity and long-term code maintainability. 
 
 ## Installation
 
