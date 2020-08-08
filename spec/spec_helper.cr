@@ -8,5 +8,5 @@ process = Process.new("./bin/test")
 sleep 1.seconds
 
 Spec.after_suite do
-  process.not_nil!.kill
+  process.not_nil!.signal Signal::KILL
 end
