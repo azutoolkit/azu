@@ -40,20 +40,19 @@ require "azu"
 module TestApp
   include Azu
 
-  class HelloView < Azu::View
+  class IndexPage
+    include Azu::Html
+    
     def initialize(@name : String)
     end
 
     def html
-      "<h1>Hello #{@name}!</h1>"
-    end
-
-    def text
-      "Hello #{@name}!"
-    end
-
-    def json
-      {hello: @name}.to_json
+      doctype
+      body do
+        a(href: "http://crystal-lang.org") do
+          text "#{@name} is awesome"
+        end
+      end
     end
   end
 
@@ -67,7 +66,7 @@ module TestApp
       Azu::BadRequest.new(errors: req.errors.messages) unless req.valid?
       header "Custom", "Fake custom header"
       status 300
-      HelloView.new(params.query["name"].as(String))
+      IndexPage.new params.query["name"].as(String)
     rescue ex
       raise Azu::BadRequest.from_exception(ex)
     end

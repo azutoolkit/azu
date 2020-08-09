@@ -9,8 +9,7 @@ module Azu
 
     def call(context : HTTP::Server::Context)
       @context = context
-      context.response.print ContentNegotiator.content(context, call)
-
+      context.response.print ContentNegotiator.content(@context, call)
       @context
     end
 

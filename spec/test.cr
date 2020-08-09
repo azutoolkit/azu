@@ -4,24 +4,52 @@ require "schema"
 module TestApp
   include Azu
 
-  class HelloView < Azu::View
+  class HelloView
+    include Azu::Html
+
     def initialize(@name : String)
     end
 
     def html
       "<h1>Hello #{@name}!</h1>"
     end
+  end
 
-    def text
-      "Hello World!"
-    end
+  struct JsonData
+    include Azu::Json
 
     def json
-      {hello: "world"}.to_json
+      { data: "Hello World" }.to_json
+    end
+  end
+
+  struct HtmlPage
+    include Azu::Html
+
+    def initialize(@name : String)
     end
 
-    def xml
-      "<hello>world!<hello>"
+    def html
+      doctype
+      body do
+        a(href: "http://crystal-lang.org") do
+          text "#{@name} is awesome"
+        end
+      end
+    end
+  end
+
+  class JsonEndpoint < Azu::Endpoint
+    def call
+      status 200
+      JsonData.new
+    end
+  end
+
+  class HtmlEndpoint < Azu::Endpoint
+    def call
+      status 200
+      HtmlPage.new params.path["name"]
     end
   end
 
@@ -60,7 +88,6 @@ module TestApp
   class HelloWorld < Azu::Endpoint
     def call
       name = params.query["name"]
-      raise Azu::BadRequest.new(errors: ["No name is present"]) if name.empty?
       header "Custom", "Fake custom header"
       HelloView.new name
     rescue ex
@@ -89,6 +116,8 @@ TestApp.router do
 
   routes :web, "/test" do
     get "/hello", TestApp::HelloWorld
+    get "/hello/:name", TestApp::HtmlEndpoint
+    get "/hello/json", TestApp::JsonEndpoint
   end
 
   routes :loadtest do

@@ -7,16 +7,31 @@ describe Azu do
   describe "Http Errors" do
     it "returns request not found" do
       response = client.get "/invalid_path", headers: HTTP::Headers{"Accept" => "text/plain"}
-
       response.status_code.should eq 404
       response.body.should contain %q(Path /invalid_path not defined)
     end
 
     it "returns params missing" do
       response = client.get "/test/hello", headers: HTTP::Headers{"Accept" => "text/plain"}
-
       response.status_code.should eq 400
       response.body.should contain %q(Missing param name: "name")
+    end
+  end
+
+  describe "Render HTML" do
+    it "returns valid html" do
+      name = "santa"
+      response = client.get "/test/hello/#{name}", headers: HTTP::Headers{"Accept" => "text/plain"}
+      response.status_code.should eq 200
+      response.body.should contain %(<!DOCTYPE html><body><a href="http://crystal-lang.org">#{name} is awesome</a></body>)
+    end
+  end
+
+  describe "Renders JSON" do
+    it "reders valid json" do
+      response = client.get "/test/hello/json", headers: HTTP::Headers{"Accept" => "application/json"}
+      response.status_code.should eq 200
+      response.body.should eq %({"data":"Hello World"})
     end
   end
 

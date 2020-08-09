@@ -18,6 +18,9 @@ dependencies:
   
   exception_page:
     github: crystal-loot/exception_page
+  
+  html_builder:
+    github: crystal-lang/html_builder
 
 development_dependencies:
   schema:
