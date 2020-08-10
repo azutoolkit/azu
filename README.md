@@ -34,19 +34,71 @@ export PORT_REUSE=false
 export HOST=0.0.0.0
 ```
 
+## Pipelines, Routes, Endpoints, Requests and Responses examples
+
 ```crystal
-require "azu"
-
-module TestApp
+module ExampleApp
   include Azu
+end
 
+# Define different pipelines to process requests
+ExampleApp.pipelines do
+  build :web do
+    plug Azu::Rescuer.new
+    plug Azu::LogHandler.new TestApp.log
+  end
+end
+
+# Defines routes
+ExampleApp.router do
+  root :web, ExampleApp::IndexEndpoint
+
+  routes :web, "/test" do
+    get "/hello", ExampleApp::IndexEndpoint
+  end
+end
+
+# Starts the http server
+ExampleApp.start
+```
+
+### Azu::Endpoint Example
+
+```crystal
+module ExampleApp
+  class IndexEndpoint 
+    include Azu::Endpoint(IndexRequest, IndexResponse)
+
+    def call
+      Azu::BadRequest.new(errors: req.errors.messages) unless request.valid?
+
+      header "Custom", "Fake custom header"
+      status 300
+
+      ...call to domain layer...
+      
+      IndexPage.new params.query["name"].as(String)
+    rescue ex
+      raise Azu::BadRequest.from_exception(ex)
+    end
+  end
+end
+```
+
+### Azu::Response Objects
+
+```crystal
+module ExampleApp
   class IndexPage
+    # Enables HTML Responses
     include Azu::Html
     
     def initialize(@name : String)
     end
 
+    # Define HTML method for HTML Response
     def html
+      # Uss built in html builder for folks who enjoy html as code vs templates
       doctype
       body do
         a(href: "http://crystal-lang.org") do
@@ -55,42 +107,29 @@ module TestApp
       end
     end
   end
+end
+```
 
-  class HelloWorld < Azu::Endpoint
-    schema HelloRequest do
-      param name : String, message: "Param name must be string.", presence: true
+### Azu::Request Objects
+
+```crystal
+module ExampleApp
+  class IndexRequest
+    # Defines this class as an Azu::Request 
+    include Azu::Request
+
+    # To use type safe params
+    include Azu::Contract
+
+    # Defines your request object expected properties (query, form, path) macro available
+    query name : String, message: "Param name must be string.", presence: true
+
+    # Without type safe params
+    def name
+      params.query["name"]
     end
-
-    def call
-      req = HelloRequest.new(params.query)
-      Azu::BadRequest.new(errors: req.errors.messages) unless req.valid?
-      header "Custom", "Fake custom header"
-      status 300
-      IndexPage.new params.query["name"].as(String)
-    rescue ex
-      raise Azu::BadRequest.from_exception(ex)
-    end
   end
 end
-
-TestApp.configure do
-end
-
-TestApp.pipelines do
-  build :web do
-    plug Azu::Rescuer.new
-    plug Azu::LogHandler.new TestApp.log
-  end
-end
-
-TestApp.router do
-  root :web, TestApp::HelloWorld
-  routes :web, "/test" do
-    get "/hello", TestApp::HelloWorld
-  end
-end
-
-TestApp.start
 ```
 
 ## Contributing
