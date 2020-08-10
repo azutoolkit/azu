@@ -4,6 +4,7 @@ require "radix"
 require "json"
 require "xml"
 require "colorize"
+require "schema"
 
 require "./azu/**"
 

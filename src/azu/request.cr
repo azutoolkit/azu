@@ -1,32 +1,47 @@
 require "mime"
 
-class HTTP::Request
-  @path_params = uninitialized Hash(String, String)
-  @accept : Array(MIME::MediaType)? = nil
+module Azu
+  module Request
+    getter params : Params
 
-  def content_type : MIME::MediaType
-    if content = headers["Content-Type"]?
-      MIME::MediaType.parse(content)
-    else
-      MIME::MediaType.parse("text/plain")
-    end
-  end
+    @accept : Array(MIME::MediaType)? = nil
 
-  def path_params
-    @path_params
-  end
-
-  def path_params=(params)
-    @path_params = params
-  end
-
-  def accept : Array(MIME::MediaType) | Nil
-    @accept ||= (
-      if header = headers["Accept"]?
-        header.split(",").map { |a| MIME::MediaType.parse(a) }.sort do |a, b|
-          (b["q"]?.try &.to_f || 1.0) <=> (a["q"]?.try &.to_f || 1.0)
-        end
+    def content_type : MIME::MediaType
+      if content = headers["Content-Type"]?
+        MIME::MediaType.parse(content)
+      else
+        MIME::MediaType.parse("text/plain")
       end
-    )
+    end
+
+    def method
+      Method.parse(method)
+    end
+
+    def header
+      headers
+    end
+
+    def body
+      @request.body.not_nil!.gets_to_end
+    end
+
+    def json
+      JSON.parse(body.to_s)
+    end
+
+    def header(key : String, value : String)
+      @response.headers[key] = value
+    end
+
+    def accept : Array(MIME::MediaType) | Nil
+      @accept ||= (
+        if header = headers["Accept"]?
+          header.split(",").map { |a| MIME::MediaType.parse(a) }.sort do |a, b|
+            (b["q"]?.try &.to_f || 1.0) <=> (a["q"]?.try &.to_f || 1.0)
+          end
+        end
+      )
+    end
   end
 end

@@ -9,8 +9,8 @@ crystal: 0.34.0
 license: MIT
 
 targets:
-  test:
-    main: spec/test.cr
+  example_app:
+    main: spec/example_app.cr
 
 dependencies:
   radix:
@@ -21,6 +21,9 @@ dependencies:
   
   html_builder:
     github: crystal-lang/html_builder
+  
+  schema: 
+    github: eliasjpr/schema
 
 development_dependencies:
   schema:

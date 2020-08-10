@@ -2,7 +2,11 @@ require "ecr"
 require "exception_page"
 
 module Azu
-  class ErrorView < View
+  class ErrorView
+    include Html
+    include Json
+    include Text
+
     class ExceptionPage < ::ExceptionPage
       def styles : ExceptionPage::Styles
         ::ExceptionPage::Styles.new(

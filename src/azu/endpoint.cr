@@ -1,18 +1,21 @@
 require "./helpers"
 
 module Azu
-  abstract class Endpoint
+  module Endpoint(R, V)
     include HTTP::Handler
-    include Helpers
 
     @context = uninitialized HTTP::Server::Context
 
+    abstract def call : V
+
     def call(context : HTTP::Server::Context)
       @context = context
-      context.response.print ContentNegotiator.content(@context, call)
+      ContentNegotiator.content @context, call
       @context
     end
 
-    abstract def call
+    private def request
+      R.new @context
+    end
   end
 end

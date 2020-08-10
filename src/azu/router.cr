@@ -7,11 +7,11 @@ module Azu
     SOCKETS   = Set(Socket).new
     RESOURCES = %w(connect delete get head options patch post put trace)
 
-    record Route, namespace : Symbol, endpoint : Endpoint, resource : String
+    record Route, namespace : Symbol, endpoint : HTTP::Handler, resource : String
     record Socket, namespace : Symbol, channel : HTTP::WebSocketHandler, resource : String
 
     class DuplicateRoute < Exception
-      def initialize(@namespace : Symbol, @method : Method, @path : Path, @endpoint : Endpoint.class)
+      def initialize(@namespace : Symbol, @method : Method, @path : Path, @endpoint : HTTP::Handler)
         super "namespace: #{namespace}, http_method: #{method}, path: #{path}, endpoint: #{endpoint}"
       end
     end
@@ -21,7 +21,7 @@ module Azu
       end
 
       {% for method in RESOURCES %}
-      def {{method.id}}(path : Path, endpoint : Endpoint.class)
+      def {{method.id}}(path : Path, endpoint : HTTP::Handler.class)
         @router.{{method.id}}("#{@scope}#{path}", endpoint, @namespace)
       end
       {% end %}
@@ -32,7 +32,7 @@ module Azu
     end
 
     {% for method in RESOURCES %}
-    def {{method.id}}(path : Path, endpoint : Endpoint.class, namespace : Symbol)
+    def {{method.id}}(path : Path, endpoint : HTTP::Handler.class, namespace : Symbol)
       method = Method.parse({{method}})
       add path, endpoint, namespace, method
 
@@ -46,7 +46,7 @@ module Azu
     end
     {% end %}
 
-    def root(namespace : Symbol, endpoint : Endpoint.class)
+    def root(namespace : Symbol, endpoint : HTTP::Handler.class)
       ROUTES.add Route.new(namespace: namespace, endpoint: endpoint.new, resource: "/get/")
     end
 
@@ -58,10 +58,10 @@ module Azu
       SOCKETS.add Socket.new(:websocket, handler, "/ws#{path}")
     end
 
-    def add(path : Path, endpoint : Endpoint.class, namespace : Symbol, method : Method)
+    def add(path : Path, endpoint : HTTP::Handler.class, namespace : Symbol, method : Method)
       ROUTES.add Route.new(namespace: namespace, endpoint: endpoint.new, resource: "/#{method.to_s.downcase}#{path}")
     rescue ex : Radix::Tree::DuplicateError
-      raise DuplicateRoute.new(namespace, method, path, endpoint)
+      raise DuplicateRoute.new(namespace, method, path, endpoint.new)
     end
   end
 end
