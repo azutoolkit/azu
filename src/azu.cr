@@ -9,7 +9,7 @@ require "schema"
 require "./azu/**"
 
 module Azu
-  VERSION     = "0.1.0"
+  VERSION     = "0.1.1"
   CONFIG      = Configuration.new
   ENVIRONMENT = Environment.parse ENV.fetch("CRYSTAL_ENV", "development")
 
