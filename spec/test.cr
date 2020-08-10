@@ -19,7 +19,7 @@ module TestApp
     include Azu::Json
 
     def json
-      { data: "Hello World" }.to_json
+      {data: "Hello World"}.to_json
     end
   end
 
