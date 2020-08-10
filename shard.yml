@@ -10,7 +10,7 @@ license: MIT
 
 targets:
   example_app:
-    main: spec/example_app.cr
+    main: spec/example_app/routes.cr
 
 dependencies:
   radix:

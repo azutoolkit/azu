@@ -21,7 +21,7 @@ jobs:
       run: shards install
     
     - name: Build binary to test
-      run: shards build test
+      run: shards build example_app
       
     - name: Check code style
       run: crystal tool format --check
