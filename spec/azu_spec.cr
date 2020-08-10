@@ -21,7 +21,7 @@ describe Azu do
   describe "Render HTML" do
     it "returns valid html" do
       name = "santa"
-      response = client.get "/test/hello/#{name}", headers: HTTP::Headers{"Accept" => "text/plain"}
+      response = client.get "/test/hello/?name=#{name}", headers: HTTP::Headers{"Accept" => "text/plain"}
       response.status_code.should eq 200
       response.body.should contain %(<!DOCTYPE html><body><a href="http://crystal-lang.org">#{name} is awesome</a></body>)
     end

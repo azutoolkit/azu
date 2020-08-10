@@ -33,10 +33,6 @@ ExampleApp.router do
     get "/hello/:name", ExampleApp::HtmlEndpoint
     get "/hello/json", ExampleApp::JsonEndpoint
   end
-
-  routes :loadtest do
-    get "/helloworld", ExampleApp::LoadTest
-  end
 end
 
 ExampleApp.start

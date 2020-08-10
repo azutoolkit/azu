@@ -1,9 +1,6 @@
 module Azu
   module Response
-    macro included
-      @context = uninitialized HTTP::Server::Context
-      forward_missing_to context
-    end
+    @context = uninitialized HTTP::Server::Context
 
     def header(key : String, value : String)
       headers[key] = value

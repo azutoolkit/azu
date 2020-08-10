@@ -3,6 +3,7 @@ require "./helpers"
 module Azu
   module Endpoint(R, V)
     include HTTP::Handler
+    include Helpers
 
     @context = uninitialized HTTP::Server::Context
 

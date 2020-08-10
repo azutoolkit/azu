@@ -3,6 +3,7 @@ module ExampleApp
     include Azu::Html
 
     def initialize(@name : String)
+      header "Custom", "Fake custom header"
     end
 
     def html
