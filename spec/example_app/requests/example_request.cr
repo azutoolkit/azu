@@ -1,5 +1,3 @@
-require "schema"
-
 module ExampleApp
   struct ExampleReq
     include Azu::Request
