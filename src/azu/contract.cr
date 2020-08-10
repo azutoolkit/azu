@@ -10,6 +10,7 @@ module Azu
         __process_params
       end
 
+      include Schema::Validation
     end
 
     macro query(attribute, **options)
@@ -23,7 +24,7 @@ module Azu
       {% FIELD_OPTIONS[attribute.var] = options %}
       {% CONTENT_ATTRIBUTES[attribute.var] = options || {} of Nil => Nil %}
       {% CONTENT_ATTRIBUTES[attribute.var][:type] = attribute.type %}
-      {% CONTENT_ATTRIBUTES[attribute.var][:param_type] = :form %}
+      {% CONTENT_ATTRIBUTES[attribute.var][:param_type] = :query %}
     end
 
     macro path(attribute, **options)
