@@ -4,10 +4,9 @@ module ExampleApp
     include Azu::Endpoint(ExampleReq, HtmlPage)
 
     def call : HtmlPage
+      request.verify!
       header "Custom", "Fake custom header"
-      HtmlPage.new request.name
-    rescue ex
-      raise Azu::BadRequest.from_exception ex
+      HtmlPage.new request.name 
     end
   end
 

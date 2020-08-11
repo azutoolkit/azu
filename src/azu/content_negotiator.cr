@@ -31,8 +31,22 @@ module Azu
     def content(context, view : Azu::Response)
       if accept = context.request.accept
         accept.each do |a|
-          context.response.content_type = a.to_s
-          context.response.print view.to_s
+          case a.sub_type.not_nil!
+          when .includes?("html")
+            context.response.content_type = a.to_s
+            context.response.print view.html
+          when .includes?("json")
+            context.response.content_type = a.to_s
+            context.response.print view.json
+          when .includes?("xml")
+            context.response.content_type = a.to_s
+          context.response.print view.xml
+          when .includes?("plain"), "*"
+            context.response.content_type = a.to_s
+          context.response.print view.text
+          else
+            next
+          end
         end
       else
         context.response.content_type = "text/plain"
