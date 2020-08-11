@@ -6,7 +6,7 @@ module ExampleApp
     def call : HtmlPage
       request.verify!
       header "Custom", "Fake custom header"
-      HtmlPage.new request.name 
+      HtmlPage.new request.name
     end
   end
 

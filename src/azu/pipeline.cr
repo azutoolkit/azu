@@ -13,7 +13,7 @@ module Azu
       raise NotFound.new(context.request.path) unless result.found?
       context.request.path_params = result.params
       result.payload.call(context)
-    rescue ex  
+    rescue ex
       Rescuer.handle_error context, ex
     end
 

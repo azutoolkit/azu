@@ -40,10 +40,10 @@ module Azu
             context.response.print view.json
           when .includes?("xml")
             context.response.content_type = a.to_s
-          context.response.print view.xml
+            context.response.print view.xml
           when .includes?("plain"), "*"
             context.response.content_type = a.to_s
-          context.response.print view.text
+            context.response.print view.text
           else
             next
           end
