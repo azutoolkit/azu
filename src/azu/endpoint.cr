@@ -12,7 +12,6 @@ module Azu
     def call(context : HTTP::Server::Context)
       @context = context
       ContentNegotiator.content @context, call
-      call_next(context)
       @context
     end
 
