@@ -12,6 +12,7 @@ require "./channels/*"
 require "schema"
 
 ExampleApp.configure do
+  templates.path = "spec/example_app/templates"
 end
 
 ExampleApp.pipelines do

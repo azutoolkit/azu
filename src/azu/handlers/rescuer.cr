@@ -29,6 +29,7 @@ module Azu
 
     def handle_error(context, ex : Azu::Error)
       ex.print_log
+      context.response.status = ex.status
       if ENVIRONMENT.development?
         context.response.print ExceptionPage.for_runtime_exception(context, ex)
         return context

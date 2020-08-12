@@ -1,13 +1,14 @@
-require "html_builder"
-
 module Azu
   module Html
     include Response
 
-    private getter build = HTML::Builder.new
-    forward_missing_to build
-
     abstract def html
+
+    getter templates : Templates = CONFIG.templates
+
+    def render(template : String, data)
+      templates.load(template).render(data)
+    end
 
     def to_s
       html

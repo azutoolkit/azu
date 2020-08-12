@@ -19,11 +19,11 @@ dependencies:
   exception_page:
     github: crystal-loot/exception_page
   
-  html_builder:
-    github: crystal-lang/html_builder
-  
   schema: 
     github: eliasjpr/schema
+
+  crinja: 
+    github: straight-shoota/crinja
 
 development_dependencies:
   schema:

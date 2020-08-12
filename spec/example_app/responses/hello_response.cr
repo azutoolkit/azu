@@ -26,12 +26,7 @@ module ExampleApp
     end
 
     def html
-      doctype
-      body do
-        a(href: "http://crystal-lang.org") do
-          text "#{@name} is awesome"
-        end
-      end
+      render "example.html", {name: @name}
     end
   end
 end

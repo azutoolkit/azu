@@ -5,6 +5,7 @@ require "json"
 require "xml"
 require "colorize"
 require "schema"
+require "crinja"
 
 require "./azu/**"
 
@@ -15,7 +16,7 @@ module Azu
 
   macro included
     def self.configure
-      with CONFIG yield
+      with CONFIG yield CONFIG
     end
 
     def self.pipelines
