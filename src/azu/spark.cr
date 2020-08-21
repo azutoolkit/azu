@@ -69,7 +69,7 @@ module Azu
     def refresh(buffer = IO::Memory.new)
       render buffer
       json = {
-        render: buffer.to_s,
+        content: buffer.to_s,
         id:     spark_id,
       }.to_json
 
