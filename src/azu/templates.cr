@@ -1,8 +1,5 @@
 module Azu
   class Templates
-    ERROR_PATH_KEY = "error_paths"
-    PAGES_PATH_KEY = "html_pages"
-
     private getter crinja = Crinja.new
     getter path : String
     getter error_path : String
