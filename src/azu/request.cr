@@ -4,7 +4,6 @@ module Azu
   module Request
     include Helpers
     include Schema::Validation
-
     getter context : HTTP::Server::Context
     getter params : Params
 
@@ -13,10 +12,7 @@ module Azu
     forward_missing_to @context.request
 
     def initialize(@context : HTTP::Server::Context)
-    end
-
-    def params
-      @params ||= Params.new(@context.request)
+      @params = Params.new(@context.request)
     end
   end
 end
