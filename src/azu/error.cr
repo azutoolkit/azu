@@ -93,7 +93,7 @@ module Azu
     end
 
     def render(template : String, data)
-      templates.load("#{Templates::ERROR_PATH_KEY}/#{template}").render(data)
+      templates.load("#{template}").render(data)
     end
   end
 end
