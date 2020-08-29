@@ -80,6 +80,7 @@ module Azu
         </script>   
       HTML
     end
+
     COMPONENTS = {} of String => SparkView
 
     def on_binary(binary); end
@@ -139,7 +140,7 @@ module Azu
     end
 
     def refresh
-      json = { content: component.to_s, id: spark_id }.to_json
+      json = {content: component.to_s, id: spark_id}.to_json
       @socket.not_nil!.send json
     end
 

@@ -3,7 +3,7 @@ module Azu
     def context
       @context
     end
-    
+
     def method
       Method.parse(@context.request.method)
     end
