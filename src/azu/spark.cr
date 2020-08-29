@@ -4,12 +4,82 @@ module Azu
   class Spark < Channel
     def self.javascript_tags
       <<-HTML
-        <script src="https://unpkg.com/preact@8.4.2/dist/preact.min.js""></script>
-        <script src="https://unpkg.com/preact-html-converter@0.4.2/dist/preact-html-converter.browser.js"></script>
-        <script src="/assets/js/data.js"></script>
+        <script type="module">
+          import { h, Component, render, hydrate} from 'https://unpkg.com/preact?module';
+          import htm from 'https://unpkg.com/htm?module';
+          const html = htm.bind(h);
+
+          var url = new URL(location.href);
+          url.protocol = url.protocol.replace('http', 'ws');
+          url.pathname = '/live-view';
+          var live_view = new WebSocket(url);
+
+          const sparkRenderEvent = new CustomEvent('spark-render');
+
+          live_view.addEventListener('open', (event) => {
+            // Hydrate client-side rendering
+            document.querySelectorAll('[data-live-view]')
+              .forEach((view)=> {
+                var node = html(view.innerHTML)[0];
+                hydrate(node, view.children[0]);
+
+                live_view.send(JSON.stringify({
+                  subscribe: view.getAttribute('data-live-view'),
+                }))
+              });
+          });
+
+          live_view.addEventListener('message', (event) => {
+            var html = htm.bind(h);
+            var data = event.data;
+            var { id, content } = JSON.parse(data);
+            document.querySelectorAll(`[data-live-view="${id}"]`)
+              .forEach((view) => {
+                var div = window.$('<div>' + content + '</div>');
+                view.children[0].innerHTML = div[0].innerHTML
+                render(div[0], view, view.children[0]) ;
+            
+                document.dispatchEvent(sparkRenderEvent);
+              });
+          });
+
+          live_view.addEventListener('close', (event) => {
+            // Do we need to do anything here?
+          });
+
+          [
+            'click',
+            'change',
+            'input',
+          ].forEach((event_type) => {
+            document.addEventListener(event_type, (event) => {
+              var element = event.target;
+              var event_name = element.getAttribute('live-' + event_type);
+
+              if(typeof event_name === 'string') {
+                var channel = event
+                  .target
+                  .closest('[data-live-view]')
+                  .getAttribute('data-live-view')
+
+                var data = {};
+                switch(element.type) {
+                  case "checkbox": data = { value: element.checked }; break;
+                  // Are there others?
+                  default: data = { value: element.getAttribute('live-value') || element.value }; break;
+                }
+
+                live_view.send(JSON.stringify({
+                  event: event_name,
+                  data: JSON.stringify(data),
+                  channel: channel,
+                }));
+              }
+            });
+          });
+        </script>   
       HTML
     end
-
     COMPONENTS = {} of String => SparkView
 
     def on_binary(binary); end
@@ -41,6 +111,8 @@ module Azu
         data = json["data"].not_nil!
         COMPONENTS[spark].on_event(event_name.not_nil!, data)
       end
+    rescue ex : IO::Error
+      puts "Socket closed"
     end
   end
 
@@ -63,22 +135,17 @@ module Azu
     def on_event(name, data)
     end
 
-    def render(io)
+    def component
     end
 
-    def refresh(buffer = IO::Memory.new)
-      render buffer
-      json = {
-        content: buffer.to_s,
-        id:     spark_id,
-      }.to_json
-
+    def refresh
+      json = { content: component.to_s, id: spark_id }.to_json
       @socket.not_nil!.send json
     end
 
-    def refresh(buffer = IO::Memory.new)
+    def refresh
       yield
-      refresh buffer
+      refresh component
     end
 
     def every(duration : Time::Span, &block)
@@ -94,10 +161,12 @@ module Azu
       @socket = other
     end
 
-    def to_s(io)
-      io << %{<div data-live-view="#{spark_id}"><div>}
-      render io
-      io << %{</div></div>}
+    def to_s
+      String.build do |str|
+        str << %{<div data-live-view="#{spark_id}"><div>}
+        str << component
+        str << %{</div></div>}
+      end
     end
   end
 end
