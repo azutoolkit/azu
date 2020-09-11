@@ -29,7 +29,7 @@ module Azu
 
     def refresh
       content
-      json = {content: to_s , id: id}.to_json
+      json = {content: to_s, id: id}.to_json
       @socket.not_nil!.send json
     ensure
       @view = IO::Memory.new
@@ -60,6 +60,7 @@ module Azu
         <div>#{to_s}</div>
       </div>
       HTML
+
     ensure
       @view = IO::Memory.new
     end

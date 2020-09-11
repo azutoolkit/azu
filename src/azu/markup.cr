@@ -133,7 +133,7 @@ module Azu
     def to_s(io : IO) : Nil
       io << @view
     end
-    
+
     private def doctype : Nil
       case version
       when .html_4_01?
