@@ -1,21 +1,15 @@
-import { h, Component, render, hydrate} from 'https://unpkg.com/preact?module';
-import htm from 'https://unpkg.com/htm?module';
-const html = htm.bind(h);
-
+import morphdom from 'https://cdn.jsdelivr.net/npm/morphdom@2.6.1/dist/morphdom-esm.js?module';
+      
 var url = new URL(location.href);
 url.protocol = url.protocol.replace('http', 'ws');
-url.pathname = '/spark-view';
+url.pathname = '/sparks';
 var live_view = new WebSocket(url);
 
 const sparkRenderEvent = new CustomEvent('spark-render');
 
 live_view.addEventListener('open', (event) => {
-  // Hydrate client-side rendering
   document.querySelectorAll('[data-live-view]')
     .forEach((view)=> {
-      var node = html(view.innerHTML)[0];
-      hydrate(node, view.children[0]);
-
       live_view.send(JSON.stringify({
         subscribe: view.getAttribute('data-live-view'),
       }))
@@ -23,17 +17,20 @@ live_view.addEventListener('open', (event) => {
 });
 
 live_view.addEventListener('message', (event) => {
-  var html = htm.bind(h);
   var data = event.data;
   var { id, content } = JSON.parse(data);
-  document.querySelectorAll(`[data-live-view="${id}"]`)
-    .forEach((view) => {
-      var div = window.$('<div>' + content + '</div>');
-      view.children[0].innerHTML = div[0].innerHTML
-      render(div[0], view, view.children[0]) ;
-  
+
+    document.querySelectorAll(`[data-live-view="${id}"]`).forEach((view)=>{
+      var fromEl = view.querySelector('div')
+      morphdom(fromEl, `<div>${content}</div>`, {
+        childrenOnly: true, 
+        onBeforeElUpdated: function(fromEl, toEl) {
+          if (fromEl.isEqualNode(toEl)) { return false }
+          return true
+        }
+      })
       document.dispatchEvent(sparkRenderEvent);
-    });
+    })
 });
 
 live_view.addEventListener('close', (event) => {
