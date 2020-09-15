@@ -29,7 +29,7 @@ jobs:
     - name: Run tests
       run: crystal spec
       env:
-        CRYSTAL_ENV: development
+        CRYSTAL_ENV: pipeline
         CRYSTAL_LOG_SOURCES: "*"
         CRYSTAL_LOG_LEVEL: DEBUG
         PORT: 4000
