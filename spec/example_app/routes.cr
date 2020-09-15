@@ -30,7 +30,7 @@ ExampleApp.router do
   ws "/hi", ExampleApp::ExampleChannel
 
   routes :web, "/test" do
-    get "/hello", ExampleApp::HelloWorld
+    get "/hello/", ExampleApp::HelloWorld
     get "/hello/:name", ExampleApp::HtmlEndpoint
     get "/hello/json", ExampleApp::JsonEndpoint
   end

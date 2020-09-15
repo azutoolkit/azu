@@ -5,7 +5,7 @@ module ExampleApp
 
     BAD_REQUEST = "Error validating request"
 
-    query name : String, presence: true, message: "Name param must be present!"
+    path name : String, presence: true, message: "Name param must be present!"
 
     def verify!
       raise BadRequest.new BAD_REQUEST, path, errors.messages unless valid?

@@ -4,9 +4,8 @@ module ExampleApp
     include Azu::Endpoint(ExampleReq, HtmlPage)
 
     def call : HtmlPage
-      request.verify!
       header "Custom", "Fake custom header"
-      HtmlPage.new request.name
+      HtmlPage.new "World!"
     end
   end
 
@@ -22,6 +21,7 @@ module ExampleApp
     include Azu::Endpoint(ExampleReq, HtmlPage)
 
     def call : HtmlPage
+      request.verify!
       status 200
       header "Custom", "Fake custom header"
       HtmlPage.new request.name
@@ -32,6 +32,7 @@ module ExampleApp
     include Azu::Endpoint(ExampleReq, HtmlPage)
 
     def call : HtmlPage
+      request.verify!
       HtmlPage.new request.name
     end
   end
