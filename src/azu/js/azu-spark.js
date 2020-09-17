@@ -8,12 +8,13 @@ var spark = new WebSocket(url);
 const sparkRenderEvent = new CustomEvent("spark-render");
 
 spark.addEventListener("open", (event) => {
-  document.querySelectorAll("[data-spark]")
-    .forEach((view) => {
-      live_view.send(JSON.stringify({
+  document.querySelectorAll("[data-spark]").forEach((view) => {
+    spark.send(
+      JSON.stringify({
         subscribe: view.getAttribute("data-spark"),
-      }));
-    });
+      })
+    );
+  });
 });
 
 spark.addEventListener("message", (event) => {
@@ -21,49 +22,55 @@ spark.addEventListener("message", (event) => {
   var { id, content } = JSON.parse(data);
 
   document.querySelectorAll(`[data-spark="${id}"]`).forEach((view) => {
-    var fromEl = view.querySelector("div")
+    var fromEl = view.querySelector("div");
     morphdom(fromEl, `<div>${content}</div>`, {
       childrenOnly: true,
-      onBeforeElUpdated: function (fromEl, toEl) {
-        if (fromEl.isEqualNode(toEl)) { return false }
-        return true
-      }
+      onBeforeElUpdated: (fromEl, toEl) => {
+        if (fromEl.isEqualNode(toEl)) {
+          return false;
+        }
+        return true;
+      },
     });
     document.dispatchEvent(sparkRenderEvent);
   });
 });
 
-live_view.addEventListener("close", (event) => {
+spark.addEventListener("close", (event) => {
   // Do we need to do anything here?
 });
 
-[
-  "click",
-  "change",
-  "input",
-].forEach((event_type) => {
-  document.addEventListener(event_type, (event) => {
+["click", "change", "input"].forEach((eventType) => {
+  document.addEventListener(eventType, (event) => {
     var element = event.target;
-    var event_name = element.getAttribute("live-" + event_type);
+    var eventName = element.getAttribute("live-" + eventType);
 
-    if (typeof event_name === "string") {
-      var channel = event
-        .target
+    if (typeof eventName === "string") {
+      var channel = event.target
         .closest("[data-spark]")
-        .getAttribute("data-spark")
+        .getAttribute("data-spark");
 
       var data = {};
+
       switch (element.type) {
-        case "checkbox": data = { value: element.checked }; break;
+        case "checkbox":
+          data = { value: element.checked };
+          break;
         // Are there others?
-        default: data = { value: element.getAttribute("spark-value") || element.value }; break;
+        default:
+          data = {
+            value: element.getAttribute("spark-value") || element.value,
+          };
+          break;
       }
 
-      spark.send(JSON.stringify({
-        event: event_name,
-        data: JSON.stringify(data),
-        channel: channel,
-      }));
+      spark.send(
+        JSON.stringify({
+          event: eventName,
+          data: JSON.stringify(data),
+          channel,
+        })
+      );
     }
   });
 });
