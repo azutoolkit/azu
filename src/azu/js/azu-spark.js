@@ -1,5 +1,5 @@
 import morphdom from "https://cdn.jsdelivr.net/npm/morphdom@2.6.1/dist/morphdom-esm.js?module";
-      
+
 var url = new URL(location.href);
 url.protocol = url.protocol.replace("http", "ws");
 url.pathname = "/spark";
@@ -9,7 +9,7 @@ const sparkRenderEvent = new CustomEvent("spark-render");
 
 spark.addEventListener("open", (event) => {
   document.querySelectorAll("[data-spark]")
-    .forEach((view)=> {
+    .forEach((view) => {
       live_view.send(JSON.stringify({
         subscribe: view.getAttribute("data-spark"),
       }));
@@ -20,17 +20,17 @@ spark.addEventListener("message", (event) => {
   var data = event.data;
   var { id, content } = JSON.parse(data);
 
-    document.querySelectorAll(`[data-spark="${id}"]`).forEach((view)=>{
-      var fromEl = view.querySelector("div")
-      morphdom(fromEl, `<div>${content}</div>`, {
-        childrenOnly: true, 
-        onBeforeElUpdated: function(fromEl, toEl) {
-          if (fromEl.isEqualNode(toEl)) { return false }
-          return true
-        }
-      });
-      document.dispatchEvent(sparkRenderEvent);
+  document.querySelectorAll(`[data-spark="${id}"]`).forEach((view) => {
+    var fromEl = view.querySelector("div")
+    morphdom(fromEl, `<div>${content}</div>`, {
+      childrenOnly: true,
+      onBeforeElUpdated: function (fromEl, toEl) {
+        if (fromEl.isEqualNode(toEl)) { return false }
+        return true
+      }
     });
+    document.dispatchEvent(sparkRenderEvent);
+  });
 });
 
 live_view.addEventListener("close", (event) => {
@@ -46,14 +46,14 @@ live_view.addEventListener("close", (event) => {
     var element = event.target;
     var event_name = element.getAttribute("live-" + event_type);
 
-    if(typeof event_name === "string") {
+    if (typeof event_name === "string") {
       var channel = event
         .target
         .closest("[data-spark]")
         .getAttribute("data-spark")
 
       var data = {};
-      switch(element.type) {
+      switch (element.type) {
         case "checkbox": data = { value: element.checked }; break;
         // Are there others?
         default: data = { value: element.getAttribute("spark-value") || element.value }; break;
