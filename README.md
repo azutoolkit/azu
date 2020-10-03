@@ -1,7 +1,21 @@
 # AZU
 [![Codacy Badge](https://api.codacy.com/project/badge/Grade/b58f03f01de241e0b75f222e31d905d7)](https://www.codacy.com/manual/eliasjpr/azu?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=eliasjpr/azu&amp;utm_campaign=Badge_Grade)
 
-AZU is the artisans web application framework with expressive, elegant syntax that offers great performance to build rich, interactive type safe, web applications quickly, with less code and conhesive parts that adapts to your prefer style.
+AZU is the artisans web application framework with expressive, elegant syntax that offers great performance to build rich, interactive type safe, web applications quickly, with less code and conhesive parts that adapts to your prefer style. 
+
+Azu Framework benefits:
+
+* Plain Crystal, little DSL
+* Supe easy to leanr and adopt
+* Type safe everywhere
+* Adopts your Organization architectural pattern: 
+  * Modular
+  * Pipes and Filters
+  * Event Driven
+  * Layered
+  * etc
+* Great Designing APIs
+* API Design First Approach - Generate app from Swagger specs
 
 Join a growing community of developers using AZU to craft clean efficient APIs, HTML5 apps and more, for fun or at scale.
 
