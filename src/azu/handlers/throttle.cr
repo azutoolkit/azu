@@ -65,8 +65,8 @@ module Azu
     private def too_many_requests(context)
       context.response.headers[CONTENT_TYPE] = "text/plain"
       context.response.headers[CONTENT_LENGTH] = "0"
-      context.response.headers[RETRY_AFTER] = map["block_expires"].to_seconds
-      context.response.status_code = HTTP::Status::TOO_MANY_REQUESTS
+      context.response.headers[RETRY_AFTER] = "#{map["block_expires"]}"
+      context.response.status_code = HTTP::Status::TOO_MANY_REQUESTS.value
       context.response.close
     end
 

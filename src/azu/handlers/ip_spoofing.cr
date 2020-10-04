@@ -28,5 +28,12 @@ module Azu
 
       call_next(context)
     end
+
+    def forbidden(context)
+      context.response.headers["Content-Type"] = "text/plain"
+      context.response.headers["Content-Length"] = "0"
+      context.response.status_code = HTTP::Status::FORBIDDEN.value
+      context.response.close
+    end
   end
 end
