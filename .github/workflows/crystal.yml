@@ -35,3 +35,7 @@ jobs:
         PORT: 4000
         PORT_REUSE: false
         HOST: 0.0.0.0
+    
+    - name: Generate Azu API Docs
+      run: crystal docs
+      
