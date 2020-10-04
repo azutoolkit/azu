@@ -5,50 +5,52 @@ module Azu
     def content(context, view : Nil)
       context.response.reset
       context.response.status_code = 204
-      ""
+      context.response.print ""
     end
 
-    def content(context, view : String | Azu::Text)
+    def content(context, body : String | Azu::Text)
       context.response.content_type = "text/plain"
-      view
+      context.response.print body.to_s
     end
 
-    def content(context, view : JSON | Azu::Html)
+    def content(context, body : Azu::Html)
+      context.response.content_type = "text/html"
+      context.response.print body.to_s
+    end
+
+    def content(context, body : JSON | Azu::Json)
       context.response.content_type = "application/json"
-      view.html
+      context.response.print body.to_s
     end
 
-    def content(context, view : JSON | Azu::Json)
-      context.response.content_type = "application/json"
-      view.json
-    end
-
-    def content(context, view : XML | Azu::Xml)
+    def content(context, body : XML | Azu::Xml)
       context.response.content_type = "application/xml"
-      view.xml
+      context.response.print body.to_s
     end
 
-    def content(context, view : Azu::View)
-      accept = context.request.accept
-      return view.text unless accept
-
-      accept.each do |a|
-        case a.sub_type.not_nil!
-        when .includes?("html")
-          context.response.content_type = a.to_s
-          return view.html
-        when .includes?("json")
-          context.response.content_type = a.to_s
-          return view.json
-        when .includes?("xml")
-          context.response.content_type = a.to_s
-          return view.xml
-        when .includes?("plain"), "*"
-          context.response.content_type = a.to_s
-          return view.text
-        else
-          next
+    def content(context, view : Azu::Response)
+      if accept = context.request.accept
+        accept.each do |a|
+          case a.sub_type.not_nil!
+          when .includes?("html")
+            context.response.content_type = a.to_s
+            context.response.print view.html
+          when .includes?("json")
+            context.response.content_type = a.to_s
+            context.response.print view.json
+          when .includes?("xml")
+            context.response.content_type = a.to_s
+            context.response.print view.xml
+          when .includes?("plain"), "*"
+            context.response.content_type = a.to_s
+            context.response.print view.text
+          else
+            next
+          end
         end
+      else
+        context.response.content_type = "text/plain"
+        context.response.print view.to_s
       end
     end
   end

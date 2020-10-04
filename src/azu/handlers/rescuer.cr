@@ -1,23 +1,40 @@
+require "exception_page"
+
 module Azu
   class Rescuer
     include HTTP::Handler
 
-    def call(context)
-      call_next(context)
-    rescue ex : Azu::Error
-      ex.print_log
-      render(context, ex)
-    rescue ex : Exception
-      error = Error.from_exception(ex)
-      error.print_log
-      render(context, error)
+    class ExceptionPage < ::ExceptionPage
+      def styles : ExceptionPage::Styles
+        ::ExceptionPage::Styles.new(
+          accent: "red",
+        )
+      end
     end
 
-    private def render(context, error)
-      view = ErrorView.new(context, error)
-      context.response.reset
-      context.response.status_code = error.status
-      context.response.print ContentNegotiator.content(context, view)
+    def self.handle_error(context, ex)
+      new.handle_error context, ex
+    end
+
+    def call(context : HTTP::Server::Context)
+      call_next(context)
+    rescue ex
+      handle_error context, ex
+    end
+
+    def handle_error(context, ex : Exception)
+      error = Azu::Error.from_exception ex
+      handle_error(context, error)
+    end
+
+    def handle_error(context, ex : Azu::Error)
+      ex.print_log
+      context.response.status = ex.status
+      if ENVIRONMENT.development?
+        context.response.print ExceptionPage.for_runtime_exception(context, ex)
+        return context
+      end
+      ContentNegotiator.content context, ex
       context
     end
   end

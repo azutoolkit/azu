@@ -1,7 +1,9 @@
 require "../spec_helper"
 
-class ExampleEndpoint < Azu::Endpoint
-  def call
+class ExampleEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response)
+
+  def call : Azu::Response
   end
 end
 

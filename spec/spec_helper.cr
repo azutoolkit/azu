@@ -1,9 +1,9 @@
 require "spec"
 require "../src/azu"
 
-ENV.fetch "CRYSTAL_ENV", "testing"
+ENV["CRYSTAL_ENV"] ||= "testing"
 
-process = Process.new("./bin/test")
+process = Process.new("./bin/example_app")
 # Wait for process to start
 sleep 1.seconds
 

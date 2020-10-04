@@ -9,8 +9,8 @@ crystal: 0.34.0
 license: MIT
 
 targets:
-  test:
-    main: spec/test.cr
+  example_app:
+    main: spec/example_app/routes.cr
 
 dependencies:
   radix:
@@ -19,8 +19,11 @@ dependencies:
   exception_page:
     github: crystal-loot/exception_page
   
-  html_builder:
-    github: crystal-lang/html_builder
+  schema: 
+    github: eliasjpr/schema
+
+  crinja: 
+    github: straight-shoota/crinja
 
 development_dependencies:
   schema:

@@ -4,10 +4,6 @@ module Azu
       @context
     end
 
-    def params
-      Params.new(@context.request)
-    end
-
     def method
       Method.parse(@context.request.method)
     end

@@ -13,8 +13,8 @@ describe Azu do
 
     it "returns params missing" do
       response = client.get "/test/hello", headers: HTTP::Headers{"Accept" => "text/plain"}
-      response.status_code.should eq 400
-      response.body.should contain %q(Missing param name: "name")
+      response.status_code.should eq 200
+      response.body.should contain %q(Welcome, World!)
     end
   end
 
@@ -23,7 +23,7 @@ describe Azu do
       name = "santa"
       response = client.get "/test/hello/#{name}", headers: HTTP::Headers{"Accept" => "text/plain"}
       response.status_code.should eq 200
-      response.body.should contain %(<!DOCTYPE html><body><a href="http://crystal-lang.org">#{name} is awesome</a></body>)
+      response.body.should contain %(Welcome, #{name})
     end
   end
 
