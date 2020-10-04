@@ -36,7 +36,7 @@ module Azu
     REMOTE_ADDR    = "REMOTE_ADDR"
     MAPPER         = {} of String => Hash(String, Int32 | Int64)
 
-    private getter log = CONFIG.log,
+    private getter log : ::Log = CONFIG.log,
       interval : Int32 = 5,
       duration : Int32 = 900,
       threshold : Int32 = 100,
@@ -104,7 +104,7 @@ module Azu
     private def clear!
       return unless watching?
       MAPPER.delete(remote)
-      logger.warn { "#{remote} released" } if blocked?
+      log.warn { "#{remote} released" } if blocked?
     end
 
     private def blocked?

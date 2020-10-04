@@ -36,7 +36,7 @@ module Azu
     abstract def call : Response
 
     # :nodoc:
-    protected def call(context : HTTP::Server::Context)
+    def call(context : HTTP::Server::Context)
       @context = context
       ContentNegotiator.content @context, call
       @context
