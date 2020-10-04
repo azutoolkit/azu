@@ -79,7 +79,7 @@ module Azu
       config = static_config
 
       if Dir.exists?(file_path)
-        if config.is_a?(Hash) && config["dir_listing"] == true
+        if config["dir_listing"]
           context.response.content_type = "text/html"
           directory_listing(context.response, request_path, file_path)
         else
@@ -118,6 +118,7 @@ module Azu
       env.response.content_type = mime_type
       env.response.headers["Accept-Ranges"] = "bytes"
       env.response.headers["X-Content-Type-Options"] = "nosniff"
+      env.response.headers["Cache-Control"] = "private, max-age=3600"
       minsize = 860 # http://webmasters.stackexchange.com/questions/31750/what-is-recommended-minimum-object-size-for-gzip-performance-benefits ??
       request_headers = env.request.headers
       filesize = File.size(file_path)
@@ -145,7 +146,7 @@ module Azu
     end
 
     private def config_gzip?(config)
-      config.is_a?(Hash) && config["gzip"] == true
+      config["gzip"]?
     end
 
     private def gzip_encoding(env, file)
