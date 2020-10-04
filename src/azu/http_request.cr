@@ -1,4 +1,5 @@
 require "mime"
+
 # :nodoc:
 class HTTP::Request
   @path_params = uninitialized Hash(String, String)
