@@ -5,7 +5,7 @@ module Azu
     class Error < Exception
       include Azu::Response
 
-      getter env : Environment = ENVIRONMENT
+      getter env : Environment = CONFIG.env
       getter log : ::Log = CONFIG.log
       property status : HTTP::Status = HTTP::Status::INTERNAL_SERVER_ERROR
       property title : String = "Internal Server Error"

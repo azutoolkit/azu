@@ -1,4 +1,5 @@
 module Azu
+  # A collection of methods that allows you to work with the HTTP message (`Request`, `Response`)
   module Helpers
     def context
       @context
@@ -20,6 +21,10 @@ module Azu
       JSON.parse(body.to_s)
     end
 
+    def cookies
+      @context.request.cookies
+    end
+
     def header(key : String, value : String)
       @context.response.headers[key] = value
     end
@@ -27,10 +32,6 @@ module Azu
     def redirect(to location : String, status : Int32 = 301)
       status status
       header "Location", location
-    end
-
-    def cookies
-      @context.request.cookies
     end
 
     def cookies(cookie : HTTP::Cookie)
