@@ -22,8 +22,6 @@ module Azu
     getter context : HTTP::Server::Context
     getter params : Params
 
-    @accept : Array(MIME::MediaType)? = nil
-
     forward_missing_to @context.request
 
     def initialize(@context : HTTP::Server::Context)
