@@ -2,14 +2,12 @@ require "../spec_helper"
 
 describe Azu::Pipeline do
   pipeline = Azu::Pipeline.new
-  renderer = HTTP::ErrorHandler.new
+  handler = HTTP::ErrorHandler.new
   scope = :test_scope
 
-  pipeline.build scope do
-    plug renderer
-  end
+  Azu::Pipeline[scope] = [handler]
 
   it "can build a pipeline" do
-    pipeline.pipelines[scope].should eq Set{renderer}
+    Azu::Pipeline[scope].should eq Set{handler}
   end
 end

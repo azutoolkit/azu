@@ -1,6 +1,6 @@
 module ExampleApp
   struct HelloView
-    include Azu::Html
+    include Response::Html
 
     def initialize(@name : String)
       header "Custom", "Fake custom header"
@@ -12,7 +12,7 @@ module ExampleApp
   end
 
   struct JsonData
-    include Azu::Json
+    include Response::Json
 
     def json
       {data: "Hello World"}.to_json
@@ -20,7 +20,7 @@ module ExampleApp
   end
 
   struct HtmlPage
-    include Azu::Html
+    include Response::Html
 
     def initialize(@name : String)
     end

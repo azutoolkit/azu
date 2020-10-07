@@ -32,7 +32,7 @@ module Azu
     end
 
     def self.env
-      ENVIRONMENT
+      CONFIG.env
     end
 
     def self.config

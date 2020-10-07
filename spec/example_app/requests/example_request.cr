@@ -8,7 +8,7 @@ module ExampleApp
     path name : String, presence: true, message: "Name param must be present!"
 
     def verify!
-      raise BadRequest.new BAD_REQUEST, path, errors.messages unless valid?
+      raise Response::BadRequest.new BAD_REQUEST, path, errors.messages unless valid?
     end
   end
 end

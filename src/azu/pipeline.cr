@@ -1,35 +1,47 @@
 module Azu
+  # Pipelines provide a convenient mechanism for filtering HTTP requests entering your application.
+  #
+  # For Example:
+  #
+  # ExampleApp.pipelines do
+  #   middleware[:web] = [
+  #   Azu::Rescuer.new,
+  #     Azu::Logger.new
+
+  #   build :api do
+  #     # plug api filters
+  #   end
+  # end
   class Pipeline
     include HTTP::Handler
 
     CONTENT_TYPE = "Content-Type"
     RADIX        = Radix::Tree(HTTP::Handler).new
+    PIPELINES    = {} of Symbol => Set(HTTP::Handler)
 
-    getter pipelines = {} of Symbol => Set(HTTP::Handler)
+    def self.[]=(key : Symbol, middlewares : Array(HTTP::Handler))
+      PIPELINES[key] = Set(HTTP::Handler).new unless PIPELINES.has_key? key
+      middlewares.each { |m| PIPELINES[key] << m }
+    end
+
+    def self.[](key : Symbol)
+      PIPELINES[key]
+    end
 
     def call(context : HTTP::Server::Context)
       resource = path context
       result = RADIX.find resource
-      raise NotFound.new(context.request.path) unless result.found?
+      raise Response::NotFound.new(context.request.path) unless result.found?
       context.request.path_params = result.params
       result.payload.call(context)
     rescue ex
-      Rescuer.handle_error context, ex
+      Handler::Rescuer.handle_error context, ex
     end
 
-    def build(namespace : Symbol, &block)
-      @namespace = namespace
-      @pipelines[namespace] = Set(HTTP::Handler).new unless @pipelines.has_key? namespace
-      with self yield
-    end
-
-    def plug(pipe : HTTP::Handler)
-      @pipelines[@namespace] << pipe
-    end
-
-    def prepare
+    # :nodoc:
+    protected def prepare
       Router::ROUTES.each do |route|
-        pipes = @pipelines[route.namespace]
+        pipes = PIPELINES[route.namespace]
         handler = build_pipeline(pipes, last_pipe: route.endpoint)
         RADIX.add route.resource, handler
       end
@@ -39,7 +51,17 @@ module Azu
       end
     end
 
-    def build_pipeline(pipes : Set(HTTP::Handler), last_pipe : HTTP::Handler)
+    private def path(context)
+      upgraded = upgrade?(context)
+      String.build do |str|
+        str << "/"
+        str << "ws" if upgraded
+        str << context.request.method.downcase unless upgraded
+        str << context.request.path.rstrip('/')
+      end
+    end
+
+    private def build_pipeline(pipes : Set(HTTP::Handler), last_pipe : HTTP::Handler)
       if pipes.empty?
         last_pipe
       else
@@ -47,16 +69,6 @@ module Azu
         0.upto(dup.size - 2) { |i| dup[i].next = dup[i + 1] }
         dup.last.next = last_pipe if last_pipe
         dup.first
-      end
-    end
-
-    protected def path(context)
-      upgraded = upgrade?(context)
-      String.build do |str|
-        str << "/"
-        str << "ws" if upgraded
-        str << context.request.method.downcase unless upgraded
-        str << context.request.path.rstrip('/')
       end
     end
 

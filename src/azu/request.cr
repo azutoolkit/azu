@@ -4,6 +4,7 @@ module Azu
   module Request
     include Helpers
     include Schema::Validation
+
     getter context : HTTP::Server::Context
     getter params : Params
 

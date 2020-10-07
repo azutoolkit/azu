@@ -24,8 +24,3 @@ dependencies:
 
   crinja: 
     github: straight-shoota/crinja
-
-development_dependencies:
-  schema:
-    github: eliasjpr/schema
-    
