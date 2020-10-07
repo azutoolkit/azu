@@ -18,7 +18,7 @@ module Azu
       end
 
       def self.from_exception(ex)
-        new detail: ex.message.not_nil!
+        new detail: ex.message || "An Error has occurred"
       end
 
       def link
