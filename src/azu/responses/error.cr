@@ -1,6 +1,15 @@
 require "ecr"
+require "exception_page"
 
 module Azu
+  class ExceptionPage < ::ExceptionPage
+    def styles : ExceptionPage::Styles
+      ::ExceptionPage::Styles.new(
+        accent: "red",
+      )
+    end
+  end
+
   module Response
     class Error < Exception
       include Azu::Response
@@ -23,6 +32,11 @@ module Azu
 
       def link
         "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/#{status}"
+      end
+
+      def html(context)
+        return ExceptionPage.for_runtime_exception(context, ex).to_s if env.development?
+        html
       end
 
       def html

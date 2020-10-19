@@ -12,7 +12,6 @@ require "./channels/*"
 require "schema"
 
 ExampleApp::Pipeline[:web] = [
-  ExampleApp::Handler::Rescuer.new,
   ExampleApp::Handler::Logger.new,
 ]
 
@@ -25,9 +24,9 @@ ExampleApp.router do
   ws "/hi", ExampleApp::ExampleChannel
 
   routes :web, "/test" do
+    post "/json", ExampleApp::JsonEndpoint
     get "/hello/", ExampleApp::HelloWorld
     get "/hello/:name", ExampleApp::HtmlEndpoint
-    get "/hello/json", ExampleApp::JsonEndpoint
   end
 end
 

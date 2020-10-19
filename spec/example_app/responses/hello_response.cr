@@ -11,14 +11,6 @@ module ExampleApp
     end
   end
 
-  struct JsonData
-    include Response::Json
-
-    def json
-      {data: "Hello World"}.to_json
-    end
-  end
-
   struct HtmlPage
     include Response::Html
 

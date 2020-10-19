@@ -18,6 +18,7 @@ module Azu
     CONTENT_TYPE = "Content-Type"
     RADIX        = Radix::Tree(HTTP::Handler).new
     PIPELINES    = {} of Symbol => Set(HTTP::Handler)
+    RESCUER      = Handler::Rescuer.new
 
     def self.[]=(key : Symbol, middlewares : Array(HTTP::Handler))
       PIPELINES[key] = Set(HTTP::Handler).new unless PIPELINES.has_key? key
@@ -29,15 +30,16 @@ module Azu
     end
 
     def call(context : HTTP::Server::Context)
-      resource = path context
-      result = RADIX.find resource
-      raise Response::NotFound.new(context.request.path) unless result.found?
-      context.request.path_params = result.params
-      result.payload.call(context)
-    rescue ex
-      Handler::Rescuer.handle_error context, ex
+      
+        resource = path context
+        result = RADIX.find resource
+        raise Response::NotFound.new(context.request.path) unless result.found?
+        context.request.path_params = result.params
+        result.payload.call(context)
+    rescue ex 
+      RESCUER.handle context, ex
     end
-
+    
     # :nodoc:
     protected def prepare
       Router::ROUTES.each do |route|

@@ -18,7 +18,7 @@ module Azu
   #    c.log = Log.for("My Awesome App")
   #    c.env = Environment::Development
   #    c.template.path = "./templates"
-  #    c.etemplate.rror_path = "./error_template"
+  #    c.etemplate.error_path = "./error_template"
   #  end
   # ```
   class Configuration

@@ -1,43 +1,43 @@
-require "exception_page"
-
 module Azu
   module Handler
     class Rescuer
       include HTTP::Handler
 
-      class ExceptionPage < ::ExceptionPage
-        def styles : ExceptionPage::Styles
-          ::ExceptionPage::Styles.new(
-            accent: "red",
-          )
-        end
+      def initialize(@verbose : Bool = CONFIG.env.development?, @log = Log.for("http.server"))
       end
-
-      def self.handle_error(context, ex)
-        new.handle_error context, ex
-      end
-
-      def call(context : HTTP::Server::Context)
+    
+      def call(context)
         call_next(context)
       rescue ex
-        handle_error context, ex
+        handle(context, ex)
       end
 
-      def handle_error(context, ex : Exception)
-        error = Response::Error.from_exception ex
-        handle_error(context, error)
-      end
-
-      def handle_error(context, ex : Response::Error)
-        ex.print_log
-        context.response.status = ex.status
-        if ENVIRONMENT.development?
-          context.response.print ExceptionPage.for_runtime_exception(context, ex)
-          return context
+      def handle(context, ex)
+        case ex
+        when HTTP::Server::ClientError
+          @log.debug(exception: ex.cause) { ex.message }
+        when Response::Error 
+          unless context.response.closed? || context.response.wrote_headers?
+            context.response.reset
+            context.response.status = ex.status
+            context.response.puts(ex.inspect_with_backtrace)
+            ContentNegotiator.content context, ex
+          end
+        else
+          @log.error(exception: ex) { "Unhandled exception" }
+          unless context.response.closed? || context.response.wrote_headers?
+            if @verbose
+              context.response.reset
+              context.response.status = :internal_server_error
+              context.response.content_type = "text/plain"
+              context.response.print("ERROR: ")
+              context.response.puts(ex.inspect_with_backtrace)
+            else
+              context.response.respond_with_status(:internal_server_error)
+            end
+          end
         end
-        ContentNegotiator.content context, ex
-        context
-      end
+      end 
     end
   end
 end

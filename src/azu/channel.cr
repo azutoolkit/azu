@@ -2,6 +2,16 @@ require "http/web_socket"
 require "./helpers"
 
 module Azu
+  # A channel encapsulates a logical unit of work similar to an Endpoint. 
+  # 
+  # Channels can handle multiple connections instances. A single client may have 
+  # multiple WebSockets connections open to the application.
+  #
+  # Each channel can in turn broadcast to multiple connected clients
+  # 
+  # You must setup a websocket route in your routing service
+  # 
+  #
   abstract class Channel
     include Helpers
     getter! socket : HTTP::WebSocket

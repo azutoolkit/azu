@@ -9,14 +9,6 @@ module ExampleApp
     end
   end
 
-  struct JsonEndpoint
-    include Azu::Endpoint(ExampleReq, JsonData)
-
-    def call : JsonData
-      JsonData.new
-    end
-  end
-
   struct HtmlEndpoint
     include Azu::Endpoint(ExampleReq, HtmlPage)
 
