@@ -5,7 +5,7 @@ module Azu
 
       def initialize(@verbose : Bool = CONFIG.env.development?, @log = Log.for("http.server"))
       end
-    
+
       def call(context)
         call_next(context)
       rescue ex
@@ -16,7 +16,7 @@ module Azu
         case ex
         when HTTP::Server::ClientError
           @log.debug(exception: ex.cause) { ex.message }
-        when Response::Error 
+        when Response::Error
           unless context.response.closed? || context.response.wrote_headers?
             context.response.reset
             context.response.status = ex.status
@@ -37,7 +37,7 @@ module Azu
             end
           end
         end
-      end 
+      end
     end
   end
 end

@@ -46,7 +46,7 @@ module Azu
     private def request
       case @context.request.content_type.sub_type
       when "json" then Request.from_json body
-      else  Request.new params
+      else             Request.new params
       end
     end
 

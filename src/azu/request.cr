@@ -27,8 +27,8 @@ module Azu
       end
     end
 
-     # JSON - Use for validating json payload
-     macro json(attribute, **options)
+    # JSON - Use for validating json payload
+    macro json(attribute, **options)
       {% FIELD_OPTIONS[attribute.var] = options %}
       {% CONTENT_ATTRIBUTES[attribute.var] = options || {} of Nil => Nil %}
       {% CONTENT_ATTRIBUTES[attribute.var][:type] = attribute.type %}

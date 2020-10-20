@@ -30,16 +30,15 @@ module Azu
     end
 
     def call(context : HTTP::Server::Context)
-      
-        resource = path context
-        result = RADIX.find resource
-        raise Response::NotFound.new(context.request.path) unless result.found?
-        context.request.path_params = result.params
-        result.payload.call(context)
-    rescue ex 
+      resource = path context
+      result = RADIX.find resource
+      raise Response::NotFound.new(context.request.path) unless result.found?
+      context.request.path_params = result.params
+      result.payload.call(context)
+    rescue ex
       RESCUER.handle context, ex
     end
-    
+
     # :nodoc:
     protected def prepare
       Router::ROUTES.each do |route|

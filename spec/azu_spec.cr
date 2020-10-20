@@ -6,7 +6,7 @@ describe Azu do
 
   describe "coverting http request body to objects" do
     it "returns request as json" do
-      json = {id: 1, users: ["John", "Paul"], config: {"allowed" => "true" } }.to_json
+      json = {id: 1, users: ["John", "Paul"], config: {"allowed" => "true"}}.to_json
       headers = HTTP::Headers{"Accept" => "application/json", "Content-Type" => "application/json"}
 
       response = client.post "/test/json", headers: headers, body: json
