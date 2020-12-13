@@ -3,7 +3,8 @@ module ExampleApp
     include Azu::Endpoint(JsonReq, JsonRes)
 
     def call : JsonRes
-      JsonRes.new request
+      req = JsonReq.from_json(body)
+      JsonRes.new req
     end
   end
 end

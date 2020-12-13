@@ -42,14 +42,6 @@ module Azu
       @context
     end
 
-    # :nodoc:
-    private def request
-      case @context.request.content_type.sub_type
-      when "json" then Request.from_json body
-      else             Request.new params
-      end
-    end
-
     private def params
       Params.new(@context.request)
     end
