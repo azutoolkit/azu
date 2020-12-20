@@ -1,4 +1,5 @@
 module Azu
+  # Allows you to write HTML markup in plain crystal code
   module Markup
     private VOID_TAGS = %i(
       area

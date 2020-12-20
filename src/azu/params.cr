@@ -1,6 +1,5 @@
 require "http"
 require "json"
-require "./params/**"
 
 module Azu
   class Params
@@ -19,9 +18,68 @@ module Azu
       @path = request.path_params
 
       case request.content_type.sub_type
-      when "x-www-form-urlencoded" then @form = ParamsForm.parse(request)
+      when "x-www-form-urlencoded" then @form = Form.parse(request)
       when "form-data"             then @form, @files = Multipart.parse(request)
       else                              @form = HTTP::Params.new
+      end
+    end
+
+    module Multipart
+      struct File
+        getter file : ::File
+        getter filename : String?
+        getter headers : HTTP::Headers
+        getter creation_time : Time?
+        getter modification_time : Time?
+        getter read_time : Time?
+        getter size : UInt64?
+
+        def initialize(upload)
+          @filename = upload.filename
+          @file = ::File.tempfile(filename)
+          ::File.open(@file.path, "w") do |f|
+            ::IO.copy(upload.body, f)
+          end
+          @headers = upload.headers
+          @creation_time = upload.creation_time
+          @modification_time = upload.modification_time
+          @read_time = upload.read_time
+          @size = upload.size
+        end
+      end
+
+      def self.parse(request : HTTP::Request)
+        multipart_params = HTTP::Params.new
+        files = Hash(String, Multipart::File).new
+
+        HTTP::FormData.parse(request) do |upload|
+          next unless upload
+          filename = upload.filename
+          if filename.is_a?(String) && !filename.empty?
+            files[upload.name] = File.new(upload: upload)
+          else
+            multipart_params[upload.name] = upload.body.gets_to_end
+          end
+        end
+        {multipart_params, files}
+      end
+    end
+
+    module Form
+      def self.parse(request : HTTP::Request)
+        parse_part(request.body)
+      end
+
+      def self.parse_part(input : IO) : HTTP::Params
+        HTTP::Params.parse(input.gets_to_end)
+      end
+
+      def self.parse_part(input : String) : HTTP::Params
+        HTTP::Params.parse(input)
+      end
+
+      def self.parse_part(input : Nil) : HTTP::Params
+        HTTP::Params.parse("")
       end
     end
   end

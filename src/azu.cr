@@ -10,9 +10,8 @@ require "crinja"
 require "./azu/**"
 
 module Azu
-  VERSION     = "0.1.1"
-  CONFIG      = Configuration.new
-  ENVIRONMENT = Environment.parse ENV.fetch("CRYSTAL_ENV", "development")
+  VERSION = "0.1.1"
+  CONFIG  = Configuration.new
 
   macro included
     def self.configure
@@ -32,7 +31,7 @@ module Azu
     end
 
     def self.env
-      ENVIRONMENT
+      CONFIG.env
     end
 
     def self.config
@@ -75,6 +74,5 @@ module Azu
         end
       end
     end
-
   end
 end

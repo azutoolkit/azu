@@ -9,22 +9,18 @@ module ExampleApp
     end
   end
 
-  struct JsonEndpoint
-    include Azu::Endpoint(ExampleReq, JsonData)
-
-    def call : JsonData
-      JsonData.new
-    end
-  end
-
   struct HtmlEndpoint
     include Azu::Endpoint(ExampleReq, HtmlPage)
 
     def call : HtmlPage
-      request.verify!
+      request.validate!
       status 200
       header "Custom", "Fake custom header"
       HtmlPage.new request.name
+    end
+
+    private def request
+      ExampleReq.new params
     end
   end
 
@@ -32,8 +28,12 @@ module ExampleApp
     include Azu::Endpoint(ExampleReq, HtmlPage)
 
     def call : HtmlPage
-      request.verify!
+      request.validate!
       HtmlPage.new request.name
+    end
+
+    private def request
+      ExampleReq.new params
     end
   end
 end

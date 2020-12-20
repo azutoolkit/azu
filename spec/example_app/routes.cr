@@ -11,18 +11,12 @@ require "./channels/*"
 
 require "schema"
 
+ExampleApp::Pipeline[:web] = [
+  ExampleApp::Handler::Logger.new,
+]
+
 ExampleApp.configure do
   templates.path = "spec/example_app/templates"
-end
-
-ExampleApp.pipelines do
-  build :web do
-    plug Azu::Rescuer.new
-    plug Azu::Logger.new
-  end
-
-  build :loadtest do
-  end
 end
 
 ExampleApp.router do
@@ -30,9 +24,9 @@ ExampleApp.router do
   ws "/hi", ExampleApp::ExampleChannel
 
   routes :web, "/test" do
+    post "/json", ExampleApp::JsonEndpoint
     get "/hello/", ExampleApp::HelloWorld
     get "/hello/:name", ExampleApp::HtmlEndpoint
-    get "/hello/json", ExampleApp::JsonEndpoint
   end
 end
 

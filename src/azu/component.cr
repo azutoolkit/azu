@@ -3,6 +3,7 @@ require "./markup"
 module Azu
   module Component
     include Markup
+
     property? connected = false
     getter id : String = UUID.random.to_s
     @socket = uninitialized HTTP::WebSocket

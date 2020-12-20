@@ -42,9 +42,8 @@ module Azu
       @context
     end
 
-    # :nodoc:
-    private def request
-      Request.new @context
+    private def params
+      Params.new(@context.request)
     end
   end
 end

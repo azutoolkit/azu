@@ -1,4 +1,8 @@
 module Azu
+  # In HTTP, content negotiation is the mechanism that is used for serving different
+  # representations of a resource at the same URI, so that the user agent can specify
+  # which is best suited for the user (for example, which language of a document,
+  # which image format, or which content encoding).
   module ContentNegotiator
     extend self
 
@@ -8,27 +12,27 @@ module Azu
       context.response.print ""
     end
 
-    def content(context, body : String | Azu::Text)
+    def content(context, body : String | Response::Text)
       context.response.content_type = "text/plain"
       context.response.print body.to_s
     end
 
-    def content(context, body : Azu::Html)
+    def content(context, body : Response::Html)
       context.response.content_type = "text/html"
       context.response.print body.to_s
     end
 
-    def content(context, body : JSON | Azu::Json)
+    def content(context, body : JSON | Response::Json)
       context.response.content_type = "application/json"
       context.response.print body.to_s
     end
 
-    def content(context, body : XML | Azu::Xml)
+    def content(context, body : XML | Response::Xml)
       context.response.content_type = "application/xml"
       context.response.print body.to_s
     end
 
-    def content(context, view : Azu::Response)
+    def content(context, view : Response)
       if accept = context.request.accept
         accept.each do |a|
           case a.sub_type.not_nil!
