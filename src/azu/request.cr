@@ -63,7 +63,7 @@ module Azu
       CONTENT_ATTRIBUTES = {} of Nil => Nil
       FIELD_OPTIONS = {} of Nil => Nil
       CUSTOM_VALIDATORS  = {} of Nil => Nil
-      
+
       macro finished
         include JSON::Serializable
         __process_validation
@@ -179,7 +179,7 @@ module Azu
         {% key = options[:key] != nil ? options[:key] : name.stringify.downcase %}
         @[JSON::Field(emit_null: {{nilable}}, key: {{key}})]
         @[YAML::Field(emit_null: {{nilable}}, key: {{key}})]
-        getter {{name}} : {{type}} {% if options[:default] %} = {{options[:default]}} {% end %} 
+        getter {{name}} : {{type}} {% if options[:default] %} = {{options[:default]}} {% end %}
       {% end %}
 
       def initialize(params : Params, prefix = "")
