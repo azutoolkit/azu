@@ -3,13 +3,9 @@ require "json"
 module ExampleApp
   struct JsonReq
     include Request
-
-    property! users : Array(String)
-    property! config : Hash(String, String)
-
-    def initialize(params : Azu::Params)
-    end
-
-    path id : Int64, eq: 3
+    
+    getter id : Int64? = nil
+    getter users : Array(String)
+    getter config : Hash(String, String)
   end
 end

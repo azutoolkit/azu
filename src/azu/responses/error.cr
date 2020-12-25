@@ -14,16 +14,20 @@ module Azu
     class Error < Exception
       include Azu::Response
 
-      getter env : Environment = CONFIG.env
-      getter log : ::Log = CONFIG.log
       property status : HTTP::Status = HTTP::Status::INTERNAL_SERVER_ERROR
       property title : String = "Internal Server Error"
       property detail : String = "Internal Server Error"
       property source : String = ""
       property errors : Array(String) = [] of String
-      getter templates : Templates = CONFIG.templates
+      
+      private getter templates : Templates = CONFIG.templates
+      private getter env : Environment = CONFIG.env
+      private getter log : ::Log = CONFIG.log
 
       def initialize(@detail = "", @source = "", @errors = Array(String).new)
+      end
+
+      def initialize(@title, @status, @errors)
       end
 
       def self.from_exception(ex)
@@ -35,7 +39,7 @@ module Azu
       end
 
       def html(context)
-        return ExceptionPage.for_runtime_exception(context, ex).to_s if env.development?
+        return ExceptionPage.for_runtime_exception(context, self).to_s if env.development?
         html
       end
 
@@ -82,14 +86,6 @@ module Azu
       Backtrace: #{inspect_with_backtrace}
       TEXT
       end
-
-      def print_log
-        log.error { "#{status}: #{title}" }
-        errors.each { |e| log.error { e } }
-        log.error { "Source: #{source}" } if source
-        log.error { "Detail: #{detail}" } if detail
-        log.error { inspect_with_backtrace } if env.development?
-      end
     end
 
     class BadRequest < Error
@@ -98,11 +94,10 @@ module Azu
     end
 
     class NotFound < Error
-      getter title = "Not found"
-      getter status : HTTP::Status = HTTP::Status::NOT_FOUND
-
       def initialize(path : String)
+        @title = "Not found"
         @detail = "Path #{path} not defined"
+        @status = HTTP::Status::NOT_FOUND
         @source = path
       end
 

@@ -24,7 +24,7 @@ ExampleApp.router do
   ws "/hi", ExampleApp::ExampleChannel
 
   routes :web, "/test" do
-    post "/json", ExampleApp::JsonEndpoint
+    post "/json/:id", ExampleApp::JsonEndpoint
     get "/hello/", ExampleApp::HelloWorld
     get "/hello/:name", ExampleApp::HtmlEndpoint
   end

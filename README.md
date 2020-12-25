@@ -56,17 +56,24 @@ module ExampleApp
 end
 
 # Define different pipelines to process requests
-ExampleApp.pipelines do
-  build :web do
-    plug Azu::Rescuer.new
-    plug Azu::LogHandler.new TestApp.log
-  end
+ExampleApp::Pipeline[:web] = [
+  ExampleApp::Handler::Logger.new,
+]
+
+# Configure template path 
+ExampleApp.configure do
+  templates.path = "spec/example_app/templates"
 end
 
 # Defines routes
 ExampleApp.router do
+  # Define root endpoint
   root :web, ExampleApp::IndexEndpoint
 
+  # Define Websockets
+  ws "/hi", ExampleApp::ExampleChannel
+
+  # Group Routes by pipelines and path
   routes :web, "/test" do
     get "/hello", ExampleApp::IndexEndpoint
   end
@@ -78,9 +85,14 @@ ExampleApp.start
 
 ### Azu::Endpoint Example
 
+Azu Endpoints are compose of a Request and Response objects, enabling strict typing for requests. If you want to have and Request or Response types simple define your endpoints with `include Azu::Endpoint(Azu::Request, Azu::Response)`.
+
+TO access the Crystal http request object  
+
 ```crystal
 module ExampleApp
   class IndexEndpoint 
+    # Type Safe Endpoints
     include Azu::Endpoint(IndexRequest, IndexResponse)
 
     def call
@@ -95,11 +107,40 @@ module ExampleApp
     rescue ex
       raise Azu::BadRequest.from_exception(ex)
     end
+
+    # Create a request wrapper
+    def index_request
+      IndexRequest.new params
+    end
+  end
+end
+```
+
+### Azu::Request Objects
+
+Azu requests are define by either defining a `struct` or `class` that includes the `Azu::Request` module. `Azu::Request` can be used as a generic request type. You can validate your requests with `valid?`, `validate!` and the `errors` method.
+
+```crystal
+module ExampleApp
+  class IndexRequest
+    # Defines this class as an Azu::Request 
+    include Azu::Request
+
+    # Defines your request object expected properties (query, form, path) macros are available
+    query name : String, message: "Param name must be string.", presence: true
+
+    # Without type safe params
+    def name
+      params.query["name"]
+    end
   end
 end
 ```
 
 ### Azu::Response Objects
+
+Azu responses are define by including one of the response types `Html`, `Error`, `Json`, `Text`, `Xml`. The response
+module tells the Azu how to treat the response. `Azu::Response` can be used as a generic response type
 
 ```crystal
 module ExampleApp
@@ -119,28 +160,6 @@ module ExampleApp
           text "#{@name} is awesome"
         end
       end
-    end
-  end
-end
-```
-
-### Azu::Request Objects
-
-```crystal
-module ExampleApp
-  class IndexRequest
-    # Defines this class as an Azu::Request 
-    include Azu::Request
-
-    # To use type safe params
-    include Azu::Contract
-
-    # Defines your request object expected properties (query, form, path) macro available
-    query name : String, message: "Param name must be string.", presence: true
-
-    # Without type safe params
-    def name
-      params.query["name"]
     end
   end
 end

@@ -21,6 +21,7 @@ dependencies:
   
   schema: 
     github: eliasjpr/schema
+    branch: refactor
 
   crinja: 
     github: straight-shoota/crinja

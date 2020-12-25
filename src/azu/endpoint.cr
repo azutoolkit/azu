@@ -32,18 +32,29 @@ module Azu
     include Helpers
 
     @context = uninitialized HTTP::Server::Context
-
+    @params : Params? = nil
+    
     abstract def call : Response
 
     # :nodoc:
     def call(context : HTTP::Server::Context)
       @context = context
       ContentNegotiator.content @context, call
-      @context
     end
 
-    private def params
-      Params.new(@context.request)
+    def params 
+      @params ||= Params.new(@context.request)
+    end
+
+    macro included
+      {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
+      @{{request_name}} : Request? = nil
+      
+      def {{request_name}} : Request
+        @{{request_name}} ||= case @context.request.content_type.sub_type
+        when "json" then JsonReq.from_json(@context.request.body.not_nil!)
+        else JsonReq.new(params) end
+      end
     end
   end
 end
