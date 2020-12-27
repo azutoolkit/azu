@@ -19,7 +19,7 @@ module Azu
       property detail : String = "Internal Server Error"
       property source : String = ""
       property errors : Array(String) = [] of String
-      
+
       private getter templates : Templates = CONFIG.templates
       private getter env : Environment = CONFIG.env
       private getter log : ::Log = CONFIG.log

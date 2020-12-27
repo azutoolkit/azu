@@ -16,7 +16,7 @@ module Azu
     def initialize(request : HTTP::Request)
       @query = request.query_params
       @path = request.path_params
-      
+
       case request.content_type.sub_type
       when "x-www-form-urlencoded" then @form = Form.parse(request)
       when "form-data"             then @form, @files = Multipart.parse(request)

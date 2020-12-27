@@ -1,5 +1,4 @@
 require "http/web_socket"
-require "./helpers"
 
 module Azu
   # A channel encapsulates a logical unit of work similar to an Endpoint.
@@ -18,7 +17,6 @@ module Azu
   # end
   # ```
   abstract class Channel
-    include Helpers
     getter! socket : HTTP::WebSocket
     @context = uninitialized HTTP::Server::Context
 

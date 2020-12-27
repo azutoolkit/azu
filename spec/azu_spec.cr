@@ -10,7 +10,7 @@ describe Azu do
       headers = HTTP::Headers{"Accept" => "application/json", "Content-Type" => "application/json"}
 
       response = client.post "/test/json/1", headers: headers, body: payload.to_json
-      
+
       data = JSON.parse(response.body)
 
       response.status_code.should eq 200

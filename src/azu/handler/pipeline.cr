@@ -64,7 +64,7 @@ module Azu
 
     private def build_pipeline(pipes : Set(HTTP::Handler), last_pipe : HTTP::Handler)
       return last_pipe if pipes.empty?
-        
+
       dup = pipes.map &.dup
       0.upto(dup.size - 2) { |i| dup[i].next = dup[i + 1] }
       dup.last.next = last_pipe if last_pipe

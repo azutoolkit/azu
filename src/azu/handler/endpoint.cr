@@ -1,5 +1,3 @@
-require "../helpers"
-
 module Azu
   # Defines a Azu endpoint.
   # The endpoint is the final stage of the request process
@@ -29,30 +27,79 @@ module Azu
   #
   module Endpoint(Request, Response)
     include HTTP::Handler
-    include Helpers
 
-    @context = uninitialized HTTP::Server::Context
-    
+    @context : HTTP::Server::Context? = nil
+    @parmas : Params? = nil
+    @request_object : Request? = nil
+
     abstract def call : Response
 
     # :nodoc:
     def call(context : HTTP::Server::Context)
       @context = context
-      ContentNegotiator.content @context, call
-    end
-
-    def params 
-      Params.new(@context.request)
+      @params = Params.new(@context.not_nil!.request)
+      request_object(@context.not_nil!, @params.not_nil!)
+      ContentNegotiator.content @context.not_nil!, call
     end
 
     macro included
       {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
-      
-      def {{request_name}} : {{Request}}
-        case @context.request.content_type.sub_type
-        when "json" then {{Request}}.from_json(@context.request.body.not_nil!)
-        else {{Request}}.new(params) end
+
+      def {{request_name}} : Request
+        @request_object.not_nil!
       end
+    end
+
+    private def params : Params
+      @params.not_nil!
+    end
+
+    private def context : HTTP::Server::Context
+      @context.not_nil!
+    end
+
+    private def request_object(context, params)
+      @request_object = case context.request.content_type.sub_type
+                        when "json" then Request.from_json(context.request.body.not_nil!)
+                        else             Request.new(params)
+                        end
+    end
+
+    private def method
+      Method.parse(context.request.method)
+    end
+
+    private def header
+      context.request.headers
+    end
+
+    private def json
+      JSON.parse(body.to_s)
+    end
+
+    private def cookies
+      context.request.cookies
+    end
+
+    private def header(key : String, value : String)
+      context.response.headers[key] = value
+    end
+
+    private def redirect(to location : String, status : Int32 = 301)
+      status status
+      header "Location", location
+    end
+
+    private def cookies(cookie : HTTP::Cookie)
+      context.response.cookies << cookie
+    end
+
+    private def status(status : Int32)
+      context.response.status_code = status
+    end
+
+    private def error(detail : String, status : Int32 = 400, errors = [] of String)
+      Response::Error.new(detail, HTTP::Status.new(status), errors)
     end
   end
 end

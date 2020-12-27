@@ -43,7 +43,7 @@ module Azu
           case a.sub_type.not_nil!
           when .includes?("html")
             context.response.content_type = a.to_s
-            if view.is_a? Response::Error 
+            if view.is_a? Response::Error
               context.response.print view.html(context)
             else
               context.response.print view.html
