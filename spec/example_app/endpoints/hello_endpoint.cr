@@ -1,6 +1,6 @@
 module ExampleApp
   # Endpoints
-  struct HelloWorld
+  class HelloWorld
     include Azu::Endpoint(ExampleReq, HtmlPage)
 
     def call : HtmlPage
@@ -9,31 +9,23 @@ module ExampleApp
     end
   end
 
-  struct HtmlEndpoint
+  class HtmlEndpoint
     include Azu::Endpoint(ExampleReq, HtmlPage)
 
     def call : HtmlPage
-      request.validate!
+      example_req.validate!
       status 200
       header "Custom", "Fake custom header"
-      HtmlPage.new request.name
-    end
-
-    private def request
-      ExampleReq.new params
+      HtmlPage.new example_req.name
     end
   end
 
-  struct LoadTest
+  class LoadTestEndpoint
     include Azu::Endpoint(ExampleReq, HtmlPage)
 
     def call : HtmlPage
-      request.validate!
-      HtmlPage.new request.name
-    end
-
-    private def request
-      ExampleReq.new params
+      status 200
+      HtmlPage.new example_req.name
     end
   end
 end

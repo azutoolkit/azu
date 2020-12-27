@@ -2,15 +2,15 @@ module Azu
   # A collection of methods that allows you to work with the HTTP message (`Request`, `Response`)
   module Helpers
     private def context
-      @context
+      @context.not_nil!
     end
 
     private def method
-      Method.parse(@context.request.method)
+      Method.parse(context.request.method)
     end
 
     private def header
-      @context.request.headers
+      context.request.headers
     end
 
     private def json
@@ -18,11 +18,11 @@ module Azu
     end
 
     private def cookies
-      @context.request.cookies
+      context.request.cookies
     end
 
     private def header(key : String, value : String)
-      @context.response.headers[key] = value
+      context.response.headers[key] = value
     end
 
     private def redirect(to location : String, status : Int32 = 301)
@@ -31,11 +31,11 @@ module Azu
     end
 
     private def cookies(cookie : HTTP::Cookie)
-      @context.response.cookies << cookie
+      context.response.cookies << cookie
     end
 
     private def status(status : Int32)
-      @context.response.status_code = status
+      context.response.status_code = status
     end
 
     private def error(detail : String, status : Int32 = 400, errors = [] of String)

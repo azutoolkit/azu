@@ -12,12 +12,10 @@ module Azu
     getter query : HTTP::Params
     getter form : HTTP::Params
     getter path : Hash(String, String)
-    getter body : String
 
     def initialize(request : HTTP::Request)
       @query = request.query_params
       @path = request.path_params
-      @body = request.body.not_nil!.gets_to_end
       
       case request.content_type.sub_type
       when "x-www-form-urlencoded" then @form = Form.parse(request)
