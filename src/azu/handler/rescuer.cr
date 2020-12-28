@@ -3,36 +3,22 @@ module Azu
     class Rescuer
       include HTTP::Handler
 
-      def initialize(@verbose : Bool = true, @log = Log.for("http.server"))
+      def initialize(@log = Log.for("http.server"))
       end
 
-      def call(context)
+      def call(context : HTTP::Server::Context)
         call_next(context)
-      rescue ex
-        handle(context, ex)
-      end
-
-      def handle(context, ex)
-        @log.error(exception: ex) { ex.message }
-        case ex
-        when HTTP::Server::ClientError
-          @log.debug(exception: ex.cause) { ex.message }
-        when Response::Error
-          unless context.response.closed? || context.response.wrote_headers?
-            context.response.reset
-            context.response.status = ex.status
-            ContentNegotiator.content context, ex
-          end
-        else
-          if @verbose
-            context.response.reset
-            context.response.status = :internal_server_error
-            context.response.content_type = "text/plain"
-            context.response.print("ERROR: ")
-          else
-            context.response.respond_with_status(:internal_server_error)
-          end
-        end
+      rescue ex : HTTP::Server::ClientError
+        @log.debug(exception: ex.cause) { ex.message }
+      rescue ex : Response::Error
+        context.response.status_code = ex.status_code
+        ContentNegotiator.content context, ex
+        Log.warn(exception: ex) { "Error: #{ex.status_code}".colorize(:yellow) }
+      rescue ex : Exception
+        error = Response::Error.from_exception ex
+        context.response.status_code = error.status_code  
+        ContentNegotiator.content context, error       
+        Log.error(exception: ex) { "Error: 500".colorize(:red) }
       end
     end
   end

@@ -35,8 +35,8 @@ module Azu
       raise Response::NotFound.new(context.request.path) unless result.found?
       context.request.path_params = result.params
       result.payload.call(context)
-    rescue ex
-      RESCUER.handle context, ex
+    rescue ex : Response::Error
+      ContentNegotiator.content context, ex 
     end
 
     # :nodoc:

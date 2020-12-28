@@ -31,7 +31,13 @@ module Azu
       end
 
       def self.from_exception(ex)
-        new detail: ex.message || "An Error has occurred"
+        error = new(
+          title: "Internal Server Error",
+          status: HTTP::Status::INTERNAL_SERVER_ERROR, 
+          errors: [] of String
+        )
+        error.detail=(ex.message || "En server error occurred")
+        error
       end
 
       def link
@@ -45,7 +51,7 @@ module Azu
 
       def html
         render "error.html", {
-          status:    status.value,
+          status:    status_code,
           link:      link,
           title:     title,
           detail:    detail,
@@ -55,12 +61,24 @@ module Azu
         }
       end
 
+      def status_code
+        status.value
+      end
+
       def render(template : String, data)
         templates.load(template).render(data)
       end
 
       def xml
-        # Todo Implement XML
+        messages = errors.map { |e| "<message>#{e}</message>"}.join("")
+        <<-XML
+        <?xml version="1.0" encoding="UTF-8"?>
+        <error title="#{title}" status="#{status_code}" link="#{link}">
+          <detail>#{detail}</detail>
+          <source>#{source}</source>
+          <errors>#{messages}</errors>
+        </error>
+        XML
       end
 
       def json
@@ -88,15 +106,22 @@ module Azu
       end
     end
 
+    class Forbidden < Error
+      getter title = "Forbidden"
+      getter detail = "The server understood the request but refuses to authorize it."
+      getter status : HTTP::Status = HTTP::Status::FORBIDDEN
+    end
+
     class BadRequest < Error
       getter title = "Bad Request"
+      getter detail = "The server cannot or will not process the request due to something that is perceived to be a client error."
       getter status : HTTP::Status = HTTP::Status::BAD_REQUEST
     end
 
     class NotFound < Error
       def initialize(path : String)
         @title = "Not found"
-        @detail = "Path #{path} not defined"
+        @detail = "The server can't find the requested resource. Resource: #{path}"
         @status = HTTP::Status::NOT_FOUND
         @source = path
       end

@@ -10,7 +10,10 @@ require "./responses/*"
 require "./endpoints/*"
 require "./channels/*"
 
-ExampleApp::Pipeline[:web] = [] of HTTP::Handler
+ExampleApp::Pipeline[:web] = [
+  Azu::Handler::Rescuer.new,
+  Azu::Handler::Logger.new
+] of HTTP::Handler
 
 ExampleApp.configure do
   templates.path = "spec/example_app/templates"
