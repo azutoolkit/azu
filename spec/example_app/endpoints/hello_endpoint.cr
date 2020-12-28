@@ -14,7 +14,6 @@ module ExampleApp
 
     def call : HtmlPage
       example_req.validate!
-      status 200
       header "Custom", "Fake custom header"
       HtmlPage.new example_req.name
     end
@@ -24,7 +23,6 @@ module ExampleApp
     include Azu::Endpoint(ExampleReq, HtmlPage)
 
     def call : HtmlPage
-      status 200
       HtmlPage.new example_req.name
     end
   end

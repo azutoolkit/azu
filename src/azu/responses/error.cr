@@ -30,13 +30,13 @@ module Azu
       def initialize(@title, @status, @errors)
       end
 
-      def self.from_exception(ex)
+      def self.from_exception(ex, status = 500)
         error = new(
-          title: "Internal Server Error",
-          status: HTTP::Status::INTERNAL_SERVER_ERROR, 
+          title: ex.message || "Error",
+          status: HTTP::Status.from_value(status),
           errors: [] of String
         )
-        error.detail=(ex.message || "En server error occurred")
+        error.detail=(ex.cause.to_s || "En server error occurred")
         error
       end
 
@@ -70,7 +70,7 @@ module Azu
       end
 
       def xml
-        messages = errors.map { |e| "<message>#{e}</message>"}.join("")
+        messages = errors.map { |e| "<message>#{e}</message>" }.join("")
         <<-XML
         <?xml version="1.0" encoding="UTF-8"?>
         <error title="#{title}" status="#{status_code}" link="#{link}">
@@ -121,7 +121,7 @@ module Azu
     class NotFound < Error
       def initialize(path : String)
         @title = "Not found"
-        @detail = "The server can't find the requested resource. Resource: #{path}"
+        @detail = "The server can't find the requested resource."
         @status = HTTP::Status::NOT_FOUND
         @source = path
       end

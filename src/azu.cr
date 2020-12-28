@@ -39,7 +39,7 @@ module Azu
     end
 
     def self.start
-      time = Time.local
+      time = Time.monotonic
       config.pipelines.prepare
       server = HTTP::Server.new(config.pipelines)
       server.bind_tcp config.host, config.port, config.port_reuse
@@ -51,11 +51,16 @@ module Azu
       end
 
       server_info = String.build do |s|
-        s << "Server started in #{time}. "
-        s << "Environment: #{env.colorize(:light_blue).underline.bold} "
-        s << "Host: #{config.host.colorize(:light_blue).underline.bold} "
-        s << "Port: #{config.port.colorize(:light_blue).underline.bold} "
-        s << "Startup Time #{(Time.local - time).total_milliseconds} millis".colorize(:white)
+        s << "Server started at #{Time.local.to_s("%a %m/%d/%Y %I:%M:%S")}.".colorize(:white).underline
+        s << "\n   ⤑  Environment: ".colorize(:white)
+        s << env.colorize(:light_blue)
+        s << "\n   ⤑  Host: ".colorize(:white)
+        s << config.host.colorize(:light_blue)
+        s << "\n   ⤑  Port: ".colorize(:white)
+        s << config.port.colorize(:light_blue)
+        s << "\n   ⤑  Startup Time: ".colorize(:white)
+        s << (Time.monotonic - time).total_milliseconds
+        s << " millis".colorize(:white)
       end
 
       loop do

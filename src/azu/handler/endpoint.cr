@@ -42,6 +42,15 @@ module Azu
       ContentNegotiator.content @context.not_nil!, call
     end
 
+    private def request_object(context, params)
+      @request_object = case context.request.content_type.sub_type
+                        when "json" then Request.from_json(context.request.body.not_nil!)
+                        else             Request.new(params)
+                        end
+    rescue ex : ArgumentError
+      raise Response::Error.from_exception ex, 400
+    end
+
     macro included
       {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
 
@@ -56,13 +65,6 @@ module Azu
 
     private def context : HTTP::Server::Context
       @context.not_nil!
-    end
-
-    private def request_object(context, params)
-      @request_object = case context.request.content_type.sub_type
-                        when "json" then Request.from_json(context.request.body.not_nil!)
-                        else             Request.new(params)
-                        end
     end
 
     private def method

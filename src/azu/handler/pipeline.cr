@@ -36,7 +36,11 @@ module Azu
       context.request.path_params = result.params
       result.payload.call(context)
     rescue ex : Response::Error
-      ContentNegotiator.content context, ex 
+      context.response.status_code = ex.status_code
+      ContentNegotiator.content context, ex
+      Log.error(exception: ex) {
+        "Error Processing Request ".colorize(:red)
+      }
     end
 
     # :nodoc:

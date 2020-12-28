@@ -12,7 +12,7 @@ require "./channels/*"
 
 ExampleApp::Pipeline[:web] = [
   Azu::Handler::Rescuer.new,
-  Azu::Handler::Logger.new
+  Azu::Handler::Logger.new,
 ] of HTTP::Handler
 
 ExampleApp.configure do

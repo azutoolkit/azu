@@ -13,12 +13,12 @@ module Azu
       rescue ex : Response::Error
         context.response.status_code = ex.status_code
         ContentNegotiator.content context, ex
-        Log.warn(exception: ex) { "Error: #{ex.status_code}".colorize(:yellow) }
+        Log.warn(exception: ex) { "Error Processing Request #{ex.status_code}".colorize(:yellow) }
       rescue ex : Exception
         error = Response::Error.from_exception ex
-        context.response.status_code = error.status_code  
-        ContentNegotiator.content context, error       
-        Log.error(exception: ex) { "Error: 500".colorize(:red) }
+        context.response.status_code = error.status_code
+        ContentNegotiator.content context, error
+        Log.error(exception: ex) { "Error Processing Request ".colorize(:red) }
       end
     end
   end

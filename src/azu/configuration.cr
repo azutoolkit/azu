@@ -1,5 +1,4 @@
 require "log"
-Log.setup_from_env
 
 module Azu
   # Holds all the configuration properties for your Azu Application
@@ -25,6 +24,8 @@ module Azu
     TEMPLATES_PATH = "../../templates"
     ERROR_TEMPLATE = "./src/azu/templates"
 
+    Log.setup(:debug, Log::IOBackend.new(formatter: LogFormat))
+
     property port : Int32 = ENV.fetch("PORT", "4000").to_i
     property port_reuse : Bool = ENV.fetch("PORT_REUSE", "false") == "true"
     property host : String = ENV.fetch("HOST", "0.0.0.0")
@@ -33,6 +34,9 @@ module Azu
 
     getter router : Router = Router.new
     getter pipelines : Pipeline = Pipeline.new
-    getter templates : Templates = Templates.new ENV.fetch("TEMPLATES_PATH", Path[TEMPLATES_PATH].expand.to_s), ENV.fetch("ERROR_TEMPLATE", Path[ERROR_TEMPLATE].expand.to_s)
+    getter templates : Templates = Templates.new(
+      ENV.fetch("TEMPLATES_PATH", Path[TEMPLATES_PATH].expand.to_s),
+      ENV.fetch("ERROR_TEMPLATE", Path[ERROR_TEMPLATE].expand.to_s)
+    )
   end
 end
