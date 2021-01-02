@@ -28,7 +28,7 @@ module Azu
 
           format_hash("Headers", context.request.headers, str)
           format_hash("Query Params", context.request.query_params, str)
-          format_hash("Parth Params", context.request.path_params, str)
+          format_hash("Path Params", context.request.path_params, str)
         end
       end
 

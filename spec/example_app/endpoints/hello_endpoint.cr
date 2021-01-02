@@ -1,7 +1,12 @@
 module ExampleApp
+
+  struct EmptyRequest
+    include Request
+  end
+
   # Endpoints
   class HelloWorld
-    include Azu::Endpoint(ExampleReq, HtmlPage)
+    include Azu::Endpoint(EmptyRequest, HtmlPage)
 
     def call : HtmlPage
       header "Custom", "Fake custom header"

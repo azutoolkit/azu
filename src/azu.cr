@@ -46,7 +46,7 @@ module Azu
 
       Signal::INT.trap do
         Signal::INT.reset
-        log.info { "Shutting down server" }
+        log.info { "\nShutting down server" }
         server.close
       end
 
