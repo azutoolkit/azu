@@ -27,7 +27,7 @@ module Azu
     abstract def on_binary(binary)
     abstract def on_ping(message)
     abstract def on_pong(message)
-    abstract def on_close(code : CloseCode | Int? = nil, message = nil)
+    abstract def on_close(code : HTTP::WebSocket::CloseCode | Int? = nil, message = nil)
 
     def call(context : HTTP::Server::Context)
       @context = context

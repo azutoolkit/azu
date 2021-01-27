@@ -13,7 +13,7 @@ module Azu
     def on_connect
     end
 
-    def on_close(code : ::CloseCode | Int | ::Nil = nil, message = nil)
+    def on_close(code : HTTP::WebSocket::CloseCode | Int? = nil, message = nil)
       COMPONENTS.each do |id, component|
         component.unmount
         COMPONENTS.delete id
