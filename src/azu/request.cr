@@ -30,7 +30,7 @@ module Azu
   #
   # ### Example Use:
   #
-  # ```
+  # ```crystal
   # class UserRequest
   #   include Azu::Request
   #
@@ -40,14 +40,14 @@ module Azu
   #
   # ### Initializers
   #
-  # ```
+  # ```crystal
   # UserRequest.from_json(pyaload: String)
   # UserRequest.new(params: Hash(String, String))
   # ```
   #
   # ### Available Methods
   #
-  # ```
+  # ```crystal
   # getters   - For each of the params
   # valid?    - Bool
   # validate! - True or Raise Error

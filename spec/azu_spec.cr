@@ -24,7 +24,7 @@ describe Azu do
     it "returns request not found" do
       response = client.get "/invalid_path", headers: HTTP::Headers{"Accept" => "text/plain"}
       response.status_code.should eq 404
-      response.body.should contain %q(Path /invalid_path not defined)
+      response.body.should contain %q(Source: /invalid_path)
     end
 
     it "returns params missing" do

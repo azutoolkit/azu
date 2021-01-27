@@ -1,5 +1,5 @@
 require "http"
-require "logger"
+require "log"
 require "radix"
 require "json"
 require "xml"

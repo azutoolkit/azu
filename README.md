@@ -3,7 +3,7 @@
 
 AZU is the artisans web application framework with expressive, elegant syntax that offers great performance to build rich, interactive type safe, web applications quickly, with less code and conhesive parts that adapts to your prefer style. 
 
-Azu Framework benefits:
+### Azu Framework benefits:
 
 * Plain Crystal, little DSL
 * Supe easy to leanr and adopt
@@ -19,9 +19,19 @@ Azu Framework benefits:
 
 Join a growing community of developers using AZU to craft clean efficient APIs, HTML5 apps and more, for fun or at scale.
 
-## Architecture
+## Guiding Principles
+
+Stateless, application-level, request/response protocols that share a generic interface, extensible semantics, and self-descriptive messages to enable flexible interaction with network-based applications.
 
 At its core, AZU is lightweight, fast and expresive without locking you to a a specific pattern but instead offering the building blocks for your needs. Focus on your business domain, bring immediate productivity and long-term code maintainability. 
+
+### Semantics
+
+* Simplicity: pre-existing knowledge of users to minimise their learning curve when using a module, so anything with high unpredictability factor is a good candidate for re-design
+* Least Effort: Everyone tends to follow the path that is as close to effortless as possible. 
+* Opportunity Cost: To make a good economic decision, we want to choose the option with the greatest benefit to us but the lowest cost.
+* Cost Of Delay: Emphasises holding on taking important actions and crucial decisions for as long as possible. 
+* SOLID The SOLID principles do not only apply on software development but also when architecting a system. 
 
 ## Installation
 

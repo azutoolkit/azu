@@ -9,7 +9,7 @@ module Azu
   #
   # For Example
   #
-  # ````
+  # ```crystal
   #  Azu.configure do |c|
   #    c.port = 4000
   #    c.host = localhost
@@ -21,8 +21,8 @@ module Azu
   #  end
   # ```
   class Configuration
-    TEMPLATES_PATH = "../../templates"
-    ERROR_TEMPLATE = "./src/azu/templates"
+    private TEMPLATES_PATH = "../../templates"
+    private ERROR_TEMPLATE = "./src/azu/templates"
 
     Log.setup(:debug, Log::IOBackend.new(formatter: LogFormat))
 
