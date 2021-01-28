@@ -1,4 +1,5 @@
 module Azu
+  # :nodoc:
   class Templates
     private getter crinja = Crinja.new
     getter path : String

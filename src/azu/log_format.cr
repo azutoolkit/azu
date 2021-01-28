@@ -1,4 +1,5 @@
 module Azu
+  # :nodoc:
   struct LogFormat < Log::StaticFormatter
     getter orange_red = Colorize::ColorRGB.new(255, 140, 0)
 
