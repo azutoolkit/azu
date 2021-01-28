@@ -1,5 +1,4 @@
 module ExampleApp
-
   struct EmptyRequest
     include Request
   end

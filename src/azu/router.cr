@@ -66,7 +66,7 @@ module Azu
 
     # Registers the main route of the application
     #
-    # ```crystal
+    # ```
     # root :web, ExampleApp::HelloWorld
     # ```
     def root(namespace : Symbol, endpoint : HTTP::Handler.class)
@@ -75,8 +75,8 @@ module Azu
 
     # Registers a websocket route
     #
-    # ```crystal
-    # ws "/hi", ExampleApp::ExampleChannel 
+    # ```
+    # ws "/hi", ExampleApp::ExampleChannel
     # ```
     def ws(path : String, channel : Channel.class)
       handler = HTTP::WebSocketHandler.new do |socket, context|

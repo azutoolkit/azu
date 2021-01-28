@@ -9,16 +9,16 @@ module Azu
   #
   # For Example
   #
-  # ```crystal
-  #  Azu.configure do |c|
-  #    c.port = 4000
-  #    c.host = localhost
-  #    c.port_reuse = true
-  #    c.log = Log.for("My Awesome App")
-  #    c.env = Environment::Development
-  #    c.template.path = "./templates"
-  #    c.etemplate.error_path = "./error_template"
-  #  end
+  # ```
+  # Azu.configure do |c|
+  #   c.port = 4000
+  #   c.host = localhost
+  #   c.port_reuse = true
+  #   c.log = Log.for("My Awesome App")
+  #   c.env = Environment::Development
+  #   c.template.path = "./templates"
+  #   c.etemplate.error_path = "./error_template"
+  # end
   # ```
   class Configuration
     private TEMPLATES_PATH = "../../templates"
