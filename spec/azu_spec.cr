@@ -9,7 +9,8 @@ describe Azu do
       payload = {id: 1, users: ["John", "Paul"], config: {"allowed" => "true"}}
       headers = HTTP::Headers{"Accept" => "application/json", "Content-Type" => "application/json"}
 
-      response = client.post "/test/json", headers: headers, body: payload.to_json
+      response = client.post "/test/json/1", headers: headers, body: payload.to_json
+
       data = JSON.parse(response.body)
 
       response.status_code.should eq 200
@@ -23,7 +24,7 @@ describe Azu do
     it "returns request not found" do
       response = client.get "/invalid_path", headers: HTTP::Headers{"Accept" => "text/plain"}
       response.status_code.should eq 404
-      response.body.should contain %q(Path /invalid_path not defined)
+      response.body.should contain %q(Source: /invalid_path)
     end
 
     it "returns params missing" do

@@ -1,5 +1,4 @@
 require "log"
-Log.setup_from_env
 
 module Azu
   # Holds all the configuration properties for your Azu Application
@@ -10,20 +9,22 @@ module Azu
   #
   # For Example
   #
-  # ````
-  #  Azu.configure do |c|
-  #    c.port = 4000
-  #    c.host = localhost
-  #    c.port_reuse = true
-  #    c.log = Log.for("My Awesome App")
-  #    c.env = Environment::Development
-  #    c.template.path = "./templates"
-  #    c.etemplate.error_path = "./error_template"
-  #  end
+  # ```
+  # Azu.configure do |c|
+  #   c.port = 4000
+  #   c.host = localhost
+  #   c.port_reuse = true
+  #   c.log = Log.for("My Awesome App")
+  #   c.env = Environment::Development
+  #   c.template.path = "./templates"
+  #   c.etemplate.error_path = "./error_template"
+  # end
   # ```
   class Configuration
-    TEMPLATES_PATH = "../../templates"
-    ERROR_TEMPLATE = "./src/azu/templates"
+    private TEMPLATES_PATH = "../../templates"
+    private ERROR_TEMPLATE = "./src/azu/templates"
+
+    Log.setup(:debug, Log::IOBackend.new(formatter: LogFormat))
 
     property port : Int32 = ENV.fetch("PORT", "4000").to_i
     property port_reuse : Bool = ENV.fetch("PORT_REUSE", "false") == "true"
@@ -33,6 +34,9 @@ module Azu
 
     getter router : Router = Router.new
     getter pipelines : Pipeline = Pipeline.new
-    getter templates : Templates = Templates.new ENV.fetch("TEMPLATES_PATH", Path[TEMPLATES_PATH].expand.to_s), ENV.fetch("ERROR_TEMPLATE", Path[ERROR_TEMPLATE].expand.to_s)
+    getter templates : Templates = Templates.new(
+      ENV.fetch("TEMPLATES_PATH", Path[TEMPLATES_PATH].expand.to_s),
+      ENV.fetch("ERROR_TEMPLATE", Path[ERROR_TEMPLATE].expand.to_s)
+    )
   end
 end

@@ -9,8 +9,5 @@ module Azu
   #
   # The methods available are define in the `Helpers` class.
   module Response
-    include Helpers
-    @context = uninitialized HTTP::Server::Context
-    forward_missing_to @context.response
   end
 end

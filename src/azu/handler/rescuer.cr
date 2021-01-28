@@ -3,40 +3,22 @@ module Azu
     class Rescuer
       include HTTP::Handler
 
-      def initialize(@verbose : Bool = CONFIG.env.development?, @log = Log.for("http.server"))
+      def initialize(@log = Log.for("http.server"))
       end
 
-      def call(context)
+      def call(context : HTTP::Server::Context)
         call_next(context)
-      rescue ex
-        handle(context, ex)
-      end
-
-      def handle(context, ex)
-        case ex
-        when HTTP::Server::ClientError
-          @log.debug(exception: ex.cause) { ex.message }
-        when Response::Error
-          unless context.response.closed? || context.response.wrote_headers?
-            context.response.reset
-            context.response.status = ex.status
-            context.response.puts(ex.inspect_with_backtrace)
-            ContentNegotiator.content context, ex
-          end
-        else
-          @log.error(exception: ex) { "Unhandled exception" }
-          unless context.response.closed? || context.response.wrote_headers?
-            if @verbose
-              context.response.reset
-              context.response.status = :internal_server_error
-              context.response.content_type = "text/plain"
-              context.response.print("ERROR: ")
-              context.response.puts(ex.inspect_with_backtrace)
-            else
-              context.response.respond_with_status(:internal_server_error)
-            end
-          end
-        end
+      rescue ex : HTTP::Server::ClientError
+        @log.debug(exception: ex.cause) { ex.message }
+      rescue ex : Response::Error
+        context.response.status_code = ex.status_code
+        ContentNegotiator.content context, ex
+        Log.warn(exception: ex) { "Error Processing Request #{ex.status_code}".colorize(:yellow) }
+      rescue ex : Exception
+        error = Response::Error.from_exception ex
+        context.response.status_code = error.status_code
+        ContentNegotiator.content context, error
+        Log.error(exception: ex) { "Error Processing Request ".colorize(:red) }
       end
     end
   end

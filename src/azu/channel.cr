@@ -1,5 +1,4 @@
 require "http/web_socket"
-require "./helpers"
 
 module Azu
   # A channel encapsulates a logical unit of work similar to an Endpoint.
@@ -11,14 +10,12 @@ module Azu
   #
   # You must setup a websocket route in your routing service
   #
-  # C
   # ```
   # ExampleApp.router do
   #   ws "/hi", ExampleApp::ExampleChannel
   # end
   # ```
   abstract class Channel
-    include Helpers
     getter! socket : HTTP::WebSocket
     @context = uninitialized HTTP::Server::Context
 
@@ -30,7 +27,7 @@ module Azu
     abstract def on_binary(binary)
     abstract def on_ping(message)
     abstract def on_pong(message)
-    abstract def on_close(code : CloseCode | Int? = nil, message = nil)
+    abstract def on_close(code : HTTP::WebSocket::CloseCode | Int? = nil, message = nil)
 
     def call(context : HTTP::Server::Context)
       @context = context

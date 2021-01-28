@@ -21,7 +21,7 @@ module ExampleApp
       SUBSCRIBERS.each { |s| s.send "Polo!" }
     end
 
-    def on_close(code, message = nil)
+    def on_close(code : HTTP::WebSocket::CloseCode | Int? = nil, message = nil)
       SUBSCRIBERS.delete socket
     end
   end

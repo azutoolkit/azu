@@ -75,7 +75,9 @@ module Azu
 
     # Registers a websocket route
     #
-    # ``` ws "/hi", ExampleApp::ExampleChannel ```
+    # ```
+    # ws "/hi", ExampleApp::ExampleChannel
+    # ```
     def ws(path : String, channel : Channel.class)
       handler = HTTP::WebSocketHandler.new do |socket, context|
         channel.new(socket).call(context)

@@ -8,6 +8,14 @@ AZU is a toolkit for artisans with expressive, elegant syntax that offers great 
 
 [Azu Toolkit Documentation](https://eliasjpr.github.io/azu/)
 
+### Semantics
+
+* Simplicity: pre-existing knowledge of users to minimise their learning curve when using a module, so anything with high unpredictability factor is a good candidate for re-design
+* Least Effort: Everyone tends to follow the path that is as close to effortless as possible. 
+* Opportunity Cost: To make a good economic decision, we want to choose the option with the greatest benefit to us but the lowest cost.
+* Cost Of Delay: Emphasises holding on taking important actions and crucial decisions for as long as possible. 
+* SOLID The SOLID principles do not only apply on software development but also when architecting a system. 
+
 ## Installation
 
   1.  Add the dependency to your `shard.yml`:

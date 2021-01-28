@@ -24,3 +24,4 @@ dependencies:
 
   crinja: 
     github: straight-shoota/crinja
+    branch: master

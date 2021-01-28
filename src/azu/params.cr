@@ -24,6 +24,34 @@ module Azu
       end
     end
 
+    def [](key)
+      (form[key]? || path[key]? || query[key]?).not_nil!
+    end
+
+    def []?(key)
+      form[key]? || path[key]? || query[key]?
+    end
+
+    def fetch_all(key)
+      return form.fetch_all(key) if form.has_key? key
+      return [path[key]] if path.has_key? key
+      query.fetch_all(key)
+    end
+
+    def each
+      to_h.each do |k, v|
+        yield k, v
+      end
+    end
+
+    def to_h
+      hash = Hash(String, String).new
+      hash.merge! query.to_h
+      hash.merge! path
+      hash.merge! form.to_h
+      hash
+    end
+
     module Multipart
       struct File
         getter file : ::File

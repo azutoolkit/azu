@@ -3,7 +3,6 @@ module ExampleApp
     include Response::Html
 
     def initialize(@name : String)
-      header "Custom", "Fake custom header"
     end
 
     def html

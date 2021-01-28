@@ -14,20 +14,30 @@ module Azu
     class Error < Exception
       include Azu::Response
 
-      getter env : Environment = CONFIG.env
-      getter log : ::Log = CONFIG.log
       property status : HTTP::Status = HTTP::Status::INTERNAL_SERVER_ERROR
       property title : String = "Internal Server Error"
       property detail : String = "Internal Server Error"
       property source : String = ""
       property errors : Array(String) = [] of String
-      getter templates : Templates = CONFIG.templates
+
+      private getter templates : Templates = CONFIG.templates
+      private getter env : Environment = CONFIG.env
+      private getter log : ::Log = CONFIG.log
 
       def initialize(@detail = "", @source = "", @errors = Array(String).new)
       end
 
-      def self.from_exception(ex)
-        new detail: ex.message || "An Error has occurred"
+      def initialize(@title, @status, @errors)
+      end
+
+      def self.from_exception(ex, status = 500)
+        error = new(
+          title: ex.message || "Error",
+          status: HTTP::Status.from_value(status),
+          errors: [] of String
+        )
+        error.detail=(ex.cause.to_s || "En server error occurred")
+        error
       end
 
       def link
@@ -35,13 +45,13 @@ module Azu
       end
 
       def html(context)
-        return ExceptionPage.for_runtime_exception(context, ex).to_s if env.development?
+        return ExceptionPage.for_runtime_exception(context, self).to_s if env.development?
         html
       end
 
       def html
         render "error.html", {
-          status:    status.value,
+          status:    status_code,
           link:      link,
           title:     title,
           detail:    detail,
@@ -51,12 +61,24 @@ module Azu
         }
       end
 
+      def status_code
+        status.value
+      end
+
       def render(template : String, data)
         templates.load(template).render(data)
       end
 
       def xml
-        # Todo Implement XML
+        messages = errors.map { |e| "<message>#{e}</message>" }.join("")
+        <<-XML
+        <?xml version="1.0" encoding="UTF-8"?>
+        <error title="#{title}" status="#{status_code}" link="#{link}">
+          <detail>#{detail}</detail>
+          <source>#{source}</source>
+          <errors>#{messages}</errors>
+        </error>
+        XML
       end
 
       def json
@@ -82,27 +104,25 @@ module Azu
       Backtrace: #{inspect_with_backtrace}
       TEXT
       end
+    end
 
-      def print_log
-        log.error { "#{status}: #{title}" }
-        errors.each { |e| log.error { e } }
-        log.error { "Source: #{source}" } if source
-        log.error { "Detail: #{detail}" } if detail
-        log.error { inspect_with_backtrace } if env.development?
-      end
+    class Forbidden < Error
+      getter title = "Forbidden"
+      getter detail = "The server understood the request but refuses to authorize it."
+      getter status : HTTP::Status = HTTP::Status::FORBIDDEN
     end
 
     class BadRequest < Error
       getter title = "Bad Request"
+      getter detail = "The server cannot or will not process the request due to something that is perceived to be a client error."
       getter status : HTTP::Status = HTTP::Status::BAD_REQUEST
     end
 
     class NotFound < Error
-      getter title = "Not found"
-      getter status : HTTP::Status = HTTP::Status::NOT_FOUND
-
       def initialize(path : String)
-        @detail = "Path #{path} not defined"
+        @title = "Not found"
+        @detail = "The server can't find the requested resource."
+        @status = HTTP::Status::NOT_FOUND
         @source = path
       end
 

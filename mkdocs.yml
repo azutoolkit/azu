@@ -1,0 +1,35 @@
+site_name: Azu Toolkit
+site_url: https://eliasjpr.github.io/azu/
+repo_url: https://github.com/eliasjpr/azu
+edit_uri: blob/master/docs/
+
+theme:
+  name: material
+  palette:
+    # Toggle dark mode
+    - scheme: slate
+      primary: blue-gray
+      accent: blue
+  icon:
+    repo: fontawesome/brands/github
+
+extra_css:
+  - css/mkdocstrings.css
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - docs/gen_doc_stubs.py
+  - mkdocstrings:
+      default_handler: crystal
+      watch: [src]
+
+markdown_extensions:
+  - pymdownx.highlight
+  - pymdownx.magiclink
+  - pymdownx.saneheaders
+  - pymdownx.superfences
+  - deduplicate-toc
+  - toc:
+      permalink: "#"

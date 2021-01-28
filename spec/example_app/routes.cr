@@ -1,4 +1,5 @@
 require "../../src/azu"
+require "schema"
 
 module ExampleApp
   include Azu
@@ -9,11 +10,10 @@ require "./responses/*"
 require "./endpoints/*"
 require "./channels/*"
 
-require "schema"
-
 ExampleApp::Pipeline[:web] = [
-  ExampleApp::Handler::Logger.new,
-]
+  Azu::Handler::Rescuer.new,
+  Azu::Handler::Logger.new,
+] of HTTP::Handler
 
 ExampleApp.configure do
   templates.path = "spec/example_app/templates"
@@ -24,9 +24,10 @@ ExampleApp.router do
   ws "/hi", ExampleApp::ExampleChannel
 
   routes :web, "/test" do
-    post "/json", ExampleApp::JsonEndpoint
+    post "/json/:id", ExampleApp::JsonEndpoint
     get "/hello/", ExampleApp::HelloWorld
     get "/hello/:name", ExampleApp::HtmlEndpoint
+    get "/load/:name", ExampleApp::LoadTestEndpoint
   end
 end
 

@@ -13,14 +13,14 @@ module Azu
     def on_connect
     end
 
-    def on_close(code, message)
+    def on_close(code : HTTP::WebSocket::CloseCode | Int? = nil, message = nil)
       COMPONENTS.each do |id, component|
         component.unmount
         COMPONENTS.delete id
       end
     end
 
-    def on_message(message : String)
+    def on_message(message)
       json = JSON.parse(message)
 
       if channel = json["subscribe"]?
