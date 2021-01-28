@@ -6,7 +6,7 @@ AZU is a toolkit for artisans with expressive, elegant syntax that offers great 
 
 ### Documentation 
 
-[Azu Toolkit Documentation](https://eliasjpr.github.io/azu/)
+[Azu Toolkit Documentation](https://azutoolkit.github.io/azu/)
 
 ### Semantics
 
