@@ -1,6 +1,7 @@
 /lib/
 /bin/
 /.shards/
+.vscode/
 *.dwarf
 *.log
 
