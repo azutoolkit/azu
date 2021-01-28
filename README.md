@@ -23,7 +23,7 @@ AZU is a toolkit for artisans with expressive, elegant syntax that offers great 
       ```yaml
       dependencies:
         azu:
-          github: eliasjpr/azu
+          github: azutoolkit/azu
       ```
 
   2.  Run `shards install`
