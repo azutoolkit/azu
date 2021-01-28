@@ -12,7 +12,7 @@ jobs:
       - name: Setup python
         uses: actions/setup-python@v2
       - name: Install Python libs
-        run: pip install --no-deps -r requirements.txt
+        run: pip install --no-deps -r docs/requirements.txt
       - name: Install Crystal libs
         run: shards install
       - name: Build site
