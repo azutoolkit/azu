@@ -4,7 +4,7 @@ module Azu
   # Azu routing class that allows you to define routes for your application.
   #
   #
-  # ```crystal
+  # ```
   # ExampleApp.router do
   #   root :web, ExampleApp::HelloWorld
   #   ws "/hi", ExampleApp::ExampleChannel

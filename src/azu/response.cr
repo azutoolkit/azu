@@ -10,7 +10,7 @@ module Azu
   # ## Defining Responses
   #
   #
-  # ```crystal
+  # ```
   # module MyApp
   #   class Home::Page
   #     include Response::Html
@@ -20,10 +20,10 @@ module Azu
   #     def html
   #       render TEMPLATE_PATH, assigns
   #     end
-  #     
+  #
   #     def assigns
   #       {
-  #         "welcome"  => "Hello World!"
+  #         "welcome" => "Hello World!",
   #       }
   #     end
   #   end

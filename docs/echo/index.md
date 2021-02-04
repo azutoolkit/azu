@@ -28,7 +28,7 @@
 
 A producer application creates and sends events to a stream. Consumer applications create a subscription to a event to receive messages from it. Communication can be one-to-many (fan-out), many-to-one (fan-in), and many-to-many.
 
-![Producer-Consumer relationships](./Sub.svg "Producer Consumer Relationship")
+![Producer-Consumer relationships](https://raw.githubusercontent.com/azutoolkit/echo/master/Sub.svg "Producer Consumer Relationship")
 
 ## Common use cases
 
