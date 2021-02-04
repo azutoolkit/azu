@@ -12,6 +12,14 @@ theme:
       accent: blue
   icon:
     repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - search.suggest
+    - search.highlight
+    - search.share
 
 extra_css:
   - css/mkdocstrings.css
@@ -31,5 +39,3 @@ markdown_extensions:
   - pymdownx.saneheaders
   - pymdownx.superfences
   - deduplicate-toc
-  - toc:
-      permalink: "#"

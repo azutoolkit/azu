@@ -1,10 +1,5 @@
 module Azu
-  # HTTP defines a set of request methods to indicate the desired action to be performed for a given resource.
-  # Although they can also be nouns, these request methods are sometimes referred to as HTTP verbs.
-  # Each of them implements a different semantic, but some common features are shared by a group of
-  # them: e.g. a request method can be safe, idempotent, or cacheable.
-  #
-  #
+  # :nodoc:
   enum Method
     # The CONNECT method establishes a tunnel to the server identified by the target resource.
     Connect

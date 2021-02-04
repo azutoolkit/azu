@@ -1,15 +1,14 @@
 require "http/web_socket"
 
 module Azu
-  # Azu routing class that allows you to define routes for the application.
+  # Azu routing class that allows you to define routes for your application.
   #
-  # For example
   #
-  # ```
+  # ```crystal
   # ExampleApp.router do
   #   root :web, ExampleApp::HelloWorld
   #   ws "/hi", ExampleApp::ExampleChannel
-
+  #
   #   routes :web, "/test" do
   #     get "/hello/", ExampleApp::HelloWorld
   #     get "/hello/:name", ExampleApp::HtmlEndpoint
@@ -17,7 +16,6 @@ module Azu
   #   end
   # end
   # ```
-
   class Router
     alias Path = String
     ROUTES    = Set(Route).new

@@ -1,14 +1,6 @@
 module Azu
   # Allows to test which environment Azu is running in.
   #
-  # Azu uses `.env` environment files to load configuration for the application
-  #
-  # Your `.env` file should not be committed to your application's source control,
-  # since each developer / server using your application could require a different
-  # environment configuration. Furthermore, this would be a security risk in the
-  # event an intruder gains access to your source control repository, since any
-  # sensitive credentials would get exposed.
-  #
   # The current application environment is determined via the CRYSTAL_ENV variable from your .env file.
   enum Environment
     # Build environment ideal for building images and compiling

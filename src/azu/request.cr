@@ -57,7 +57,6 @@ module Azu
   # to_json   - Outputs JSON
   # to_yaml   - Outputs YAML
   # ```
-  #
   module Request
     macro included
       include JSON::Serializable

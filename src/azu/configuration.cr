@@ -7,7 +7,6 @@ module Azu
   # for local development it is recommended to use `.env` files to store
   # your development configuration properties.
   #
-  # For Example
   #
   # ```
   # Azu.configure do |c|

@@ -124,6 +124,7 @@ module Azu
     )
     @view = IO::Memory.new
 
+    # :nodoc:
     enum Version
       HTML_4_01
       XHTML_1_0
