@@ -6,7 +6,7 @@ module Azu
 
     property? connected = false
     getter id : String = UUID.random.to_s
-    @socket = uninitialized HTTP::WebSocket
+    @socket : HTTP::WebSocket? = nil
 
     macro included
       def self.mount(**args)

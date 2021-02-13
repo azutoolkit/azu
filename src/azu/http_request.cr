@@ -2,7 +2,7 @@ require "mime"
 
 # :nodoc:
 class HTTP::Request
-  @path_params = uninitialized Hash(String, String)
+  @path_params = {} of String => String
   @accept : Array(MIME::MediaType)? = nil
 
   def content_type : MIME::MediaType

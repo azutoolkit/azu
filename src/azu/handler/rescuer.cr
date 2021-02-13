@@ -12,12 +12,12 @@ module Azu
         @log.debug(exception: ex.cause) { ex.message }
       rescue ex : Response::Error
         context.response.status_code = ex.status_code
-        ContentNegotiator.content context, ex
+        ContentNegotiator.content_type context
         Log.warn(exception: ex) { "Error Processing Request #{ex.status_code}".colorize(:yellow) }
       rescue ex : Exception
         error = Response::Error.from_exception ex
         context.response.status_code = error.status_code
-        ContentNegotiator.content context, error
+        ContentNegotiator.content_type context
         Log.error(exception: ex) { "Error Processing Request ".colorize(:red) }
       end
     end

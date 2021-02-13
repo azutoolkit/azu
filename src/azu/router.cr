@@ -18,12 +18,10 @@ module Azu
   # ```
   class Router
     alias Path = String
-    ROUTES    = Set(Route).new
-    SOCKETS   = Set(Socket).new
+    RADIX     = Radix::Tree(Route).new
     RESOURCES = %w(connect delete get head options patch post put trace)
 
     record Route, namespace : Symbol, endpoint : HTTP::Handler, resource : String
-    record Socket, namespace : Symbol, channel : HTTP::WebSocketHandler, resource : String
 
     class DuplicateRoute < Exception
       def initialize(@namespace : Symbol, @method : Method, @path : Path, @endpoint : HTTP::Handler)
@@ -47,6 +45,14 @@ module Azu
       with Builder.new(self, namespace, scope) yield
     end
 
+    def process(context : HTTP::Server::Context)
+      result = RADIX.find path(context)
+      raise Response::NotFound.new(context.request.path) unless result.found?
+      context.request.path_params = result.params
+      route = result.payload
+      route.endpoint.call(context).to_s
+    end
+
     {% for method in RESOURCES %}
     def {{method.id}}(path : Path, endpoint : HTTP::Handler.class, namespace : Symbol)
       method = Method.parse({{method}})
@@ -67,8 +73,8 @@ module Azu
     # ```
     # root :web, ExampleApp::HelloWorld
     # ```
-    def root(namespace : Symbol, endpoint : HTTP::Handler.class)
-      ROUTES.add Route.new(namespace: namespace, endpoint: endpoint.new, resource: "/get/")
+    def root(endpoint : HTTP::Handler.class)
+      RADIX.add "/get/", Route.new(namespace: :none, endpoint: endpoint.new, resource: "/get/")
     end
 
     # Registers a websocket route
@@ -80,14 +86,32 @@ module Azu
       handler = HTTP::WebSocketHandler.new do |socket, context|
         channel.new(socket).call(context)
       end
-      SOCKETS.add Socket.new(:websocket, handler, "/ws#{path}")
+      resource = "/ws#{path}"
+      RADIX.add resource, Route.new(:websocket, handler, resource)
     end
 
     # Registers a route for a given path
     def add(path : Path, endpoint : HTTP::Handler.class, namespace : Symbol, method : Method)
-      ROUTES.add Route.new(namespace: namespace, endpoint: endpoint.new, resource: "/#{method.to_s.downcase}#{path}")
+      resource = "/#{method.to_s.downcase}#{path}"
+      RADIX.add resource, Route.new(namespace: namespace, endpoint: endpoint.new, resource: resource)
     rescue ex : Radix::Tree::DuplicateError
       raise DuplicateRoute.new(namespace, method, path, endpoint.new)
+    end
+
+    private def path(context)
+      upgraded = upgrade?(context)
+      String.build do |str|
+        str << "/"
+        str << "ws" if upgraded
+        str << context.request.method.downcase unless upgraded
+        str << context.request.path.rstrip('/')
+      end
+    end
+
+    private def upgrade?(context)
+      return unless upgrade = context.request.headers["Upgrade"]?
+      return unless upgrade.compare("websocket", case_insensitive: true) == 0
+      context.request.headers.includes_word?("Connection", "Upgrade")
     end
   end
 end

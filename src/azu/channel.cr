@@ -17,7 +17,7 @@ module Azu
   # ```
   abstract class Channel
     getter! socket : HTTP::WebSocket
-    @context = uninitialized HTTP::Server::Context
+    @context : HTTP::Server::Context? = nil
 
     def initialize(@socket : HTTP::WebSocket)
     end

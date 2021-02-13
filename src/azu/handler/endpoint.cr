@@ -38,25 +38,23 @@ module Azu
     def call(context : HTTP::Server::Context)
       @context = context
       @params = Params.new(@context.not_nil!.request)
-      request_object(@context.not_nil!, @params.not_nil!)
-      ContentNegotiator.content @context.not_nil!, call
-    end
-
-    private def request_object(context, params)
-      @request_object = case context.request.content_type.sub_type
-                        when "json" then Request.from_json(context.request.body.not_nil!)
-                        else             Request.new(params)
-                        end
-    rescue ex : ArgumentError
-      raise Response::Error.from_exception ex, 400
+      context.response << call.to_s
+      ContentNegotiator.content_type(context)
     end
 
     macro included
       {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
 
       def {{request_name}} : Request
-        @request_object.not_nil!
+        @request_object ||= case context.request.content_type.sub_type
+        when "json" then Request.from_json(context.request.body.not_nil!)
+        else             Request.new(params)
+        end
       end
+    end
+
+    private def content_type=(type : String)
+      @context.response.content_type = type
     end
 
     private def params : Params

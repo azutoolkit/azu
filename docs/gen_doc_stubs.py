@@ -8,9 +8,8 @@ root = mkdocs_gen_files.config['plugins']['mkdocstrings'].get_handler('crystal')
 
 # For each type (e.g. "Foo::Bar")
 for typ in root.walk_types():
-    # Use the file name "Foo/Bar/index.md"
+    # Use the file name "Foo/Bar.md"
     filename = 'azu/' + '/'.join(typ.abs_id.split('::')) + '.md'
-    print(filename)
     # Make a file with the content "::: Foo::Bar\n"
     with mkdocs_gen_files.open(filename, 'w') as f:
         print(f'::: {typ.abs_id}', file=f)

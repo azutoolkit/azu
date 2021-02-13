@@ -10,7 +10,7 @@ require "./responses/*"
 require "./endpoints/*"
 require "./channels/*"
 
-ExampleApp::Pipeline[:web] = [
+pipelines = [
   Azu::Handler::Rescuer.new,
   Azu::Handler::Logger.new,
 ] of HTTP::Handler
@@ -20,7 +20,7 @@ ExampleApp.configure do
 end
 
 ExampleApp.router do
-  root :web, ExampleApp::HelloWorld
+  root ExampleApp::HelloWorld
   ws "/hi", ExampleApp::ExampleChannel
 
   routes :web, "/test" do
