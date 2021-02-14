@@ -3,6 +3,8 @@ module ExampleApp
   class ExampleChannel < Azu::Channel
     SUBSCRIBERS = [] of HTTP::WebSocket
 
+    ws "/hi"
+
     def on_connect
       SUBSCRIBERS << socket.not_nil!
       @socket.not_nil!.send SUBSCRIBERS.size.to_s

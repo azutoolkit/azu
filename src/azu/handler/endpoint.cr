@@ -40,10 +40,26 @@ module Azu
       @params = Params.new(@context.not_nil!.request)
       context.response << call.to_s
       ContentNegotiator.content_type(context)
+      context
     end
 
     macro included
       {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
+
+      {% for method in Azu::Router::RESOURCES %}
+      def self.{{method.id}}(path : Router::Path, accept = "", content_type = "")
+        method = Method.parse({{method}})
+        CONFIG.router.add path, self, method, accept, content_type
+
+        {% if method == "get" %}
+        CONFIG.router.add path, self, Method::Head
+
+        {% if !%w(trace connect options head).includes? method %}
+        CONFIG.router.add path, self, Method::Options if method.add_options?
+        {% end %}
+        {% end %}
+      end
+      {% end %}
 
       def {{request_name}} : Request
         @request_object ||= case context.request.content_type.sub_type
@@ -98,8 +114,8 @@ module Azu
       context.response.status_code = status
     end
 
-    private def error(detail : String, status : Int32 = 400, errors = [] of String)
-      Response::Error.new(detail, HTTP::Status.new(status), errors)
+    private def error(message : String, status : Int32 = 400, errors = [] of String)
+      Response::Error.new(message, HTTP::Status.new(status), errors)
     end
   end
 end

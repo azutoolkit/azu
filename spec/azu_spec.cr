@@ -9,7 +9,7 @@ describe Azu do
       payload = {id: 1, users: ["John", "Paul"], config: {"allowed" => "true"}}
       headers = HTTP::Headers{"Accept" => "application/json", "Content-Type" => "application/json"}
 
-      response = client.post "/test/json/1", headers: headers, body: payload.to_json
+      response = client.post "/json/1", headers: headers, body: payload.to_json
       data = JSON.parse(response.body)
 
       response.status_code.should eq 200
@@ -27,7 +27,7 @@ describe Azu do
     end
 
     it "returns params missing" do
-      response = client.get "/test/hello", headers: HTTP::Headers{"Accept" => "text/plain"}
+      response = client.get "/hello", headers: HTTP::Headers{"Accept" => "text/plain"}
       response.status_code.should eq 200
       response.body.should contain %q(Welcome, World!)
     end
@@ -36,14 +36,14 @@ describe Azu do
   describe "Render HTML" do
     it "returns valid html" do
       name = "santa"
-      response = client.get "/test/hello/#{name}", headers: HTTP::Headers{"Accept" => "text/plain"}
+      response = client.get "/hello/#{name}", headers: HTTP::Headers{"Accept" => "text/plain"}
       response.status_code.should eq 200
       response.body.should contain %(Welcome, #{name})
     end
   end
 
   describe "Http headers" do
-    path = "/test/hello?name=Elias"
+    path = "/hello?name=Elias"
     response = client.get path, headers: HTTP::Headers{"Accept" => "text/plain"}
 
     it "can set headers" do

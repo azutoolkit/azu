@@ -12,12 +12,6 @@ describe Azu::Router do
   path = "/example_router"
 
   it "adds endpoint" do
-    router.add "/", ExampleEndpoint, :web, Azu::Method::Get
-  end
-
-  it "defines rest resources" do
-    router.routes :web do
-      get path, ExampleEndpoint
-    end
+    router.add "/", ExampleEndpoint, Azu::Method::Get
   end
 end

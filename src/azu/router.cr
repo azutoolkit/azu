@@ -21,52 +21,51 @@ module Azu
     RADIX     = Radix::Tree(Route).new
     RESOURCES = %w(connect delete get head options patch post put trace)
 
-    record Route, namespace : Symbol, endpoint : HTTP::Handler, resource : String
+    record Route,
+      endpoint : HTTP::Handler,
+      resource : String, method : Method,
+      accept : String = "", content_type : String = "" do
+      def valid?(context)
+        request_accecpt = context.request.headers["Accept"]?
+        request_content = context.request.headers["Content-Type"]?
+      end
+    end
 
     class DuplicateRoute < Exception
-      def initialize(@namespace : Symbol, @method : Method, @path : Path, @endpoint : HTTP::Handler)
-        super "namespace: #{namespace}, http_method: #{method}, path: #{path}, endpoint: #{endpoint}"
+      def initialize(@method : Method, @path : Path, @endpoint : HTTP::Handler)
+        super "http_method: #{method}, path: #{path}, endpoint: #{endpoint}"
       end
     end
 
     # The Router::Builder class allows you to build routes more easily
     class Builder
-      def initialize(@router : Router, @namespace : Symbol, @scope : String = "")
-      end
+      forward_missing_to @router
 
-      {% for method in RESOURCES %}
-      def {{method.id}}(path : Path, endpoint : HTTP::Handler.class)
-        @router.{{method.id}}("#{@scope}#{path}", endpoint, @namespace)
+      def initialize(@router : Router, @scope : String = "")
       end
-      {% end %}
     end
 
-    def routes(namespace : Symbol, scope : String = "")
-      with Builder.new(self, namespace, scope) yield
+    def routes(scope : String = "")
+      with Builder.new(self, scope) yield
     end
 
     def process(context : HTTP::Server::Context)
       result = RADIX.find path(context)
-      raise Response::NotFound.new(context.request.path) unless result.found?
+      return not_found(context).to_s(context) unless result.found?
       context.request.path_params = result.params
       route = result.payload
+      route.valid?(context)
+      context.response.content_type = route.content_type
       route.endpoint.call(context).to_s
     end
 
-    {% for method in RESOURCES %}
-    def {{method.id}}(path : Path, endpoint : HTTP::Handler.class, namespace : Symbol)
-      method = Method.parse({{method}})
-      add path, endpoint, namespace, method
-
-      {% if method == "get" %}
-      add path, endpoint, namespace, Method::Head
-
-      {% if !%w(trace connect options head).includes? method %}
-      add path, endpoint, namespace, Method::Options if method.add_options?
-      {% end %}
-      {% end %}
+    private def not_found(context)
+      ex = Response::NotFound.new(context.request.path)
+      context.response.status_code = ex.status_code
+      ContentNegotiator.content_type context
+      Log.error(exception: ex) { "Router: Error Processing Request ".colorize(:yellow) }
+      ex
     end
-    {% end %}
 
     # Registers the main route of the application
     #
@@ -74,7 +73,7 @@ module Azu
     # root :web, ExampleApp::HelloWorld
     # ```
     def root(endpoint : HTTP::Handler.class)
-      RADIX.add "/get/", Route.new(namespace: :none, endpoint: endpoint.new, resource: "/get/")
+      RADIX.add "/get/", Route.new(endpoint: endpoint.new, resource: "/get/", method: Method::Get)
     end
 
     # Registers a websocket route
@@ -87,15 +86,21 @@ module Azu
         channel.new(socket).call(context)
       end
       resource = "/ws#{path}"
-      RADIX.add resource, Route.new(:websocket, handler, resource)
+      RADIX.add resource, Route.new(handler, resource, Method::WebSocket)
     end
 
     # Registers a route for a given path
-    def add(path : Path, endpoint : HTTP::Handler.class, namespace : Symbol, method : Method)
+    def add(
+      path : Path,
+      endpoint : HTTP::Handler.class,
+      method : Method = Method::Any,
+      accept : String = "",
+      content_type : String = ""
+    )
       resource = "/#{method.to_s.downcase}#{path}"
-      RADIX.add resource, Route.new(namespace: namespace, endpoint: endpoint.new, resource: resource)
+      RADIX.add resource, Route.new(endpoint.new, resource, method, accept, content_type)
     rescue ex : Radix::Tree::DuplicateError
-      raise DuplicateRoute.new(namespace, method, path, endpoint.new)
+      raise DuplicateRoute.new(method, path, endpoint.new)
     end
 
     private def path(context)

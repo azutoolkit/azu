@@ -105,6 +105,21 @@ module Azu
       Backtrace: #{inspect_with_backtrace}
       TEXT
       end
+
+      def to_s(context : HTTP::Server::Context)
+        if accept = context.request.accept
+          accept.each do |a|
+            context.response << case a.sub_type.not_nil!
+            when .includes?("html")  then html(context)
+            when .includes?("json")  then json
+            when .includes?("xml")   then xml
+            when .includes?("plain") then text
+            else                          text
+            end
+            break
+          end
+        end
+      end
     end
 
     class Forbidden < Error

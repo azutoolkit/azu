@@ -22,6 +22,10 @@ module Azu
     def initialize(@socket : HTTP::WebSocket)
     end
 
+    def self.ws(path : Router::Path)
+      CONFIG.router.ws(path, self)
+    end
+
     abstract def on_connect
     abstract def on_message(message)
     abstract def on_binary(binary)

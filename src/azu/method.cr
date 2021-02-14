@@ -1,6 +1,7 @@
 module Azu
   # :nodoc:
   enum Method
+    WebSocket
     # The CONNECT method establishes a tunnel to the server identified by the target resource.
     Connect
     # The DELETE method deletes the specified resource.

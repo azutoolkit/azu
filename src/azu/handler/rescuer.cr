@@ -16,7 +16,6 @@ module Azu
         Log.warn(exception: ex) { "Error Processing Request #{ex.status_code}".colorize(:yellow) }
       rescue ex : Exception
         error = Response::Error.from_exception ex
-        context.response.status_code = error.status_code
         ContentNegotiator.content_type context
         Log.error(exception: ex) { "Error Processing Request ".colorize(:red) }
       end

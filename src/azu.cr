@@ -6,6 +6,7 @@ require "xml"
 require "colorize"
 require "schema"
 require "crinja"
+require "./azu/router"
 require "./azu/**"
 
 module Azu
@@ -15,10 +16,6 @@ module Azu
   macro included
     def self.configure
       with CONFIG yield CONFIG
-    end
-
-    def self.router
-      with CONFIG.router yield
     end
 
     def self.log
@@ -33,11 +30,15 @@ module Azu
       CONFIG
     end
 
+    def self.router
+      config.router
+    end
+
     def self.start
       server = if config.pipelines.empty?
-        HTTP::Server.new { |context| CONFIG.router.process(context) }
+        HTTP::Server.new do |context| router.process(context) end
       else
-        HTTP::Server.new(config.pipelines) { |context| CONFIG.router.process(context) }
+        HTTP::Server.new(config.pipelines) do |context| router.process(context) end
       end
 
       server.bind_tcp config.host, config.port, config.port_reuse

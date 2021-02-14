@@ -4,8 +4,10 @@ module ExampleApp
   end
 
   # Endpoints
-  class HelloWorld
-    include Azu::Endpoint(EmptyRequest, HtmlPage)
+  struct HelloWorld
+    include Endpoint(EmptyRequest, HtmlPage)
+
+    get "/hello", accept: "text/html", content_type: "text/html"
 
     def call : HtmlPage
       header "Custom", "Fake custom header"
@@ -13,8 +15,10 @@ module ExampleApp
     end
   end
 
-  class HtmlEndpoint
-    include Azu::Endpoint(ExampleReq, HtmlPage)
+  struct HtmlEndpoint
+    include Endpoint(ExampleReq, HtmlPage)
+
+    get "/hello/:name", accept: "text/html", content_type: "text/html"
 
     def call : HtmlPage
       example_req.validate!
@@ -23,8 +27,10 @@ module ExampleApp
     end
   end
 
-  class LoadTestEndpoint
-    include Azu::Endpoint(ExampleReq, HtmlPage)
+  struct LoadTestEndpoint
+    include Endpoint(ExampleReq, HtmlPage)
+
+    get "/load/:name", accept: "text/html", content_type: "text/html"
 
     def call : HtmlPage
       HtmlPage.new example_req.name
