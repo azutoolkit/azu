@@ -39,7 +39,6 @@ module Azu
       @context = context
       @params = Params.new(@context.not_nil!.request)
       context.response << call.to_s
-      ContentNegotiator.content_type(context)
       context
     end
 

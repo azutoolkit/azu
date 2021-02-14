@@ -30,15 +30,15 @@ module Azu
       CONFIG
     end
 
-    def self.router
-      config.router
-    end
-
     def self.start
       server = if config.pipelines.empty?
-        HTTP::Server.new do |context| router.process(context) end
+        HTTP::Server.new do |context| 
+          config.router.process(context) 
+        end
       else
-        HTTP::Server.new(config.pipelines) do |context| router.process(context) end
+        HTTP::Server.new(config.pipelines) do |context| 
+          config.router.process(context) 
+        end
       end
 
       server.bind_tcp config.host, config.port, config.port_reuse

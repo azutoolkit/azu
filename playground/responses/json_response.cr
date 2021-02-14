@@ -1,5 +1,5 @@
 module ExampleApp
-  struct JsonRes
+  struct JsonResponse
     include Response::Json
     include JSON::Serializable
 

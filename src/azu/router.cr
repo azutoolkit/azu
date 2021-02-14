@@ -54,7 +54,6 @@ module Azu
       return not_found(context).to_s(context) unless result.found?
       context.request.path_params = result.params
       route = result.payload
-      route.valid?(context)
       context.response.content_type = route.content_type
       route.endpoint.call(context).to_s
     end

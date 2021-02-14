@@ -4,10 +4,6 @@ module ExampleApp
   include Azu
   configure do
     templates.path = "playground/templates"
-    pipelines = [
-      Azu::Handler::Rescuer.new,
-      Azu::Handler::Logger.new,
-    ]
   end
 end
 
