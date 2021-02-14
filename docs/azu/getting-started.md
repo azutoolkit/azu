@@ -24,9 +24,9 @@ module ExampleApp
 end
 ```
 
-### Azu::Configuration
+### Configuration
 
-Learn more about [Azu::Configuration][]
+Learn more about [Configuration][]
 
 ```crystal
  Azu.configure do |c|
@@ -40,51 +40,25 @@ Learn more about [Azu::Configuration][]
  end
 ```
 
-### Azu::Pipeline
 
-```crystal
-ExampleApp::Pipeline[:web] = [
-  ExampleApp::Handler::Logger.new,
-]
-```
-
-Learn more about [Azu::Pipeline][]
-
-### Azu::Router
-
-Define a `src/routes.cr`.
-
-Learn more about [Azu::Router][]
-
-```crystal
-ExampleApp.router do
-  # Define root endpoint
-  root :web, ExampleApp::IndexEndpoint
-
-  # Define Websockets 
-  ws "/hi", ExampleApp::ExampleChannel
-
-  # Group Routes by pipelines and path
-  routes :web, "/test" do
-    get "/hello", ExampleApp::IndexEndpoint
-  end
-end
-```
-
-### Azu::Endpoint
+### Endpoint
 
 Azu Endpoints are compose of a Request and Response objects, enabling strict typing. 
 
-Read more about [Azu::Endpoint][]
+Read more about [Endpoint][]
 
 ```crystal
 module ExampleApp
   class IndexEndpoint 
     # Type Safe Endpoints
-    include Azu::Endpoint(IndexRequest, IndexResponse)
+    include Endpoint(IndexRequest, IndexResponse)
+
+    # Define your routes
+    get "/hello", accept: "text/plain", content_type: "text/html"
 
     def call
-      Azu::BadRequest.new(errors: req.errors.messages) unless request.valid?
+      # Built in Error Types
+      BadRequest.new(errors: req.errors.messages) unless request.valid?
 
       header "Custom", "Fake custom header"
       status 300
@@ -93,7 +67,7 @@ module ExampleApp
       
       IndexPage.new params.query["name"].as(String)
     rescue ex
-      raise Azu::BadRequest.from_exception(ex)
+      BadRequest.from_exception(ex)
     end
 
     # Create a request wrapper
@@ -104,17 +78,17 @@ module ExampleApp
 end
 ```
 
-### Azu::Request
+### Request
 
-Azu requests are define by either defining a `struct` or `class` that includes the `Azu::Request` module. 
+Azu requests are contracts that you can validate 
 
-Read more about [Azu::Request][]
+Read more about [Request][]
 
 ```crystal
 module ExampleApp
-  class IndexRequest
-    # Defines this class as an Azu::Request 
-    include Azu::Request
+  struct IndexRequest
+    # Request Type
+    include Request
 
     # Defines your request object expected properties 
     # (query, form, path) macros are available
@@ -122,7 +96,8 @@ module ExampleApp
       message: "Param name must be string.", 
       presence: true
 
-    # Without type safe params
+    # Without type safe params you can access params
+    # params.query["name"] params is also available on Endpoints
     def name
       params.query["name"]
     end
@@ -130,17 +105,17 @@ module ExampleApp
 end
 ```
 
-### Azu::Response
+### Response
 
 Azu responses are define by including one of the response types `Html`, `Error`, `Json`, `Text`, `Xml`. 
 
-Read more about [Azu::Response][]
+Read more about [Response][]
 
 ```crystal
 module ExampleApp
   class IndexPage
     # Enables HTML Responses
-    include Azu::Html
+    include Html
     
     def initialize(@name : String)
     end
