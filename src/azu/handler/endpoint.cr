@@ -43,12 +43,10 @@ module Azu
     end
 
     macro included
-      {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
-
       {% for method in Azu::Router::RESOURCES %}
-      def self.{{method.id}}(path : Router::Path, accept = "", content_type = "")
+      def self.{{method.id}}(path : Router::Path)
         method = Method.parse({{method}})
-        CONFIG.router.add path, self, method, accept, content_type
+        CONFIG.router.add path, self, method
 
         {% if method == "get" %}
         CONFIG.router.add path, self, Method::Head
@@ -59,6 +57,8 @@ module Azu
         {% end %}
       end
       {% end %}
+
+      {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
 
       def {{request_name}} : Request
         @request_object ||= case context.request.content_type.sub_type

@@ -21,20 +21,12 @@ module Azu
     RADIX     = Radix::Tree(Route).new
     RESOURCES = %w(connect delete get head options patch post put trace)
 
-    record Route,
-      endpoint : HTTP::Handler,
-      resource : String, method : Method,
-      accept : String = "", content_type : String = "" do
-      def valid?(context)
-        request_accecpt = context.request.headers["Accept"]?
-        request_content = context.request.headers["Content-Type"]?
-      end
-    end
+    record Route, 
+      endpoint : HTTP::Handler,  
+      resource : String, 
+      method : Method
 
     class DuplicateRoute < Exception
-      def initialize(@method : Method, @path : Path, @endpoint : HTTP::Handler)
-        super "http_method: #{method}, path: #{path}, endpoint: #{endpoint}"
-      end
     end
 
     # The Router::Builder class allows you to build routes more easily
@@ -54,14 +46,11 @@ module Azu
       return not_found(context).to_s(context) unless result.found?
       context.request.path_params = result.params
       route = result.payload
-      context.response.content_type = route.content_type
       route.endpoint.call(context).to_s
     end
 
     private def not_found(context)
       ex = Response::NotFound.new(context.request.path)
-      context.response.status_code = ex.status_code
-      ContentNegotiator.content_type context
       Log.error(exception: ex) { "Router: Error Processing Request ".colorize(:yellow) }
       ex
     end
@@ -89,17 +78,11 @@ module Azu
     end
 
     # Registers a route for a given path
-    def add(
-      path : Path,
-      endpoint : HTTP::Handler.class,
-      method : Method = Method::Any,
-      accept : String = "",
-      content_type : String = ""
-    )
+    def add(path : Path, endpoint : HTTP::Handler.class,  method : Method = Method::Any)
       resource = "/#{method.to_s.downcase}#{path}"
-      RADIX.add resource, Route.new(endpoint.new, resource, method, accept, content_type)
+      RADIX.add resource, Route.new(endpoint.new, resource, method)
     rescue ex : Radix::Tree::DuplicateError
-      raise DuplicateRoute.new(method, path, endpoint.new)
+      raise DuplicateRoute.new("http_method: #{method}, path: #{path}, endpoint: #{endpoint}")
     end
 
     private def path(context)

@@ -11,12 +11,10 @@ module Azu
       rescue ex : HTTP::Server::ClientError
         @log.debug(exception: ex.cause) { ex.message }
       rescue ex : Response::Error
-        context.response.status_code = ex.status_code
-        ContentNegotiator.content_type context
+        ex.to_s(context)
         Log.warn(exception: ex) { "Error Processing Request #{ex.status_code}".colorize(:yellow) }
       rescue ex : Exception
-        error = Response::Error.from_exception ex
-        ContentNegotiator.content_type context
+        Response::Error.from_exception(ex).to_s(context)
         Log.error(exception: ex) { "Error Processing Request ".colorize(:red) }
       end
     end
