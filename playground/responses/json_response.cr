@@ -1,12 +1,12 @@
 module ExampleApp
   struct JsonResponse
-    include Response::Json
     include JSON::Serializable
+    include Response
 
     def initialize(@request : JsonReq)
     end
 
-    def json
+    def render
       @request.to_json
     end
   end

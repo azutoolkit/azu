@@ -106,6 +106,9 @@ module Azu
       TEXT
       end
 
+      def render
+      end
+
       def to_s(context : HTTP::Server::Context)
         if accept = context.request.accept
           accept.each do |a|

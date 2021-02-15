@@ -1,9 +1,14 @@
 module Azu
-  # :nodoc:
   class Templates
     private getter crinja = Crinja.new
     getter path : String
     getter error_path : String
+
+    module Renderable
+      def render(template : String, data)
+        CONFIG.templates.load(template).render(data)
+      end
+    end
 
     def initialize(@path : String, @error_path : String)
       crinja.loader = Crinja::Loader::FileSystemLoader.new([path, error_path])

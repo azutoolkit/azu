@@ -1,11 +1,12 @@
 module ExampleApp
   struct HtmlPage
-    include Response::Html
+    include Response
+    include Templates::Renderable
 
     def initialize(@name : String)
     end
 
-    def html
+    def render
       render "example.html", {name: @name}
     end
   end

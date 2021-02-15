@@ -30,5 +30,6 @@ module Azu
   # end
   # ```
   module Response
+    abstract def render
   end
 end

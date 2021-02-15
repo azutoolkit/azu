@@ -1,8 +1,8 @@
 module ExampleApp
   struct TextResponse
-    include Response::Text
+    include Response
 
-    def text
+    def render
       "Hello World!"
     end
   end

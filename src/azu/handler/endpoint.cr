@@ -38,7 +38,7 @@ module Azu
     def call(context : HTTP::Server::Context)
       @context = context
       @params = Params.new(@context.not_nil!.request)
-      context.response << call.to_s
+      context.response << call.render
       context
     end
 
@@ -68,8 +68,8 @@ module Azu
       end
     end
 
-    private def content_type=(type : String)
-      @context.response.content_type = type
+    private def content_type(type : String)
+      context.response.content_type = type
     end
 
     private def params : Params
