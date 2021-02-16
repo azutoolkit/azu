@@ -23,27 +23,27 @@ describe Azu do
     it "returns request not found" do
       response = client.get "/invalid_path", headers: HTTP::Headers{"Accept" => "text/plain"}
       response.status_code.should eq 404
-      response.body.should contain %q(Source: /invalid_path)
+      response.body.should contain "Source: /invalid_path"
     end
 
-    it "returns params missing" do
-      response = client.get "/hello", headers: HTTP::Headers{"Accept" => "text/plain"}
+    it "displays hello world" do
+      response = client.get "/html/world", headers: HTTP::Headers{"Accept" => "text/plain"}
       response.status_code.should eq 200
-      response.body.should contain %q(Welcome, World!)
+      response.body.should contain %q(Welcome, world)
     end
   end
 
   describe "Render HTML" do
     it "returns valid html" do
       name = "santa"
-      response = client.get "/hello/#{name}", headers: HTTP::Headers{"Accept" => "text/plain"}
+      response = client.get "/html/#{name}", headers: HTTP::Headers{"Accept" => "text/plain"}
       response.status_code.should eq 200
       response.body.should contain %(Welcome, #{name})
     end
   end
 
   describe "Http headers" do
-    path = "/hello?name=Elias"
+    path = "/html?name=Elias"
     response = client.get path, headers: HTTP::Headers{"Accept" => "text/plain"}
 
     it "can set headers" do

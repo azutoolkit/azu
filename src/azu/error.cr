@@ -110,6 +110,7 @@ module Azu
       end
 
       def to_s(context : HTTP::Server::Context)
+        context.response.status_code = status_code
         if accept = context.request.accept
           accept.each do |a|
             context.response << case a.sub_type.not_nil!

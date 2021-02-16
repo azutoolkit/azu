@@ -21,9 +21,9 @@ module Azu
     RADIX     = Radix::Tree(Route).new
     RESOURCES = %w(connect delete get head options patch post put trace)
 
-    record Route, 
-      endpoint : HTTP::Handler,  
-      resource : String, 
+    record Route,
+      endpoint : HTTP::Handler,
+      resource : String,
       method : Method
 
     class DuplicateRoute < Exception
@@ -78,7 +78,7 @@ module Azu
     end
 
     # Registers a route for a given path
-    def add(path : Path, endpoint : HTTP::Handler.class,  method : Method = Method::Any)
+    def add(path : Path, endpoint : HTTP::Handler.class, method : Method = Method::Any)
       resource = "/#{method.to_s.downcase}#{path}"
       RADIX.add resource, Route.new(endpoint.new, resource, method)
     rescue ex : Radix::Tree::DuplicateError

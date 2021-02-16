@@ -1,11 +1,26 @@
 module Azu
+  # Templates are used by Azu when rendering responses.
+  #
+  # Since many views render significant content, for example a
+  # whole HTML file, it is common to put these files into a particular
+  # directory, typically "src/templates".
+  #
+  # This module provides conveniences for reading all files from a particular
+  # directory and embedding them into a single module. Imagine you have a directory with templates:
+  #
+  # Templates::Renderable will define a private function named `render(template : String, data)` with
+  # one clause per file system template.
+  #
+  # ```
+  # render(template : String, data)
+  # ```
   class Templates
     private getter crinja = Crinja.new
     getter path : String
     getter error_path : String
 
     module Renderable
-      def render(template : String, data)
+      private def render(template : String, data)
         CONFIG.templates.load(template).render(data)
       end
     end

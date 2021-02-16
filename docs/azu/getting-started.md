@@ -21,31 +21,22 @@ require "azu"
 
 module ExampleApp
   include Azu
+
+  configure do |c|
+    c.port = 4000
+    c.host = localhost
+    c.port_reuse = true
+    c.log = Log.for("My Awesome App")
+    c.env = Environment::Development
+    c.template.path = "./templates"
+    c.template.error_path = "./error_template"
+  end
 end
 ```
-
-### Configuration
-
-Learn more about [Configuration][]
-
-```crystal
- Azu.configure do |c|
-   c.port = 4000
-   c.host = localhost
-   c.port_reuse = true
-   c.log = Log.for("My Awesome App")
-   c.env = Environment::Development
-   c.template.path = "./templates"
-   c.etemplate.error_path = "./error_template"
- end
-```
-
 
 ### Endpoint
 
 Azu Endpoints are compose of a Request and Response objects, enabling strict typing. 
-
-Read more about [Endpoint][]
 
 ```crystal
 module ExampleApp
@@ -53,26 +44,20 @@ module ExampleApp
     # Type Safe Endpoints
     include Endpoint(IndexRequest, IndexResponse)
 
-    # Define your routes
-    get "/hello", accept: "text/plain", content_type: "text/html"
+    # Define the route for the endpoint
+    get "/hello/:name"
 
     def call
       # Built in Error Types
-      BadRequest.new(errors: req.errors.messages) unless request.valid?
+      return BadRequest.new(errors: req.errors.messages) unless index_request.valid?
 
+      status 200
+      content_type "text/html"
       header "Custom", "Fake custom header"
-      status 300
 
       # ...call to domain layer...
       
-      IndexPage.new params.query["name"].as(String)
-    rescue ex
-      BadRequest.from_exception(ex)
-    end
-
-    # Create a request wrapper
-    def index_request
-      IndexRequest.new params
+      IndexPage.new index_request.name
     end
   end
 end
@@ -81,8 +66,6 @@ end
 ### Request
 
 Azu requests are contracts that you can validate 
-
-Read more about [Request][]
 
 ```crystal
 module ExampleApp
@@ -107,15 +90,14 @@ end
 
 ### Response
 
-Azu responses are define by including one of the response types `Html`, `Error`, `Json`, `Text`, `Xml`. 
-
-Read more about [Response][]
+Azu responses are define by including the `Response` module. 
 
 ```crystal
 module ExampleApp
-  class IndexPage
-    # Enables HTML Responses
-    include Html
+  class IndexPclassage
+    include Markup
+    include Response
+    include Templates::Renderable
     
     def initialize(@name : String)
     end
