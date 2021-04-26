@@ -1,4 +1,6 @@
-# Introduction
+<div style="text-align:center"><img src="https://raw.githubusercontent.com/azutoolkit/azu/master/azu.png" /></div>
+
+# Azu
 
 [![Codacy Badge](https://api.codacy.com/project/badge/Grade/b58f03f01de241e0b75f222e31d905d7)](https://www.codacy.com/manual/eliasjpr/azu?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=eliasjpr/azu&amp;utm_campaign=Badge_Grade) ![Crystal CI](https://github.com/eliasjpr/azu/workflows/Crystal%20CI/badge.svg?branch=master)
 
