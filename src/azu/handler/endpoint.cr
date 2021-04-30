@@ -61,7 +61,7 @@ module Azu
       {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
 
       def {{request_name}} : Request
-        @request_object ||= case context.request.content_type.sub_type
+        @request_object = case context.request.content_type.sub_type
         when "json" then Request.from_json(context.request.body.not_nil!)
         else             Request.new(params)
         end
