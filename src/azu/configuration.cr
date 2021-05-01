@@ -30,7 +30,7 @@ module Azu
     property host : String = ENV.fetch("HOST", "0.0.0.0")
     property log : Log = Log.for("Azu")
     property env : Environment = Environment.parse(ENV.fetch("CRYSTAL_ENV", "development"))
-    property pipelines = [] of HTTP::Handler
+    property handlers = [] of HTTP::Handler
 
     getter router : Router = Router.new
     getter templates : Templates = Templates.new(

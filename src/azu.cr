@@ -31,12 +31,12 @@ module Azu
     end
 
     def self.start
-      server = if config.pipelines.empty?
+      server = if config.handlers.empty?
         HTTP::Server.new do |context| 
           config.router.process(context) 
         end
       else
-        HTTP::Server.new(config.pipelines) do |context| 
+        HTTP::Server.new(config.handlers) do |context| 
           config.router.process(context) 
         end
       end
