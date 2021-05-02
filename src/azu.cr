@@ -10,7 +10,7 @@ require "./azu/router"
 require "./azu/**"
 
 module Azu
-  VERSION = "0.1.1"
+  VERSION = "0.1.5"
   CONFIG  = Configuration.new
 
   macro included
@@ -30,15 +30,11 @@ module Azu
       CONFIG
     end
 
-    def self.start
-      server = if config.handlers.empty?
-        HTTP::Server.new do |context| 
-          config.router.process(context) 
-        end
+    def self.start(handlers : Array(HTTP::Handler)?)
+      server = if handlers.empty?
+        HTTP::Server.new { |context| config.router.process(context) }
       else
-        HTTP::Server.new(config.handlers) do |context| 
-          config.router.process(context) 
-        end
+        HTTP::Server.new(handlers) { |context| config.router.process(context) }
       end
 
       server.bind_tcp config.host, config.port, config.port_reuse

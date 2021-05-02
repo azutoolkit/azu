@@ -12,4 +12,7 @@ require "./responses/*"
 require "./endpoints/*"
 require "./channels/*"
 
-ExampleApp.start
+ExampleApp.start [
+  Azu::Handler::Rescuer.new,
+  Azu::Handler::Logger.new,
+]

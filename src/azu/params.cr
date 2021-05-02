@@ -2,7 +2,7 @@ require "http"
 require "json"
 
 module Azu
-  class Params
+  class Params(Request)
     CONTENT_TYPE     = "Content-Type"
     URL_ENCODED_FORM = "application/x-www-form-urlencoded"
     MULTIPART_FORM   = "multipart/form-data"
@@ -12,15 +12,23 @@ module Azu
     getter query : HTTP::Params
     getter form : HTTP::Params
     getter path : Hash(String, String)
+    getter request : Request? = nil
+    getter json : String? = nil
 
     def initialize(request : HTTP::Request)
       @query = request.query_params
       @path = request.path_params
+      @form = HTTP::Params.new
 
       case request.content_type.sub_type
-      when "x-www-form-urlencoded" then @form = Form.parse(request)
-      when "form-data"             then @form, @files = Multipart.parse(request)
-      else                              @form = HTTP::Params.new
+      when "json"
+        @json = request.body.not_nil!.gets_to_end
+      when "x-www-form-urlencoded"
+        @form = Form.parse(request)
+      when "form-data"
+        @form, @files = Multipart.parse(request)
+      else
+        @form = HTTP::Params.new
       end
     end
 

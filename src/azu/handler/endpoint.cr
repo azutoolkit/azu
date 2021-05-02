@@ -29,7 +29,7 @@ module Azu
     include HTTP::Handler
 
     @context : HTTP::Server::Context? = nil
-    @parmas : Params? = nil
+    @parmas : Params(Request)? = nil
     @request_object : Request? = nil
 
     abstract def call : Response
@@ -37,7 +37,7 @@ module Azu
     # :nodoc:
     def call(context : HTTP::Server::Context)
       @context = context
-      @params = Params.new(@context.not_nil!.request)
+      @params = Params(Request).new(@context.not_nil!.request)
       context.response << call.render
       context
     end
@@ -45,26 +45,15 @@ module Azu
     macro included
       {% for method in Azu::Router::RESOURCES %}
       def self.{{method.id}}(path : Router::Path)
-        method = Method.parse({{method}})
-        CONFIG.router.add path, self, method
-
-        {% if method == "get" %}
-        CONFIG.router.add path, self, Method::Head
-
-        {% if !%w(trace connect options head).includes? method %}
-        CONFIG.router.add path, self, Method::Options if method.add_options?
-        {% end %}
-        {% end %}
+        CONFIG.router.{{method.id}} path, self.new
       end
       {% end %}
 
       {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
 
       def {{request_name}} : Request
-        @request_object = case context.request.content_type.sub_type
-        when "json" then Request.from_json(context.request.body.not_nil!)
-        else             Request.new(params)
-        end
+        return Request.from_json(params.json.not_nil!) if params.json 
+        Request.new(params)
       end
     end
 

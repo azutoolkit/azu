@@ -37,6 +37,21 @@ module Azu
       end
     end
 
+    {% for method in RESOURCES %}
+      def {{method.id}}(path : Router::Path, handler : HTTP::Handler)
+        method = Method.parse({{method}})
+        add path, handler, method
+
+        {% if method == "get" %}
+          add path, handler, Method::Head
+
+          {% if !%w(trace connect options head).includes? method %}
+          add path, handler, Method::Options if method.add_options?
+          {% end %}
+        {% end %}
+      end
+    {% end %}
+
     def routes(scope : String = "")
       with Builder.new(self, scope) yield
     end
@@ -60,8 +75,8 @@ module Azu
     # ```
     # root :web, ExampleApp::HelloWorld
     # ```
-    def root(endpoint : HTTP::Handler.class)
-      RADIX.add "/get/", Route.new(endpoint: endpoint.new, resource: "/get/", method: Method::Get)
+    def root(endpoint : HTTP::Handler)
+      RADIX.add "/get/", Route.new(endpoint: endpoint, resource: "/get/", method: Method::Get)
     end
 
     # Registers a websocket route
@@ -78,9 +93,9 @@ module Azu
     end
 
     # Registers a route for a given path
-    def add(path : Path, endpoint : HTTP::Handler.class, method : Method = Method::Any)
+    def add(path : Path, endpoint : HTTP::Handler, method : Method = Method::Any)
       resource = "/#{method.to_s.downcase}#{path}"
-      RADIX.add resource, Route.new(endpoint.new, resource, method)
+      RADIX.add resource, Route.new(endpoint, resource, method)
     rescue ex : Radix::Tree::DuplicateError
       raise DuplicateRoute.new("http_method: #{method}, path: #{path}, endpoint: #{endpoint}")
     end

@@ -12,6 +12,6 @@ describe Azu::Router do
   path = "/example_router"
 
   it "adds endpoint" do
-    router.add "/", ExampleEndpoint, Azu::Method::Get
+    router.add "/", ExampleEndpoint.new, Azu::Method::Get
   end
 end

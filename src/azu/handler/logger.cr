@@ -4,6 +4,7 @@ module Azu
   module Handler
     class Logger
       include HTTP::Handler
+
       getter log : ::Log
 
       def initialize(@log : ::Log = CONFIG.log)
