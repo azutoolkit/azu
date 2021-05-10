@@ -4,6 +4,12 @@ module Azu
   class Spark < Channel
     COMPONENTS = {} of String => Component
 
+    def self.javascript_tag
+      <<-JS
+
+      JS
+    end
+
     def on_binary(binary); end
 
     def on_ping(message); end
