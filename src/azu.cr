@@ -10,7 +10,7 @@ require "./azu/router"
 require "./azu/**"
 
 module Azu
-  VERSION = "0.1.5"
+  VERSION = "0.1.7"
   CONFIG  = Configuration.new
 
   macro included

@@ -1,5 +1,5 @@
 name: azu
-version: 0.1.5
+version: 0.1.7
 
 authors:
   - Elias J. Perez <eliasjpr@gmail.com>
@@ -24,4 +24,4 @@ dependencies:
 
   crinja: 
     github: straight-shoota/crinja
-    version: 0.7.0
+    version: 0.8.0
