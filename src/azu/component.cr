@@ -57,7 +57,7 @@ module Azu
     def render
       content
       <<-HTML
-      <div data-live-view="#{id}">
+      <div data-spark-view="#{id}">
         <div>#{to_s}</div>
       </div>
       HTML

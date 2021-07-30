@@ -10,8 +10,7 @@ require "./azu/router"
 require "./azu/**"
 
 module Azu
-  VERSION = "0.1.7"
-  CONFIG  = Configuration.new
+  CONFIG = Configuration.new
 
   macro included
     def self.configure
@@ -30,7 +29,7 @@ module Azu
       CONFIG
     end
 
-    def self.start(handlers : Array(HTTP::Handler)?)
+    def self.start(handlers : Array(HTTP::Handler))
       server = if handlers.empty?
         HTTP::Server.new { |context| config.router.process(context) }
       else
