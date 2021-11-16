@@ -36,7 +36,11 @@ module Azu
         HTTP::Server.new(handlers) { |context| config.router.process(context) }
       end
 
-      server.bind_tcp config.host, config.port, config.port_reuse
+      if config.tls?
+        server.bind_tls config.host, config.port, config.tls, config.port_reuse
+      else
+        server.bind_tcp config.host, config.port, config.port_reuse
+      end
 
       Signal::INT.trap do
         Signal::INT.reset
