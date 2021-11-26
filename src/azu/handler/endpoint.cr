@@ -103,7 +103,7 @@ module Azu
     end
 
     private def error(message : String, status : Int32 = 400, errors = [] of String)
-      Response::Error.new(message, HTTP::Status.new(status), errors)
+      Azu::Response::Error.new(message, HTTP::Status.new(status), errors)
     end
   end
 end
