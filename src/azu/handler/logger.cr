@@ -39,8 +39,9 @@ module Azu
       private def message(addr, req, res, elapsed_text)
         String.build do |str|
           str << addr.colorize(:green).underline
-          str << entry(:Address, addr, :green)
-          str << entry(:Method, req.method, :green)
+          str << " ⤑ ".colorize(:green)
+          str << entry(:Address, addr, :white)
+          str << entry(:Method, req.method, :yellow)
           str << entry(:Path, req.resource, :light_blue)
           str << status(:Status, http_status(res.status_code))
           str << entry(:Latency, elapsed_text, :green)
@@ -55,7 +56,6 @@ module Azu
 
       private def entry(key, message, color)
         String.build do |str|
-          str << " ⤑ ".colorize(:green)
           str << "#{key}: ".colorize(:white)
           str << message.colorize(color)
         end
