@@ -39,7 +39,7 @@ module Azu
       private def message(addr, req, res, elapsed_text)
         String.build do |str|
           str << addr.colorize(:green).underline
-          str << " ⤑ ".colorize(:green)
+          str << " ⤑ "
           str << req.method.colorize(:yellow)
           str << entry(:Path, req.resource, :light_blue)
           str << status(:Status, res.status_code)
