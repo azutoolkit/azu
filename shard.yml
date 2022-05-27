@@ -1,27 +1,19 @@
 name: azu
-version: 0.2.0
-
+version: 0.2.1
 authors:
   - Elias J. Perez <eliasjpr@gmail.com>
-
-crystal: ">= 0.35.0"
-
+crystal: '>= 0.35.0'
 license: MIT
-
 targets:
   example_app:
     main: playground/example_app.cr
-
 dependencies:
   radix:
     github: luislavena/radix
-  
   exception_page:
     github: crystal-loot/exception_page
-  
-  schema: 
+  schema:
     github: eliasjpr/schema
-
-  crinja: 
+  crinja:
     github: straight-shoota/crinja
     version: 0.8.0
