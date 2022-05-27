@@ -9,10 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     container:
       image: crystallang/crystal
-
     steps:
       - uses: actions/checkout@v2
 
@@ -69,10 +67,10 @@ jobs:
           value: ${{steps.semver.outputs.version}}
           commitChange: true
           updateFile: true
-          targetBranch: main
-          masterBranchName: main
+          targetBranch: master
+          masterBranchName: master
           createPR: false
-          branch: main
+          branch: master
           message: Set shard version ${{ steps.semver.outputs.version }}
 
       - name: Create Release
