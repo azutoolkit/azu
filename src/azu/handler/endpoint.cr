@@ -92,7 +92,7 @@ module Azu
     private def redirect(to location : String, status : Int32 = 301)
       status status
       header "Location", location
-      Response::Empty.new
+      Azu::Response::Empty.new
     end
 
     private def cookies(cookie : HTTP::Cookie)
