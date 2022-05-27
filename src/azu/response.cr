@@ -32,4 +32,10 @@ module Azu
   module Response
     abstract def render
   end
+
+  class EmptyResponse
+    include Response
+
+    def render; end
+  end
 end
