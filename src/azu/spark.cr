@@ -5,24 +5,24 @@ module Azu
     COMPONENTS  = {} of String => Component
     GC_INTERVAL = 10.seconds
 
+    gc_sweep
+
     def self.javascript_tag
       <<-JS
 
       JS
     end
 
-    spawn do
-      loop do
-        sleep GC_INTERVAL
-        gc_sweep
-      end
-    end
-
-    private def gc_sweep
-      COMPONENTS.delete_if do |key, component|
-        component.dicconnected? && (
-          conponent.mounted? || conponent.age > GC_INTERVAL
-        )
+    private def self.gc_sweep
+      spawn do
+        loop do
+          sleep GC_INTERVAL
+          COMPONENTS.reject! do |key, component|
+            component.dicconnected? && (
+              component.mounted? || component.age > GC_INTERVAL
+            )
+          end
+        end
       end
     end
 
