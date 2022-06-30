@@ -39,8 +39,10 @@ module Azu
         data = json["data"].not_nil!
         COMPONENTS[spark].on_event(event_name.not_nil!, data)
       end
-    rescue ex : IO::Error
-      puts "Socket closed"
+    rescue IO::Error
+      # This happens when a socket closes at just the right time
+    rescue ex
+      ex.inspect STDERR
     end
   end
 end

@@ -47,6 +47,10 @@ module Azu
           sleep duration
           block.call if connected?
         end
+      rescue IO::Error
+        # This happens when a socket closes at just the right time
+      rescue ex
+        ex.inspect STDERR
       end
     end
 
