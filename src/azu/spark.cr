@@ -2,12 +2,28 @@ require "uuid"
 
 module Azu
   class Spark < Channel
-    COMPONENTS = {} of String => Component
+    COMPONENTS  = {} of String => Component
+    GC_INTERVAL = 10.seconds
 
     def self.javascript_tag
       <<-JS
 
       JS
+    end
+
+    spawn do
+      loop do
+        sleep GC_INTERVAL
+        gc_sweep
+      end
+    end
+
+    private def gc_sweep
+      COMPONENTS.delete_if do |key, component|
+        component.dicconnected? && (
+          conponent.mounted? || conponent.age > GC_INTERVAL
+        )
+      end
     end
 
     def on_binary(binary); end
@@ -23,6 +39,7 @@ module Azu
       COMPONENTS.each do |id, component|
         component.unmount
         COMPONENTS.delete id
+      rescue KeyError
       end
     end
 
@@ -36,11 +53,10 @@ module Azu
         COMPONENTS[spark].mount
       elsif event_name = json["event"]?
         spark = json["channel"].not_nil!
-        data = json["data"].not_nil!
-        COMPONENTS[spark].on_event(event_name.not_nil!, data)
+        data = json["data"].not_nil!.as_s
+        COMPONENTS[spark].on_event(event_name.as_s, data)
       end
     rescue IO::Error
-      # This happens when a socket closes at just the right time
     rescue ex
       ex.inspect STDERR
     end

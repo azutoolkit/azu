@@ -6,14 +6,25 @@ module Azu
 
     property? connected = false
     getter id : String = UUID.random.to_s
+    getter? mounted = false
     @socket : HTTP::WebSocket? = nil
+    @created_at = Time.utc
 
     macro included
       def self.mount(**args)
+        @mounted = true
         component = new **args
         Azu::Spark::COMPONENTS[component.id] = component
         component.render
       end
+    end
+
+    def dicconnected?
+      !connected?
+    end
+
+    def age
+      Time.utc - @created_at
     end
 
     def mount
