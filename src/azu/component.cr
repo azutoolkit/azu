@@ -1,19 +1,20 @@
 require "./markup"
+require "uuid"
 
 module Azu
   module Component
     include Markup
-
+    property? mounted = false
     property? connected = false
     getter id : String = UUID.random.to_s
-    getter? mounted = false
+
     @socket : HTTP::WebSocket? = nil
     @created_at = Time.utc
 
     macro included
       def self.mount(**args)
-        @mounted = true
         component = new **args
+        component.mounted = true
         Azu::Spark::COMPONENTS[component.id] = component
         component.render
       end
