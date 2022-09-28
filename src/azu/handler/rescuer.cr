@@ -12,10 +12,10 @@ module Azu
         @log.debug(exception: ex.cause) { ex.message }
       rescue ex : Response::Error
         ex.to_s(context)
-        Log.warn(exception: ex) { "Error Processing Request #{ex.status_code}".colorize(:yellow) }
+        @log.warn(exception: ex) { "Error Processing Request #{ex.status_code}".colorize(:yellow) }
       rescue ex : Exception
         Response::Error.from_exception(ex).to_s(context)
-        Log.error(exception: ex) { "Error Processing Request ".colorize(:red) }
+        @log.error(exception: ex) { "Error Processing Request ".colorize(:red) }
       end
     end
   end
