@@ -1,7 +1,7 @@
 require "../spec_helper"
 
 describe Azu::Channel do
-  it "sends socket message" do
+  pending "sends socket message" do
     result = nil
     socket = HTTP::WebSocket.new URI.parse("ws://localhost:4000/hi")
     socket.on_message { |msg| result = msg }
@@ -13,7 +13,7 @@ describe Azu::Channel do
     result.should eq "Polo!"
   end
 
-  it "removes subscriber on disconnect" do
+  pending "removes subscriber on disconnect" do
     result = nil
     socket = HTTP::WebSocket.new URI.parse("ws://localhost:4000/hi")
     HTTP::WebSocket.new URI.parse("ws://localhost:4000/hi")
