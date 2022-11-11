@@ -20,8 +20,16 @@ module Azu
     getter error_path : String
 
     module Renderable
-      private def render(template : String, data)
+      private def view(template : String = page_path, data = Hash(String, String).new)
         CONFIG.templates.load(template).render(data)
+      end
+
+      private def render(template : String = page_path, data = Hash(String, String).new)
+        view template, data
+      end
+
+      def page_path
+        "#{self.class.name.split("::")[1..-1].join("/").underscore.downcase}.jinja"
       end
     end
 
