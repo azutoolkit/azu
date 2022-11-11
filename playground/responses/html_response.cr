@@ -7,7 +7,7 @@ module ExampleApp
     end
 
     def render
-      render "example.html", {name: @name}
+      view "example.html", {name: @name}
     end
   end
 end
