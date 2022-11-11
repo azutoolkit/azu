@@ -32,6 +32,8 @@ module Azu
     @parmas : Params(Request)? = nil
     @request_object : Request? = nil
 
+    @@resource : String? = nil
+
     abstract def call : Response
 
     # :nodoc:
@@ -45,10 +47,15 @@ module Azu
     macro included
       {% for method in Azu::Router::RESOURCES %}
       def self.{{method.id}}(path : Router::Path)
+        @@resource = path
         CONFIG.router.{{method.id}} path, self.new
       end
       {% end %}
 
+      def self.path
+        @@resource
+      end
+      
       {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
 
       def {{request_name}} : Request
