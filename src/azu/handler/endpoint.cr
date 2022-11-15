@@ -1,21 +1,10 @@
 module Azu
-  # Defines a Azu endpoint.
-  # The endpoint is the final stage of the request process
-  # Each endpoint is the location from which APIs can access the resources of your application
-  # to carry out their function.
+  # An Endpoint is an endpoint that handles incoming HTTP requests for a specific route.
+  # In a Azu application, an endpoint is a simple testable object.
   #
-  # Azu endpoints is a simple module that defines the request and response object
-  # to execute your application business domain logic. Endpoints specify where resources can be
-  # accessed by APIs and the key role is to guarantee the correct functioning of the calls.
-  #
-  # ## Correctness
-  #
-  # To ensure correctness Azu Endpoints are design with the Request and Response pattern in mind
-  # you can think of it as input and output to a function, where the request is the input and the
-  # response is the output.
-  #
-  # Request and Response objects are type safe objects that can be designed by contract.
-  # Read more about `Azu::Contract`
+  # This design provides self contained actions that don’t share their context
+  # accidentally with other actions. It also prevents gigantic controllers.
+  # It has several advantages in terms of testability and control of an endpoint.
   #
   # ```
   # module ExampleApp
@@ -32,6 +21,15 @@ module Azu
     @parmas : Params(Request)? = nil
     @request_object : Request? = nil
 
+    # When we include Endpoint module, we make our object compliant with Azu
+    # Endpoints by implementing the #call, which is a method that accepts no
+    # arguments
+    #
+    # ```
+    # def call : IndexPage
+    #   IndexPage.new
+    # end
+    # ```
     abstract def call : Response
 
     # :nodoc:
@@ -57,52 +55,64 @@ module Azu
       end
     end
 
+    # Sets the content type for a response
     private def content_type(type : String)
       context.response.content_type = type
     end
 
+    # Gets requests parameters
     private def params : Params
       @params.not_nil!
     end
 
+    # Gets the request `raw` context
     private def context : HTTP::Server::Context
       @context.not_nil!
     end
 
+    # Gets the request http method
     private def method
       Method.parse(context.request.method)
     end
 
+    # Gets the HTTP headers for a request
     private def header
       context.request.headers
     end
 
+    # Gets the request body as json when accepts equals to `application/json`
     private def json
       JSON.parse(body.to_s)
     end
 
+    # Gets the http request cookies
     private def cookies
       context.request.cookies
     end
 
+    # Sets response headers
     private def header(key : String, value : String)
       context.response.headers[key] = value
     end
 
+    # Sets redirect header
     private def redirect(to location : String, status : Int32 = 301)
       status status
       header "Location", location
       Azu::Response::Empty.new
     end
 
+    # Adds http cookie to the response
     private def cookies(cookie : HTTP::Cookie)
       context.response.cookies << cookie
     end
 
+    # Sets http staus to the response
     private def status(status : Int32)
       context.response.status_code = status
     end
 
+    # Defines a an Azu error response
     private def error(message : String, status : Int32 = 400, errors = [] of String)
       Azu::Response::Error.new(message, HTTP::Status.new(status), errors)
     end

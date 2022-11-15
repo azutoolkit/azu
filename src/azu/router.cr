@@ -1,11 +1,13 @@
 require "http/web_socket"
 
 module Azu
-  # Azu routing class that allows you to define routes for your application.
+  # Defines an Azu Router
   #
+  # The router provides a set of methods for mapping routes that dispatch to
+  # specific endpoints or handers. For example
   #
   # ```
-  # ExampleApp.router do
+  # MyAppWeb.router do
   #   root :web, ExampleApp::HelloWorld
   #   ws "/hi", ExampleApp::ExampleChannel
   #
@@ -15,6 +17,21 @@ module Azu
   #     get "/hello/json", ExampleApp::JsonEndpoint
   #   end
   # end
+  # ```
+  #
+  # You can use most common HTTP verbs: GET, POST, PUT, PATCH, DELETE, TRACE
+  # and OPTIONS.
+  #
+  # ```
+  # endpoint = ->(env) { [200, {}, ['Hello from Hanami!']] }
+  #
+  # get     '/hello', to: endpoint
+  # post    '/hello', to: endpoint
+  # put     '/hello', to: endpoint
+  # patch   '/hello', to: endpoint
+  # delete  '/hello', to: endpoint
+  # trace   '/hello', to: endpoint
+  # options '/hello', to: endpoint
   # ```
   class Router
     alias Path = String
@@ -30,6 +47,14 @@ module Azu
     end
 
     # The Router::Builder class allows you to build routes more easily
+    #
+    # ```
+    # routes :web, "/test" do
+    #   get "/hello/", ExampleApp::HelloWorld
+    #   get "/hello/:name", ExampleApp::HtmlEndpoint
+    #   get "/hello/json", ExampleApp::JsonEndpoint
+    # end
+    # ```
     class Builder
       forward_missing_to @router
 
@@ -52,6 +77,7 @@ module Azu
       end
     {% end %}
 
+    # Adds scoped routes
     def routes(scope : String = "")
       with Builder.new(self, scope) yield
     end
@@ -93,6 +119,11 @@ module Azu
     end
 
     # Registers a route for a given path
+    #
+    # ```
+    # add path: '/proc', endpoint: ->(env) { [200, {}, ['Hello from Hanami!']] }, method: Method::Get
+    # add path: '/endpoint',   endpoint: Handler.new, method: Method::Get
+    # ```
     def add(path : Path, endpoint : HTTP::Handler, method : Method = Method::Any)
       resource = "/#{method.to_s.downcase}#{path}"
       RADIX.add resource, Route.new(endpoint, resource, method)
