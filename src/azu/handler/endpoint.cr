@@ -20,6 +20,7 @@ module Azu
     @context : HTTP::Server::Context? = nil
     @parmas : Params(Request)? = nil
     @request_object : Request? = nil
+    @@resource : String = ""
 
     # When we include Endpoint module, we make our object compliant with Azu
     # Endpoints by implementing the #call, which is a method that accepts no
@@ -43,9 +44,17 @@ module Azu
     macro included
       {% for method in Azu::Router::RESOURCES %}
       def self.{{method.id}}(path : Router::Path)
+        @@resource = path
         CONFIG.router.{{method.id}} path, self.new
       end
       {% end %}
+
+      def self.path(**params)
+        params.each do |k, v|
+          @@resource.gsub(":#{k}", v)
+        end
+        @@resource
+      end
 
       {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
 
