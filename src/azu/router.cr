@@ -35,8 +35,9 @@ module Azu
   # ```
   class Router
     alias Path = String
-    RADIX     = Radix::Tree(Route).new
-    RESOURCES = %w(connect delete get head options patch post put trace)
+    RADIX           = Radix::Tree(Route).new
+    RESOURCES       = %w(connect delete get head options patch post put trace)
+    METHOD_OVERRIDE = "_method"
 
     record Route,
       endpoint : HTTP::Handler,
@@ -83,6 +84,7 @@ module Azu
     end
 
     def process(context : HTTP::Server::Context)
+      method_override(context)
       result = RADIX.find path(context)
       return not_found(context).to_s(context) unless result.found?
       context.request.path_params = result.params
@@ -138,6 +140,12 @@ module Azu
         str << "ws" if upgraded
         str << context.request.method.downcase unless upgraded
         str << context.request.path.rstrip('/')
+      end
+    end
+
+    private def method_override(context)
+      if value = context.request.query_params[METHOD_OVERRIDE]?
+        context.request.method = value.upcase
       end
     end
 
