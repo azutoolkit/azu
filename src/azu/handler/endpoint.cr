@@ -50,10 +50,9 @@ module Azu
       {% end %}
 
       def self.path(**params)
-        params.each do |k, v|
-          @@resource.gsub(":#{k}", v)
-        end
-        @@resource
+        url = @@resource.not_nil!
+        params.each { |k, v| url =  url.gsub(/\:#{k}/, v) }
+        url
       end
 
       {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
