@@ -15,8 +15,8 @@ module Azu
   # render(template : String, data)
   # ```
   class Templates
-    private getter crinja = Crinja.new
-    getter path : String
+    getter crinja = Crinja.new
+    getter path : Array(String)
     getter error_path : String
 
     module Renderable
@@ -29,8 +29,8 @@ module Azu
       end
     end
 
-    def initialize(@path : String, @error_path : String)
-      crinja.loader = Crinja::Loader::FileSystemLoader.new([path, error_path])
+    def initialize(@path : Array(String), @error_path : String)
+      crinja.loader = Crinja::Loader::FileSystemLoader.new([error_path] + path)
     end
 
     def path=(path : String)

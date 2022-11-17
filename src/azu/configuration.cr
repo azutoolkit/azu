@@ -39,7 +39,7 @@ module Azu
 
     getter router : Router = Router.new
     getter templates : Templates = Templates.new(
-      ENV.fetch("TEMPLATES_PATH", Path[TEMPLATES_PATH].expand.to_s),
+      ENV.fetch("TEMPLATES_PATH", Path[TEMPLATES_PATH].expand.to_s).split(","),
       ENV.fetch("ERROR_TEMPLATE", Path[ERROR_TEMPLATE].expand.to_s)
     )
 
