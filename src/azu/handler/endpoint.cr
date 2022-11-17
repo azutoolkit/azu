@@ -47,7 +47,18 @@ module Azu
         @@resource = path
         CONFIG.router.{{method.id}} path, self.new
       end
+      
       {% end %}
+
+      # Registers crinja path helper filters
+      {% resource_name = @type.name.stringify.split("::")[-2..-1].join("_").underscore.gsub(/\_endpoint/, "").id %}
+      CONFIG.templates.crinja.filters[:{{resource_name}}_path] = Crinja.filter({id: nil}) do
+        {{@type.name.id}}.path(id: arguments["id"])
+      end
+
+      def self.helper_path_name
+        :{{resource_name}}_path
+      end
 
       def self.path(**params)
         url = @@resource.not_nil!
