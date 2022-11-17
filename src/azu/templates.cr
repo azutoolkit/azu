@@ -34,7 +34,7 @@ module Azu
     end
 
     def path=(path : String)
-      reload { @path = Path[path].expand.to_s }
+      reload { @path << Path[path].expand.to_s }
     end
 
     def error_path=(path : String)
@@ -47,7 +47,8 @@ module Azu
 
     private def reload
       with self yield
-      crinja.loader = Crinja::Loader::FileSystemLoader.new([path, error_path])
+      path << error_path
+      crinja.loader = Crinja::Loader::FileSystemLoader.new(path)
     end
   end
 end

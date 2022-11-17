@@ -20,7 +20,6 @@ module Azu
     @context : HTTP::Server::Context? = nil
     @parmas : Params(Request)? = nil
     @request_object : Request? = nil
-    @@resource : String = ""
 
     # When we include Endpoint module, we make our object compliant with Azu
     # Endpoints by implementing the #call, which is a method that accepts no
@@ -42,6 +41,14 @@ module Azu
     end
 
     macro included
+      @@resource : String = ""
+
+      def self.path(**params)
+        url = @@resource
+        params.each { |k, v| url = url.gsub(/\:#{k}/, v) }
+        url
+      end
+    
       {% for method in Azu::Router::RESOURCES %}
       def self.{{method.id}}(path : Router::Path)
         @@resource = path
@@ -51,19 +58,21 @@ module Azu
       {% end %}
 
       # Registers crinja path helper filters
-      {% resource_name = @type.name.stringify.split("::")[-2..-1].join("_").underscore.gsub(/\_endpoint/, "").id %}
-      CONFIG.templates.crinja.filters[:{{resource_name}}_path] = Crinja.filter({id: nil}) do
+      {%
+        resource_name = @type.name.stringify.split("::")
+        resource_name = if resource_name.size > 1
+                          resource_name[-2..-1].join("_")
+                        else
+                          resource_name.last
+                        end
+        resource_name = resource_name.underscore.gsub(/\_endpoint/, "").id
+      %}
+      Azu::CONFIG.templates.crinja.filters[:{{resource_name}}_path] = Crinja.filter({id: nil}) do
         {{@type.name.id}}.path(id: arguments["id"])
       end
 
       def self.helper_path_name
         :{{resource_name}}_path
-      end
-
-      def self.path(**params)
-        url = @@resource.not_nil!
-        params.each { |k, v| url =  url.gsub(/\:#{k}/, v) }
-        url
       end
 
       {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
