@@ -60,11 +60,7 @@ module Azu
       # Registers crinja path helper filters
       {%
         resource_name = @type.name.stringify.split("::")
-        resource_name = if resource_name.size > 1
-                          resource_name[-2..-1].join("_")
-                        else
-                          resource_name.last
-                        end
+        resource_name = resource_name.size > 1 ? resource_name[-2..-1].join("_") : resource_name.last
         resource_name = resource_name.underscore.gsub(/\_endpoint/, "").id
       %}
       Azu::CONFIG.templates.crinja.filters[:{{resource_name}}_path] = Crinja.filter({id: nil}) do
