@@ -5,15 +5,34 @@ require "benchmark"
 module Azu
   module SQL
     struct Formatter < Log::StaticFormatter
+      getter orange_red = Colorize::ColorRGB.new(255, 140, 0)
+
       def run
         entry_data = @entry.data
-        timestamp.colorize.bold.white
-        severity.colorize.bold.blue
-        @io << " - "
-        source(after: ": ")
-        @io << entry_data[:time].colorize.cyan << " μs" << SQL.colorize_query(entry_data[:query].as_s)
-        @io << " \n" << entry_data[:args].colorize.magenta if entry_data[:args]?
+        @io << " AZU ".colorize.fore(:white).back(:blue)
+        @io << "  "
+        @io << @entry.timestamp.to_s("%a %m/%d/%Y %I:%M:%S")
+        @io << " ⤑  "
+        @io << severity_colored(@entry.severity)
+        @io << " ⤑  "
+        @io << Log.progname.capitalize.colorize.bold
+        @io << " ⤑  SQL"
         @io << "\n"
+        @io << SQL.colorize_query(entry_data[:query].as_s)
+        @io << " \n\t" << entry_data[:args].colorize.magenta if entry_data[:args]?
+        @io << "\n"
+      end
+
+      def severity_colored(severity)
+        output = " #{severity} ".colorize.fore(:white)
+        case severity
+        when ::Log::Severity::Info                          then output.back(:green).bold
+        when ::Log::Severity::Debug                         then output.back(:blue).bold
+        when ::Log::Severity::Warn                          then output.back(orange_red).bold
+        when ::Log::Severity::Error, ::Log::Severity::Fatal then output.back(:red).bold
+        else
+          output.back(:black).bold
+        end
       end
     end
 
@@ -38,15 +57,15 @@ module Azu
 
       o = qry.to_s.split(/([a-zA-Z0-9_]+)/).join do |word|
         if SQL_KEYWORDS.includes?(word.upcase)
-          if %w(START INSERT UPDATE CREATE ALTER COMMIT SELECT FROM WHERE GROUP).includes?(word.upcase)
-            "\n#{word.colorize.bold.blue}"
+          if %w(START INSERT UPDATE CREATE ALTER COMMIT SELECT FROM WHERE GROUP LEFT RIGHT JOIN).includes?(word.upcase)
+            "\n\t#{word.colorize.bold.blue}"
           else
             word.colorize.bold.blue.to_s
           end
         elsif word =~ /\d+/
           word.colorize.red
         else
-          word.colorize.white
+          DROP TABLE public.lease_detailsword.colorize.white
         end
       end
       o.gsub(/(--.*)$/, &.colorize.dark_gray)
@@ -69,25 +88,6 @@ module Azu
       else
         (1_000_000 * x).to_i.to_s + "µs"
       end
-    end
-
-    # Log a specific query, wait for it to return
-    def log_query(sql : String, &block)
-      start_time = Time.monotonic
-
-      o = yield
-      elapsed_time = Time.monotonic - start_time
-
-      Log.debug {
-        "[" + Clear::SQL::Logger.display_time(elapsed_time.to_f).colorize.bold.white.to_s + "] #{SQL::Logger.colorize_query(sql)}"
-      }
-
-      o
-    rescue e
-      raise Clear::SQL::Error.new(
-        message: [e.message, "Error caught, last query was:", Clear::SQL::Logger.colorize_query(sql)].compact.join("\n"),
-        cause: e
-      )
     end
   end
 
