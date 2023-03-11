@@ -50,17 +50,16 @@ module Azu
       end
     
       {% for method in Azu::Router::RESOURCES %}
-      def self.{{method.id}}(path : Router::Path)
+      def self.{{method.id}}(path : Azu::Router::Path)
         @@resource = path
-        CONFIG.router.{{method.id}} path, self.new
+        Azu::CONFIG.router.{{method.id}} path, self.new
       end
-      
       {% end %}
 
       # Registers crinja path helper filters
       {%
         resource_name = @type.name.stringify.split("::")
-        resource_name = resource_name.size > 1 ? resource_name[-2..-1].join("_") : resource_name.last
+        resource_name = resource_name.size > 1 ? resource_name.join("_") : resource_name.last
         resource_name = resource_name.underscore.gsub(/\_endpoint/, "").id
       %}
       Azu::CONFIG.templates.crinja.filters[:{{resource_name}}_path] = Crinja.filter({id: nil}) do
@@ -76,6 +75,10 @@ module Azu
       def {{request_name}} : Request
         return Request.from_json(params.json.not_nil!) if params.json 
         Request.new(params)
+      end
+
+      def {{request_name}}_contract : Request
+        {{request_name}}
       end
     end
 
