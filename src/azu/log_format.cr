@@ -65,7 +65,7 @@ module Azu
         elsif word =~ /\d+/
           word.colorize.red
         else
-          DROP TABLE public.lease_detailsword.colorize.white
+          word.colorize.white
         end
       end
       o.gsub(/(--.*)$/, &.colorize.dark_gray)
