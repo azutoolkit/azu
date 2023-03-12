@@ -25,7 +25,7 @@ module Azu
       end
 
       def page_path
-        "#{self.class.name.split("::")[1..-1].join("/").underscore.downcase}.jinja"
+        "#{self.class.name.split("::").join("/").underscore.downcase}.jinja"
       end
     end
 
