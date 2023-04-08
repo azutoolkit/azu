@@ -12,7 +12,6 @@ module Azu
     getter query : HTTP::Params
     getter form : HTTP::Params
     getter path : Hash(String, String)
-    getter request : Request? = nil
     getter json : String? = nil
 
     def initialize(request : HTTP::Request)
@@ -58,6 +57,14 @@ module Azu
       hash.merge! path
       hash.merge! form.to_h
       hash
+    end
+
+    def to_query
+      String.build do |s|
+        to_h.each do |key, value|
+          s << key << "=" << value << "&"
+        end
+      end
     end
 
     module Multipart

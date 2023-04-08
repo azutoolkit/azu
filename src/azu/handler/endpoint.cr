@@ -74,11 +74,12 @@ module Azu
 
       def {{request_name}} : Request
         return Request.from_json(params.json.not_nil!) if params.json 
-        Request.new(params)
+        Request.from_query params.to_query
       end
 
       def {{request_name}}_contract : Request
-        {{request_name}}
+        return Request.from_json(params.json.not_nil!) if params.json 
+        Request.from_query params.to_query
       end
     end
 
