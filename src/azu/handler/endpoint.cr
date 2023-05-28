@@ -73,13 +73,19 @@ module Azu
       {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
 
       def {{request_name}} : Request
-        return Request.from_json(params.json.not_nil!) if params.json 
-        Request.from_query params.to_query
+        if json = params.json
+          Request.from_json json
+        else
+          Request.from_query params.to_query
+        end
       end
 
       def {{request_name}}_contract : Request
-        return Request.from_json(params.json.not_nil!) if params.json 
-        Request.from_query params.to_query
+        if json = params.json
+          Request.from_json json
+        else
+          Request.from_query params.to_query
+        end
       end
     end
 
