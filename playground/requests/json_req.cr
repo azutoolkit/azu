@@ -6,6 +6,11 @@ module ExampleApp
 
     getter id : Int64? = nil
     getter users : Array(String)
-    getter config : Hash(String, String)
+    getter config : Config
+
+    struct Config
+      include Request
+      property? allowed : Bool = false
+    end
   end
 end

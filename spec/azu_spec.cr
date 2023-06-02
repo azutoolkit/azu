@@ -6,7 +6,7 @@ describe Azu do
 
   describe "coverting http request body to objects" do
     it "returns request as json" do
-      payload = {id: 1, users: ["John", "Paul"], config: {"allowed" => "true"}}
+      payload = {id: 1, users: ["John", "Paul"], config: {"allowed" => true}}
       headers = HTTP::Headers{"Accept" => "application/json", "Content-Type" => "application/json"}
 
       response = client.post "/json/1", headers: headers, body: payload.to_json
