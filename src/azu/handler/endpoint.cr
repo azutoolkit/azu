@@ -48,7 +48,7 @@ module Azu
         params.each { |k, v| url = url.gsub(/\:#{k}/, v) }
         url
       end
-    
+
       {% for method in Azu::Router::RESOURCES %}
       def self.{{method.id}}(path : Azu::Router::Path)
         @@resource = path
@@ -58,8 +58,8 @@ module Azu
 
       # Registers crinja path helper filters
       {%
-        resource_name = @type.name.stringify.split("::")
-        resource_name = resource_name.size > 1 ? resource_name.join("_") : resource_name.last
+        resource_name = @type.stringify.split("::")
+        resource_name = resource_name.size > 1 ? resource_name[-2..-1].join("_") : resource_name.last
         resource_name = resource_name.underscore.gsub(/\_endpoint/, "").id
       %}
       Azu::CONFIG.templates.crinja.filters[:{{resource_name}}_path] = Crinja.filter({id: nil}) do
