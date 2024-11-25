@@ -72,7 +72,7 @@ module Azu
       end
 
       def html(context)
-        return ExceptionPage.for_runtime_exception(context, self).to_s if env.development?
+        return ExceptionPage.new(context, self).to_s if env.development?
         html
       end
 
