@@ -10,7 +10,7 @@ module Azu
   #
   # To set up a WebSocket route in your routing service:
   #
-  # ```crystal
+  # ```
   # ExampleApp.router do
   #   ws "/hi", ExampleApp::ExampleChannel
   # end
