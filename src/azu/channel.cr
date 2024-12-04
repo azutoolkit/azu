@@ -1,17 +1,16 @@
 require "http/web_socket"
 
 module Azu
-  #
   # A channel encapsulates a logical unit of work similar to an Endpoint.
   #
-  # Channels are used for websocket connections that can handle multiple connections
-  # instances. A single client may have multiple WebSockets connections open to the application.
+  # Channels manage WebSocket connections, handling multiple instances where a single client
+  # may have multiple WebSocket connections open to the application.
   #
-  # Each channel can in turn broadcast to multiple connected clients
+  # Each channel can broadcast to multiple connected clients.
   #
-  # You must setup a websocket route in your routing service
+  # To set up a WebSocket route in your routing service:
   #
-  # ```
+  # ```crystal
   # ExampleApp.router do
   #   ws "/hi", ExampleApp::ExampleChannel
   # end
@@ -19,71 +18,47 @@ module Azu
   #
   # ## Pings and Pongs: The Heartbeat of WebSockets
   #
-  # At any point after the handshake, either the client or the server can choose
-  # to send a ping to the other party. When the ping is received, the recipient
-  # must send back a pong as soon as possible. You can use this to make sure
-  # that the client is still connected, for example.
-  #
+  # After the handshake, either the client or the server can send a ping to the other party.
+  # Upon receiving a ping, the recipient must promptly send back a pong. This mechanism ensures
+  # that the client remains connected.
   abstract class Channel
     getter! socket : HTTP::WebSocket
-    @context : HTTP::Server::Context? = nil
 
     def initialize(@socket : HTTP::WebSocket)
     end
 
-    # Registers a websocket route
+    # Registers a WebSocket route
     def self.ws(path : Router::Path)
       CONFIG.router.ws(path, self)
     end
 
-    # On Connect event handler
-    # Invoked when incoming socket connection connects to the endpoint
+    # Invoked when a connection is established
     abstract def on_connect
 
-    # Invoked when the channel receives a message
-    abstract def on_message(message)
+    # Invoked when a text message is received
+    abstract def on_message(message : String)
 
-    # Invoked when the channel receives a binary message
-    abstract def on_binary(binary)
+    # Invoked when a binary message is received
+    abstract def on_binary(binary : Bytes)
 
-    # Invoked when the client has requested a ping message
-    #
-    # Pings have an opcode of 0x9
-    abstract def on_ping(message)
+    # Invoked when a ping frame is received
+    abstract def on_ping(message : String)
 
-    # Invoked when the client has requested a pong message
-    #
-    # Pongs have an opcode of 0xA
-    abstract def on_pong(message)
+    # Invoked when a pong frame is received
+    abstract def on_pong(message : String)
 
-    # Invoked when the channel process is about to exit.
-    abstract def on_close(code : HTTP::WebSocket::CloseCode | Int? = nil, message = nil)
+    # Invoked when the connection is closed
+    abstract def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
 
-    # Handler to execute the incomming websocket http request
+    # Handles the incoming WebSocket HTTP request
     def call(context : HTTP::Server::Context)
-      @context = context
-
       on_connect
 
-      socket.on_message do |message|
-        on_message message
-      end
-
-      socket.on_binary do |binary|
-        on_binary binary
-      end
-
-      socket.on_ping do |message|
-        on_ping message
-      end
-
-      socket.on_pong do |message|
-        on_pong message
-      end
-
-      socket.on_close do |code, message|
-        on_close(code, message)
-      end
+      socket.on_message { |message| on_message(message) }
+      socket.on_binary { |binary| on_binary(binary) }
+      socket.on_ping { |message| on_ping(message) }
+      socket.on_pong { |message| on_pong(message) }
+      socket.on_close { |code, message| on_close(code, message) }
     end
   end
 end
