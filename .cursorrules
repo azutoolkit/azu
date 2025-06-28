@@ -1,0 +1,260 @@
+# Azu Web Development Framework - Cursor Project Rules
+
+## Project Overview
+
+Azu is a Crystal-based web framework emphasizing type safety, performance, and elegant syntax. It follows a modular, component-based architecture with strong compile-time guarantees and real-time capabilities.
+
+## Language & Framework Context
+
+- **Primary Language**: Crystal (version >= 0.35.0)
+- **Framework**: Azu Web Framework (v0.4.14)
+- **Architecture**: Modular endpoint-based with type-safe contracts
+- **Real-time**: WebSocket channels and live components
+
+## Core Dependencies
+
+- `radix`: High-performance routing tree
+- `schema`: Type-safe validation and serialization
+- `crinja`: Jinja2-compatible templating engine
+- `exception_page`: Development error pages
+
+## Project Structure Conventions
+
+### Directory Organization
+
+```
+src/azu/                    # Core framework code
+  ├── handler/              # HTTP middleware handlers
+  ├── templates/            # Framework templates
+  └── *.cr                  # Core modules
+playground/                 # Example application
+  ├── endpoints/            # Route handlers
+  ├── requests/             # Request contracts
+  ├── responses/            # Response objects
+  ├── channels/             # WebSocket handlers
+  └── templates/            # View templates
+spec/                       # Test files
+```
+
+### File Naming Conventions
+
+- Use snake_case for all Crystal files
+- Suffix endpoint files with `_endpoint.cr`
+- Suffix request files with `_request.cr` or `_req.cr`
+- Suffix response files with `_response.cr`
+- Suffix channel files with `_channel.cr`
+
+## Architecture Patterns
+
+### 1. Endpoint Pattern
+
+Always use the type-safe endpoint pattern:
+
+```crystal
+struct MyEndpoint
+  include Endpoint(MyRequest, MyResponse)
+
+  get "/path/:param"
+
+  def call : MyResponse
+    # Implementation
+  end
+end
+```
+
+### 2. Request Contracts
+
+Define type-safe request objects with validation:
+
+```crystal
+struct MyRequest
+  include Request
+
+  getter name : String
+  getter email : String
+
+  # Add validation rules using Schema
+end
+```
+
+### 3. Response Objects
+
+Create structured response objects:
+
+```crystal
+struct MyResponse
+  include Response
+
+  def initialize(@data : SomeType)
+  end
+
+  def render
+    # Implementation
+  end
+end
+```
+
+### 4. WebSocket Channels
+
+Use the Channel pattern for real-time features:
+
+```crystal
+class MyChannel < Azu::Channel
+  ws "/websocket/path"
+
+  def on_connect
+    # Connection logic
+  end
+
+  def on_message(message)
+    # Message handling
+  end
+end
+```
+
+## Coding Standards
+
+### Crystal Language Guidelines
+
+- Use explicit type annotations for public APIs
+- Prefer `struct` over `class` for value objects
+- Use `getter` and `setter` macros appropriately
+- Follow Crystal naming conventions (PascalCase for types, snake_case for methods)
+- Use `String.build` for string concatenation in loops
+- Prefer `#try` over explicit nil checks when appropriate
+
+### Framework-Specific Patterns
+
+- Always include proper module/namespace organization
+- Use the `CONFIG` constant for framework configuration
+- Leverage compile-time type checking over runtime validation where possible
+- Use macros for repetitive patterns but keep them readable
+- Prefer composition over inheritance for endpoint logic
+
+### Error Handling
+
+- Use custom exception classes that inherit from `Azu::Response::Error`
+- Provide meaningful error messages and status codes
+- Include validation error aggregation in request objects
+- Handle WebSocket disconnections gracefully
+
+### Performance Considerations
+
+- Use `spawn` for background tasks in WebSocket handlers
+- Implement proper resource cleanup in component lifecycle
+- Leverage Crystal's compile-time optimizations
+- Use IO::Memory for string building in markup generation
+
+## Template and View Patterns
+
+### HTML Responses
+
+Use the Templates::Renderable module:
+
+```crystal
+struct MyPage
+  include Response
+  include Templates::Renderable
+
+  def render
+    view "template.html", data
+  end
+end
+```
+
+### Component System
+
+For real-time components:
+
+```crystal
+class MyComponent
+  include Component
+
+  def content
+    # Generate HTML using markup DSL
+  end
+
+  def on_event(name, data)
+    # Handle client events
+  end
+end
+```
+
+## Testing Guidelines
+
+- Write specs for all public APIs
+- Test endpoint contracts thoroughly
+- Mock WebSocket connections for channel testing
+- Use Crystal's built-in testing framework
+- Test both success and error scenarios
+
+## Security Best Practices
+
+- Always validate input using Schema contracts
+- Use CSRF protection for state-changing operations
+- Implement proper CORS policies
+- Validate WebSocket connections
+- Use rate limiting for public endpoints
+- Sanitize HTML output appropriately
+
+## Development Workflow
+
+- Use the playground directory for testing new features
+- Follow the existing module structure for new handlers
+- Document public APIs with Crystal doc comments
+- Use meaningful commit messages following conventional commits
+- Test changes with the example application
+
+## Configuration Patterns
+
+- Use environment variables for configuration
+- Provide sensible defaults in Configuration class
+- Support both development and production modes
+- Configure middleware in the correct order
+- Use SSL/TLS configuration for production
+
+## Common Patterns to Follow
+
+### Middleware Registration
+
+```crystal
+ExampleApp.start [
+  Azu::Handler::Rescuer.new,
+  Azu::Handler::Logger.new,
+  Azu::Handler::CORS.new,
+  Azu::Handler::Static.new
+]
+```
+
+### Route Registration
+
+```crystal
+MyEndpoint.get "/api/users/:id"
+MyEndpoint.post "/api/users"
+MyChannel.ws "/ws/notifications"
+```
+
+### Content Type Handling
+
+- Set appropriate content types in endpoints
+- Use content negotiation for multi-format APIs
+- Handle JSON, form data, and multipart uploads properly
+
+## Avoid These Anti-Patterns
+
+- Don't use global state in endpoints
+- Avoid blocking operations in WebSocket handlers
+- Don't bypass the type system with unsafe casts
+- Avoid large monolithic endpoint classes
+- Don't ignore error handling in async operations
+- Avoid hardcoded configuration values
+
+## IDE Integration
+
+- Use Crystal language server for syntax highlighting
+- Configure proper indentation (2 spaces)
+- Enable automatic formatting on save
+- Use Crystal's built-in documentation system
+- Configure proper file associations for .cr files
+
+This project emphasizes type safety, performance, and maintainability. Always prefer explicit, type-safe code over dynamic patterns, and leverage Crystal's compile-time guarantees whenever possible.
