@@ -40,10 +40,55 @@ module Azu
     RESOURCES       = %w(connect delete get head options patch post put trace)
     METHOD_OVERRIDE = "_method"
 
+    # Path cache for frequently requested paths
+    # LRU cache with configurable maximum size
+    private struct PathCache
+      DEFAULT_MAX_SIZE = 1000
+
+      def initialize(@max_size : Int32 = DEFAULT_MAX_SIZE)
+        @cache = Hash(String, String).new
+        @access_order = Array(String).new
+      end
+
+      def get(key : String) : String?
+        if cached_path = @cache[key]?
+          # Move to end (most recently used)
+          @access_order.delete(key)
+          @access_order << key
+          cached_path
+        end
+      end
+
+      def set(key : String, value : String) : Nil
+        # Remove if already exists to update position
+        if @cache.has_key?(key)
+          @access_order.delete(key)
+        elsif @cache.size >= @max_size
+          # Remove least recently used
+          if oldest = @access_order.shift?
+            @cache.delete(oldest)
+          end
+        end
+
+        @cache[key] = value
+        @access_order << key
+      end
+
+      def clear : Nil
+        @cache.clear
+        @access_order.clear
+      end
+    end
+
     getter radix : Radix::Tree(Route)
+    private getter path_cache : PathCache
+    private getter method_cache : Hash(String, String)
 
     def initialize
       @radix = Radix::Tree(Route).new
+      @path_cache = PathCache.new
+      @method_cache = Hash(String, String).new
+      precompute_method_cache
     end
 
     record Route,
@@ -140,14 +185,59 @@ module Azu
       raise DuplicateRoute.new("http_method: #{method}, path: #{path}, endpoint: #{endpoint}")
     end
 
-    private def path(context)
-      upgraded = upgrade?(context)
-      String.build do |str|
-        str << "/"
-        str << "ws" if upgraded
-        str << context.request.method.downcase unless upgraded
-        str << context.request.path.rstrip('/')
+    # Pre-compute method cache at startup to avoid repeated downcasing
+    private def precompute_method_cache : Nil
+      RESOURCES.each do |method|
+        @method_cache[method.upcase] = method.downcase
       end
+
+      # Add common HTTP methods that might not be in RESOURCES
+      %w(HEAD OPTIONS).each do |method|
+        @method_cache[method] = method.downcase
+      end
+    end
+
+    # Optimized path building with caching and efficient string operations
+    private def path(context) : String
+      request = context.request
+      method_str = request.method
+      path_str = request.path
+      upgraded = upgrade?(context)
+
+      # Create cache key for this specific request combination
+      cache_key = if upgraded
+        "ws:#{path_str}"
+      else
+        "#{method_str}:#{path_str}"
+      end
+
+      # Check cache first
+      if cached_path = @path_cache.get(cache_key)
+        return cached_path
+      end
+
+      # Build path efficiently using pre-allocated capacity
+      built_path = if upgraded
+        # WebSocket path: "/ws" + normalized_path
+        normalized_path = path_str.rstrip('/')
+        String.build(capacity: 4 + normalized_path.bytesize) do |str|
+          str << "/ws"
+          str << normalized_path
+        end
+      else
+        # HTTP path: "/" + method + normalized_path
+        normalized_path = path_str.rstrip('/')
+        method_lower = @method_cache[method_str]? || method_str.downcase
+        String.build(capacity: 1 + method_lower.bytesize + normalized_path.bytesize) do |str|
+          str << "/"
+          str << method_lower
+          str << normalized_path
+        end
+      end
+
+      # Cache the result for future requests
+      @path_cache.set(cache_key, built_path)
+      built_path
     end
 
     private def method_override(context)
@@ -160,6 +250,11 @@ module Azu
       return unless upgrade = context.request.headers["Upgrade"]?
       return unless upgrade.compare("websocket", case_insensitive: true) == 0
       context.request.headers.includes_word?("Connection", "Upgrade")
+    end
+
+    # Clear path cache (useful for testing or memory management)
+    def clear_path_cache : Nil
+      @path_cache.clear
     end
   end
 end

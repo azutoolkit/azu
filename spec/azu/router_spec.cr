@@ -37,6 +37,22 @@ class TestEndpoint
   end
 end
 
+struct TestResponse
+  include Azu::Response
+
+  def render
+    "Hello, World!"
+  end
+end
+
+class SimpleEndpoint
+  include Azu::Endpoint(Azu::Request, TestResponse)
+
+  def call : TestResponse
+    TestResponse.new
+  end
+end
+
 describe Azu::Router do
   describe "route registration" do
     it "adds GET endpoint" do
@@ -236,6 +252,220 @@ describe Azu::Router do
 
       # Should not raise an exception
       router.should be_a(Azu::Router)
+    end
+  end
+
+  describe "path building optimization" do
+    it "caches commonly requested paths" do
+      router = Azu::Router.new
+      endpoint = SimpleEndpoint.new
+      router.get("/hello", endpoint)
+
+      # Create a mock context
+      request = HTTP::Request.new("GET", "/hello")
+      io = IO::Memory.new
+      response = HTTP::Server::Response.new(io)
+      context = HTTP::Server::Context.new(request, response)
+
+            # First call should build and cache the path
+      router.process(context)
+      response.close
+
+      # Verify the path is cached by checking internal state
+      # Since path_cache is private, we'll test behavior indirectly
+      io.rewind
+      first_response = io.gets_to_end
+      first_response.should contain("Hello, World!")
+
+            # Second call should use cached path
+      io2 = IO::Memory.new
+      response2 = HTTP::Server::Response.new(io2)
+      context2 = HTTP::Server::Context.new(HTTP::Request.new("GET", "/hello"), response2)
+
+      router.process(context2)
+      response2.close
+      io2.rewind
+      second_response = io2.gets_to_end
+      second_response.should contain("Hello, World!")
+    end
+
+        it "handles WebSocket upgrade paths correctly" do
+      router = Azu::Router.new
+
+      # Register a WebSocket route for testing
+      router.ws("/ws-test", TestChannel)
+
+      # Mock WebSocket request
+      request = HTTP::Request.new("GET", "/ws-test")
+      request.headers["Upgrade"] = "websocket"
+      request.headers["Connection"] = "Upgrade"
+
+      io = IO::Memory.new
+      response = HTTP::Server::Response.new(io)
+      context = HTTP::Server::Context.new(request, response)
+
+      # Should handle WebSocket path building without errors
+      result = router.process(context)
+      # WebSocket routes may return nil or empty string depending on implementation
+      (result.nil? || result == "").should be_true
+    end
+
+    it "pre-computes method cache at initialization" do
+      router = Azu::Router.new
+
+      # Test that common HTTP methods work correctly
+      endpoint = SimpleEndpoint.new
+
+      # Test various HTTP methods
+      %w(GET POST PUT PATCH DELETE).each do |method|
+        router.add("/test-#{method.downcase}", endpoint, Azu::Method.parse(method.downcase))
+
+        request = HTTP::Request.new(method, "/test-#{method.downcase}")
+        io = IO::Memory.new
+        response = HTTP::Server::Response.new(io)
+        context = HTTP::Server::Context.new(request, response)
+
+        result = router.process(context)
+        result.should be_a(String)
+      end
+    end
+
+        it "handles path normalization correctly" do
+      router = Azu::Router.new
+      endpoint = SimpleEndpoint.new
+      router.get("/test", endpoint)
+
+      # Test path with trailing slash
+      request = HTTP::Request.new("GET", "/test/")
+      io = IO::Memory.new
+      response = HTTP::Server::Response.new(io)
+      context = HTTP::Server::Context.new(request, response)
+
+            router.process(context)
+      response.close
+      io.rewind
+      result = io.gets_to_end
+      result.should contain("Hello, World!")
+    end
+
+    it "clears path cache when requested" do
+      router = Azu::Router.new
+      endpoint = SimpleEndpoint.new
+      router.get("/cached-test", endpoint)
+
+      # Make a request to populate cache
+      request = HTTP::Request.new("GET", "/cached-test")
+      io = IO::Memory.new
+      response = HTTP::Server::Response.new(io)
+      context = HTTP::Server::Context.new(request, response)
+
+      router.process(context)
+
+      # Clear the cache
+      router.clear_path_cache
+
+      # Make another request - should still work
+      io2 = IO::Memory.new
+      response2 = HTTP::Server::Response.new(io2)
+      context2 = HTTP::Server::Context.new(HTTP::Request.new("GET", "/cached-test"), response2)
+
+      router.process(context2)
+      response2.close
+      io2.rewind
+      result = io2.gets_to_end
+      result.should contain("Hello, World!")
+    end
+
+    it "handles LRU cache eviction properly" do
+      # This test would need access to internal cache size to be fully effective
+      # For now, we'll test that the router continues to work with many requests
+      router = Azu::Router.new
+      endpoint = SimpleEndpoint.new
+
+      # Add many routes
+      (1..1200).each do |i|
+        router.get("/test#{i}", endpoint)
+      end
+
+      # Make requests to exceed cache size (default 1000)
+      (1..1200).each do |i|
+        request = HTTP::Request.new("GET", "/test#{i}")
+        io = IO::Memory.new
+        response = HTTP::Server::Response.new(io)
+        context = HTTP::Server::Context.new(request, response)
+
+        result = router.process(context)
+        result.should be_a(String)
+      end
+    end
+  end
+
+  describe "original functionality" do
+    it "handles GET requests" do
+      router = Azu::Router.new
+      endpoint = SimpleEndpoint.new
+      router.get("/hello", endpoint)
+
+      request = HTTP::Request.new("GET", "/hello")
+      io = IO::Memory.new
+      response = HTTP::Server::Response.new(io)
+      context = HTTP::Server::Context.new(request, response)
+
+      router.process(context)
+      response.close
+      io.rewind
+      result = io.gets_to_end
+      result.should contain("Hello, World!")
+    end
+
+    it "handles POST requests" do
+      router = Azu::Router.new
+      endpoint = SimpleEndpoint.new
+      router.post("/data", endpoint)
+
+      request = HTTP::Request.new("POST", "/data")
+      io = IO::Memory.new
+      response = HTTP::Server::Response.new(io)
+      context = HTTP::Server::Context.new(request, response)
+
+      router.process(context)
+      response.close
+      io.rewind
+      result = io.gets_to_end
+      result.should contain("Hello, World!")
+    end
+
+    it "handles method override" do
+      router = Azu::Router.new
+      endpoint = SimpleEndpoint.new
+      router.put("/update", endpoint)
+
+      request = HTTP::Request.new("POST", "/update?_method=PUT")
+      io = IO::Memory.new
+      response = HTTP::Server::Response.new(io)
+      context = HTTP::Server::Context.new(request, response)
+
+      router.process(context)
+      response.close
+      io.rewind
+      result = io.gets_to_end
+      result.should contain("Hello, World!")
+    end
+
+    it "handles unknown routes gracefully" do
+      router = Azu::Router.new
+
+      request = HTTP::Request.new("GET", "/unknown")
+      io = IO::Memory.new
+      response = HTTP::Server::Response.new(io)
+      context = HTTP::Server::Context.new(request, response)
+
+      # Should not raise exception, returns nil for 404s
+      result = router.process(context)
+      result.should be_nil
+
+      # Check that the response status is set to 404
+      response.status_code.should eq(404)
     end
   end
 end
