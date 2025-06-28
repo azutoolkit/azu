@@ -13,6 +13,42 @@ module Azu
     end
   end
 
+  # Cached environment data singleton for performance
+  class CachedEnvironment
+    private class_getter instance : CachedEnvironment = CachedEnvironment.new
+    private getter _cached_env : Hash(String, String)?
+    private getter _cache_time : Time?
+    private getter _cache_ttl : Time::Span = 5.minutes
+
+    def self.get : Hash(String, String)
+      instance.get_environment
+    end
+
+    def self.refresh : Hash(String, String)
+      instance.refresh_environment
+    end
+
+    def get_environment : Hash(String, String)
+      now = Time.utc
+
+      # Return cached environment if it's still valid
+      if cached = @_cached_env
+        if cache_time = @_cache_time
+          return cached if (now - cache_time) < @_cache_ttl
+        end
+      end
+
+      # Refresh cache
+      refresh_environment
+    end
+
+    def refresh_environment : Hash(String, String)
+      @_cached_env = ENV.to_h
+      @_cache_time = Time.utc
+      @_cached_env.not_nil!
+    end
+  end
+
   # Enhanced error context for better debugging
   struct ErrorContext
     getter timestamp : Time
@@ -26,7 +62,10 @@ module Azu
     getter method : String?
     getter params : Hash(String, String)?
     getter headers : HTTP::Headers?
-    getter environment : Hash(String, String)?
+
+    # Lazy-loaded environment data
+    @_environment : Hash(String, String)?
+    @_load_environment : Bool
 
     def initialize(
       @timestamp = Time.utc,
@@ -40,11 +79,18 @@ module Azu
       @method = nil,
       @params = nil,
       @headers = nil,
-      @environment = nil,
+      @_load_environment = false,
     )
     end
 
-    def self.from_http_context(context : HTTP::Server::Context, request_id : String? = nil)
+    # Lazy getter for environment data
+    def environment : Hash(String, String)?
+      return nil unless @_load_environment
+
+      @_environment ||= CachedEnvironment.get
+    end
+
+    def self.from_http_context(context : HTTP::Server::Context, request_id : String? = nil, load_environment : Bool = true)
       request = context.request
 
       new(
@@ -57,8 +103,13 @@ module Azu
         method: request.method.to_s,
         params: request.query_params.to_h,
         headers: request.headers,
-        environment: ENV.to_h
+        _load_environment: load_environment
       )
+    end
+
+    # Create a lightweight context without environment data
+    def self.lightweight_from_http_context(context : HTTP::Server::Context, request_id : String? = nil)
+      from_http_context(context, request_id, load_environment: false)
     end
 
     def to_json(json : JSON::Builder)
