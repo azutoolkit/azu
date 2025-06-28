@@ -129,4 +129,155 @@ describe Azu::Configuration do
       config.log.should be_a(Log)
     end
   end
+
+  describe "template hot reload configuration" do
+    it "defaults to true for development environment" do
+      # Save original environment
+      original_env = ENV["CRYSTAL_ENV"]?
+      ENV.delete("TEMPLATE_HOT_RELOAD") if ENV.has_key?("TEMPLATE_HOT_RELOAD")
+
+      ENV["CRYSTAL_ENV"] = "development"
+      config = Azu::Configuration.new
+
+      config.template_hot_reload.should be_true
+
+      # Restore original environment
+      if original_env
+        ENV["CRYSTAL_ENV"] = original_env
+      else
+        ENV.delete("CRYSTAL_ENV")
+      end
+    end
+
+    it "defaults to true for test environment" do
+      # Save original environment
+      original_env = ENV["CRYSTAL_ENV"]?
+      ENV.delete("TEMPLATE_HOT_RELOAD") if ENV.has_key?("TEMPLATE_HOT_RELOAD")
+
+      ENV["CRYSTAL_ENV"] = "test"
+      config = Azu::Configuration.new
+
+      config.template_hot_reload.should be_true
+
+      # Restore original environment
+      if original_env
+        ENV["CRYSTAL_ENV"] = original_env
+      else
+        ENV.delete("CRYSTAL_ENV")
+      end
+    end
+
+        it "defaults to true for pipeline environment" do
+      # Save original environment
+      original_env = ENV["CRYSTAL_ENV"]?
+      ENV.delete("TEMPLATE_HOT_RELOAD") if ENV.has_key?("TEMPLATE_HOT_RELOAD")
+
+      ENV["CRYSTAL_ENV"] = "pipeline"
+      config = Azu::Configuration.new
+
+      config.template_hot_reload.should be_true
+
+      # Restore original environment
+      if original_env
+        ENV["CRYSTAL_ENV"] = original_env
+      else
+        ENV.delete("CRYSTAL_ENV")
+      end
+    end
+
+    it "defaults to false for production environment" do
+      # Save original environment
+      original_env = ENV["CRYSTAL_ENV"]?
+      ENV.delete("TEMPLATE_HOT_RELOAD") if ENV.has_key?("TEMPLATE_HOT_RELOAD")
+
+      ENV["CRYSTAL_ENV"] = "production"
+      config = Azu::Configuration.new
+
+      config.template_hot_reload.should be_false
+
+      # Restore original environment
+      if original_env
+        ENV["CRYSTAL_ENV"] = original_env
+      else
+        ENV.delete("CRYSTAL_ENV")
+      end
+    end
+
+    it "can be overridden via TEMPLATE_HOT_RELOAD environment variable" do
+      # Save original environment
+      original_env = ENV["CRYSTAL_ENV"]?
+      original_hot_reload = ENV["TEMPLATE_HOT_RELOAD"]?
+
+      # Test override in production (normally false)
+      ENV["CRYSTAL_ENV"] = "production"
+      ENV["TEMPLATE_HOT_RELOAD"] = "true"
+      config = Azu::Configuration.new
+
+      config.template_hot_reload.should be_true
+
+      # Test override in development (normally true)
+      ENV["CRYSTAL_ENV"] = "development"
+      ENV["TEMPLATE_HOT_RELOAD"] = "false"
+      config = Azu::Configuration.new
+
+      config.template_hot_reload.should be_false
+
+      # Restore original environment
+      if original_env
+        ENV["CRYSTAL_ENV"] = original_env
+      else
+        ENV.delete("CRYSTAL_ENV")
+      end
+
+      if original_hot_reload
+        ENV["TEMPLATE_HOT_RELOAD"] = original_hot_reload
+      else
+        ENV.delete("TEMPLATE_HOT_RELOAD")
+      end
+    end
+
+    it "can be modified at runtime" do
+      config = Azu::Configuration.new
+
+      config.template_hot_reload = true
+      config.template_hot_reload.should be_true
+
+      config.template_hot_reload = false
+      config.template_hot_reload.should be_false
+    end
+
+    it "passes hot reload setting to templates" do
+      # Save original environment
+      original_env = ENV["CRYSTAL_ENV"]?
+      original_hot_reload = ENV["TEMPLATE_HOT_RELOAD"]?
+
+      # Test with hot reload enabled
+      ENV["CRYSTAL_ENV"] = "development"
+      ENV.delete("TEMPLATE_HOT_RELOAD") if ENV.has_key?("TEMPLATE_HOT_RELOAD")
+      config = Azu::Configuration.new
+
+      config.template_hot_reload.should be_true
+      config.templates.@hot_reload_enabled.should be_true
+
+      # Test with hot reload disabled via environment override
+      ENV["TEMPLATE_HOT_RELOAD"] = "false"
+      config = Azu::Configuration.new
+
+      config.template_hot_reload.should be_false
+      config.templates.@hot_reload_enabled.should be_false
+
+      # Restore original environment
+      if original_env
+        ENV["CRYSTAL_ENV"] = original_env
+      else
+        ENV.delete("CRYSTAL_ENV")
+      end
+
+      if original_hot_reload
+        ENV["TEMPLATE_HOT_RELOAD"] = original_hot_reload
+      else
+        ENV.delete("TEMPLATE_HOT_RELOAD")
+      end
+    end
+  end
 end

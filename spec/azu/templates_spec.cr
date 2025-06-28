@@ -249,7 +249,7 @@ describe Azu::Templates do
     end
   end
 
-  describe "hot reloading optimization" do
+    describe "hot reloading optimization" do
     it "detects development environment correctly" do
       # Save original environment
       original_env = ENV["CRYSTAL_ENV"]?
@@ -262,6 +262,51 @@ describe Azu::Templates do
       # Test production environment
       ENV["CRYSTAL_ENV"] = "production"
       templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors")
+      templates.@hot_reload_enabled.should be_false
+
+      # Restore original environment
+      if original_env
+        ENV["CRYSTAL_ENV"] = original_env
+      else
+        ENV.delete("CRYSTAL_ENV")
+      end
+    end
+
+    it "accepts hot reload parameter in constructor" do
+      # Test explicit true
+      templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors", hot_reload: true)
+      templates.@hot_reload_enabled.should be_true
+
+      # Test explicit false
+      templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors", hot_reload: false)
+      templates.@hot_reload_enabled.should be_false
+
+      # Test nil (should use environment detection)
+      original_env = ENV["CRYSTAL_ENV"]?
+      ENV["CRYSTAL_ENV"] = "development"
+      templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors", hot_reload: nil)
+      templates.@hot_reload_enabled.should be_true
+
+      # Restore original environment
+      if original_env
+        ENV["CRYSTAL_ENV"] = original_env
+      else
+        ENV.delete("CRYSTAL_ENV")
+      end
+    end
+
+    it "overrides environment detection when hot reload parameter is provided" do
+      # Save original environment
+      original_env = ENV["CRYSTAL_ENV"]?
+
+      # Test override in production environment (force enable)
+      ENV["CRYSTAL_ENV"] = "production"
+      templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors", hot_reload: true)
+      templates.@hot_reload_enabled.should be_true
+
+      # Test override in development environment (force disable)
+      ENV["CRYSTAL_ENV"] = "development"
+      templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors", hot_reload: false)
       templates.@hot_reload_enabled.should be_false
 
       # Restore original environment

@@ -20,6 +20,7 @@ module Azu
   #   c.port_reuse = true
   #   c.log = Log.for("My Awesome App")
   #   c.env = Environment::Development
+  #   c.template_hot_reload = true
   #   c.template.path = "./templates"
   #   c.template.error_path = "./error_template"
   #   c.upload.max_file_size = 10.megabytes
@@ -39,7 +40,7 @@ module Azu
     property env : Environment = Environment.parse(ENV.fetch("CRYSTAL_ENV", "development"))
     def self.hot_reload_default
       env = ENV.fetch("CRYSTAL_ENV", "development").downcase
-      env == "development" || env == "test" || env == "ci"
+      env == "development" || env == "test" || env == "pipeline"
     end
 
     property template_hot_reload : Bool = ENV.fetch("TEMPLATE_HOT_RELOAD", Configuration.hot_reload_default.to_s) == "true"
