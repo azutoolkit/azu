@@ -167,7 +167,7 @@ describe Azu::Configuration do
       end
     end
 
-        it "defaults to true for pipeline environment" do
+    it "defaults to true for pipeline environment" do
       # Save original environment
       original_env = ENV["CRYSTAL_ENV"]?
       ENV.delete("TEMPLATE_HOT_RELOAD") if ENV.has_key?("TEMPLATE_HOT_RELOAD")

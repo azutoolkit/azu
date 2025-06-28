@@ -249,7 +249,7 @@ describe Azu::Templates do
     end
   end
 
-    describe "hot reloading optimization" do
+  describe "hot reloading optimization" do
     it "detects development environment correctly" do
       # Save original environment
       original_env = ENV["CRYSTAL_ENV"]?

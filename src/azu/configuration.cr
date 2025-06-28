@@ -38,6 +38,7 @@ module Azu
     property port_reuse : Bool = ENV.fetch("PORT_REUSE", "true") == "true"
     property host : String = ENV.fetch("HOST", "0.0.0.0")
     property env : Environment = Environment.parse(ENV.fetch("CRYSTAL_ENV", "development"))
+
     def self.hot_reload_default
       env = ENV.fetch("CRYSTAL_ENV", "development").downcase
       env == "development" || env == "test" || env == "pipeline"
