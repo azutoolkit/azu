@@ -30,7 +30,7 @@ jobs:
           CRYSTAL_LOG_SOURCES: "*"
           CRYSTAL_LOG_LEVEL: DEBUG
           PORT: 4000
-          PORT_REUSE: false
+          PORT_REUSE: true
           HOST: 0.0.0.0
 
       - name: Generate Azu API Docs
