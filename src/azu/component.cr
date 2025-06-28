@@ -1,5 +1,6 @@
 require "./markup"
 require "uuid"
+require "http/web_socket"
 
 module Azu
   module Component
@@ -11,16 +12,18 @@ module Azu
     @socket : HTTP::WebSocket? = nil
     @created_at = Time.utc
 
+    getter socket
+
     macro included
       def self.mount(**args)
         component = new **args
         component.mounted = true
         Azu::Spark::COMPONENTS[component.id] = component
-        component.render
+        component
       end
     end
 
-    def dicconnected?
+    def disconnected?
       !connected?
     end
 
@@ -29,6 +32,7 @@ module Azu
     end
 
     def mount
+      @mounted = true
     end
 
     def unmount
@@ -42,10 +46,13 @@ module Azu
 
     def refresh
       content
-      json = {content: to_s, id: id}.to_json
-      @socket.not_nil!.send json
-    ensure
-      @view = IO::Memory.new
+      if socket = @socket
+        json = {content: to_s, id: id}.to_json
+        socket.send json
+        # Only clear the view after sending to socket
+        @view = IO::Memory.new
+      end
+      # Don't clear the view if there's no socket, so content remains available
     end
 
     def refresh(&)

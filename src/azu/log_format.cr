@@ -54,8 +54,21 @@ module Azu
 
     def self.colorize_query(qry : String)
       return qry unless @@colorize
+      return qry if qry.empty? || qry.strip.empty?
 
-      o = qry.to_s.split(/([a-zA-Z0-9_]+)/).join do |word|
+      # Handle comments first, before word splitting
+      comment_match = qry.match(/^(.*?)(--.*)$/)
+      if comment_match
+        main_part = comment_match[1]
+        comment_part = comment_match[2]
+        return colorize_sql_part(main_part) + comment_part.colorize.dark_gray.to_s
+      end
+
+      colorize_sql_part(qry)
+    end
+
+    private def self.colorize_sql_part(qry : String)
+      qry.to_s.split(/([a-zA-Z0-9_]+)/).join do |word|
         if SQL_KEYWORDS.includes?(word.upcase)
           if %w(START INSERT UPDATE CREATE ALTER COMMIT SELECT FROM WHERE GROUP LEFT RIGHT JOIN).includes?(word.upcase)
             "\n\t#{word.colorize.bold.blue}"
@@ -68,22 +81,24 @@ module Azu
           word.colorize.white
         end
       end
-      o.gsub(/(--.*)$/, &.colorize.dark_gray)
     end
 
     def self.display_mn_sec(x : Float64) : String
-      mn = x.to_i / 60
-      sc = x.to_i % 60
+      total_seconds = x.to_i
+      mn = total_seconds // 60
+      sc = total_seconds % 60
 
-      {mn > 9 ? mn : "0#{mn}", sc > 9 ? sc : "0#{sc}"}.join("mn") + "s"
+      mn_str = mn > 9 ? mn.to_s : "0#{mn}"
+      sc_str = sc > 9 ? sc.to_s : "0#{sc}"
+      "#{mn_str}mn#{sc_str}s"
     end
 
     def self.display_time(x : Float64) : String
-      if (x > 60)
+      if x > 60
         display_mn_sec(x)
-      elsif (x > 1)
+      elsif x > 1
         ("%.2f" % x) + "s"
-      elsif (x > 0.001)
+      elsif x > 0.001
         (1_000 * x).to_i.to_s + "ms"
       else
         (1_000_000 * x).to_i.to_s + "µs"

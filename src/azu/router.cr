@@ -1,4 +1,6 @@
 require "http/web_socket"
+require "radix"
+require "./method"
 
 module Azu
   # Defines an Azu Router
@@ -35,14 +37,19 @@ module Azu
   # ```
   class Router
     alias Path = String
-    RADIX           = Radix::Tree(Route).new
     RESOURCES       = %w(connect delete get head options patch post put trace)
     METHOD_OVERRIDE = "_method"
+
+    getter radix : Radix::Tree(Route)
+
+    def initialize
+      @radix = Radix::Tree(Route).new
+    end
 
     record Route,
       endpoint : HTTP::Handler,
       resource : String,
-      method : Method
+      method : Azu::Method
 
     class DuplicateRoute < Exception
     end
@@ -65,14 +72,14 @@ module Azu
 
     {% for method in RESOURCES %}
       def {{method.id}}(path : Router::Path, handler : HTTP::Handler)
-        method = Method.parse({{method}})
+        method = Azu::Method.parse({{method}})
         add path, handler, method
 
         {% if method == "get" %}
-          add path, handler, Method::Head
+          add path, handler, Azu::Method::Head
 
           {% if !%w(trace connect options head).includes? method %}
-          add path, handler, Method::Options if method.add_options?
+          add path, handler, Azu::Method::Options if method.add_options?
           {% end %}
         {% end %}
       end
@@ -85,7 +92,7 @@ module Azu
 
     def process(context : HTTP::Server::Context)
       method_override(context)
-      result = RADIX.find path(context)
+      result = @radix.find path(context)
       return not_found(context).to_s(context) unless result.found?
       context.request.path_params = result.params
       route = result.payload
@@ -104,7 +111,7 @@ module Azu
     # root :web, ExampleApp::HelloWorld
     # ```
     def root(endpoint : HTTP::Handler)
-      RADIX.add "/get/", Route.new(endpoint: endpoint, resource: "/get/", method: Method::Get)
+      @radix.add "/get/", Route.new(endpoint: endpoint, resource: "/get/", method: Azu::Method::Get)
     end
 
     # Registers a websocket route
@@ -117,18 +124,18 @@ module Azu
         channel.new(socket).call(context)
       end
       resource = "/ws#{path}"
-      RADIX.add resource, Route.new(handler, resource, Method::WebSocket)
+      @radix.add resource, Route.new(handler, resource, Azu::Method::WebSocket)
     end
 
     # Registers a route for a given path
     #
     # ```
-    # add path: '/proc', endpoint: ->(env) { [200, {}, ['Hello from Hanami!']] }, method: Method::Get
-    # add path: '/endpoint',   endpoint: Handler.new, method: Method::Get
+    # add path: '/proc', endpoint: ->(env) { [200, {}, ['Hello from Hanami!']] }, method: Azu::Method::Get
+    # add path: '/endpoint',   endpoint: Handler.new, method: Azu::Method::Get
     # ```
-    def add(path : Path, endpoint : HTTP::Handler, method : Method = Method::Any)
+    def add(path : Path, endpoint : HTTP::Handler, method : Azu::Method = Azu::Method::Get)
       resource = "/#{method.to_s.downcase}#{path}"
-      RADIX.add resource, Route.new(endpoint, resource, method)
+      @radix.add resource, Route.new(endpoint, resource, method)
     rescue ex : Radix::Tree::DuplicateError
       raise DuplicateRoute.new("http_method: #{method}, path: #{path}, endpoint: #{endpoint}")
     end

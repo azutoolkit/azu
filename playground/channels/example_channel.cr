@@ -20,7 +20,7 @@ module ExampleApp
     end
 
     def on_message(message)
-      SUBSCRIBERS.each { |s| s.send "Polo!" }
+      SUBSCRIBERS.each(&.send("Polo!"))
     end
 
     def on_close(code : HTTP::WebSocket::CloseCode | Int? = nil, message = nil)

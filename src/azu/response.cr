@@ -55,7 +55,7 @@ module Azu
       property errors : Array(String) = [] of String
       property context : ErrorContext?
       property error_id : String = Random::Secure.hex(16)
-      property fingerprint : String?
+      property fingerprint : String
 
       private def templates : Templates
         CONFIG.templates
@@ -74,23 +74,23 @@ module Azu
       end
 
       def initialize(@title, @status, @errors, @context = nil)
-        @detail = title
+        @detail = @title
         @fingerprint = generate_fingerprint
       end
 
       def self.from_exception(ex, status = 500, context : ErrorContext? = nil)
         error = new(
-          title: ex.message || "Error",
-          status: HTTP::Status.from_value(status),
-          errors: [] of String,
-          context: context
+          ex.message || "Error",
+          HTTP::Status.from_value(status),
+          [] of String,
+          context
         )
         error.detail = ex.cause.to_s || "A server error occurred"
         error
       end
 
       def link
-        "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/#{status}"
+        "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/#{status_code}"
       end
 
       def html(context)
@@ -162,7 +162,7 @@ module Azu
         context_info = context ? format_context_text(context.not_nil!) : "Context: None"
 
         <<-TEXT
-    Status: #{status}
+    Status: #{status_code}
     Link: #{link}
     Title: #{title}
     Detail: #{detail}
@@ -182,7 +182,7 @@ module Azu
       def to_s(context : HTTP::Server::Context)
         context.response.status_code = status_code
         context.response.headers["X-Error-ID"] = error_id
-        context.response.headers["X-Error-Fingerprint"] = fingerprint || ""
+        context.response.headers["X-Error-Fingerprint"] = fingerprint
 
         if accept = context.request.accept
           accept.each do |a|

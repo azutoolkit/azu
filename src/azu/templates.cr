@@ -1,3 +1,5 @@
+require "crinja"
+
 module Azu
   # Templates are used by Azu when rendering responses.
   #
@@ -15,6 +17,7 @@ module Azu
   # render(template : String, data)
   # ```
   class Templates
+    @crinja : Crinja
     getter crinja = Crinja.new
     getter path : Array(String)
     getter error_path : String
@@ -47,8 +50,7 @@ module Azu
 
     private def reload(&)
       with self yield
-      path << error_path
-      crinja.loader = Crinja::Loader::FileSystemLoader.new(path)
+      crinja.loader = Crinja::Loader::FileSystemLoader.new([error_path] + path)
     end
   end
 end

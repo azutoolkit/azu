@@ -24,7 +24,14 @@ class HTTP::Request
   def accept : Array(MIME::MediaType) | Nil
     @accept ||= (
       if header = headers["Accept"]?
-        header.split(",").map { |a| MIME::MediaType.parse(a) }.sort do |a, b|
+        # Handle empty or whitespace-only accept headers
+        return nil if header.strip.empty?
+
+        header.split(",").map do |a|
+          trimmed = a.strip
+          next if trimmed.empty?
+          MIME::MediaType.parse(trimmed)
+        end.compact.sort! do |a, b|
           (b["q"]?.try &.to_f || 1.0) <=> (a["q"]?.try &.to_f || 1.0)
         end
       end

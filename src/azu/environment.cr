@@ -22,7 +22,7 @@ module Azu
 
     # Checks if the current environment is in any of the environment listed
     def in?(environments : Array(Symbol))
-      environments.any? { |name| self == name }
+      environments.any? { |name| self.to_s.downcase == name.to_s }
     end
 
     # Checks if the current environment matches another environment

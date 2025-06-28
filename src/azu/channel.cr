@@ -22,6 +22,8 @@ module Azu
   # Upon receiving a ping, the recipient must promptly send back a pong. This mechanism ensures
   # that the client remains connected.
   abstract class Channel
+    include HTTP::Handler
+
     getter! socket : HTTP::WebSocket
 
     def initialize(@socket : HTTP::WebSocket)

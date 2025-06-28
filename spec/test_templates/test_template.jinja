@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>{{ title | default("Test Template") }}</title>
+</head>
+
+<body>
+  <h1>{{ heading | default("Hello World") }}</h1>
+  <p>{{ message | default("This is a test template.") }}</p>
+  {% if user %}
+  <p>Welcome, {{ user }}!</p>
+  {% endif %}
+</body>
+
+</html>

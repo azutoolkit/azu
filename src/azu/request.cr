@@ -1,4 +1,5 @@
 require "mime"
+require "uri/params/serializable"
 
 module Azu
   # Every HTTP request message has a specific form:
@@ -26,7 +27,8 @@ module Azu
   # * Enables Focused and effective testing.
   # * Json body requests render object instances.
   #
-  # Azu Requests contracts is provided by tight integration with the [Schema](https://github.com/eliasjpr/schema) shard
+  # Azu Requests contracts is provided by tight integration with Crystal's built-in URI::Params::Serializable
+  # and the [Schema](https://github.com/eliasjpr/schema) shard for validation
   #
   # ### Example Use:
   #
@@ -34,37 +36,44 @@ module Azu
   # class UserRequest
   #   include Azu::Request
   #
-  #   query name : String, message: "Param name must be present.", presence: true
+  #   @name : String
+  #   validate name, presence: true, message: "Name param must be present!"
   # end
   # ```
   #
   # ### Initializers
   #
   # ```
-  # UserRequest.from_json(pyaload: String)
-  # UserRequest.new(params: Hash(String, String))
+  # UserRequest.from_json(payload: String)
+  # UserRequest.from_www_form(params: String)
+  # UserRequest.new(name: "value")
   # ```
   #
   # ### Available Methods
   #
   # ```
-  # getters   - For each of the params
-  # valid?    - Bool
-  # validate! - True or Raise Error
-  # errors    - Errors(T, S)
-  # rules     - Rules(T, S)
-  # params    - Original params payload
-  # to_json   - Outputs JSON
-  # to_yaml   - Outputs YAML
+  # getters       - For each of the params
+  # valid?        - Bool
+  # validate!     - True or Raise Error
+  # errors        - Errors(T, S)
+  # rules         - Rules(T, S)
+  # to_www_form   - Outputs URL-encoded form
+  # to_json       - Outputs JSON
+  # to_yaml       - Outputs YAML
   # ```
   module Request
     macro included
       include JSON::Serializable
-      include Schema::Definition
+      include URI::Params::Serializable
       include Schema::Validation
 
       def error_messages
         errors.map(&.message)
+      end
+
+      # Compatibility method for existing endpoints that use from_query
+      def self.from_query(query_string : String)
+        from_www_form(query_string)
       end
     end
   end

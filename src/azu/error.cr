@@ -125,10 +125,14 @@ module Azu
 
     private def log : ::Log
       CONFIG.log
+    rescue
+      ::Log.for("Azu::ErrorReporter")
     end
 
     private def env : Environment
       CONFIG.env
+    rescue
+      Environment::Development
     end
 
     def get_recent_errors(limit : Int32 = 100) : Array(ErrorReport)
@@ -184,9 +188,19 @@ module Azu
 
     def initialize(error : Exception, @context = nil, @severity = ErrorReporter::Severity::ERROR)
       @timestamp = Time.utc
-      @error_type = error.class.name
-      @message = error.message || "Unknown error"
-      @backtrace = error.backtrace || [] of String
+      @error_type = error.class.to_s
+      @message = begin
+        msg = error.message
+        msg.nil? ? "Unknown error" : msg
+      rescue
+        "Unknown error"
+      end
+      @backtrace = begin
+        bt = error.backtrace
+        bt.nil? ? [] of String : bt
+      rescue
+        [] of String
+      end
       @fingerprint = generate_fingerprint(error)
     end
 
@@ -205,9 +219,19 @@ module Azu
 
     private def generate_fingerprint(error : Exception) : String
       # Create a fingerprint for grouping similar errors
-      error_class = error.class.name
+      error_class = error.class.to_s
       error_message = error.message || "unknown"
-      first_backtrace = error.backtrace.try(&.first) || "no_trace"
+      first_backtrace = "no_trace"
+
+      begin
+        if backtrace = error.backtrace
+          if first_trace = backtrace.first?
+            first_backtrace = first_trace
+          end
+        end
+      rescue
+        first_backtrace = "no_trace"
+      end
 
       content = "#{error_class}:#{error_message}:#{first_backtrace}"
       Digest::SHA1.hexdigest(content)[0..15]

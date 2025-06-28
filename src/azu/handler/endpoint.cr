@@ -1,8 +1,10 @@
+require "http"
+
 module Azu
   # An Endpoint is an endpoint that handles incoming HTTP requests for a specific route.
   # In a Azu application, an endpoint is a simple testable object.
   #
-  # This design provides self contained actions that don’t share their context
+  # This design provides self contained actions that don't share their context
   # accidentally with other actions. It also prevents gigantic controllers.
   # It has several advantages in terms of testability and control of an endpoint.
   #
@@ -18,7 +20,7 @@ module Azu
     include HTTP::Handler
 
     @context : HTTP::Server::Context? = nil
-    @parmas : Params(Request)? = nil
+    @params : Params(Request)? = nil
     @request_object : Request? = nil
 
     # When we include Endpoint module, we make our object compliant with Azu

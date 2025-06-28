@@ -1,16 +1,27 @@
 require "json"
+require "../../src/azu"
 
 module ExampleApp
   struct JsonReq
-    include Request
+    include Azu::Request
 
-    getter id : Int64? = nil
-    getter users : Array(String)
-    getter config : Config
+    @id : Int64?
+    @users : Array(String)
+    @config : Config
+
+    getter id, users, config
+
+    def initialize(@id : Int64? = nil, @users : Array(String) = [] of String, @config : Config = Config.new)
+    end
 
     struct Config
-      include Request
-      property? allowed : Bool = false
+      include Azu::Request
+
+      @allowed : Bool?
+      getter allowed
+
+      def initialize(@allowed : Bool? = false)
+      end
     end
   end
 end
