@@ -1,3 +1,6 @@
+require "http/server/handler"
+require "../error"
+
 module Azu
   module Handler
     class Rescuer
@@ -14,8 +17,17 @@ module Azu
         ex.to_s(context)
         @log.warn(exception: ex) { "Error Processing Request #{ex.status_code}".colorize(:yellow) }
       rescue ex : Exception
-        Response::Error.from_exception(ex).to_s(context)
+        request_id = context.request.headers["X-Request-ID"]? || generate_request_id
+        error_context = ErrorContext.from_http_context(context, request_id)
+
+        enhanced_error = Response::Error.from_exception(ex, 500, error_context)
+        enhanced_error.to_s(context)
+
         @log.error(exception: ex) { "Error Processing Request ".colorize(:red) }
+      end
+
+      private def generate_request_id : String
+        "req_#{Time.utc.to_unix_ms}_#{Random::Secure.hex(8)}"
       end
     end
   end

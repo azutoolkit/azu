@@ -45,7 +45,7 @@ module Azu
       crinja.get_template template
     end
 
-    private def reload
+    private def reload(&)
       with self yield
       path << error_path
       crinja.loader = Crinja::Loader::FileSystemLoader.new(path)

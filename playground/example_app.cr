@@ -13,6 +13,7 @@ require "./endpoints/*"
 require "./channels/*"
 
 ExampleApp.start [
-  Azu::Handler::Rescuer.new,
+  Azu::Handler::RequestId.new, # Enhanced request ID tracking
+  Azu::Handler::Rescuer.new,   # Enhanced error handling
   Azu::Handler::Logger.new,
 ]

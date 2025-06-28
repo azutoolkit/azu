@@ -13,7 +13,7 @@ module Azu
   CONFIG = Configuration.new
 
   macro included
-    def self.configure
+    def self.configure(&)
       with CONFIG yield CONFIG
     end
 

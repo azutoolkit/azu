@@ -79,7 +79,7 @@ module Azu
     {% end %}
 
     # Adds scoped routes
-    def routes(scope : String = "")
+    def routes(scope : String = "", &)
       with Builder.new(self, scope) yield
     end
 

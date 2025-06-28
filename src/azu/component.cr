@@ -48,7 +48,7 @@ module Azu
       @view = IO::Memory.new
     end
 
-    def refresh
+    def refresh(&)
       yield
       refresh
     end

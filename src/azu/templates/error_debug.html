@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{status}} - {{title}} (Debug)</title>
+  <link href="https://fonts.googleapis.com/css?family=Roboto+Mono:400,700|Roboto:400,700" rel="stylesheet">
+  <style>
+    * {
+      -webkit-box-sizing: border-box;
+      box-sizing: border-box;
+    }
+
+    body {
+      padding: 0;
+      margin: 0;
+      font-family: 'Roboto', sans-serif;
+      background-color: #1a1a1a;
+      color: #f5f5f5;
+      line-height: 1.6;
+    }
+
+    .debug-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .error-header {
+      background: linear-gradient(135deg, #d32f2f, #f44336);
+      color: white;
+      padding: 30px;
+      border-radius: 8px;
+      margin-bottom: 30px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    }
+
+    .error-header h1 {
+      font-size: 48px;
+      margin: 0 0 10px 0;
+      font-weight: 700;
+    }
+
+    .error-header h2 {
+      font-size: 24px;
+      margin: 0 0 15px 0;
+      font-weight: 400;
+      opacity: 0.9;
+    }
+
+    .error-meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .error-meta-item {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 10px;
+      border-radius: 4px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 14px;
+    }
+
+    .error-meta-label {
+      font-weight: 700;
+      color: #ffeb3b;
+    }
+
+    .debug-section {
+      background: #2d2d2d;
+      border-radius: 8px;
+      margin-bottom: 30px;
+      overflow: hidden;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .section-header {
+      background: #424242;
+      padding: 15px 20px;
+      border-bottom: 1px solid #555;
+      font-weight: 700;
+      font-size: 18px;
+      color: #fff;
+    }
+
+    .section-content {
+      padding: 20px;
+    }
+
+    .code-block {
+      background: #1e1e1e;
+      border: 1px solid #444;
+      border-radius: 4px;
+      padding: 20px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 14px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .backtrace-item {
+      background: #333;
+      margin-bottom: 5px;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px;
+      border-left: 3px solid #666;
+    }
+
+    .backtrace-item:hover {
+      background: #444;
+      border-left-color: #2196f3;
+    }
+
+    .context-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+    }
+
+    .context-item {
+      background: #333;
+      padding: 15px;
+      border-radius: 4px;
+      border-left: 3px solid #4caf50;
+    }
+
+    .context-label {
+      font-weight: 700;
+      color: #4caf50;
+      margin-bottom: 5px;
+    }
+
+    .context-value {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px;
+      color: #f5f5f5;
+      word-break: break-all;
+    }
+
+    .error-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .error-list li {
+      background: #d32f2f;
+      color: white;
+      padding: 10px 15px;
+      margin-bottom: 10px;
+      border-radius: 4px;
+      border-left: 3px solid #b71c1c;
+    }
+
+    .headers-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px;
+    }
+
+    .headers-table th,
+    .headers-table td {
+      text-align: left;
+      padding: 8px;
+      border-bottom: 1px solid #555;
+    }
+
+    .headers-table th {
+      background: #444;
+      font-weight: 700;
+      color: #ffeb3b;
+    }
+
+    .headers-table td:first-child {
+      color: #4caf50;
+      font-weight: 700;
+    }
+
+    .toggle-section {
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .toggle-section:hover {
+      background: #555;
+    }
+
+    .collapsible-content {
+      display: none;
+    }
+
+    .collapsible-content.active {
+      display: block;
+    }
+
+    .back-button {
+      display: inline-block;
+      background: #2196f3;
+      color: white;
+      padding: 12px 24px;
+      text-decoration: none;
+      border-radius: 4px;
+      font-weight: 700;
+      margin-top: 30px;
+      transition: background 0.3s;
+    }
+
+    .back-button:hover {
+      background: #1976d2;
+    }
+
+    @media only screen and (max-width: 768px) {
+      .debug-container {
+        padding: 10px;
+      }
+
+      .error-header h1 {
+        font-size: 36px;
+      }
+
+      .error-meta {
+        grid-template-columns: 1fr;
+      }
+
+      .context-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="debug-container">
+    <div class="error-header">
+      <h1>{{status}}</h1>
+      <h2>{{title}}</h2>
+      <p>{{detail}}</p>
+
+      <div class="error-meta">
+        <div class="error-meta-item">
+          <div class="error-meta-label">Error ID:</div>
+          {{error_id}}
+        </div>
+        <div class="error-meta-item">
+          <div class="error-meta-label">Fingerprint:</div>
+          {{fingerprint}}
+        </div>
+        <div class="error-meta-item">
+          <div class="error-meta-label">Timestamp:</div>
+          {{timestamp}}
+        </div>
+        {% if source %}
+        <div class="error-meta-item">
+          <div class="error-meta-label">Source:</div>
+          {{source}}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if errors %}
+    <div class="debug-section">
+      <div class="section-header">Error Messages</div>
+      <div class="section-content">
+        <ul class="error-list">
+          {% for error in errors %}
+          <li>{{error}}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if context %}
+    <div class="debug-section">
+      <div class="section-header">Request Context</div>
+      <div class="section-content">
+        <div class="context-grid">
+          {% if context.request_id %}
+          <div class="context-item">
+            <div class="context-label">Request ID</div>
+            <div class="context-value">{{context.request_id}}</div>
+          </div>
+          {% endif %}
+          {% if context.method and context.endpoint %}
+          <div class="context-item">
+            <div class="context-label">Request</div>
+            <div class="context-value">{{context.method}} {{context.endpoint}}</div>
+          </div>
+          {% endif %}
+          {% if context.ip_address %}
+          <div class="context-item">
+            <div class="context-label">IP Address</div>
+            <div class="context-value">{{context.ip_address}}</div>
+          </div>
+          {% endif %}
+          {% if context.user_agent %}
+          <div class="context-item">
+            <div class="context-label">User Agent</div>
+            <div class="context-value">{{context.user_agent}}</div>
+          </div>
+          {% endif %}
+          {% if context.referer %}
+          <div class="context-item">
+            <div class="context-label">Referer</div>
+            <div class="context-value">{{context.referer}}</div>
+          </div>
+          {% endif %}
+          {% if context.user_id %}
+          <div class="context-item">
+            <div class="context-label">User ID</div>
+            <div class="context-value">{{context.user_id}}</div>
+          </div>
+          {% endif %}
+          {% if context.session_id %}
+          <div class="context-item">
+            <div class="context-label">Session ID</div>
+            <div class="context-value">{{context.session_id}}</div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% if context.params %}
+    <div class="debug-section">
+      <div class="section-header toggle-section" onclick="toggleSection('params')">
+        Request Parameters ▼
+      </div>
+      <div class="section-content collapsible-content" id="params">
+        <div class="code-block">{{context.params}}</div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if context.headers %}
+    <div class="debug-section">
+      <div class="section-header toggle-section" onclick="toggleSection('headers')">
+        Request Headers ▼
+      </div>
+      <div class="section-content collapsible-content" id="headers">
+        <table class="headers-table">
+          <thead>
+            <tr>
+              <th>Header</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for header in context.headers %}
+            <tr>
+              <td>{{header[0]}}</td>
+              <td>{{header[1]}}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {% if backtrace %}
+    <div class="debug-section">
+      <div class="section-header toggle-section" onclick="toggleSection('backtrace')">
+        Stack Trace ▼
+      </div>
+      <div class="section-content collapsible-content active" id="backtrace">
+        {% for trace in backtrace %}
+        <div class="backtrace-item">{{trace}}</div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if context and context.environment %}
+    <div class="debug-section">
+      <div class="section-header toggle-section" onclick="toggleSection('environment')">
+        Environment Variables ▼
+      </div>
+      <div class="section-content collapsible-content" id="environment">
+        <table class="headers-table">
+          <thead>
+            <tr>
+              <th>Variable</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for env_var in context.environment %}
+            <tr>
+              <td>{{env_var[0]}}</td>
+              <td>{{env_var[1]}}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <a href="/" class="back-button">← Back to Homepage</a>
+  </div>
+
+  <script>
+    function toggleSection(sectionId) {
+      const content = document.getElementById(sectionId);
+      const header = content.previousElementSibling;
+
+      if (content.classList.contains('active')) {
+        content.classList.remove('active');
+        header.innerHTML = header.innerHTML.replace('▲', '▼');
+      } else {
+        content.classList.add('active');
+        header.innerHTML = header.innerHTML.replace('▼', '▲');
+      }
+    }
+
+    // Auto-expand critical sections
+    document.addEventListener('DOMContentLoaded', function () {
+      const criticalSections = ['backtrace'];
+      criticalSections.forEach(function (sectionId) {
+        const element = document.getElementById(sectionId);
+        if (element) {
+          element.classList.add('active');
+          const header = element.previousElementSibling;
+          header.innerHTML = header.innerHTML.replace('▼', '▲');
+        }
+      });
+    });
+  </script>
+</body>
+
+</html>

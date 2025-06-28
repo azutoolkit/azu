@@ -45,7 +45,7 @@ module Azu
       query.fetch_all(key)
     end
 
-    def each
+    def each(&)
       to_h.each do |k, v|
         yield k, v
       end
