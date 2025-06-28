@@ -1,0 +1,118 @@
+---
+description:
+globs: *.md,docs/*.md
+alwaysApply: false
+---
+---
+description: Expert technical Documentation writer rules for writing precise, developer-friendly, and engaging documentation that explains concepts, with code examples and Mermaid diagrams. Includes Claude AI prompt.
+version: 1.0.2
+globs:
+  - "docs/**/*.md"
+  - "README.md"
+alwaysApply: true
+---
+
+# 📘 Documentation Standards Rule Set
+
+## ✅ Project Context
+
+- **Project Name**: [Insert project name]
+- **One-liner**: [Insert concise description of what the project does]
+- **Audience**: Senior developers and software architects
+
+## 🧠 Purpose
+
+This documentation is designed to:
+- Clearly explain the project and its components
+- **Thoroughly explain every concept to developers**—avoid assuming prior knowledge of project-specific ideas, patterns, or terminology
+- Empower developers to adopt and extend the system
+- Reduce onboarding time with crisp, concise examples
+- Use visuals (especially Mermaid diagrams) for complex concepts
+- Support advanced use cases and troubleshooting
+- Engage the developer/reader: Encourage experimentation, critical thinking, and contributions throughout
+
+## 📐 Documentation Structure
+Structure your documentation into logical sections:
+
+1. **Overview**
+    - What the project does
+    - Why it exists (problem → solution)
+    - Who it’s for
+    - Key features at a glance
+
+2. **Getting Started**
+    - Prerequisites
+    - Installation steps
+    - First working example
+    - Confidence-building code snippets
+    - Prompt the reader to try the examples and modify them.
+
+3. **Architecture**
+    - High-level design, rationale for choices
+    - Data flow, lifecycle, and event handling (prefer Mermaid diagrams)
+    - Pose questions or invite feedback on architectural decisions.
+    - **Explain architectural concepts and patterns in plain language before showing code or diagrams.**
+
+4. **Core Concepts**
+    - Clear definitions of major components
+    - Thoroughly **explain each concept**, including what it is, why it matters, and how it’s used in the project
+    - Links to source code/examples
+    - Design patterns used
+    - Edge cases and gotchas
+    - Encourage the reader to consider how these concepts apply to their use cases.
+
+5. **Advanced Usage**
+    - Configuration, extension points, plugins
+    - Real-world patterns and best practices
+    - Explain any advanced concepts or patterns, providing context and rationale
+    - Ask readers to share or contribute their advanced use cases.
+
+6. **Performance & Scalability**
+    - Performance characteristics and benchmarks (if available)
+    - Patterns for scalability
+    - Clearly **explain any performance-related concepts, trade-offs, and optimizations**
+    - Invite readers to run benchmarks and report findings or issues.
+
+7. **API Reference**
+    - Document key classes, methods, and config options
+    - Concise, consistent, and thorough
+    - Provide links for readers to submit clarifications or improvements.
+
+8. **FAQs & Troubleshooting**
+    - Common errors, pitfalls, edge cases
+    - Debugging tips
+    - Clearly explain the causes and solutions to each problem
+    - Encourage readers to contribute additional FAQs or solutions they discover.
+
+9. **Roadmap & Contributing**
+    - Future plans
+    - Contribution guide and standards
+    - Directly invite readers to participate, provide feedback, and open pull requests.
+
+## ✍️ Writing Style, Formatting, Engagement & Explanation Guidelines
+
+- **Audience**: Experienced developers, Senior Software Developers
+- **Tone**: Clear, balanced, professional—no hand-holding
+- **Content**:
+    - Be precise, instructional, and always **explain concepts fully** before using them in context
+    - Use idiomatic, realistic code snippets (e.g., Crystal)
+    - Favor clarity over cleverness
+    - Each section is a mini-tutorial: practical and conceptual
+    - Promote engagement: Ask reflective questions, encourage experimentation, and offer actionable next steps
+- **Formatting**:
+    - Markdown: use headings, bullet points, code blocks
+    - Prefer Mermaid diagrams for flows, lifecycles, architecture
+    - Use callouts (e.g., `> Note`, `> Warning`) for emphasis
+- **Visuals**:
+    - Center Mermaid diagrams and annotate if complex
+    - Types: `flowchart`, `sequenceDiagram`, `stateDiagram-v2`, `classDiagram`
+- **Structure**:
+    - Introduce, define, and **explain every new term or concept**
+    - Link to deeper content for progressive learning
+    - End each section with a summary and, where appropriate, a call to action or invitation to contribute/experiment
+
+---
+
+## 🤖 Claude AI Documentation Prompt
+
+Use this Claude prompt when generating or refining documentation sections:
