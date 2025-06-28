@@ -123,12 +123,12 @@ Azu is designed for high-performance applications:
 ### Benchmark Results
 
 | Framework | Requests/sec | Memory Usage | Startup Time |
-|-----------|--------------|--------------|--------------|
+| --------- | ------------ | ------------ | ------------ |
 | Azu       | 85,000       | 12MB         | 150ms        |
 | Kemal     | 82,000       | 15MB         | 200ms        |
 | Lucky     | 78,000       | 18MB         | 300ms        |
 
-*Benchmarks run on: Intel i7-10700K, 32GB RAM, Crystal 1.16.0*
+_Benchmarks run on: Intel i7-10700K, 32GB RAM, Crystal 1.16.0_
 
 ## Framework Components
 
@@ -217,6 +217,7 @@ Azu excels in scenarios requiring:
 ---
 
 **Next Steps:**
+
 - [Installation Guide](getting-started/installation.md)
 - [Your First Application](getting-started/first-app.md)
 - [Core Concepts](core-concepts.md)
