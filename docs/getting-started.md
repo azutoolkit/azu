@@ -1,70 +1,46 @@
 # Getting Started
 
-Welcome to Azu! This guide will get you up and running with a type-safe, high-performance web application in under 10 minutes.
-
-## What You'll Build
-
-By the end of this guide, you'll have:
-
-- ✅ A working Azu application with type-safe endpoints
-- ✅ Request validation and structured error handling
-- ✅ Real-time WebSocket functionality
-- ✅ Template rendering with hot reloading
-- ✅ Understanding of Azu's core concepts
+This guide will walk you through installing Azu, creating your first application, and understanding the basic concepts needed to build web applications with the framework.
 
 ## Prerequisites
 
-Before starting, ensure you have:
+Before getting started with Azu, ensure you have:
 
-- **Crystal 0.35.0+** installed ([installation guide](https://crystal-lang.org/install/))
-- **Basic Crystal knowledge** (variables, classes, modules)
-- **HTTP concepts** (requests, responses, status codes)
-
-### Verify Your Crystal Installation
-
-```bash
-crystal version
-# Should output: Crystal 1.x.x
-```
+- **Crystal** ≥ 0.35.0 installed ([Installation guide](https://crystal-lang.org/install/))
+- **Basic understanding** of Crystal syntax and concepts
+- **Text editor** with Crystal support (VS Code with Crystal extension recommended)
 
 ## Installation
 
 ### 1. Create a New Project
 
 ```bash
-mkdir my-azu-app
-cd my-azu-app
+mkdir my_azu_app
+cd my_azu_app
+crystal init app my_azu_app
 ```
 
-### 2. Initialize Crystal Project
+### 2. Add Azu to Dependencies
 
-```bash
-crystal init app my-azu-app
-cd my-azu-app
-```
-
-### 3. Add Azu to Dependencies
-
-Edit your `shard.yml`:
+Edit your `shard.yml` file:
 
 ```yaml
-name: my-azu-app
+name: my_azu_app
 version: 0.1.0
-
-authors:
-  - Your Name <you@example.com>
 
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.5.2
+    version: ~> 0.4.14
 
-crystal: >= 0.35.0
+crystal: ">= 0.35.0"
 
-license: MIT
+targets:
+  my_azu_app:
+    main: src/my_azu_app.cr
 ```
 
-### 4. Install Dependencies
+### 3. Install Dependencies
 
 ```bash
 shards install
@@ -72,478 +48,271 @@ shards install
 
 ## Your First Application
 
-Let's build a simple API that manages users with type-safe request/response contracts.
+Let's build a simple "Hello World" application to understand Azu's basic structure.
 
-### 1. Create the Main Application File
+### Application Structure
 
-Create `src/my-azu-app.cr`:
+Create the following directory structure:
+
+```
+my_azu_app/
+├── src/
+│   ├── my_azu_app.cr          # Main application file
+│   ├── endpoints/             # HTTP endpoints
+│   ├── requests/              # Request contracts
+│   ├── responses/             # Response objects
+│   └── templates/             # View templates
+├── spec/                      # Test files
+└── shard.yml                  # Dependencies
+```
+
+### 1. Main Application File
+
+Create `src/my_azu_app.cr`:
 
 ```crystal
 require "azu"
 
-# Application module with configuration
+# Define your application module
 module MyAzuApp
   include Azu
 
+  # Configure the application
   configure do
-    # Environment-specific settings
-    port = ENV.fetch("PORT", "4000").to_i
-    host = ENV.fetch("HOST", "0.0.0.0")
+    port = ENV.fetch("PORT", "3000").to_i
+    host = ENV.fetch("HOST", "localhost")
+    env = Azu::Environment.parse(ENV.fetch("CRYSTAL_ENV", "development"))
 
     # Template configuration
-    templates.path = ["templates"]
+    templates.path = "src/templates"
     template_hot_reload = env.development?
   end
 end
 
-# Request contract - defines what we expect from client
-struct CreateUserRequest
-  include Azu::Request
+# Load application components
+require "./requests/*"
+require "./responses/*"
+require "./endpoints/*"
 
-  getter name : String
-  getter email : String
-  getter age : Int32?
-
-  # Type-safe initialization
-  def initialize(@name = "", @email = "", @age = nil)
-  end
-
-  # Compile-time validation rules
-  validate name, presence: true, length: {min: 2, max: 50}
-  validate email, presence: true, format: /@/
-  validate age, numericality: {greater_than: 0, less_than: 150}, allow_nil: true
-end
-
-# Response contract - defines what we return to client
-struct UserResponse
-  include Azu::Response
-
-  def initialize(@user : User)
-  end
-
-  def render
-    {
-      id: @user.id,
-      name: @user.name,
-      email: @user.email,
-      age: @user.age,
-      created_at: @user.created_at.to_rfc3339
-    }.to_json
-  end
-end
-
-# Simple User model for demonstration
-class User
-  property id : Int64
-  property name : String
-  property email : String
-  property age : Int32?
-  property created_at : Time
-
-  @@next_id = 1_i64
-  @@users = [] of User
-
-  def initialize(@name : String, @email : String, @age : Int32? = nil)
-    @id = @@next_id
-    @@next_id += 1
-    @created_at = Time.utc
-    @@users << self
-  end
-
-  def self.all
-    @@users
-  end
-
-  def self.find(id : Int64)
-    @@users.find { |u| u.id == id }
-  end
-end
-
-# Type-safe endpoint with explicit contracts
-struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
-
-  post "/users"
-
-  def call : UserResponse
-    # Automatic request validation
-    unless create_user_request.valid?
-      raise Azu::Response::ValidationError.new(
-        create_user_request.errors.group_by(&.field).transform_values(&.map(&.message))
-      )
-    end
-
-    # Safe to use validated data
-    user = User.new(
-      name: create_user_request.name,
-      email: create_user_request.email,
-      age: create_user_request.age
-    )
-
-    status 201
-    UserResponse.new(user)
-  end
-end
-
-# List users endpoint
-struct ListUsersRequest
-  include Azu::Request
-end
-
-struct UsersListResponse
-  include Azu::Response
-
-  def initialize(@users : Array(User))
-  end
-
-  def render
-    {
-      users: @users.map do |user|
-        {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          age: user.age,
-          created_at: user.created_at.to_rfc3339
-        }
-      end,
-      count: @users.size
-    }.to_json
-  end
-end
-
-struct ListUsersEndpoint
-  include Azu::Endpoint(ListUsersRequest, UsersListResponse)
-
-  get "/users"
-
-  def call : UsersListResponse
-    users = User.all
-    UsersListResponse.new(users)
-  end
-end
-
-# Start the application with middleware stack
-MyAzuApp.start [
-  Azu::Handler::RequestId.new,    # Request tracking
+# Start the server with middleware
+MyAzuApp.start([
+  Azu::Handler::RequestId.new,    # Add request IDs for tracking
+  Azu::Handler::Logger.new,       # Request/response logging
   Azu::Handler::Rescuer.new,      # Error handling
-  Azu::Handler::Logger.new,       # Request logging
-  Azu::Handler::CORS.new,         # CORS headers
-]
+  Azu::Handler::Static.new,       # Static file serving
+])
 ```
 
-### 2. Run Your Application
+### 2. Create a Request Contract
+
+Create `src/requests/hello_request.cr`:
+
+```crystal
+module MyAzuApp
+  # Empty request for simple GET endpoints
+  struct HelloRequest
+    include Azu::Request
+
+    # No parameters needed for hello world
+    def initialize
+    end
+  end
+end
+```
+
+### 3. Create a Response Object
+
+Create `src/responses/hello_response.cr`:
+
+```crystal
+module MyAzuApp
+  struct HelloResponse
+    include Azu::Response
+
+    def initialize(@message : String, @timestamp : Time = Time.utc)
+    end
+
+    def render
+      {
+        message: @message,
+        timestamp: @timestamp,
+        environment: MyAzuApp.env
+      }.to_json
+    end
+  end
+end
+```
+
+### 4. Create an Endpoint
+
+Create `src/endpoints/hello_endpoint.cr`:
+
+```crystal
+module MyAzuApp
+  struct HelloEndpoint
+    include Endpoint(HelloRequest, HelloResponse)
+
+    # Define the route
+    get "/"
+
+    # Handle the request
+    def call : HelloResponse
+      content_type "application/json"
+      status 200
+
+      HelloResponse.new("Hello, Azu! 🎉")
+    end
+  end
+end
+```
+
+### 5. Run Your Application
 
 ```bash
-crystal run src/my-azu-app.cr
+crystal run src/my_azu_app.cr
 ```
 
-You should see output like:
+You should see output similar to:
 
 ```
-Server started at Mon 12/04/2023 10:30:45.
+Server started at Sat 12/07/2024 02:30:45 PM.
    ⤑  Environment: development
-   ⤑  Host: 0.0.0.0
-   ⤑  Port: 4000
-   ⤑  Startup Time: 12.34 millis
+   ⤑  Host: localhost
+   ⤑  Port: 3000
+   ⤑  Startup Time: 45.2 millis
 ```
 
-### 3. Test Your API
+Visit `http://localhost:3000` to see your application in action!
 
-**Create a user:**
+## Understanding the Request-Response Flow
 
-```bash
-curl -X POST http://localhost:4000/users \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Alice Smith", "email": "alice@example.com", "age": 30}'
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Router
+    participant Middleware
+    participant Endpoint
+    participant Request
+    participant Response
+
+    Client->>Router: HTTP Request
+    Router->>Middleware: Route Match
+    Middleware->>Endpoint: Process Request
+    Endpoint->>Request: Parse & Validate
+    Request-->>Endpoint: Validated Data
+    Endpoint->>Response: Create Response
+    Response-->>Endpoint: Rendered Content
+    Endpoint-->>Middleware: HTTP Response
+    Middleware-->>Router: Final Response
+    Router-->>Client: HTTP Response
 ```
 
-**Response:**
+Let's break down what happens:
 
-```json
-{
-  "id": 1,
-  "name": "Alice Smith",
-  "email": "alice@example.com",
-  "age": 30,
-  "created_at": "2023-12-04T15:30:45Z"
-}
-```
+1. **Router** receives the HTTP request and matches it to an endpoint
+2. **Middleware chain** processes the request (logging, authentication, etc.)
+3. **Endpoint** handles the request using the type-safe contract
+4. **Request contract** validates and parses incoming data
+5. **Response object** renders the output in the appropriate format
+6. **Middleware chain** processes the response (headers, logging, etc.)
+7. **Client** receives the final HTTP response
 
-**List users:**
+## Adding More Endpoints
 
-```bash
-curl http://localhost:4000/users
-```
+Let's add a more complex endpoint that handles parameters and validation.
 
-**Response:**
+### 1. User Request Contract
 
-```json
-{
-  "users": [
-    {
-      "id": 1,
-      "name": "Alice Smith",
-      "email": "alice@example.com",
-      "age": 30,
-      "created_at": "2023-12-04T15:30:45Z"
-    }
-  ],
-  "count": 1
-}
-```
-
-## Adding Real-Time Features
-
-Let's add WebSocket support for real-time user notifications.
-
-### 1. Create a WebSocket Channel
-
-Add to your `src/my-azu-app.cr`:
+Create `src/requests/user_request.cr`:
 
 ```crystal
-# WebSocket channel for real-time notifications
-class UserNotificationChannel < Azu::Channel
-  SUBSCRIBERS = Set(HTTP::WebSocket).new
+module MyAzuApp
+  struct UserRequest
+    include Azu::Request
 
-  ws "/notifications"
+    @name : String
+    @email : String
+    @age : Int32?
 
-  def on_connect
-    SUBSCRIBERS << socket.not_nil!
+    getter name, email, age
 
-    # Send connection confirmation
-    send_message({
-      type: "connected",
-      message: "Welcome to user notifications!",
-      timestamp: Time.utc.to_rfc3339
-    })
+    def initialize(@name : String = "", @email : String = "", @age : Int32? = nil)
+    end
 
-    Log.info { "WebSocket connected. Total subscribers: #{SUBSCRIBERS.size}" }
+    # Add validation rules
+    validate :name, presence: true, size: 2..50
+    validate :email, presence: true, format: /@/
+    validate :age, range: 13..120, if: ->(req : UserRequest) { !req.age.nil? }
   end
+end
+```
 
-  def on_message(message : String)
-    begin
-      data = JSON.parse(message)
-      case data["type"]?.try(&.as_s)
-      when "ping"
-        send_message({type: "pong", timestamp: Time.utc.to_rfc3339})
-      else
-        send_message({type: "error", message: "Unknown message type"})
+### 2. User Response
+
+Create `src/responses/user_response.cr`:
+
+```crystal
+module MyAzuApp
+  struct UserResponse
+    include Azu::Response
+
+    def initialize(@user_data : UserRequest, @created_at : Time = Time.utc)
+    end
+
+    def render
+      {
+        user: {
+          name: @user_data.name,
+          email: @user_data.email,
+          age: @user_data.age
+        },
+        created_at: @created_at,
+        status: "success"
+      }.to_json
+    end
+  end
+end
+```
+
+### 3. User Endpoint
+
+Create `src/endpoints/user_endpoint.cr`:
+
+```crystal
+module MyAzuApp
+  struct UserEndpoint
+    include Endpoint(UserRequest, UserResponse)
+
+    post "/users"
+
+    def call : UserResponse
+      content_type "application/json"
+
+      # Validate the request
+      unless user_request.valid?
+        return error("Validation failed", 422, user_request.error_messages)
       end
-    rescue JSON::ParseException
-      send_message({type: "error", message: "Invalid JSON"})
+
+      status 201
+      UserResponse.new(user_request)
     end
-  end
-
-  def on_close(code, message)
-    SUBSCRIBERS.delete(socket)
-    Log.info { "WebSocket disconnected. Total subscribers: #{SUBSCRIBERS.size}" }
-  end
-
-  # Broadcast to all connected clients
-  def self.broadcast_user_created(user : User)
-    message = {
-      type: "user_created",
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        age: user.age
-      },
-      timestamp: Time.utc.to_rfc3339
-    }
-
-    SUBSCRIBERS.each do |socket|
-      spawn socket.send(message.to_json)
-    end
-  end
-
-  private def send_message(data)
-    socket.not_nil!.send(data.to_json)
   end
 end
 ```
 
-### 2. Update CreateUserEndpoint
-
-Modify the `CreateUserEndpoint` to broadcast notifications:
-
-```crystal
-struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
-
-  post "/users"
-
-  def call : UserResponse
-    unless create_user_request.valid?
-      raise Azu::Response::ValidationError.new(
-        create_user_request.errors.group_by(&.field).transform_values(&.map(&.message))
-      )
-    end
-
-    user = User.new(
-      name: create_user_request.name,
-      email: create_user_request.email,
-      age: create_user_request.age
-    )
-
-    # Broadcast to WebSocket subscribers
-    UserNotificationChannel.broadcast_user_created(user)
-
-    status 201
-    UserResponse.new(user)
-  end
-end
-```
-
-### 3. Test WebSocket Connection
-
-Create a simple HTML client (`test_websocket.html`):
-
-```html
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Azu WebSocket Test</title>
-  </head>
-  <body>
-    <h1>User Notifications</h1>
-    <div id="messages"></div>
-    <button onclick="sendPing()">Send Ping</button>
-
-    <script>
-      const ws = new WebSocket("ws://localhost:4000/notifications");
-      const messages = document.getElementById("messages");
-
-      ws.onopen = function () {
-        addMessage("Connected to server");
-      };
-
-      ws.onmessage = function (event) {
-        const data = JSON.parse(event.data);
-        addMessage(`${data.type}: ${JSON.stringify(data)}`);
-      };
-
-      ws.onclose = function () {
-        addMessage("Disconnected from server");
-      };
-
-      function sendPing() {
-        ws.send(JSON.stringify({ type: "ping" }));
-      }
-
-      function addMessage(text) {
-        const div = document.createElement("div");
-        div.textContent = `${new Date().toLocaleTimeString()}: ${text}`;
-        messages.appendChild(div);
-      }
-    </script>
-  </body>
-</html>
-```
-
-Open this file in your browser, then create a user via the API to see real-time notifications!
-
-## Error Handling
-
-Azu provides comprehensive error handling out of the box. Let's test it:
-
-### 1. Test Validation Errors
+Now you can test the endpoint:
 
 ```bash
-# Missing required fields
-curl -X POST http://localhost:4000/users \
+curl -X POST http://localhost:3000/users \
   -H "Content-Type: application/json" \
-  -d '{}'
+  -d '{"name": "John Doe", "email": "john@example.com", "age": 30}'
 ```
 
-**Response:**
+## Configuration Options
 
-```json
-{
-  "Status": "Unprocessable Entity",
-  "Title": "Validation Error",
-  "Detail": "The request could not be processed due to validation errors.",
-  "FieldErrors": {
-    "name": ["is required"],
-    "email": ["is required"]
-  },
-  "ErrorId": "err_abc123",
-  "Fingerprint": "validation_error_abc",
-  "Timestamp": "2023-12-04T15:35:12Z"
-}
-```
+Azu provides extensive configuration options. Here are the most commonly used:
 
-### 2. Test Invalid Data
-
-```bash
-# Invalid email and age
-curl -X POST http://localhost:4000/users \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Bob", "email": "invalid-email", "age": -5}'
-```
-
-**Response:**
-
-```json
-{
-  "Status": "Unprocessable Entity",
-  "Title": "Validation Error",
-  "Detail": "The request could not be processed due to validation errors.",
-  "FieldErrors": {
-    "email": ["is invalid"],
-    "age": ["must be greater than 0"]
-  },
-  "ErrorId": "err_def456",
-  "Fingerprint": "validation_error_def",
-  "Timestamp": "2023-12-04T15:36:30Z"
-}
-```
-
-## Project Structure
-
-Your project should now look like this:
-
-```
-my-azu-app/
-├── shard.yml
-├── shard.lock
-├── src/
-│   └── my-azu-app.cr
-├── spec/
-└── test_websocket.html
-```
-
-For larger applications, organize your code like this:
-
-```
-my-azu-app/
-├── shard.yml
-├── src/
-│   ├── my-azu-app.cr          # Main application file
-│   ├── models/                # Data models
-│   │   └── user.cr
-│   ├── requests/              # Request contracts
-│   │   ├── create_user_request.cr
-│   │   └── list_users_request.cr
-│   ├── responses/             # Response objects
-│   │   ├── user_response.cr
-│   │   └── users_list_response.cr
-│   ├── endpoints/             # Endpoint handlers
-│   │   ├── create_user_endpoint.cr
-│   │   └── list_users_endpoint.cr
-│   └── channels/              # WebSocket channels
-│       └── user_notification_channel.cr
-├── templates/                 # Template files
-│   └── users/
-│       └── show.html
-└── spec/                      # Tests
-    └── my-azu-app_spec.cr
-```
-
-## Configuration
-
-Azu supports environment-specific configuration:
+### Basic Configuration
 
 ```crystal
 module MyAzuApp
@@ -551,52 +320,159 @@ module MyAzuApp
 
   configure do
     # Server settings
-    host = ENV.fetch("HOST", "0.0.0.0")
-    port = ENV.fetch("PORT", "4000").to_i
+    port = 3000
+    host = "0.0.0.0"
+    port_reuse = true
 
-    # SSL configuration (production)
-    if env.production?
-      ssl_cert = ENV["SSL_CERT"]?
-      ssl_key = ENV["SSL_KEY"]?
-    end
+    # Environment
+    env = Azu::Environment::Development
 
     # Template settings
-    templates.path = ["templates", "views"]
-    template_hot_reload = env.development?
+    templates.path = "src/templates"
+    template_hot_reload = true
 
-    # File upload limits
-    upload.max_file_size = 10.megabytes
-    upload.temp_dir = ENV.fetch("UPLOAD_DIR", "/tmp/uploads")
+    # Logging
+    log = Log.for("MyAzuApp")
 
-    # Logging configuration
-    log.level = env.production? ? Log::Severity::INFO : Log::Severity::DEBUG
+    # SSL/TLS (optional)
+    ssl_cert = "path/to/cert.pem"
+    ssl_key = "path/to/key.pem"
   end
 end
 ```
 
+### Environment Variables
+
+Azu automatically reads configuration from environment variables:
+
+```bash
+# Server configuration
+export PORT=3000
+export HOST=localhost
+export CRYSTAL_ENV=development
+
+# Template configuration
+export TEMPLATES_PATH=src/templates
+export TEMPLATE_HOT_RELOAD=true
+
+# Upload configuration
+export UPLOAD_MAX_FILE_SIZE=10485760  # 10MB
+export UPLOAD_TEMP_DIR=/tmp/uploads
+
+# SSL configuration
+export SSL_CERT=path/to/cert.pem
+export SSL_KEY=path/to/key.pem
+```
+
+## Development vs Production
+
+### Development Mode
+
+In development, Azu provides:
+
+- **Hot template reloading** for instant updates
+- **Detailed error pages** with stack traces
+- **Request/response logging**
+- **Automatic code recompilation** (using `watchexec` or similar)
+
+### Production Mode
+
+In production, Azu optimizes for:
+
+- **Template caching** for better performance
+- **Minimal error information** for security
+- **Structured logging** for monitoring
+- **SSL/TLS support**
+
+## Testing Your Application
+
+Create `spec/hello_endpoint_spec.cr`:
+
+```crystal
+require "spec"
+require "../src/my_azu_app"
+
+describe MyAzuApp::HelloEndpoint do
+  it "returns hello message" do
+    endpoint = MyAzuApp::HelloEndpoint.new
+    response = endpoint.call
+
+    response.should be_a(MyAzuApp::HelloResponse)
+    JSON.parse(response.render)["message"].should eq("Hello, Azu! 🎉")
+  end
+end
+```
+
+Run tests with:
+
+```bash
+crystal spec
+```
+
 ## Next Steps
 
-Congratulations! You've built a complete Azu application with:
+Now that you have a basic Azu application running, you can explore:
 
-- ✅ Type-safe HTTP endpoints
-- ✅ Request validation and error handling
-- ✅ Real-time WebSocket functionality
-- ✅ Structured responses
+1. **[Core Concepts](core-concepts.md)** - Deep dive into endpoints, requests, and responses
+2. **[Routing](core-concepts/routing.md)** - Advanced routing patterns and parameters
+3. **[Middleware](middleware.md)** - Built-in handlers and custom middleware
+4. **[Real-Time Features](real-time.md)** - WebSocket channels and live components
+5. **[Templates](templates.md)** - Template engine and markup DSL
 
-### Where to Go Next:
+## Common Pitfalls
 
-1. **[Core Concepts →](core-concepts.md)** - Deep dive into endpoints, requests, and responses
-2. **[Real-Time Features →](real-time.md)** - Master WebSocket channels and live components
-3. **[Templates →](templates.md)** - Learn about the template engine and markup DSL
-4. **[Middleware →](middleware.md)** - Add authentication, rate limiting, and custom handlers
-5. **[Testing →](testing.md)** - Write comprehensive tests for your application
+### 1. Forgetting to Include Modules
 
-### Learn More:
+```crystal
+# ❌ Wrong - missing include
+struct MyEndpoint
+  get "/"
+  def call; end
+end
 
-- **[Architecture →](architecture.md)** - Understand Azu's design principles
-- **[Performance →](performance.md)** - Optimize your application for scale
-- **[API Reference →](api-reference.md)** - Complete API documentation
+# ✅ Correct - include required modules
+struct MyEndpoint
+  include Endpoint(MyRequest, MyResponse)
+  get "/"
+  def call : MyResponse; end
+end
+```
+
+### 2. Incorrect Type Annotations
+
+```crystal
+# ❌ Wrong - missing return type
+def call
+  MyResponse.new
+end
+
+# ✅ Correct - explicit return type
+def call : MyResponse
+  MyResponse.new
+end
+```
+
+### 3. Missing Request/Response Requirements
+
+```crystal
+# ❌ Wrong - missing render method
+struct MyResponse
+  include Azu::Response
+  # Missing render method
+end
+
+# ✅ Correct - implement render method
+struct MyResponse
+  include Azu::Response
+
+  def render
+    "Hello World"
+  end
+end
+```
 
 ---
 
-**Need Help?** Check the [FAQ & Troubleshooting](faq.md) section or join our community discussions.
+**Congratulations!** You've successfully created your first Azu application. The framework's type-safe approach ensures that many common web development errors are caught at compile time, leading to more reliable applications.
+
+Continue to [Core Concepts](core-concepts.md) to learn about advanced features and patterns.
