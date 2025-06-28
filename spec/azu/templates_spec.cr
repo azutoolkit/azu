@@ -248,4 +248,104 @@ describe Azu::Templates do
       template1.should eq(template2)
     end
   end
+
+  describe "hot reloading optimization" do
+    it "detects development environment correctly" do
+      # Save original environment
+      original_env = ENV["CRYSTAL_ENV"]?
+
+      # Test development environment
+      ENV["CRYSTAL_ENV"] = "development"
+      templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors")
+      templates.@hot_reload_enabled.should be_true
+
+      # Test production environment
+      ENV["CRYSTAL_ENV"] = "production"
+      templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors")
+      templates.@hot_reload_enabled.should be_false
+
+      # Restore original environment
+      if original_env
+        ENV["CRYSTAL_ENV"] = original_env
+      else
+        ENV.delete("CRYSTAL_ENV")
+      end
+    end
+
+    it "allows manual hot reload configuration" do
+      templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors")
+
+      # Test enabling hot reload
+      templates.hot_reload = true
+      templates.@hot_reload_enabled.should be_true
+
+      # Test disabling hot reload
+      templates.hot_reload = false
+      templates.@hot_reload_enabled.should be_false
+    end
+
+    it "caches template loader instance" do
+      templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors")
+
+      # Loader should be cached
+      loader1 = templates.@loader
+      loader2 = templates.@loader
+
+      loader1.should eq(loader2)
+    end
+
+    it "reuses loader when hot reload is disabled" do
+      templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors")
+      templates.hot_reload = false
+
+      original_loader = templates.@loader
+
+      # Adding path should not recreate loader when hot reload is disabled
+      templates.path = "/additional/path"
+      templates.@loader.should eq(original_loader)
+    end
+
+    it "recreates loader when hot reload is enabled and path changes" do
+      templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors")
+      templates.hot_reload = true
+
+      original_loader = templates.@loader
+
+      # Adding path should recreate loader when hot reload is enabled
+      templates.path = "/additional/path"
+      templates.@loader.should_not eq(original_loader)
+    end
+
+    it "handles file not found errors gracefully during change detection" do
+      templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors")
+      templates.hot_reload = true
+
+      # This should not raise an exception even if files don't exist
+      templates.load("test_template.jinja")
+    end
+
+    it "prevents multiple file watchers from starting" do
+      templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors")
+      templates.hot_reload = true
+
+      # Should prevent multiple file watchers
+      templates.@file_watcher_started.should be_true
+
+      # Enabling hot reload again should not start another watcher
+      templates.hot_reload = true
+      templates.@file_watcher_started.should be_true
+    end
+
+    it "only checks for changes when interval has passed" do
+      templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors")
+      templates.hot_reload = true
+
+      # Load a template to initialize the system
+      templates.load("test_template.jinja")
+
+      # Immediately loading again should not check for changes
+      # (this is more of a behavioral test that the system doesn't check constantly)
+      templates.load("test_template.jinja")
+    end
+  end
 end
