@@ -16,11 +16,3 @@ struct TestRequest
   def initialize(@name = "", @email = "", @age = nil)
   end
 end
-
-process = Process.new("./bin/example_app")
-# Wait for process to start
-sleep 1.seconds
-
-Spec.after_suite do
-  process.not_nil!.signal Signal::KILL
-end
