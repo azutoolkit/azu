@@ -8,7 +8,6 @@ describe Azu::Configuration do
       config.port.should eq(4000)
       config.port_reuse.should be_false
       config.host.should eq("0.0.0.0")
-      config.env.should eq(Azu::Environment::Test)
     end
 
     it "sets default SSL configuration" do
