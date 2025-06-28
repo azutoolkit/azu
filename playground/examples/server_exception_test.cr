@@ -28,7 +28,7 @@ class TestApp
     spawn do
       TestApp.start([
         Azu::Handler::Rescuer.new,
-        Azu::Handler::SimpleLogger.new
+        Azu::Handler::SimpleLogger.new,
       ])
     end
 

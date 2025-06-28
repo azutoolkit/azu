@@ -39,7 +39,7 @@ class ExceptionTest
     rescue ex
       async_logger.error("Async exception occurred", {
         "test_type" => "async_exception",
-        "severity" => "high"
+        "severity"  => "high",
       }, ex)
     end
 

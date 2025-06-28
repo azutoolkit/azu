@@ -69,7 +69,7 @@ module Azu
     end
 
     # Get component from pool or create new one
-    def get_from_pool(type : String, &block : -> Component) : Component
+    def get_from_pool(type : String, & : -> Component) : Component
       @pool_mutex.synchronize do
         if (pool = @pool[type]?) && !pool.empty?
           component = pool.pop

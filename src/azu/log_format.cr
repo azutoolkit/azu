@@ -22,7 +22,7 @@ module Azu
         @context = nil,
         @exception = nil,
         @source = "azu",
-        @request_id = nil
+        @request_id = nil,
       )
       end
 
@@ -261,11 +261,11 @@ module Azu
       private def self.process_error(exception : Exception)
         # Enhanced error processing
         error_context = {
-          "timestamp" => Time.utc.to_rfc3339,
-          "type" => exception.class.name,
-          "message" => exception.message || "Unknown error",
-          "backtrace" => exception.backtrace?.try(&.first(20).join("\n")) || "No backtrace",
-          "environment" => CONFIG.env.to_s
+          "timestamp"   => Time.utc.to_rfc3339,
+          "type"        => exception.class.name,
+          "message"     => exception.message || "Unknown error",
+          "backtrace"   => exception.backtrace?.try(&.first(20).join("\n")) || "No backtrace",
+          "environment" => CONFIG.env.to_s,
         }
 
         # Log the error
@@ -427,7 +427,7 @@ module Azu
             @io << "\n"
           end
         else
-        @io << "   ⤑  Backtrace: ".colorize(:light_gray)
+          @io << "   ⤑  Backtrace: ".colorize(:light_gray)
           @io << "No backtrace available".colorize(:dark_gray)
           @io << "\n"
         end

@@ -36,21 +36,21 @@ class AsyncLoggingExample
 
     # Request start
     api_logger.info("API request started", {
-      "endpoint" => "/api/users/123",
-      "method" => "GET",
-      "client_ip" => "192.168.1.100"
+      "endpoint"  => "/api/users/123",
+      "method"    => "GET",
+      "client_ip" => "192.168.1.100",
     })
 
     # Authentication
     auth_logger.info("Authenticating user", {
-      "user_id" => "123",
-      "auth_method" => "jwt"
+      "user_id"     => "123",
+      "auth_method" => "jwt",
     })
 
     # Database operations
     db_logger.info("Executing database query", {
-      "query" => "SELECT * FROM users WHERE id = ?",
-      "params" => "123"
+      "query"  => "SELECT * FROM users WHERE id = ?",
+      "params" => "123",
     })
 
     # Simulate database delay
@@ -59,14 +59,14 @@ class AsyncLoggingExample
     # Database success
     db_logger.info("Database query completed", {
       "rows_returned" => "1",
-      "duration_ms" => "100"
+      "duration_ms"   => "100",
     })
 
     # API response
     api_logger.info("API request completed", {
-      "status_code" => "200",
-      "response_size" => "1024",
-      "total_duration_ms" => "150"
+      "status_code"       => "200",
+      "response_size"     => "1024",
+      "total_duration_ms" => "150",
     })
   end
 
@@ -82,7 +82,7 @@ class AsyncLoggingExample
       logger = Azu::AsyncLogging::AsyncLogger.new("error_test")
       logger.error("Database connection failed", {
         "retry_count" => "3",
-        "timeout_ms" => "5000"
+        "timeout_ms"  => "5000",
       }, ex)
     end
 
@@ -93,7 +93,7 @@ class AsyncLoggingExample
       logger.warn("Validation failed", {
         "field" => "email",
         "value" => "invalid-email",
-        "rule" => "email_format"
+        "rule"  => "email_format",
       })
     end
   end
@@ -106,8 +106,8 @@ class AsyncLoggingExample
     # Generate multiple log entries quickly to demonstrate batching
     20.times do |i|
       logger.info("Batch log entry #{i}", {
-        "batch_id" => "batch_#{Time.utc.to_unix}",
-        "entry_number" => i.to_s
+        "batch_id"     => "batch_#{Time.utc.to_unix}",
+        "entry_number" => i.to_s,
       })
     end
 
@@ -115,7 +115,7 @@ class AsyncLoggingExample
     5.times do |i|
       logger.warn("Batch warning #{i}", {
         "warning_type" => "performance",
-        "threshold" => "100ms"
+        "threshold"    => "100ms",
       })
     end
   end

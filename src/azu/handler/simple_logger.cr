@@ -67,14 +67,14 @@ module Azu
 
       private def build_request_context(context : HTTP::Server::Context, elapsed : Time::Span) : Hash(String, String)
         {
-          "method" => context.request.method,
-          "path" => context.request.resource,
-          "endpoint" => get_endpoint_class_name(context),
-          "status" => context.response.status_code.to_s,
-          "latency" => format_latency(elapsed),
-          "remote_addr" => get_remote_address(context),
-          "user_agent" => context.request.headers["User-Agent"]? || "unknown",
-          "content_length" => context.response.headers["Content-Length"]? || "0"
+          "method"         => context.request.method,
+          "path"           => context.request.resource,
+          "endpoint"       => get_endpoint_class_name(context),
+          "status"         => context.response.status_code.to_s,
+          "latency"        => format_latency(elapsed),
+          "remote_addr"    => get_remote_address(context),
+          "user_agent"     => context.request.headers["User-Agent"]? || "unknown",
+          "content_length" => context.response.headers["Content-Length"]? || "0",
         }
       end
 

@@ -69,7 +69,7 @@ describe Azu::LogFormat do
         entry.severity.should eq(Log::Severity::Info)
         entry.message.should eq("Test message")
         entry.source.should eq("azu")
-    end
+      end
 
       it "creates log entry with optional fields" do
         context = {"user_id" => "123", "action" => "login"}
@@ -89,7 +89,7 @@ describe Azu::LogFormat do
         entry.exception.should eq(exception)
         entry.source.should eq("auth")
         entry.request_id.should eq("req_123")
-    end
+      end
     end
 
     describe "AsyncLogger" do
@@ -102,7 +102,7 @@ describe Azu::LogFormat do
       it "creates async logger with custom source" do
         logger = Azu::AsyncLogging::AsyncLogger.new("api")
         logger.source.should eq("api")
-    end
+      end
 
       it "creates logger with request ID" do
         logger = Azu::AsyncLogging::AsyncLogger.new("api", "req_123")
