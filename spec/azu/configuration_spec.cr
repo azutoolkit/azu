@@ -55,7 +55,7 @@ describe Azu::Configuration do
 
       config.port_reuse.should be_false
 
-      ENV["PORT_REUSE"] = "true"
+      ENV["PORT_REUSE"] = "false"
     end
   end
 
