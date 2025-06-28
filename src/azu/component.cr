@@ -18,7 +18,7 @@ module Azu
       def self.mount(**args)
         component = new **args
         component.mounted = true
-        Azu::Spark::COMPONENTS[component.id] = component
+        Azu::Spark.components.register(component.id, component)
         component
       end
     end
@@ -87,6 +87,28 @@ module Azu
 
     ensure
       @view = IO::Memory.new
+    end
+
+    # Component pooling methods for memory optimization
+    def reset_for_reuse
+      @mounted = false
+      @connected = false
+      @socket = nil
+      @created_at = Time.utc
+      @view = IO::Memory.new
+      generate_new_id
+    end
+
+    def prepare_for_pool
+      unmount
+      @socket = nil
+      @connected = false
+      # Clear any component-specific state that shouldn't persist
+      @view = IO::Memory.new
+    end
+
+    private def generate_new_id
+      @id = UUID.random.to_s
     end
   end
 end

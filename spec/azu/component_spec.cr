@@ -80,7 +80,7 @@ describe Azu::Component do
       component = TestComponent.mount
 
       component.mounted?.should be_true
-      Azu::Spark::COMPONENTS[component.id].should eq(component)
+      Azu::Spark.components.get(component.id).should eq(component)
     end
 
     it "calls mount lifecycle method" do

@@ -55,9 +55,9 @@ describe Azu::Spark do
       component = TestSparkComponent.new
       component_id = component.id
 
-      Azu::Spark::COMPONENTS[component_id] = component
+      Azu::Spark.components.register(component_id, component)
 
-      Azu::Spark::COMPONENTS[component_id].should eq(component)
+      Azu::Spark.components.get(component_id).should eq(component)
     end
 
     it "provides javascript tag" do
@@ -107,7 +107,7 @@ describe Azu::Spark do
     it "handles subscribe messages" do
       component = TestSparkComponent.new
       component_id = component.id
-      Azu::Spark::COMPONENTS[component_id] = component
+      Azu::Spark.components.register(component_id, component)
 
       spark = Azu::Spark.new(MockWebSocket.new)
       message = {"subscribe" => component_id}.to_json
@@ -121,7 +121,7 @@ describe Azu::Spark do
     it "handles event messages" do
       component = TestSparkComponent.new
       component_id = component.id
-      Azu::Spark::COMPONENTS[component_id] = component
+      Azu::Spark.components.register(component_id, component)
 
       spark = Azu::Spark.new(MockWebSocket.new)
       message = {
@@ -158,7 +158,7 @@ describe Azu::Spark do
     it "handles missing data in event message" do
       component = TestSparkComponent.new
       component_id = component.id
-      Azu::Spark::COMPONENTS[component_id] = component
+      Azu::Spark.components.register(component_id, component)
 
       spark = Azu::Spark.new(MockWebSocket.new)
       message = {
@@ -190,16 +190,16 @@ describe Azu::Spark do
       component1_id = component1.id
       component2_id = component2.id
 
-      Azu::Spark::COMPONENTS[component1_id] = component1
-      Azu::Spark::COMPONENTS[component2_id] = component2
+      Azu::Spark.components.register(component1_id, component1)
+      Azu::Spark.components.register(component2_id, component2)
 
       spark = Azu::Spark.new(MockWebSocket.new)
 
       spark.on_close
 
       # Components should be removed from the registry
-      Azu::Spark::COMPONENTS[component1_id]?.should be_nil
-      Azu::Spark::COMPONENTS[component2_id]?.should be_nil
+      Azu::Spark.components.get(component1_id).should be_nil
+      Azu::Spark.components.get(component2_id).should be_nil
     end
 
     it "handles close with code and message" do
@@ -251,7 +251,7 @@ describe Azu::Spark do
     it "integrates with component mounting" do
       component = TestSparkComponent.new
       component_id = component.id
-      Azu::Spark::COMPONENTS[component_id] = component
+      Azu::Spark.components.register(component_id, component)
 
       spark = Azu::Spark.new(MockWebSocket.new)
       message = {"subscribe" => component_id}.to_json
@@ -264,7 +264,7 @@ describe Azu::Spark do
     it "integrates with component event handling" do
       component = TestSparkComponent.new
       component_id = component.id
-      Azu::Spark::COMPONENTS[component_id] = component
+      Azu::Spark.components.register(component_id, component)
 
       spark = Azu::Spark.new(MockWebSocket.new)
 
@@ -293,8 +293,8 @@ describe Azu::Spark do
       component1_id = component1.id
       component2_id = component2.id
 
-      Azu::Spark::COMPONENTS[component1_id] = component1
-      Azu::Spark::COMPONENTS[component2_id] = component2
+      Azu::Spark.components.register(component1_id, component1)
+      Azu::Spark.components.register(component2_id, component2)
 
       spark = Azu::Spark.new(MockWebSocket.new)
 
