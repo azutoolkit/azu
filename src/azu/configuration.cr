@@ -97,10 +97,10 @@ module Azu
       Dir.glob(Path[temp_dir, "azu_upload_*"].to_s).each do |file_path|
         next unless ::File.exists?(file_path)
 
-                  file_age = Time.utc - ::File.info(file_path).modification_time
-          if file_age > max_temp_age
-            begin
-              ::File.delete(file_path)
+        file_age = Time.utc - ::File.info(file_path).modification_time
+        if file_age > max_temp_age
+          begin
+            ::File.delete(file_path)
             Log.for("Azu::UploadConfiguration").debug { "Cleaned up old upload file: #{file_path}" }
           rescue ex
             Log.for("Azu::UploadConfiguration").warn(exception: ex) { "Failed to cleanup upload file: #{file_path}" }

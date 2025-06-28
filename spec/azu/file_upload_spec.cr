@@ -3,7 +3,7 @@ require "../spec_helper"
 describe Azu::Params::Multipart do
   describe "file upload optimization" do
     it "respects file size limits" do
-            # Set up global config for testing
+      # Set up global config for testing
       original_max_size = Azu::CONFIG.upload.max_file_size
       original_temp_dir = Azu::CONFIG.upload.temp_dir
 
@@ -25,7 +25,7 @@ describe Azu::Params::Multipart do
       end
     end
 
-        it "creates files in configured temp directory" do
+    it "creates files in configured temp directory" do
       temp_dir = Path[Dir.tempdir, "azu_test_uploads"].to_s
       Dir.mkdir_p(temp_dir)
 
@@ -37,7 +37,7 @@ describe Azu::Params::Multipart do
         Azu::CONFIG.upload.temp_dir = temp_dir
         Azu::CONFIG.upload.max_file_size = 10240_u64 # 10KB limit
 
-              content = "Hello, World!"
+        content = "Hello, World!"
         mock_upload = MockUpload.new("hello.txt", content)
 
         file = Azu::Params::Multipart::File.new(mock_upload)
@@ -62,7 +62,7 @@ describe Azu::Params::Multipart do
       end
     end
 
-        it "handles streaming upload with proper buffering" do
+    it "handles streaming upload with proper buffering" do
       # Store original config
       original_buffer_size = Azu::CONFIG.upload.buffer_size
       original_max_size = Azu::CONFIG.upload.max_file_size
@@ -71,7 +71,7 @@ describe Azu::Params::Multipart do
         content = "A" * 16384 # 16KB content
         mock_upload = MockUpload.new("large.txt", content)
 
-        Azu::CONFIG.upload.buffer_size = 1024 # 1KB buffer
+        Azu::CONFIG.upload.buffer_size = 1024        # 1KB buffer
         Azu::CONFIG.upload.max_file_size = 32768_u64 # 32KB limit
 
         file = Azu::Params::Multipart::File.new(mock_upload)
@@ -92,7 +92,7 @@ describe Azu::Params::Multipart do
       end
     end
 
-        it "cleans up temp files on error" do
+    it "cleans up temp files on error" do
       temp_dir = Path[Dir.tempdir, "azu_error_test"].to_s
       Dir.mkdir_p(temp_dir)
 
