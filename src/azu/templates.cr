@@ -39,8 +39,8 @@ module Azu
       end
     end
 
-    def initialize(@path : Array(String), @error_path : String)
-      @hot_reload_enabled = development_environment?
+    def initialize(@path : Array(String), @error_path : String, hot_reload : Bool? = nil)
+      @hot_reload_enabled = hot_reload.nil? ? development_environment? : hot_reload
       initialize_loader
       start_file_watcher if @hot_reload_enabled
     end

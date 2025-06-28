@@ -37,6 +37,12 @@ module Azu
     property port_reuse : Bool = ENV.fetch("PORT_REUSE", "true") == "true"
     property host : String = ENV.fetch("HOST", "0.0.0.0")
     property env : Environment = Environment.parse(ENV.fetch("CRYSTAL_ENV", "development"))
+    def self.hot_reload_default
+      env = ENV.fetch("CRYSTAL_ENV", "development").downcase
+      env == "development" || env == "test" || env == "ci"
+    end
+
+    property template_hot_reload : Bool = ENV.fetch("TEMPLATE_HOT_RELOAD", Configuration.hot_reload_default.to_s) == "true"
 
     property ssl_cert : String = ENV.fetch("SSL_CERT", "")
     property ssl_key : String = ENV.fetch("SSL_KEY", "")
@@ -44,10 +50,14 @@ module Azu
     property ssl_mode : String = ENV.fetch("SSL_MODE", "none")
 
     getter router : Router = Router.new
-    getter templates : Templates = Templates.new(
-      ENV.fetch("TEMPLATES_PATH", Path[TEMPLATES_PATH].expand.to_s).split(","),
-      ENV.fetch("ERROR_TEMPLATE", Path[ERROR_TEMPLATE].expand.to_s)
-    )
+
+    getter templates : Templates do
+      Templates.new(
+        ENV.fetch("TEMPLATES_PATH", Path[TEMPLATES_PATH].expand.to_s).split(","),
+        ENV.fetch("ERROR_TEMPLATE", Path[ERROR_TEMPLATE].expand.to_s),
+        template_hot_reload
+      )
+    end
     getter upload : UploadConfiguration = UploadConfiguration.new
 
     def tls
