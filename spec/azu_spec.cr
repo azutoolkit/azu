@@ -1,7 +1,6 @@
 require "./spec_helper.cr"
 require "http/client"
 
-
 process = Process.new("./bin/example_app")
 # Wait for process to start
 sleep 1.seconds

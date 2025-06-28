@@ -206,10 +206,10 @@ module Azu
 
       # Create cache key for this specific request combination
       cache_key = if upgraded
-        "ws:#{path_str}"
-      else
-        "#{method_str}:#{path_str}"
-      end
+                    "ws:#{path_str}"
+                  else
+                    "#{method_str}:#{path_str}"
+                  end
 
       # Check cache first
       if cached_path = @path_cache.get(cache_key)
@@ -218,22 +218,22 @@ module Azu
 
       # Build path efficiently using pre-allocated capacity
       built_path = if upgraded
-        # WebSocket path: "/ws" + normalized_path
-        normalized_path = path_str.rstrip('/')
-        String.build(capacity: 4 + normalized_path.bytesize) do |str|
-          str << "/ws"
-          str << normalized_path
-        end
-      else
-        # HTTP path: "/" + method + normalized_path
-        normalized_path = path_str.rstrip('/')
-        method_lower = @method_cache[method_str]? || method_str.downcase
-        String.build(capacity: 1 + method_lower.bytesize + normalized_path.bytesize) do |str|
-          str << "/"
-          str << method_lower
-          str << normalized_path
-        end
-      end
+                     # WebSocket path: "/ws" + normalized_path
+                     normalized_path = path_str.rstrip('/')
+                     String.build(capacity: 4 + normalized_path.bytesize) do |str|
+                       str << "/ws"
+                       str << normalized_path
+                     end
+                   else
+                     # HTTP path: "/" + method + normalized_path
+                     normalized_path = path_str.rstrip('/')
+                     method_lower = @method_cache[method_str]? || method_str.downcase
+                     String.build(capacity: 1 + method_lower.bytesize + normalized_path.bytesize) do |str|
+                       str << "/"
+                       str << method_lower
+                       str << normalized_path
+                     end
+                   end
 
       # Cache the result for future requests
       @path_cache.set(cache_key, built_path)

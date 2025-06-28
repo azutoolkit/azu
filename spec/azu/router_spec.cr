@@ -267,7 +267,7 @@ describe Azu::Router do
       response = HTTP::Server::Response.new(io)
       context = HTTP::Server::Context.new(request, response)
 
-            # First call should build and cache the path
+      # First call should build and cache the path
       router.process(context)
       response.close
 
@@ -277,7 +277,7 @@ describe Azu::Router do
       first_response = io.gets_to_end
       first_response.should contain("Hello, World!")
 
-            # Second call should use cached path
+      # Second call should use cached path
       io2 = IO::Memory.new
       response2 = HTTP::Server::Response.new(io2)
       context2 = HTTP::Server::Context.new(HTTP::Request.new("GET", "/hello"), response2)
@@ -289,7 +289,7 @@ describe Azu::Router do
       second_response.should contain("Hello, World!")
     end
 
-        it "handles WebSocket upgrade paths correctly" do
+    it "handles WebSocket upgrade paths correctly" do
       router = Azu::Router.new
 
       # Register a WebSocket route for testing
@@ -330,7 +330,7 @@ describe Azu::Router do
       end
     end
 
-        it "handles path normalization correctly" do
+    it "handles path normalization correctly" do
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new
       router.get("/test", endpoint)
@@ -341,7 +341,7 @@ describe Azu::Router do
       response = HTTP::Server::Response.new(io)
       context = HTTP::Server::Context.new(request, response)
 
-            router.process(context)
+      router.process(context)
       response.close
       io.rewind
       result = io.gets_to_end
