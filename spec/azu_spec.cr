@@ -1,6 +1,15 @@
 require "./spec_helper.cr"
 require "http/client"
 
+
+process = Process.new("./bin/example_app")
+# Wait for process to start
+sleep 1.seconds
+
+Spec.after_suite do
+  process.not_nil!.signal Signal::KILL
+end
+
 describe Azu do
   client = HTTP::Client.new "localhost", 4000
 
