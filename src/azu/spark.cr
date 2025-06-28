@@ -68,7 +68,7 @@ module Azu
       end
     end
 
-        # Get component from pool or create new one
+    # Get component from pool or create new one
     def get_from_pool(type : String, &block : -> Component) : Component
       @pool_mutex.synchronize do
         if (pool = @pool[type]?) && !pool.empty?
@@ -235,8 +235,14 @@ module Azu
         end
       end
     rescue IO::Error
+      # Handle IO errors silently (connection issues)
+    rescue JSON::ParseException
+      # Handle invalid JSON silently (malformed client messages)
+    rescue KeyError
+      # Handle missing keys silently (incomplete event messages)
     rescue ex
-      ex.inspect STDERR
+      # Log unexpected errors only
+      STDERR.puts "Spark: Unexpected error in on_message: #{ex.class}: #{ex.message}"
     end
   end
 end
