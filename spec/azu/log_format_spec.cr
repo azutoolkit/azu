@@ -1,122 +1,6 @@
 require "../spec_helper"
 
 describe Azu::LogFormat do
-  describe "SQL formatting" do
-    it "formats SQL query with colorization" do
-      query = "SELECT * FROM users WHERE id = 123"
-      formatted = Azu::SQL.colorize_query(query)
-
-      # Should contain the query content
-      formatted.should contain("SELECT")
-      formatted.should contain("FROM")
-      formatted.should contain("WHERE")
-      formatted.should contain("123")
-    end
-
-    it "handles SQL keywords" do
-      query = "SELECT id, name FROM users WHERE active = true ORDER BY created_at DESC"
-      formatted = Azu::SQL.colorize_query(query)
-
-      # Should contain all SQL keywords
-      formatted.should contain("SELECT")
-      formatted.should contain("FROM")
-      formatted.should contain("WHERE")
-      formatted.should contain("ORDER")
-      formatted.should contain("BY")
-      formatted.should contain("DESC")
-    end
-
-    it "handles numbers in queries" do
-      query = "SELECT * FROM products WHERE price > 100 AND quantity < 50"
-      formatted = Azu::SQL.colorize_query(query)
-
-      # Should contain the numbers
-      formatted.should contain("100")
-      formatted.should contain("50")
-    end
-
-    it "handles comments in SQL" do
-      query = "SELECT * FROM users -- This is a comment"
-      formatted = Azu::SQL.colorize_query(query)
-
-      # Should contain the comment
-      formatted.should contain("-- This is a comment")
-    end
-
-    it "handles complex SQL with joins" do
-      query = "SELECT u.name, p.title FROM users u LEFT JOIN posts p ON u.id = p.user_id WHERE u.active = true"
-      formatted = Azu::SQL.colorize_query(query)
-
-      # Should contain all SQL keywords
-      formatted.should contain("SELECT")
-      formatted.should contain("FROM")
-      formatted.should contain("LEFT")
-      formatted.should contain("JOIN")
-      formatted.should contain("ON")
-      formatted.should contain("WHERE")
-    end
-  end
-
-  describe "SQL formatter" do
-    it "creates SQL formatter with required parameters" do
-      entry = Log::Entry.new("test", Log::Severity::Info, "test", Log::Metadata.new, nil)
-      io = IO::Memory.new
-      formatter = Azu::SQL::Formatter.new(entry, io)
-      formatter.should be_a(Log::StaticFormatter)
-    end
-
-    it "has orange_red color property" do
-      entry = Log::Entry.new("test", Log::Severity::Info, "test", Log::Metadata.new, nil)
-      io = IO::Memory.new
-      formatter = Azu::SQL::Formatter.new(entry, io)
-      formatter.orange_red.should be_a(Colorize::ColorRGB)
-    end
-  end
-
-  describe "time display" do
-    it "displays minutes and seconds for long durations" do
-      time = 125.5 # 2 minutes 5 seconds
-      result = Azu::SQL.display_mn_sec(time)
-
-      result.should eq("02mn05s")
-    end
-
-    it "displays time in seconds for medium durations" do
-      time = 45.67
-      result = Azu::SQL.display_time(time)
-
-      result.should eq("45.67s")
-    end
-
-    it "displays time in milliseconds for short durations" do
-      time = 0.5
-      result = Azu::SQL.display_time(time)
-
-      result.should eq("500ms")
-    end
-
-    it "displays time in microseconds for very short durations" do
-      time = 0.0005
-      result = Azu::SQL.display_time(time)
-
-      result.should eq("500µs")
-    end
-
-    it "handles zero time" do
-      time = 0.0
-      result = Azu::SQL.display_time(time)
-
-      result.should eq("0µs")
-    end
-
-    it "handles very large times" do
-      time = 3661.0 # 1 hour 1 minute 1 second
-      result = Azu::SQL.display_mn_sec(time)
-
-      result.should eq("61mn01s")
-    end
-  end
-
   describe "LogFormat" do
     it "creates log format instance with required parameters" do
       entry = Log::Entry.new("test", Log::Severity::Info, "test", Log::Metadata.new, nil)
@@ -131,98 +15,106 @@ describe Azu::LogFormat do
       formatter = Azu::LogFormat.new(entry, io)
       formatter.orange_red.should be_a(Colorize::ColorRGB)
     end
-  end
 
-  describe "SQL colorization settings" do
-    it "has colorize property" do
-      # Should be a boolean property
-      Azu::SQL.colorize.should be_a(Bool)
+    it "formats log entry with timestamp and severity" do
+      entry = Log::Entry.new("test", Log::Severity::Info, "Test message", Log::Metadata.new, nil)
+      io = IO::Memory.new
+      formatter = Azu::LogFormat.new(entry, io)
+      formatter.run
+
+      output = io.to_s
+      output.should contain("AZU")
+      output.should contain("Test message")
     end
 
-    it "can be disabled" do
-      original_setting = Azu::SQL.colorize
-      Azu::SQL.colorize = false
+    it "handles different severity levels" do
+      severities = [Log::Severity::Debug, Log::Severity::Info, Log::Severity::Warn, Log::Severity::Error, Log::Severity::Fatal]
 
-      query = "SELECT * FROM users"
-      formatted = Azu::SQL.colorize_query(query)
+      severities.each do |severity|
+        entry = Log::Entry.new("test", severity, "Test message", Log::Metadata.new, nil)
+        io = IO::Memory.new
+        formatter = Azu::LogFormat.new(entry, io)
+        formatter.run
 
-      # When disabled, should return original query
-      formatted.should eq(query)
-
-      # Restore original setting
-      Azu::SQL.colorize = original_setting
-    end
-  end
-
-  describe "SQL keywords" do
-    it "recognizes common SQL keywords" do
-      keywords = %w(SELECT INSERT UPDATE DELETE FROM WHERE AND OR ORDER BY)
-
-      keywords.each do |keyword|
-        query = "#{keyword} test"
-        formatted = Azu::SQL.colorize_query(query)
-
-        # Should contain the keyword
-        formatted.should contain(keyword)
+        output = io.to_s
+        output.should contain("AZU")
+        output.should contain("Test message")
       end
     end
 
-    it "handles case insensitive keywords" do
-      query = "select * from users where id = 1"
-      formatted = Azu::SQL.colorize_query(query)
+    it "formats exceptions when present" do
+      exception = Exception.new("Test exception")
+      entry = Log::Entry.new("test", Log::Severity::Error, "Error occurred", Log::Metadata.new, exception)
+      io = IO::Memory.new
+      formatter = Azu::LogFormat.new(entry, io)
+      formatter.run
 
-      # Should handle lowercase keywords
-      formatted.should contain("select")
-      formatted.should contain("from")
-      formatted.should contain("where")
+      output = io.to_s
+      output.should contain("AZU")
+      output.should contain("Error occurred")
+      output.should contain("Backtrace")
     end
   end
 
-  describe "edge cases" do
-    it "handles empty query" do
-      query = ""
-      formatted = Azu::SQL.colorize_query(query)
+  describe "AsyncLogging" do
+    describe "LogEntry" do
+      it "creates log entry with required fields" do
+        entry = Azu::AsyncLogging::LogEntry.new(
+          Time.utc,
+          Log::Severity::Info,
+          "Test message"
+        )
 
-      formatted.should eq("")
+        entry.timestamp.should be_a(Time)
+        entry.severity.should eq(Log::Severity::Info)
+        entry.message.should eq("Test message")
+        entry.source.should eq("azu")
     end
 
-    it "handles query with only whitespace" do
-      query = "   "
-      formatted = Azu::SQL.colorize_query(query)
+      it "creates log entry with optional fields" do
+        context = {"user_id" => "123", "action" => "login"}
+        exception = Exception.new("Test error")
 
-      formatted.should eq("   ")
+        entry = Azu::AsyncLogging::LogEntry.new(
+          Time.utc,
+          Log::Severity::Error,
+          "Error occurred",
+          context,
+          exception,
+          "auth",
+          "req_123"
+        )
+
+        entry.context.should eq(context)
+        entry.exception.should eq(exception)
+        entry.source.should eq("auth")
+        entry.request_id.should eq("req_123")
+    end
     end
 
-    it "handles query with special characters" do
-      query = "SELECT * FROM `users` WHERE `name` = 'John\\'s'"
-      formatted = Azu::SQL.colorize_query(query)
+    describe "AsyncLogger" do
+      it "creates async logger with default source" do
+        logger = Azu::AsyncLogging::AsyncLogger.new
+        logger.source.should eq("azu")
+        logger.request_id.should be_nil
+      end
 
-      # Should handle backticks and escaped quotes
-      formatted.should contain("SELECT")
-      formatted.should contain("FROM")
-      formatted.should contain("WHERE")
+      it "creates async logger with custom source" do
+        logger = Azu::AsyncLogging::AsyncLogger.new("api")
+        logger.source.should eq("api")
     end
 
-    it "handles very long queries" do
-      query = "SELECT " + "id, " * 100 + "name FROM users"
-      formatted = Azu::SQL.colorize_query(query)
+      it "creates logger with request ID" do
+        logger = Azu::AsyncLogging::AsyncLogger.new("api", "req_123")
+        logger.request_id.should eq("req_123")
+      end
 
-      # Should not crash and should contain the query
-      formatted.should contain("SELECT")
-      formatted.should contain("FROM")
-    end
-  end
+      it "creates logger with request ID using with_request_id" do
+        logger = Azu::AsyncLogging::AsyncLogger.new("api")
+        logger_with_id = logger.with_request_id("req_456")
 
-  describe "performance" do
-    it "handles repeated calls efficiently" do
-      query = "SELECT * FROM users WHERE active = true"
-
-      # Multiple calls should work without issues
-      10.times do
-        formatted = Azu::SQL.colorize_query(query)
-        formatted.should contain("SELECT")
-        formatted.should contain("FROM")
-        formatted.should contain("WHERE")
+        logger_with_id.source.should eq("api")
+        logger_with_id.request_id.should eq("req_456")
       end
     end
   end

@@ -62,6 +62,11 @@ module Azu
     end
     getter upload : UploadConfiguration = UploadConfiguration.new
 
+    def initialize
+      # Initialize async logging system
+      AsyncLogging.initialize
+    end
+
     def tls
       OpenSSL::SSL::Context::Server.from_hash({
         "key"         => ssl_key,
@@ -73,6 +78,11 @@ module Azu
 
     def tls?
       !ssl_cert.empty? && !ssl_key.empty?
+    end
+
+    def finalize
+      # Shutdown async logging system
+      AsyncLogging.shutdown
     end
   end
 

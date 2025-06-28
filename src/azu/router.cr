@@ -141,6 +141,11 @@ module Azu
       return not_found(context).to_s(context) unless result.found?
       context.request.path_params = result.params
       route = result.payload
+
+      # Store endpoint information in context for logging
+      endpoint_class_name = route.endpoint.class.name
+      context.request.headers["X-Azu-Endpoint"] = endpoint_class_name
+
       route.endpoint.call(context).to_s
     end
 

@@ -27,6 +27,7 @@
   - [Custom Middleware](middleware/custom.md)
   - [Error Handling](middleware/errors.md)
 - [Advanced Usage](advanced.md)
+  - [Async Logging](advanced/async-logging.md)
   - [File Uploads](advanced/file-uploads.md)
   - [Content Negotiation](advanced/content-negotiation.md)
   - [Environment Management](advanced/environments.md)

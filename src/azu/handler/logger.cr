@@ -1,4 +1,5 @@
 require "colorize"
+require "http/server/handler"
 
 module Azu
   module Handler
@@ -42,9 +43,16 @@ module Azu
           str << " ⤑ "
           str << req.method.colorize(:yellow)
           str << entry(:Path, req.resource, :light_blue)
+          str << entry(:Endpoint, get_endpoint_class_name(req), :magenta)
           str << status(:Status, res.status_code)
           str << entry(:Latency, elapsed_text, :green)
         end
+      end
+
+      private def get_endpoint_class_name(req : HTTP::Request) : String
+        endpoint_name = req.headers["X-Azu-Endpoint"]? || "unknown"
+        # Simplify the class name by removing module prefixes for readability
+        endpoint_name.split("::").last
       end
 
       private def elapsed(elapsed)
