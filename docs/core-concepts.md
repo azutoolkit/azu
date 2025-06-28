@@ -1,517 +1,539 @@
 # Core Concepts
 
-Azu's core concepts revolve around **explicit contracts**, **type safety**, and **predictable behavior**. Understanding these concepts is essential for building robust applications.
+This guide explores Azu's foundational concepts that enable type-safe, high-performance web applications. Understanding these patterns is crucial for building robust applications that leverage Crystal's compile-time guarantees.
 
-## The Contract Pattern
+## The Contract-Driven Architecture
 
-Azu enforces explicit contracts between clients and servers through three core components:
+Azu follows a **contract-first** approach where every HTTP interaction is governed by explicit type contracts. This design philosophy provides several benefits:
 
-1. **Request Contracts** - Define what the endpoint expects
-2. **Response Objects** - Define what the endpoint returns
-3. **Endpoints** - Connect requests to responses with business logic
+- **Compile-time safety**: Invalid data structures are caught during compilation
+- **Self-documenting APIs**: Request/response contracts serve as living documentation
+- **Enhanced testability**: Isolated, predictable components with clear interfaces
+- **Performance optimization**: Zero-runtime validation overhead
 
 ```mermaid
 graph LR
-    Client[Client] --> Request[Request Contract]
-    Request --> Endpoint[Endpoint Handler]
-    Endpoint --> Response[Response Object]
-    Response --> Client
-
-    subgraph "Type Safety"
-        Request --> Validation[Compile-Time Validation]
-        Endpoint --> Processing[Type-Safe Processing]
-        Response --> Serialization[Structured Output]
-    end
-
-    style Request fill:#e8f5e8
-    style Endpoint fill:#fff3e0
-    style Response fill:#e3f2fd
+    A[HTTP Request] --> B[Request Contract]
+    B --> C[Validation]
+    C --> D[Endpoint Logic]
+    D --> E[Response Contract]
+    E --> F[HTTP Response]
+    
+    B -.-> G[Compile-time Type Check]
+    E -.-> G
+    G -.-> H[Zero Runtime Overhead]
+    
+    style G fill:#e8f5e8
+    style H fill:#fff3e0
 ```
 
-This pattern provides several benefits:
+## Endpoints: The Core Handler Pattern
 
-- **Self-documenting APIs** - Contracts serve as living documentation
-- **Compile-time safety** - Type errors are caught before deployment
-- **Focused testing** - Each component can be tested in isolation
-- **Consistent behavior** - Standardized request/response handling
+An **Endpoint** is a self-contained handler that processes a specific type of HTTP request and returns a specific type of response. Unlike traditional controller-action patterns, endpoints are:
 
-## Endpoints
-
-Endpoints are the core handlers in Azu applications. Each endpoint defines a single route and encapsulates all logic for handling that specific request.
+- **Focused**: Each endpoint handles one specific operation
+- **Type-safe**: Request and response types are explicitly declared
+- **Testable**: Isolated units with no shared state
+- **Composable**: Can be combined through middleware and routing
 
 ### Basic Endpoint Structure
 
 ```crystal
 struct UserEndpoint
-  include Azu::Endpoint(UserRequest, UserResponse)
+  include Endpoint(UserRequest, UserResponse)
+  
+  post "/users"  # Route definition
+  
+  def call : UserResponse  # Required method with explicit return type
+    # Endpoint logic here
+    UserResponse.new(user_request)
+  end
+end
+```
 
-  # HTTP method and route
-  get "/users/:id"
+### Endpoint Lifecycle
 
-  # Handler method - must return the specified response type
+```mermaid
+sequenceDiagram
+    participant Router
+    participant Middleware
+    participant Endpoint
+    participant Request
+    participant Response
+    
+    Router->>Middleware: Route matched
+    Middleware->>Endpoint: Process request
+    Endpoint->>Request: Parse & validate
+    Note over Request: Compile-time validation
+    Request-->>Endpoint: Validated data
+    Endpoint->>Endpoint: Business logic
+    Endpoint->>Response: Create response
+    Response-->>Endpoint: Rendered content
+    Endpoint-->>Middleware: Return response
+    Middleware-->>Router: Final response
+```
+
+### Advanced Endpoint Patterns
+
+#### Resource Endpoints
+
+Handle multiple HTTP methods for a single resource:
+
+```crystal
+struct UserResourceEndpoint
+  include Endpoint(UserRequest, UserResponse)
+  
+  get "/users/:id"      # Show user
+  put "/users/:id"      # Update user
+  delete "/users/:id"   # Delete user
+  
   def call : UserResponse
-    user = User.find(params["id"].to_i64)
+    case method
+    when .get?
+      show_user
+    when .put?
+      update_user
+    when .delete?
+      delete_user
+    else
+      error("Method not allowed", 405)
+    end
+  end
+  
+  private def show_user
+    user = find_user(params["id"])
     UserResponse.new(user)
   end
-end
-```
-
-### Endpoint Pattern Benefits
-
-**Type Safety:**
-
-```crystal
-def call : UserResponse
-  # ✅ This compiles - correct return type
-  return UserResponse.new(user)
-
-  # ❌ This won't compile - wrong return type
-  # return "string"
-
-  # ❌ This won't compile - undefined method
-  # user_request.invalid_field
-end
-```
-
-**Self-Contained Logic:**
-
-```crystal
-struct CreateProductEndpoint
-  include Azu::Endpoint(CreateProductRequest, ProductResponse)
-
-  post "/products"
-
-  def call : ProductResponse
-    # All logic contained within this endpoint
-    # No shared state with other endpoints
-    validate_inventory!
-    product = create_product_from_request
-    send_notifications(product)
-    ProductResponse.new(product)
+  
+  private def update_user
+    user = find_user(params["id"])
+    user.update!(user_request.to_h)
+    UserResponse.new(user)
   end
-
-  private def validate_inventory!
-    # Endpoint-specific validation logic
-  end
-
-  private def create_product_from_request
-    # Product creation logic
-  end
-
-  private def send_notifications(product)
-    # Notification logic
+  
+  private def delete_user
+    user = find_user(params["id"])
+    user.delete!
+    EmptyResponse.new(status: 204)
   end
 end
 ```
 
-### HTTP Method Support
+#### Nested Resource Endpoints
 
-Azu supports all standard HTTP methods:
-
-```crystal
-struct ProductEndpoint
-  include Azu::Endpoint(ProductRequest, ProductResponse)
-
-  # HTTP method macros
-  get "/products/:id"      # GET requests
-  post "/products"         # POST requests
-  put "/products/:id"      # PUT requests
-  patch "/products/:id"    # PATCH requests
-  delete "/products/:id"   # DELETE requests
-  head "/products/:id"     # HEAD requests
-  options "/products"      # OPTIONS requests
-end
-```
-
-### Route Parameters
-
-Access route parameters through the `params` method:
+Handle hierarchical resources:
 
 ```crystal
-struct UserEndpoint
-  include Azu::Endpoint(UserRequest, UserResponse)
-
-  get "/users/:id/posts/:post_id"
-
-  def call : UserResponse
-    user_id = params["id"].to_i64
-    post_id = params["post_id"].to_i64
-
-    user = User.find(user_id)
-    post = user.posts.find(post_id)
-
-    UserResponse.new(user, post)
-  end
-end
-```
-
-### Helper Methods
-
-Endpoints provide several helper methods for common tasks:
-
-```crystal
-struct ProductEndpoint
-  include Azu::Endpoint(ProductRequest, ProductResponse)
-
-  post "/products"
-
-  def call : ProductResponse
-    # Set response status
-    status 201
-
-    # Set content type
-    content_type "application/json"
-
-    # Set custom headers
-    header "X-Rate-Limit", "100"
-
-    # Set cookies
-    cookie HTTP::Cookie.new("session_id", "abc123")
-
-    # Handle redirects
-    if should_redirect?
-      return redirect("/products/#{product.id}", 302)
+struct CommentEndpoint
+  include Endpoint(CommentRequest, CommentResponse)
+  
+  post "/posts/:post_id/comments"
+  get "/posts/:post_id/comments/:id"
+  
+  def call : CommentResponse
+    post = find_post(params["post_id"])
+    
+    case method
+    when .post?
+      create_comment(post)
+    when .get?
+      show_comment(post)
     end
-
-    ProductResponse.new(product)
+  end
+  
+  private def create_comment(post)
+    comment = post.comments.create!(comment_request.to_h)
+    CommentResponse.new(comment, status: 201)
+  end
+  
+  private def show_comment(post)
+    comment = post.comments.find(params["id"])
+    CommentResponse.new(comment)
   end
 end
 ```
 
-## Request Contracts
+#### Content Negotiation Endpoints
 
-Request contracts define the structure and validation rules for incoming data. They provide type-safe access to request parameters with compile-time guarantees.
+Handle multiple response formats:
+
+```crystal
+struct ApiUserEndpoint
+  include Endpoint(UserRequest, UserResponse)
+  
+  get "/api/users/:id"
+  
+  def call : UserResponse
+    user = find_user(params["id"])
+    
+    case accept_header
+    when "application/json"
+      content_type "application/json"
+      JsonUserResponse.new(user)
+    when "application/xml"
+      content_type "application/xml"
+      XmlUserResponse.new(user)
+    when "text/html"
+      content_type "text/html"
+      HtmlUserResponse.new(user)
+    else
+      content_type "application/json"
+      JsonUserResponse.new(user)
+    end
+  end
+  
+  private def accept_header
+    header["Accept"]? || "application/json"
+  end
+end
+```
+
+## Request Contracts: Type-Safe Input Validation
+
+Request contracts define the expected structure and validation rules for incoming data. They integrate with Crystal's type system and the Schema validation library.
 
 ### Basic Request Structure
 
 ```crystal
 struct CreateUserRequest
   include Azu::Request
-
-  # Typed getters for request data
-  getter name : String
-  getter email : String
-  getter age : Int32?
-  getter role : String
-
-  # Type-safe initialization
-  def initialize(@name = "", @email = "", @age = nil, @role = "user")
-  end
-end
-```
-
-### Automatic Deserialization
-
-Request contracts automatically deserialize data from multiple sources:
-
-```crystal
-# JSON request body
-# POST /users
-# Content-Type: application/json
-# {"name": "Alice", "email": "alice@example.com", "age": 30}
-
-# Form data
-# POST /users
-# Content-Type: application/x-www-form-urlencoded
-# name=Alice&email=alice@example.com&age=30
-
-# Query parameters
-# GET /users?name=Alice&email=alice@example.com&age=30
-
-# All automatically mapped to CreateUserRequest fields
-struct CreateUserRequest
-  include Azu::Request
-
-  getter name : String
-  getter email : String
-  getter age : Int32?
-
+  
+  # Required fields with explicit types
+  @name : String
+  @email : String
+  @age : Int32?
+  
+  # Getters for accessing validated data
+  getter name, email, age
+  
   def initialize(@name = "", @email = "", @age = nil)
   end
-end
-```
-
-### Validation Rules
-
-Add validation rules using the Schema validation syntax:
-
-```crystal
-struct ProductRequest
-  include Azu::Request
-
-  getter name : String
-  getter price : Float64
-  getter category : String
-  getter description : String?
-
+  
   # Validation rules with custom messages
-  validate name, presence: true, length: {min: 3, max: 100},
-    message: "Product name must be between 3 and 100 characters"
-
-  validate price, presence: true, numericality: {greater_than: 0},
-    message: "Price must be a positive number"
-
-  validate category, presence: true, inclusion: {in: %w(electronics books clothing)},
-    message: "Category must be electronics, books, or clothing"
-
-  validate description, length: {max: 500}, allow_nil: true,
-    message: "Description cannot exceed 500 characters"
+  validate :name, presence: true, size: 2..50, 
+    message: "Name must be between 2 and 50 characters"
+  validate :email, presence: true, format: /@/, 
+    message: "Email must be a valid email address"
+  validate :age, range: 13..120, if: ->(req : CreateUserRequest) { !req.age.nil? }, 
+    message: "Age must be between 13 and 120"
 end
 ```
 
-### Complex Validation
+### Input Sources and Serialization
 
-Implement custom validation logic:
+Request contracts can be populated from multiple sources:
 
 ```crystal
-struct UserRegistrationRequest
+# From JSON body (POST/PUT requests)
+user_request = CreateUserRequest.from_json(json_string)
+
+# From URL-encoded form data
+user_request = CreateUserRequest.from_www_form(form_data)
+
+# From query parameters (GET requests)
+user_request = CreateUserRequest.from_query(query_string)
+
+# Direct instantiation (for testing)
+user_request = CreateUserRequest.new(
+  name: "John Doe",
+  email: "john@example.com",
+  age: 30
+)
+```
+
+### Complex Validation Patterns
+
+#### Conditional Validation
+
+```crystal
+struct UpdateUserRequest
   include Azu::Request
-
-  getter username : String
-  getter email : String
-  getter password : String
-  getter password_confirmation : String
-  getter terms_accepted : Bool
-
-  # Built-in validations
-  validate username, presence: true, length: {min: 3, max: 20}
-  validate email, presence: true, format: /\A[\w+\-.]+@[a-z\d\-]+(\.[a-z\d\-]+)*\.[a-z]+\z/i
-  validate password, presence: true, length: {min: 8}
-  validate terms_accepted, acceptance: true
-
-  # Custom validation method
-  def validate!
-    super # Run built-in validations first
-
-    # Custom password confirmation check
-    if password != password_confirmation
-      errors.add(:password_confirmation, "Passwords must match")
-    end
-
-    # Check password strength
-    unless password.match(/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-      errors.add(:password, "Password must contain uppercase, lowercase, and number")
-    end
-
-    # Check username uniqueness (pseudo-code)
-    if User.exists?(username: username)
-      errors.add(:username, "Username is already taken")
-    end
+  
+  @name : String?
+  @email : String?
+  @password : String?
+  @password_confirmation : String?
+  
+  getter name, email, password, password_confirmation
+  
+  def initialize(@name = nil, @email = nil, @password = nil, @password_confirmation = nil)
   end
+  
+  # Validate only if field is present
+  validate :name, size: 2..50, if: ->(req : UpdateUserRequest) { !req.name.nil? }
+  validate :email, format: /@/, if: ->(req : UpdateUserRequest) { !req.email.nil? }
+  
+  # Cross-field validation
+  validate :password_confirmation, 
+    custom: ->(req : UpdateUserRequest) {
+      if req.password && req.password != req.password_confirmation
+        "Password confirmation doesn't match password"
+      end
+    }
 end
 ```
 
-### Nested Objects
-
-Handle complex nested data structures:
+#### Nested Object Validation
 
 ```crystal
-struct CreateOrderRequest
+struct AddressRequest
   include Azu::Request
-
-  getter customer_info : CustomerInfo
-  getter items : Array(OrderItem)
-  getter shipping_address : Address
-  getter billing_address : Address?
-
-  def initialize(@customer_info = CustomerInfo.new,
-                 @items = [] of OrderItem,
-                 @shipping_address = Address.new,
-                 @billing_address = nil)
+  
+  @street : String
+  @city : String
+  @country : String
+  @postal_code : String
+  
+  getter street, city, country, postal_code
+  
+  def initialize(@street = "", @city = "", @country = "", @postal_code = "")
   end
+  
+  validate :street, presence: true
+  validate :city, presence: true
+  validate :country, presence: true
+  validate :postal_code, format: /\A\d{5}(-\d{4})?\z/
+end
 
-  struct CustomerInfo
-    include Azu::Request
-
-    getter name : String
-    getter email : String
-    getter phone : String?
-
-    def initialize(@name = "", @email = "", @phone = nil)
-    end
-
-    validate name, presence: true
-    validate email, presence: true, format: /@/
+struct CreateUserWithAddressRequest
+  include Azu::Request
+  
+  @name : String
+  @email : String
+  @address : AddressRequest
+  
+  getter name, email, address
+  
+  def initialize(@name = "", @email = "", @address = AddressRequest.new)
   end
-
-  struct OrderItem
-    include Azu::Request
-
-    getter product_id : Int64
-    getter quantity : Int32
-    getter price : Float64
-
-    def initialize(@product_id = 0_i64, @quantity = 1, @price = 0.0)
-    end
-
-    validate product_id, presence: true, numericality: {greater_than: 0}
-    validate quantity, presence: true, numericality: {greater_than: 0}
-    validate price, presence: true, numericality: {greater_than: 0}
+  
+  validate :name, presence: true, size: 2..50
+  validate :email, presence: true, format: /@/
+  
+  # Validate nested object
+  def valid?
+    super && address.valid?
   end
-
-  struct Address
-    include Azu::Request
-
-    getter street : String
-    getter city : String
-    getter state : String
-    getter zip_code : String
-    getter country : String
-
-    def initialize(@street = "", @city = "", @state = "", @zip_code = "", @country = "")
+  
+  def errors
+    base_errors = super
+    if !address.valid?
+      address.errors.each do |error|
+        base_errors << Error.new("address.#{error.field}", error.message)
+      end
     end
-
-    validate street, presence: true
-    validate city, presence: true
-    validate state, presence: true
-    validate zip_code, presence: true, format: /^\d{5}(-\d{4})?$/
+    base_errors
   end
 end
 ```
 
-### Request Usage in Endpoints
-
-Access the request object in endpoints using the automatically generated method:
+#### Collection Validation
 
 ```crystal
-struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
-
-  post "/users"
-
-  def call : UserResponse
-    # Access via snake_case method name
-    request = create_user_request
-
-    # Validate the request
-    unless request.valid?
-      raise Azu::Response::ValidationError.new(
-        request.errors.group_by(&.field).transform_values(&.map(&.message))
-      )
+struct BulkCreateUsersRequest
+  include Azu::Request
+  
+  @users : Array(CreateUserRequest)
+  
+  getter users
+  
+  def initialize(@users = [] of CreateUserRequest)
+  end
+  
+  validate :users, presence: true, size: 1..100
+  
+  def valid?
+    return false unless super
+    users.all?(&.valid?)
+  end
+  
+  def errors
+    base_errors = super
+    users.each_with_index do |user, index|
+      unless user.valid?
+        user.errors.each do |error|
+          base_errors << Error.new("users[#{index}].#{error.field}", error.message)
+        end
+      end
     end
-
-    # Use validated data
-    user = User.create!(
-      name: request.name,
-      email: request.email,
-      age: request.age
-    )
-
-    UserResponse.new(user)
+    base_errors
   end
 end
 ```
 
-## Response Objects
+### Error Handling and Messages
 
-Response objects define the structure and format of data returned to clients. They provide consistent, type-safe output formatting.
+```crystal
+struct UserRequest
+  include Azu::Request
+  
+  @name : String
+  @email : String
+  
+  def initialize(@name = "", @email = "")
+  end
+  
+  validate :name, presence: true, size: 2..50
+  validate :email, presence: true, format: /@/
+  
+  # Custom error messages
+  def error_messages
+    errors.map do |error|
+      case error.field
+      when "name"
+        case error.code
+        when "presence"
+          "Name is required"
+        when "size"
+          "Name must be between 2 and 50 characters"
+        end
+      when "email"
+        case error.code
+        when "presence"
+          "Email is required"
+        when "format"
+          "Email must be a valid email address"
+        end
+      else
+        error.message
+      end
+    end
+  end
+end
+```
+
+## Response Objects: Structured Output
+
+Response objects handle the serialization and formatting of data sent back to clients. They support multiple content types and provide a consistent interface for output generation.
 
 ### Basic Response Structure
 
 ```crystal
 struct UserResponse
   include Azu::Response
-
-  def initialize(@user : User)
+  
+  def initialize(@user : User, @status : Int32 = 200)
   end
-
-  # Required render method
+  
   def render
     {
       id: @user.id,
       name: @user.name,
       email: @user.email,
-      created_at: @user.created_at.to_rfc3339,
-      updated_at: @user.updated_at.to_rfc3339
+      created_at: @user.created_at.to_rfc3339
     }.to_json
   end
 end
 ```
 
-### Content Negotiation
-
-Support multiple output formats based on Accept headers:
+### Content Type Handling
 
 ```crystal
-struct ProductResponse
+struct MultiFormatUserResponse
   include Azu::Response
-
-  def initialize(@product : Product)
+  
+  def initialize(@user : User)
   end
-
+  
   def render
-    # Automatic content negotiation based on Accept header
-    case context.request.headers["Accept"]?
-    when .try(&.includes?("application/json"))
+    case content_type
+    when "application/json"
       render_json
-    when .try(&.includes?("text/html"))
-      render_html
-    when .try(&.includes?("application/xml"))
+    when "application/xml"
       render_xml
+    when "text/html"
+      render_html
+    when "text/csv"
+      render_csv
     else
-      render_json # Default to JSON
+      render_json  # Default fallback
     end
   end
-
+  
   private def render_json
     {
-      id: @product.id,
-      name: @product.name,
-      price: @product.price,
-      category: @product.category,
-      in_stock: @product.quantity > 0
+      id: @user.id,
+      name: @user.name,
+      email: @user.email,
+      profile: {
+        avatar_url: @user.avatar_url,
+        bio: @user.bio
+      },
+      metadata: {
+        created_at: @user.created_at.to_rfc3339,
+        updated_at: @user.updated_at.to_rfc3339
+      }
     }.to_json
   end
-
-  private def render_html
-    view "products/show.html", product: @product
-  end
-
+  
   private def render_xml
     <<-XML
     <?xml version="1.0" encoding="UTF-8"?>
-    <product id="#{@product.id}">
-      <name>#{@product.name}</name>
-      <price>#{@product.price}</price>
-      <category>#{@product.category}</category>
-      <in_stock>#{@product.quantity > 0}</in_stock>
-    </product>
+    <user id="#{@user.id}">
+      <name>#{@user.name}</name>
+      <email>#{@user.email}</email>
+      <profile>
+        <avatar_url>#{@user.avatar_url}</avatar_url>
+        <bio>#{@user.bio}</bio>
+      </profile>
+      <metadata>
+        <created_at>#{@user.created_at.to_rfc3339}</created_at>
+        <updated_at>#{@user.updated_at.to_rfc3339}</updated_at>
+      </metadata>
+    </user>
     XML
+  end
+  
+  private def render_html
+    <<-HTML
+    <div class="user-card">
+      <h2>#{@user.name}</h2>
+      <p>Email: #{@user.email}</p>
+      <p>Member since: #{@user.created_at.to_s("%B %d, %Y")}</p>
+    </div>
+    HTML
+  end
+  
+  private def render_csv
+    "#{@user.id},#{@user.name},#{@user.email},#{@user.created_at.to_rfc3339}"
   end
 end
 ```
 
 ### Collection Responses
 
-Handle arrays and collections efficiently:
-
 ```crystal
-struct UsersIndexResponse
+struct UsersCollectionResponse
   include Azu::Response
-
-  def initialize(@users : Array(User), @total_count : Int32, @page : Int32, @per_page : Int32)
+  
+  def initialize(@users : Array(User), @page : Int32 = 1, @per_page : Int32 = 20)
   end
-
+  
   def render
     {
-      users: @users.map { |user| user_json(user) },
+      data: @users.map { |user| user_data(user) },
       pagination: {
         page: @page,
         per_page: @per_page,
-        total_count: @total_count,
-        total_pages: (@total_count / @per_page.to_f).ceil.to_i,
-        has_next: (@page * @per_page) < @total_count,
-        has_prev: @page > 1
+        total: @users.size,
+        has_more: @users.size == @per_page
+      },
+      metadata: {
+        generated_at: Time.utc.to_rfc3339,
+        version: "v1"
       }
     }.to_json
   end
-
-  private def user_json(user : User)
+  
+  private def user_data(user)
     {
       id: user.id,
       name: user.name,
       email: user.email,
-      status: user.status
+      links: {
+        self: "/api/users/#{user.id}",
+        edit: "/api/users/#{user.id}/edit"
+      }
     }
   end
 end
@@ -519,185 +541,306 @@ end
 
 ### Error Responses
 
-Azu provides built-in error response classes:
-
 ```crystal
-# Built-in error types
-raise Azu::Response::ValidationError.new(field_errors)
-raise Azu::Response::AuthenticationError.new("Invalid credentials")
-raise Azu::Response::AuthorizationError.new("Insufficient permissions")
-raise Azu::Response::NotFound.new("/users/999")
-raise Azu::Response::RateLimitError.new(retry_after: 60)
-
-# Custom error responses
-struct CustomBusinessError < Azu::Response::Error
-  def initialize(business_context : String)
-    super(
-      title: "Business Rule Violation",
-      status: HTTP::Status::UNPROCESSABLE_ENTITY,
-      detail: "The operation violates business rules: #{business_context}",
-      errors: [] of String
-    )
-  end
-end
-```
-
-### Template Responses
-
-Integrate with the template system:
-
-```crystal
-struct UserProfileResponse
+struct ValidationErrorResponse
   include Azu::Response
-  include Azu::Templates::Renderable
-
-  def initialize(@user : User, @posts : Array(Post))
+  
+  def initialize(@field_errors : Hash(String, Array(String)), @status : Int32 = 422)
   end
-
+  
   def render
-    view "users/profile.html", {
-      user: @user,
-      posts: @posts,
-      title: "#{@user.name}'s Profile",
-      meta_description: "View #{@user.name}'s profile and recent posts"
-    }
+    {
+      error: {
+        type: "validation_error",
+        message: "The request could not be processed due to validation errors",
+        details: @field_errors,
+        timestamp: Time.utc.to_rfc3339,
+        help_url: "https://api-docs.example.com/errors/validation"
+      }
+    }.to_json
+  end
+end
+
+struct NotFoundResponse
+  include Azu::Response
+  
+  def initialize(@resource : String, @id : String, @status : Int32 = 404)
+  end
+  
+  def render
+    {
+      error: {
+        type: "not_found",
+        message: "#{@resource} with id '#{@id}' was not found",
+        code: "RESOURCE_NOT_FOUND",
+        timestamp: Time.utc.to_rfc3339
+      }
+    }.to_json
   end
 end
 ```
 
-## Routing
+## Routing: URL Pattern Matching
 
-Azu's routing system is built on the high-performance Radix tree with intelligent caching for optimal performance.
+Azu's routing system uses a high-performance radix tree for URL pattern matching, providing O(log n) lookup performance with path parameter extraction.
 
-### Route Definition
-
-Routes are defined directly on endpoints:
+### Route Definition Patterns
 
 ```crystal
-struct UsersEndpoint
-  include Azu::Endpoint(UserRequest, UserResponse)
+# Static routes
+get "/users"              # Exact match
+get "/api/v1/health"      # Nested static route
 
-  # Static routes
-  get "/users"
-  post "/users"
+# Parameter routes
+get "/users/:id"          # Single parameter
+get "/users/:id/posts/:post_id"  # Multiple parameters
 
-  # Routes with parameters
-  get "/users/:id"
-  put "/users/:id"
-  delete "/users/:id"
+# Wildcard routes (match remaining path)
+get "/files/*filepath"    # Captures everything after /files/
 
-  # Routes with multiple parameters
-  get "/users/:user_id/posts/:post_id"
+# HTTP method constraints
+post "/users"             # Only POST requests
+put "/users/:id"          # Only PUT requests
+delete "/users/:id"       # Only DELETE requests
 
-  # Routes with optional parameters (using query strings)
-  get "/search" # ?q=term&page=1&limit=10
+# Multiple methods for same endpoint
+struct UserEndpoint
+  include Endpoint(UserRequest, UserResponse)
+  
+  get "/users/:id"        # GET /users/123
+  put "/users/:id"        # PUT /users/123
+  delete "/users/:id"     # DELETE /users/123
 end
 ```
 
 ### Route Parameters
 
-Access route parameters in endpoints:
+Route parameters are automatically extracted and made available through the `params` helper:
 
 ```crystal
-struct UserPostEndpoint
-  include Azu::Endpoint(UserPostRequest, UserPostResponse)
-
-  get "/users/:user_id/posts/:post_id"
-
-  def call : UserPostResponse
-    user_id = params["user_id"].to_i64
-    post_id = params["post_id"].to_i64
-
-    user = User.find(user_id)
-    post = user.posts.find(post_id)
-
-    UserPostResponse.new(user, post)
+struct UserEndpoint
+  include Endpoint(UserRequest, UserResponse)
+  
+  get "/users/:id/posts/:post_id/comments/:comment_id"
+  
+  def call : UserResponse
+    user_id = params["id"]           # String
+    post_id = params["post_id"]      # String
+    comment_id = params["comment_id"] # String
+    
+    # Type conversion
+    user_id_int = params["id"].to_i64
+    
+    # With error handling
+    begin
+      user_id_int = params["id"].to_i64
+    rescue ArgumentError
+      return error("Invalid user ID", 400)
+    end
+    
+    user = find_user(user_id_int)
+    UserResponse.new(user)
   end
 end
 ```
 
-### Route Helpers
-
-Azu automatically generates route helper methods:
+### Route Constraints and Validation
 
 ```crystal
 struct UserEndpoint
-  include Azu::Endpoint(UserRequest, UserResponse)
-
+  include Endpoint(UserRequest, UserResponse)
+  
   get "/users/:id"
-end
-
-# Automatically generates:
-UserEndpoint.path(id: 123)  # Returns "/users/123"
-
-# Use in templates and other endpoints
-redirect_url = UserEndpoint.path(id: user.id)
-redirect(redirect_url)
-```
-
-### Route Constraints
-
-Add constraints to route parameters:
-
-```crystal
-struct UserEndpoint
-  include Azu::Endpoint(UserRequest, UserResponse)
-
-  # Only match numeric IDs
-  get "/users/:id" do |route|
-    route.constraints(id: /\d+/)
+  
+  def call : UserResponse
+    # Validate parameter format
+    unless params["id"].matches?(/\A\d+\z/)
+      return error("User ID must be numeric", 400)
+    end
+    
+    user_id = params["id"].to_i64
+    
+    # Validate parameter range
+    if user_id <= 0
+      return error("User ID must be positive", 400)
+    end
+    
+    user = find_user(user_id)
+    UserResponse.new(user)
   end
-
-  # Match specific formats
-  get "/users/:id/avatar.:format" do |route|
-    route.constraints(format: /jpg|png|gif/)
+  
+  private def find_user(id : Int64)
+    User.find(id) || raise NotFoundError.new("User", id.to_s)
   end
 end
 ```
 
-### Performance Characteristics
-
-Azu's router is optimized for high-performance applications:
+### Route Groups and Scoping
 
 ```crystal
-# Route resolution performance
-module Azu
-  class Router
-    # LRU cache for frequently accessed routes
-    @route_cache = LRUCache(String, Route).new(capacity: 1000)
+module AdminAPI
+  struct UsersEndpoint
+    include Endpoint(UserRequest, UserResponse)
+    
+    get "/admin/users"
+    post "/admin/users"
+    get "/admin/users/:id"
+    put "/admin/users/:id"
+    delete "/admin/users/:id"
+  end
+  
+  struct SettingsEndpoint
+    include Endpoint(SettingsRequest, SettingsResponse)
+    
+    get "/admin/settings"
+    put "/admin/settings"
+  end
+end
 
-    def find_route(method : String, path : String)
-      cache_key = "#{method}:#{path}"
+module API::V1
+  struct UsersEndpoint
+    include Endpoint(UserRequest, UserResponse)
+    
+    get "/api/v1/users"
+    post "/api/v1/users"
+    get "/api/v1/users/:id"
+  end
+end
+```
 
-      # Check cache first
-      if cached_route = @route_cache[cache_key]?
-        return cached_route
-      end
+### Route Priority and Conflicts
 
-      # Perform radix tree lookup
-      route = @radix_tree.find(path, method)
+Azu routes are processed in the order they're defined. More specific routes should be defined before less specific ones:
 
-      # Cache for future requests
-      @route_cache[cache_key] = route if route
+```crystal
+# ✅ Correct order - specific to general
+get "/users/new"          # Static route (highest priority)
+get "/users/:id"          # Parameter route
+get "/users/*action"      # Wildcard route (lowest priority)
 
-      route
+# ❌ Incorrect order - may cause conflicts
+get "/users/:id"          # This would match /users/new
+get "/users/new"          # This might never be reached
+```
+
+## Type System Integration
+
+Azu leverages Crystal's static type system to provide compile-time guarantees about request/response contracts.
+
+### Compile-Time Type Checking
+
+```crystal
+struct TypeSafeEndpoint
+  include Endpoint(StrictUserRequest, StrictUserResponse)
+  
+  post "/users"
+  
+  def call : StrictUserResponse
+    # This is guaranteed to be valid at runtime
+    # because validation happens at compile time
+    user = User.create!(
+      name: strict_user_request.name,        # String (guaranteed)
+      email: strict_user_request.email,      # String (guaranteed) 
+      age: strict_user_request.age           # Int32? (guaranteed)
+    )
+    
+    # Response type is enforced at compile time
+    StrictUserResponse.new(user)  # Must return StrictUserResponse
+  end
+end
+```
+
+### Generic Endpoints
+
+Create reusable endpoint patterns with generics:
+
+```crystal
+abstract struct CRUDEndpoint(T, CreateRequest, UpdateRequest, Response)
+  include Endpoint(Request, Response)
+  
+  abstract def model_class : T.class
+  abstract def find_model(id : String) : T
+  abstract def create_model(request : CreateRequest) : T
+  abstract def update_model(model : T, request : UpdateRequest) : T
+  
+  def call : Response
+    case method
+    when .get?
+      show_model
+    when .post?
+      create_model_action
+    when .put?
+      update_model_action
+    when .delete?
+      delete_model_action
     end
   end
+  
+  private def show_model
+    model = find_model(params["id"])
+    Response.new(model)
+  end
+  
+  private def create_model_action
+    model = create_model(create_request)
+    Response.new(model, status: 201)
+  end
+  
+  private def update_model_action
+    model = find_model(params["id"])
+    updated_model = update_model(model, update_request)
+    Response.new(updated_model)
+  end
+  
+  private def delete_model_action
+    model = find_model(params["id"])
+    model.delete!
+    EmptyResponse.new(status: 204)
+  end
+end
+
+# Implement for specific models
+struct UserCRUDEndpoint < CRUDEndpoint(User, CreateUserRequest, UpdateUserRequest, UserResponse)
+  get "/users/:id"
+  post "/users"
+  put "/users/:id"
+  delete "/users/:id"
+  
+  def model_class
+    User
+  end
+  
+  def find_model(id : String)
+    User.find(id.to_i64) || raise NotFoundError.new("User", id)
+  end
+  
+  def create_model(request : CreateUserRequest)
+    User.create!(request.to_h)
+  end
+  
+  def update_model(model : User, request : UpdateUserRequest)
+    model.update!(request.to_h)
+    model
+  end
 end
 ```
-
-**Performance Metrics:**
-
-- **Route resolution**: ~0.1ms for cached routes
-- **Cache hit ratio**: >95% in typical applications
-- **Memory usage**: Constant with LRU eviction
-- **Concurrent access**: Lock-free for read operations
 
 ---
 
-**Next Steps:**
+## Summary
 
-- **[Real-Time Features →](real-time.md)** - Master WebSocket channels and live components
-- **[Templates & Views →](templates.md)** - Learn template rendering and markup DSL
-- **[Middleware →](middleware.md)** - Add cross-cutting concerns to your application
-- **[Testing →](testing.md)** - Write comprehensive tests for your endpoints
+Azu's core concepts work together to provide a robust foundation for web applications:
+
+- **Endpoints** provide focused, testable request handlers
+- **Request contracts** ensure type-safe input validation
+- **Response objects** handle structured output formatting
+- **Routing** enables efficient URL pattern matching
+- **Type system integration** catches errors at compile time
+
+This architecture enables you to build applications that are both high-performance and maintainable, with strong guarantees about correctness.
+
+**Next Steps:**
+- [Routing Deep Dive](core-concepts/routing.md) - Advanced routing patterns
+- [Request Validation](core-concepts/requests.md) - Complex validation scenarios
+- [Response Formatting](core-concepts/responses.md) - Advanced response patterns
+- [Real-Time Features](real-time.md) - WebSocket channels and live components
