@@ -87,6 +87,60 @@ class ChatChannel < Azu::Channel
 end
 ```
 
+### Development Tools & Performance Monitoring
+
+Comprehensive built-in tools for optimization and debugging:
+
+```crystal
+# Built-in profiler for code analysis
+result = Azu::DevelopmentTools.profile("database_query") do
+  User.where(active: true).limit(100).to_a
+end
+
+# Memory leak detection
+detector = Azu::DevelopmentTools.memory_detector
+detector.start_monitoring(30.seconds)
+
+# Load testing and benchmarking
+results = Azu::DevelopmentTools::Benchmark.load_test(
+  url: "http://localhost:4000/api/users",
+  concurrent: 10,
+  requests: 1000
+)
+```
+
+### Beautiful Terminal Logging
+
+Stunning, colorful performance reports that make monitoring delightful:
+
+```crystal
+# Generate beautiful performance reports
+Azu::PerformanceReporter.log_beautiful_report
+
+# Compact performance summaries
+Azu::PerformanceReporter.log_summary
+
+# Real-time health monitoring
+Azu::PerformanceReporter.log_health_check
+```
+
+### Advanced Caching System
+
+Multi-layered caching with automatic metrics and invalidation:
+
+```crystal
+# Distributed Redis caching
+cache = Azu::Cache::Manager.new(
+  store: Azu::Cache::Redis.new(redis_client),
+  ttl: 1.hour
+)
+
+# Automatic cache metrics tracking
+cache.with_metrics("user_data") do |store|
+  store.fetch("user:#{id}") { User.find(id) }
+end
+```
+
 ### Flexible Response System
 
 Multiple response formats with content negotiation:
@@ -109,6 +163,22 @@ struct UserResponse
     end
   end
 end
+```
+
+### Comprehensive Middleware System
+
+Production-ready middleware for security, logging, and optimization:
+
+```crystal
+MyApp.start [
+  Azu::Handler::PerformanceMonitor.new,  # Automatic performance tracking
+  Azu::Handler::CORS.new,                # Cross-origin support
+  Azu::Handler::CSRF.new,                # CSRF protection
+  Azu::Handler::Throttle.new,            # Rate limiting
+  Azu::Handler::Logger.new,              # Structured logging
+  Azu::Handler::Static.new,              # Static file serving
+  Azu::Handler::Rescuer.new              # Error handling
+]
 ```
 
 ## Performance Characteristics

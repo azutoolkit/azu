@@ -95,10 +95,10 @@ module Azu
     # Getter that creates a new instance if none exists (for backward compatibility)
     def performance_monitor : Handler::PerformanceMonitor?
       @performance_monitor ||= begin
-      if performance_enabled
-        monitor = Handler::PerformanceMonitor.new
-        monitor.enabled = true
-        monitor
+        if performance_enabled
+          monitor = Handler::PerformanceMonitor.new
+          monitor.enabled = true
+          monitor
         end
       end
     end

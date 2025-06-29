@@ -27,6 +27,7 @@ module Azu
         end
       end
     end
+
     # Individual metric data point
     struct MetricPoint
       include JSON::Serializable

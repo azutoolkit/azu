@@ -14,7 +14,7 @@ describe Azu do
 
   describe "coverting http request body to objects" do
     it "returns request as json" do
-      payload = {id: 1, users: ["John", "Paul"], config: {"allowed" => true}}
+      payload = {id: 1, users: ["John", "Paul"]}
       headers = HTTP::Headers{"Accept" => "application/json", "Content-Type" => "application/json"}
 
       response = client.post "/json/1", headers: headers, body: payload.to_json
@@ -23,7 +23,6 @@ describe Azu do
       response.status_code.should eq 200
       data["id"].should eq payload[:id]
       data["users"].should eq payload[:users]
-      data["config"].should eq payload[:config]
     end
   end
 

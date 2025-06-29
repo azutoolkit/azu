@@ -25,8 +25,8 @@ require "./endpoints/*"
 require "./channels/*"
 
 ExampleApp.start [
-  Azu::Handler::RequestId.new,          # Enhanced request ID tracking
-  ExampleApp::CONFIG.performance_monitor.not_nil!,                   # Performance metrics collection (shared instance)
-  Azu::Handler::Rescuer.new,            # Enhanced error handling
-  Azu::Handler::Logger.new,             # Request logging
+  Azu::Handler::RequestId.new,                     # Enhanced request ID tracking
+  ExampleApp::CONFIG.performance_monitor.not_nil!, # Performance metrics collection (shared instance)
+  Azu::Handler::Rescuer.new,                       # Enhanced error handling
+  Azu::Handler::Logger.new,                        # Request logging
 ]
