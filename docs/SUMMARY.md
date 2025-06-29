@@ -29,6 +29,7 @@
 - [Advanced Usage](advanced.md)
   - [Async Logging](advanced/async-logging.md)
   - [File Uploads](advanced/file-uploads.md)
+  - [Caching](advanced/caching.md)
   - [Content Negotiation](advanced/content-negotiation.md)
   - [Environment Management](advanced/environments.md)
   - [Performance Tuning](advanced/performance-tuning.md)
