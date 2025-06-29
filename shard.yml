@@ -2,7 +2,7 @@ name: azu
 version: 0.5.8
 authors:
   - Elias J. Perez <eliasjpr@gmail.com>
-crystal: '>= 0.35.0'
+crystal: ">= 0.35.0"
 license: MIT
 targets:
   example_app:
@@ -16,3 +16,6 @@ dependencies:
     github: azutoolkit/schema
   crinja:
     github: straight-shoota/crinja
+  redis:
+    github: stefanwille/crystal-redis
+    version: ~> 2.9.0

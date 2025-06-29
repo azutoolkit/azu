@@ -7,10 +7,16 @@ require "colorize"
 require "schema"
 require "crinja"
 require "./azu/router"
+require "./azu/cache"
 require "./azu/**"
 
 module Azu
   CONFIG = Configuration.new
+
+  # Rails-like cache API
+  def self.cache
+    CONFIG.cache
+  end
 
   macro included
     def self.configure(&)

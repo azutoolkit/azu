@@ -4,6 +4,7 @@ require "./environment"
 require "./router"
 require "./templates"
 require "./log_format"
+require "./cache"
 
 module Azu
   # Holds all the configuration properties for your Azu Application
@@ -25,6 +26,9 @@ module Azu
   #   c.template.error_path = "./error_template"
   #   c.upload.max_file_size = 10.megabytes
   #   c.upload.temp_dir = "/tmp/uploads"
+  #   c.cache.enabled = true
+  #   c.cache.store = "memory"
+  #   c.cache.max_size = 1000
   # end
   # ```
   class Configuration
@@ -60,7 +64,18 @@ module Azu
         template_hot_reload
       )
     end
+
     getter upload : UploadConfiguration = UploadConfiguration.new
+
+    # Cache configuration and manager
+    getter cache : Cache::Manager do
+      Cache::Manager.new(cache_config)
+    end
+
+    # Separate cache configuration object for advanced customization
+    getter cache_config : Cache::Configuration do
+      Cache::Configuration.new
+    end
 
     def initialize
       # Initialize async logging system
