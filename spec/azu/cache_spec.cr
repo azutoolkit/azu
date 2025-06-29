@@ -1,6 +1,10 @@
 require "../spec_helper"
 
 describe Azu::Cache do
+  redis_host = ENV["REDIS_HOST"]? || "localhost"
+  redis_port = ENV["REDIS_PORT"]? || 6379
+  redis_url = "redis://#{redis_host}:#{redis_port}"
+
   describe "TimeSpanExtensions" do
     it "creates time spans from integers" do
       5.seconds.should eq(Time::Span.new(seconds: 5))
@@ -373,7 +377,7 @@ describe Azu::Cache do
   describe "RedisStore" do
     it "connects to Redis and performs basic operations" do
       begin
-        store = Azu::Cache::RedisStore.new("redis://localhost:6379/15", pool_size: 2)
+        store = Azu::Cache::RedisStore.new("#{redis_url}/15", pool_size: 2)
 
         # Clear any existing data
         store.clear
@@ -391,7 +395,7 @@ describe Azu::Cache do
 
     it "supports TTL operations" do
       begin
-        store = Azu::Cache::RedisStore.new("redis://localhost:6379/15")
+        store = Azu::Cache::RedisStore.new("#{redis_url}/15")
         store.clear
 
         # Set with TTL
@@ -408,7 +412,7 @@ describe Azu::Cache do
 
     it "supports counter operations with Redis native commands" do
       begin
-        store = Azu::Cache::RedisStore.new("redis://localhost:6379/15")
+        store = Azu::Cache::RedisStore.new("#{redis_url}/15")
         store.clear
 
         # Test increment
@@ -425,7 +429,7 @@ describe Azu::Cache do
 
     it "supports multi-key operations with Redis native commands" do
       begin
-        store = Azu::Cache::RedisStore.new("redis://localhost:6379/15")
+        store = Azu::Cache::RedisStore.new("#{redis_url}/15")
         store.clear
 
         # Multi-set
@@ -446,7 +450,7 @@ describe Azu::Cache do
     it "handles Redis connection errors gracefully" do
       begin
         # Use invalid Redis URL
-        store = Azu::Cache::RedisStore.new("redis://localhost:9999/0")
+        store = Azu::Cache::RedisStore.new("#{redis_url}/0")
 
         # Operations should return nil/false instead of crashing
         store.get("test").should be_nil
@@ -465,7 +469,7 @@ describe Azu::Cache do
       store = nil
 
       begin
-        store = Azu::Cache::RedisStore.new("redis://localhost:6379/15")
+        store = Azu::Cache::RedisStore.new("#{redis_url}/15")
       rescue
         redis_available = false
       end
@@ -488,7 +492,7 @@ describe Azu::Cache do
 
     it "supports connection pooling" do
       begin
-        store = Azu::Cache::RedisStore.new("redis://localhost:6379/15", pool_size: 3)
+        store = Azu::Cache::RedisStore.new("#{redis_url}/15", pool_size: 3)
         store.clear
 
         # Test concurrent operations
