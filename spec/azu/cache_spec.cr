@@ -58,7 +58,7 @@ describe Azu::Cache do
       store.set("expire_key", "value", Time::Span.new(nanoseconds: 1))
 
       # Give time for expiration
-      sleep(0.001)
+      sleep(Time::Span.new(nanoseconds: 1000000))
 
       store.get("expire_key").should be_nil
       store.exists?("expire_key").should be_false
@@ -399,7 +399,7 @@ describe Azu::Cache do
         store.get("ttl_key").should eq("ttl_value")
 
         # Wait for expiration
-        sleep(1.1)
+        sleep(Time::Span.new(seconds: 1, nanoseconds: 100000000))
         store.get("ttl_key").should be_nil
       rescue
         pending "Redis not available for testing"
@@ -461,18 +461,28 @@ describe Azu::Cache do
     end
 
     it "provides Redis-specific methods" do
+      redis_available = true
+      store = nil
+
       begin
         store = Azu::Cache::RedisStore.new("redis://localhost:6379/15")
-
-        # Ping should work
-        store.ping.should eq("PONG")
-
-        # Info should return server information
-        info = store.info
-        info.should_not be_nil
-        info.should contain("redis_version")
       rescue
+        redis_available = false
+      end
+
+      unless redis_available
         pending "Redis not available for testing"
+        next
+      end
+
+      # Ping should work
+      store.not_nil!.ping.should eq("PONG")
+
+      # Info should return server information
+      info = store.not_nil!.info
+      info.should_not be_nil
+      if info
+        info.has_key?("redis_version").should be_true
       end
     end
 
