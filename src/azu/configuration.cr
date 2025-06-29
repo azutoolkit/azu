@@ -5,6 +5,8 @@ require "./router"
 require "./templates"
 require "./log_format"
 require "./cache"
+require "./handler/performance_monitor"
+require "./development_tools"
 
 module Azu
   # Holds all the configuration properties for your Azu Application
@@ -77,9 +79,56 @@ module Azu
       Cache::Configuration.new
     end
 
+    # Performance monitoring configuration
+    property performance_enabled : Bool = ENV.fetch("PERFORMANCE_MONITORING", "true") == "true"
+    property performance_profiling_enabled : Bool = ENV.fetch("PERFORMANCE_PROFILING", "false") == "true"
+    property performance_memory_monitoring : Bool = ENV.fetch("PERFORMANCE_MEMORY_MONITORING", "false") == "true"
+
+    # Performance monitor instance
+    property performance_monitor : Handler::PerformanceMonitor? = nil
+
+    # Setter for performance monitor to allow sharing instance from handler chain
+    def performance_monitor=(monitor : Handler::PerformanceMonitor)
+      @performance_monitor = monitor
+    end
+
+    # Getter that creates a new instance if none exists (for backward compatibility)
+    def performance_monitor : Handler::PerformanceMonitor?
+      @performance_monitor ||= begin
+      if performance_enabled
+        monitor = Handler::PerformanceMonitor.new
+        monitor.enabled = true
+        monitor
+        end
+      end
+    end
+
+    # Development tools access
+    def development_tools
+      DevelopmentTools
+    end
+
     def initialize
       # Initialize async logging system
       AsyncLogging.initialize
+
+      # Set performance defaults based on environment
+      if ENV.fetch("PERFORMANCE_PROFILING", "").empty?
+        @performance_profiling_enabled = env.development?
+      end
+
+      if ENV.fetch("PERFORMANCE_MEMORY_MONITORING", "").empty?
+        @performance_memory_monitoring = env.development?
+      end
+
+      # Initialize development tools if enabled
+      if performance_profiling_enabled
+        development_tools.profiler.enabled = true
+      end
+
+      if performance_memory_monitoring
+        development_tools.memory_detector.start_monitoring
+      end
     end
 
     def tls
@@ -98,6 +147,9 @@ module Azu
     def finalize
       # Shutdown async logging system
       AsyncLogging.shutdown
+
+      # Shutdown development tools
+      development_tools.memory_detector.stop_monitoring
     end
   end
 

@@ -1,9 +1,12 @@
 module ExampleApp
   struct TextResponse
-    include Response
+    include Azu::Response
+
+    def initialize(@data : String = "Hello World!")
+    end
 
     def render
-      "Hello World!"
+      @data
     end
   end
 end

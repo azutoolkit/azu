@@ -7,11 +7,10 @@ module ExampleApp
 
     @id : Int64?
     @users : Array(String)
-    @config : Config
 
     getter id, users, config
 
-    def initialize(@id : Int64? = nil, @users : Array(String) = [] of String, @config : Config = Config.new)
+    def initialize(@id : Int64? = nil, @users : Array(String) = [] of String)
     end
 
     struct Config

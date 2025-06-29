@@ -23,7 +23,7 @@ module ExampleApp
 
     private def expensive_data_operation(key : String) : String
       # Simulate expensive database query or API call
-      sleep(0.5.seconds)
+      sleep(5.seconds)
       {
         "id"                    => key,
         "name"                  => "User #{key}",
@@ -123,7 +123,7 @@ module ExampleApp
 
     private def expensive_data_operation(key : String) : String
       # Simulate expensive database query or API call
-      sleep(0.3.seconds)
+      sleep(5.seconds)
       {
         "id"                    => key,
         "name"                  => "User #{key}",

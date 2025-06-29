@@ -1,4 +1,5 @@
 require "http"
+require "../params"
 
 module Azu
   # An Endpoint is an endpoint that handles incoming HTTP requests for a specific route.
@@ -38,6 +39,11 @@ module Azu
     def call(context : HTTP::Server::Context)
       @context = context
       @params = Params(Request).new(@context.not_nil!.request)
+
+      # Set endpoint name header for performance monitoring
+      endpoint_name = self.class.name.split("::").last
+      context.request.headers["X-Azu-Endpoint"] = endpoint_name
+
       context.response << call.render
       context
     end

@@ -1,6 +1,6 @@
 module ExampleApp
   struct TextEndpoint
-    include Endpoint(ExampleReq, TextResponse)
+    include Azu::Endpoint(ExampleReq, TextResponse)
 
     get "/text/"
 
@@ -9,7 +9,7 @@ module ExampleApp
     def call : TextResponse
       content_type "text/plain"
       status 201
-      @hello_world
+      TextResponse.new("Hello World!")
     end
   end
 end

@@ -1,7 +1,7 @@
 module ExampleApp
   struct JsonResponse
     include JSON::Serializable
-    include Response
+    include Azu::Response
 
     def initialize(@request : JsonReq)
     end

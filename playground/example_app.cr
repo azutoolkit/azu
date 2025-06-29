@@ -15,6 +15,7 @@ module ExampleApp
     cache_config.redis_url = "redis://localhost:6379"
     cache_config.redis_timeout = 5
     cache_config.redis_pool_size = 10
+    performance_monitor = Handler::PerformanceMonitor.new
   end
 end
 
@@ -24,7 +25,8 @@ require "./endpoints/*"
 require "./channels/*"
 
 ExampleApp.start [
-  Azu::Handler::RequestId.new, # Enhanced request ID tracking
-  Azu::Handler::Rescuer.new,   # Enhanced error handling
-  Azu::Handler::Logger.new,
+  Azu::Handler::RequestId.new,          # Enhanced request ID tracking
+  ExampleApp::CONFIG.performance_monitor.not_nil!,                   # Performance metrics collection (shared instance)
+  Azu::Handler::Rescuer.new,            # Enhanced error handling
+  Azu::Handler::Logger.new,             # Request logging
 ]

@@ -8,6 +8,9 @@ require "schema"
 require "crinja"
 require "./azu/router"
 require "./azu/cache"
+require "./azu/performance_metrics"
+require "./azu/development_tools"
+require "./azu/performance_reporter"
 require "./azu/**"
 
 module Azu

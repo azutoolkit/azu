@@ -28,7 +28,7 @@ module Azu
       abstract def size : Int32
 
       # Overloaded get method with block and TTL support (Rails-like)
-      def get(key : String, ttl : Time::Span? = nil, &block : -> String) : String
+      def get(key : String, ttl : Time::Span? = nil, & : -> String) : String
         if cached = get(key)
           cached
         else
@@ -39,7 +39,7 @@ module Azu
       end
 
       # Rails-like fetch method with block support
-      def fetch(key : String, ttl : Time::Span? = nil, &block : -> String) : String
+      def fetch(key : String, ttl : Time::Span? = nil, & : -> String) : String
         if cached = get(key)
           cached
         else
@@ -496,14 +496,14 @@ module Azu
         @store = create_store
       end
 
-      # Rails-like API methods
+      # Rails-like API methods with performance metrics
       def get(key : String) : String?
         return nil unless @config.enabled
         @store.get(prefixed_key(key))
       end
 
       # Overloaded get method with block and TTL support (Rails-like)
-      def get(key : String, ttl : Time::Span? = nil, &block : -> String) : String
+      def get(key : String, ttl : Time::Span? = nil, & : -> String) : String
         return yield unless @config.enabled
 
         prefixed = prefixed_key(key)
@@ -523,7 +523,7 @@ module Azu
         @store.set(prefixed_key(key), serialize_value(value), ttl)
       end
 
-      def fetch(key : String, ttl : Time::Span? = nil, &block : -> String) : String
+      def fetch(key : String, ttl : Time::Span? = nil, & : -> String) : String
         return yield unless @config.enabled
 
         prefixed = prefixed_key(key)
