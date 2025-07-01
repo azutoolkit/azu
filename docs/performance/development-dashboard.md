@@ -1,4 +1,4 @@
-# 🚀 Azu Development Dashboard Implementation
+# 🚀 Development Dashboard
 
 A comprehensive Development Dashboard HTTP handler for the Azu web framework that provides real-time insights into application performance, metrics, and runtime behavior.
 
@@ -38,178 +38,170 @@ end
 
 If `PERFORMANCE_MONITORING=false` (default):
 
-- Dashboard will show limited functionality
-- Most metrics will display "N/A" or zero values
-- Only basic system information will be available
-- No performance overhead is incurred
+* Dashboard will show limited functionality
+* Most metrics will display "N/A" or zero values
+* Only basic system information will be available
+* No performance overhead is incurred
 
 ## 🎨 Dashboard Preview
 
-![Azu Development Dashboard](dev-dashboard.png)
+![Azu Development Dashboard](https://raw.githubusercontent.com/azutoolkit/azu/refs/heads/master/docs/performance/dev-dashoard.png)
 
 _The Azu Development Dashboard provides a comprehensive overview of your application's performance, cache metrics, component lifecycle, error logs, and system information in a beautiful, modern interface._
 
 The dashboard features:
 
-- **📊 Real-time Metrics**: Live performance data with automatic refresh
-- **🎨 Modern UI**: Professional design with color-coded status indicators
-- **📱 Responsive Layout**: Grid-based design that adapts to screen size
-- **⚡ Zero Config**: Works out of the box with sensible defaults
-- **🔄 Live Updates**: Auto-refresh every 30 seconds with visual feedback
-- **🚀 Fast Performance**: Optimized rendering with minimal overhead
+* **📊 Real-time Metrics**: Live performance data with automatic refresh
+* **🎨 Modern UI**: Professional design with color-coded status indicators
+* **📱 Responsive Layout**: Grid-based design that adapts to screen size
+* **⚡ Zero Config**: Works out of the box with sensible defaults
+* **🔄 Live Updates**: Auto-refresh every 30 seconds with visual feedback
+* **🚀 Fast Performance**: Optimized rendering with minimal overhead
 
 ## 📋 What's Implemented
 
 ### Core Components
 
 1. **DevDashboardHandler** (`src/azu/handler/dev_dashboard.cr`)
-
-   - Clean, extensible HTTP handler following Azu patterns
-   - Beautiful HTML dashboard with modern CSS styling
-   - Real-time metrics collection and display
-   - Auto-refresh every 30 seconds
-   - Metrics clearing functionality
-   - **Graceful degradation** when performance monitoring is disabled
-
+   * Clean, extensible HTTP handler following Azu patterns
+   * Beautiful HTML dashboard with modern CSS styling
+   * Real-time metrics collection and display
+   * Auto-refresh every 30 seconds
+   * Metrics clearing functionality
+   * **Graceful degradation** when performance monitoring is disabled
 2. **Enhanced Router** (`src/azu/router.cr`)
-
-   - Added `routes()` method to access registered routes
-   - Added `routes_by_method()` for grouped route display
-   - Added `route_info()` for development dashboard integration
-
+   * Added `routes()` method to access registered routes
+   * Added `routes_by_method()` for grouped route display
+   * Added `route_info()` for development dashboard integration
 3. **Development Tools Endpoint** (`playground/endpoints/development_tools_endpoint.cr`)
-
-   - Test data generation for dashboard demonstration
-   - Error simulation capabilities
-   - Cache and component testing
-   - Metrics management
-   - **Conditional functionality** based on performance monitoring availability
-
+   * Test data generation for dashboard demonstration
+   * Error simulation capabilities
+   * Cache and component testing
+   * Metrics management
+   * **Conditional functionality** based on performance monitoring availability
 4. **Request/Response Contracts**
-
-   - `playground/requests/development_tools_request.cr`
-   - `playground/responses/development_tools_response.cr`
-
+   * `playground/requests/development_tools_request.cr`
+   * `playground/responses/development_tools_response.cr`
 5. **Comprehensive Documentation** (`docs/advanced/development-dashboard.md`)
 
 ## 🎯 Dashboard Sections Implemented
 
 ### ✅ 1. Application Status (Always Available)
 
-- **Uptime**: Human-readable format (2h 15m 30s)
-- **Memory Usage**: Current memory consumption in MB
-- **Process Information**: PID and environment
-- **Crystal Version**: Runtime environment details
+* **Uptime**: Human-readable format (2h 15m 30s)
+* **Memory Usage**: Current memory consumption in MB
+* **Process Information**: PID and environment
+* **Crystal Version**: Runtime environment details
 
 **When Performance Monitoring Enabled:**
 
-- **Total Requests**: Count from PerformanceMetrics
-- **Error Rate**: Percentage with color-coded status
-- **CPU Usage**: Realistic performance tracking
+* **Total Requests**: Count from PerformanceMetrics
+* **Error Rate**: Percentage with color-coded status
+* **CPU Usage**: Realistic performance tracking
 
 ### ✅ 2. Performance Metrics (Requires Performance Monitoring)
 
 **When Enabled:**
 
-- **Average Response Time**: From PerformanceMetrics.aggregate_stats
-- **P95/P99 Response Times**: Percentile calculations
-- **Memory Allocation**: Peak usage and deltas
-- **Requests/Second**: Real-time throughput calculation
-- **GC Statistics**: Crystal garbage collector metrics
+* **Average Response Time**: From PerformanceMetrics.aggregate\_stats
+* **P95/P99 Response Times**: Percentile calculations
+* **Memory Allocation**: Peak usage and deltas
+* **Requests/Second**: Real-time throughput calculation
+* **GC Statistics**: Crystal garbage collector metrics
 
 **When Disabled:**
 
-- Shows "Performance monitoring disabled"
-- Displays placeholder values
-- Provides instructions to enable monitoring
+* Shows "Performance monitoring disabled"
+* Displays placeholder values
+* Provides instructions to enable monitoring
 
 ### ✅ 3. Cache Metrics (Partial Functionality)
 
 **Always Available:**
 
-- **Cache Store Type**: Memory/Redis/Null detection
-- **Basic Configuration**: TTL, max size, enabled status
+* **Cache Store Type**: Memory/Redis/Null detection
+* **Basic Configuration**: TTL, max size, enabled status
 
 **When Performance Monitoring Enabled:**
 
-- **Hit Rate**: Color-coded performance indicator
-- **Operation Breakdown**: GET, SET, DELETE statistics
-- **Processing Times**: Average cache operation duration
-- **Data Volume**: Total data written in MB
-- **Error Rates**: Cache operation failure tracking
+* **Hit Rate**: Color-coded performance indicator
+* **Operation Breakdown**: GET, SET, DELETE statistics
+* **Processing Times**: Average cache operation duration
+* **Data Volume**: Total data written in MB
+* **Error Rates**: Cache operation failure tracking
 
 ### ✅ 4. Component Lifecycle (Requires Performance Monitoring)
 
 **When Enabled:**
 
-- **Total Components**: Active component count
-- **Mount/Unmount Events**: Lifecycle tracking
-- **Refresh Events**: Component update frequency
-- **Average Component Age**: Lifespan analysis
+* **Total Components**: Active component count
+* **Mount/Unmount Events**: Lifecycle tracking
+* **Refresh Events**: Component update frequency
+* **Average Component Age**: Lifespan analysis
 
 **When Disabled:**
 
-- Shows basic component registry information
-- Component count without performance data
+* Shows basic component registry information
+* Component count without performance data
 
 ### ✅ 5. Error Logs (Requires Performance Monitoring)
 
 **When Enabled:**
 
-- **Recent Errors**: Last 50 error requests
-- **Detailed Information**: Timestamp, method, path, status
-- **Performance Impact**: Processing time and memory usage
-- **Error Classification**: 4xx vs 5xx categorization
+* **Recent Errors**: Last 50 error requests
+* **Detailed Information**: Timestamp, method, path, status
+* **Performance Impact**: Processing time and memory usage
+* **Error Classification**: 4xx vs 5xx categorization
 
 **When Disabled:**
 
-- Basic error information only
-- No performance correlation data
+* Basic error information only
+* No performance correlation data
 
 ### ✅ 6. Route Listing (Always Available)
 
-- **All Registered Routes**: Dynamic route discovery
-- **HTTP Methods**: Color-coded badges
-- **Handler Information**: Endpoint class names
-- **Path Parameters**: URL patterns display
+* **All Registered Routes**: Dynamic route discovery
+* **HTTP Methods**: Color-coded badges
+* **Handler Information**: Endpoint class names
+* **Path Parameters**: URL patterns display
 
 ### ✅ 7. System Information (Always Available)
 
-- **Crystal Version**: Runtime environment details
-- **Process Information**: PID and environment
-- **GC Statistics**: Heap size and collection counts
-- **Environment Detection**: Development/production mode
+* **Crystal Version**: Runtime environment details
+* **Process Information**: PID and environment
+* **GC Statistics**: Heap size and collection counts
+* **Environment Detection**: Development/production mode
 
 ### ✅ 8. Test Results (Mocked)
 
-- **Code Coverage**: Percentage with progress bar
-- **Test Counts**: Total, failed, success metrics
-- **Suite Performance**: Execution time tracking
-- **Last Run Timestamp**: Test execution history
+* **Code Coverage**: Percentage with progress bar
+* **Test Counts**: Total, failed, success metrics
+* **Suite Performance**: Execution time tracking
+* **Last Run Timestamp**: Test execution history
 
 ## 🛠 Technical Features
 
 ### Performance Optimizations
 
-- **LRU Cache**: Route caching for frequent requests
-- **Memory Management**: Rolling window of metrics (max 10,000)
-- **Lazy Loading**: Metrics collected only when needed
-- **Efficient Rendering**: String building with pre-allocated capacity
+* **LRU Cache**: Route caching for frequent requests
+* **Memory Management**: Rolling window of metrics (max 10,000)
+* **Lazy Loading**: Metrics collected only when needed
+* **Efficient Rendering**: String building with pre-allocated capacity
 
 ### Security Features
 
-- **Development Only**: Environment-based access control
-- **Optional Authentication**: Localhost restriction example
-- **Safe Data Handling**: Proper escaping and validation
-- **Error Boundaries**: Graceful fallback for metric collection failures
+* **Development Only**: Environment-based access control
+* **Optional Authentication**: Localhost restriction example
+* **Safe Data Handling**: Proper escaping and validation
+* **Error Boundaries**: Graceful fallback for metric collection failures
 
 ### User Experience
 
-- **Modern UI**: Professional dashboard design with gradients
-- **Responsive Layout**: Grid-based adaptive layout
-- **Auto-refresh**: Live data updates every 30 seconds
-- **Interactive Elements**: Buttons, hover effects, progress bars
-- **Status Indicators**: Color-coded metrics (green/yellow/red)
+* **Modern UI**: Professional dashboard design with gradients
+* **Responsive Layout**: Grid-based adaptive layout
+* **Auto-refresh**: Live data updates every 30 seconds
+* **Interactive Elements**: Buttons, hover effects, progress bars
+* **Status Indicators**: Color-coded metrics (green/yellow/red)
 
 ## 📦 Usage Example
 
@@ -270,11 +262,11 @@ http://localhost:4000/dev-dashboard?clear=true
 
 The dashboard features:
 
-- **🎨 Modern Design**: Professional gradient header, card-based layout
-- **📊 Visual Metrics**: Progress bars, color-coded status indicators
-- **📱 Responsive**: Grid layout adapts to screen size
-- **🔄 Live Updates**: Auto-refresh with visual feedback
-- **⚡ Fast Loading**: Optimized rendering and minimal HTTP requests
+* **🎨 Modern Design**: Professional gradient header, card-based layout
+* **📊 Visual Metrics**: Progress bars, color-coded status indicators
+* **📱 Responsive**: Grid layout adapts to screen size
+* **🔄 Live Updates**: Auto-refresh with visual feedback
+* **⚡ Fast Loading**: Optimized rendering and minimal HTTP requests
 
 ### Example Metrics Display
 
@@ -353,101 +345,101 @@ end
 
 ### 1. **Charts Integration**
 
-- Add Chart.js for visual metrics
-- Real-time graphs for response times
-- Memory usage trend charts
-- Cache hit rate over time
+* Add Chart.js for visual metrics
+* Real-time graphs for response times
+* Memory usage trend charts
+* Cache hit rate over time
 
 ### 2. **Advanced Filtering**
 
-- Filter errors by time range
-- Route-specific performance metrics
-- Component type filtering
-- Search functionality
+* Filter errors by time range
+* Route-specific performance metrics
+* Component type filtering
+* Search functionality
 
 ### 3. **Export Capabilities**
 
-- Export metrics to JSON/CSV
-- Performance report generation
-- Historical data persistence
-- Metric comparison tools
+* Export metrics to JSON/CSV
+* Performance report generation
+* Historical data persistence
+* Metric comparison tools
 
 ### 4. **Alerting System**
 
-- Threshold-based alerts
-- Email/Slack notifications
-- Performance degradation detection
-- Memory leak warnings
+* Threshold-based alerts
+* Email/Slack notifications
+* Performance degradation detection
+* Memory leak warnings
 
 ### 5. **Database Integration**
 
-- Real database connection status
-- Query performance monitoring
-- Migration status tracking
-- Database-specific metrics
+* Real database connection status
+* Query performance monitoring
+* Migration status tracking
+* Database-specific metrics
 
 ## 🔍 Code Quality Features
 
 ### Type Safety
 
-- Full Crystal type annotations
-- Compile-time validation
-- Null safety with proper handling
-- Union type management
+* Full Crystal type annotations
+* Compile-time validation
+* Null safety with proper handling
+* Union type management
 
 ### Error Handling
 
-- Comprehensive exception catching
-- Graceful degradation
-- Fallback data display
-- Debug logging integration
+* Comprehensive exception catching
+* Graceful degradation
+* Fallback data display
+* Debug logging integration
 
 ### Memory Management
 
-- Bounded metric collections
-- Automatic cleanup
-- GC-friendly data structures
-- Memory leak prevention
+* Bounded metric collections
+* Automatic cleanup
+* GC-friendly data structures
+* Memory leak prevention
 
 ### Testing Support
 
-- Mock data generation
-- Test scenario simulation
-- Metric validation helpers
-- Development workflow integration
+* Mock data generation
+* Test scenario simulation
+* Metric validation helpers
+* Development workflow integration
 
 ## 📚 Documentation
 
-- **API Reference**: Complete method documentation
-- **Usage Examples**: Real-world integration patterns
-- **Best Practices**: Performance and security guidelines
-- **Troubleshooting**: Common issues and solutions
-- **Extension Guide**: Custom dashboard development
+* **API Reference**: Complete method documentation
+* **Usage Examples**: Real-world integration patterns
+* **Best Practices**: Performance and security guidelines
+* **Troubleshooting**: Common issues and solutions
+* **Extension Guide**: Custom dashboard development
 
 ## 🎯 Benefits
 
 ### For Developers
 
-- **📈 Performance Insights**: Real-time application behavior
-- **🐛 Debugging Support**: Error tracking and analysis
-- **⚡ Optimization Guidance**: Bottleneck identification
-- **🔧 Development Tools**: Integrated testing utilities
+* **📈 Performance Insights**: Real-time application behavior
+* **🐛 Debugging Support**: Error tracking and analysis
+* **⚡ Optimization Guidance**: Bottleneck identification
+* **🔧 Development Tools**: Integrated testing utilities
 
 ### For DevOps
 
-- **📊 Monitoring**: Application health visibility
-- **🚨 Alerting**: Performance issue detection
-- **📋 Reporting**: Metric collection and analysis
-- **🔍 Diagnostics**: System state inspection
+* **📊 Monitoring**: Application health visibility
+* **🚨 Alerting**: Performance issue detection
+* **📋 Reporting**: Metric collection and analysis
+* **🔍 Diagnostics**: System state inspection
 
 ### For Teams
 
-- **🤝 Collaboration**: Shared performance visibility
-- **📖 Documentation**: Self-documenting metrics
-- **🎯 Optimization**: Data-driven improvements
-- **🚀 Productivity**: Faster development cycles
+* **🤝 Collaboration**: Shared performance visibility
+* **📖 Documentation**: Self-documenting metrics
+* **🎯 Optimization**: Data-driven improvements
+* **🚀 Productivity**: Faster development cycles
 
----
+***
 
 This implementation provides a **production-ready development dashboard** that intelligently adapts to your performance monitoring configuration. Whether you need zero-overhead production deployments or comprehensive development insights, the dashboard scales to your needs while maintaining excellent performance and user experience.
 
