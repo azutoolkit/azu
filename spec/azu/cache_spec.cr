@@ -406,7 +406,7 @@ describe Azu::Cache do
         sleep(Time::Span.new(seconds: 1, nanoseconds: 100000000))
         store.get("ttl_key").should be_nil
       rescue
-         "Redis not available for testing"
+        "Redis not available for testing"
       end
     end
 
@@ -475,7 +475,7 @@ describe Azu::Cache do
       end
 
       unless redis_available
-        puts  "Redis not available for testing"
+        puts "Redis not available for testing"
         next
       end
 
