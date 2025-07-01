@@ -5,8 +5,12 @@ require "./router"
 require "./templates"
 require "./log_format"
 require "./cache"
-require "./handler/performance_monitor"
 require "./development_tools"
+
+# Conditionally require performance monitor only when needed
+{% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
+require "./handler/performance_monitor"
+{% end %}
 
 module Azu
   # Holds all the configuration properties for your Azu Application
@@ -71,7 +75,12 @@ module Azu
 
     # Cache configuration and manager
     getter cache : Cache::Manager do
-      Cache::Manager.new(cache_config)
+      manager = Cache::Manager.new(cache_config)
+      # Connect cache with performance metrics only if available and enabled
+      if performance_enabled && (monitor = performance_monitor)
+        manager.metrics = monitor.metrics
+      end
+      manager
     end
 
     # Separate cache configuration object for advanced customization
@@ -79,29 +88,40 @@ module Azu
       Cache::Configuration.new
     end
 
-    # Performance monitoring configuration
-    property performance_enabled : Bool = ENV.fetch("PERFORMANCE_MONITORING", "true") == "true"
+    # Performance monitoring configuration - defaults to false for truly optional behavior
+    property performance_enabled : Bool = ENV.fetch("PERFORMANCE_MONITORING", "false") == "true"
     property performance_profiling_enabled : Bool = ENV.fetch("PERFORMANCE_PROFILING", "false") == "true"
     property performance_memory_monitoring : Bool = ENV.fetch("PERFORMANCE_MEMORY_MONITORING", "false") == "true"
 
-    # Performance monitor instance
-    property performance_monitor : Handler::PerformanceMonitor? = nil
+    # Performance monitor instance - truly optional
+    {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
+      @performance_monitor : Handler::PerformanceMonitor? = nil
+    {% end %}
 
     # Setter for performance monitor to allow sharing instance from handler chain
-    def performance_monitor=(monitor : Handler::PerformanceMonitor)
-      @performance_monitor = monitor
-    end
-
-    # Getter that creates a new instance if none exists (for backward compatibility)
-    def performance_monitor : Handler::PerformanceMonitor?
-      @performance_monitor ||= begin
-        if performance_enabled
-          monitor = Handler::PerformanceMonitor.new
-          monitor.enabled = true
-          monitor
-        end
+    {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
+      def performance_monitor=(monitor : Handler::PerformanceMonitor?)
+        @performance_monitor = monitor
       end
-    end
+    {% else %}
+      def performance_monitor=(monitor)
+        # Performance monitoring disabled at compile time
+      end
+    {% end %}
+
+    # Getter that only creates monitor when explicitly enabled
+    {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
+      def performance_monitor : Handler::PerformanceMonitor?
+        return @performance_monitor if @performance_monitor
+        return nil unless performance_enabled
+
+        @performance_monitor = Handler::PerformanceMonitor.new
+      end
+    {% else %}
+      def performance_monitor : Nil
+        nil
+      end
+    {% end %}
 
     # Development tools access
     def development_tools
@@ -112,7 +132,7 @@ module Azu
       # Initialize async logging system
       AsyncLogging.initialize
 
-      # Set performance defaults based on environment
+      # Set performance defaults based on environment (only if not explicitly set)
       if ENV.fetch("PERFORMANCE_PROFILING", "").empty?
         @performance_profiling_enabled = env.development?
       end
@@ -121,7 +141,7 @@ module Azu
         @performance_memory_monitoring = env.development?
       end
 
-      # Initialize development tools if enabled
+      # Only initialize development tools if performance features are enabled
       if performance_profiling_enabled
         development_tools.profiler.enabled = true
       end
@@ -148,8 +168,10 @@ module Azu
       # Shutdown async logging system
       AsyncLogging.shutdown
 
-      # Shutdown development tools
-      development_tools.memory_detector.stop_monitoring
+      # Only shutdown development tools if they were started
+      if performance_memory_monitoring
+        development_tools.memory_detector.stop_monitoring
+      end
     end
   end
 

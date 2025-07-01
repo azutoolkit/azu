@@ -178,32 +178,44 @@ module ExampleApp
     end
 
     private def run_cache_test
-      if monitor = ExampleApp::CONFIG.performance_monitor
-        metrics = monitor.metrics
+      # Use the actual cache system to generate real metrics
+      cache = ExampleApp::CONFIG.cache
 
-        # Simulate a cache workload with mixed operations
-        operations = [
-          {op: "get", hit_rate: 0.8},
-          {op: "set", hit_rate: nil},
-          {op: "delete", hit_rate: nil},
-        ]
+      # Simulate a realistic cache workload
+      10.times do |i|
+        # Cache some user data (simulate cache hits and misses)
+        user_key = "user:#{Random.rand(20)}"
+        user_data = "user_data_#{i}_#{Random.rand(1000)}"
 
-        operations.each do |operation|
-          10.times do
-            key = "cache_test_#{Random.rand(50)}"
-            hit = operation[:hit_rate] ? Random.rand < operation[:hit_rate].not_nil! : nil
+        # Try to get first (might miss)
+        cache.get(user_key)
 
-            metrics.record_cache(
-              key: key,
-              operation: operation[:op].as(String),
-              store_type: "memory",
-              processing_time: Random.rand(0.1..2.0),
-              hit: hit,
-              key_size: key.bytesize,
-              value_size: operation[:op] == "set" ? Random.rand(50..500) : nil
-            )
-          end
-        end
+        # Set some data
+        cache.set(user_key, user_data, ttl: Random.rand(60..3600).seconds)
+
+        # Get it again (should hit)
+        cache.get(user_key)
+      end
+
+      # Simulate some session data
+      5.times do |i|
+        session_key = "session:#{Random.rand(10)}"
+        session_data = "session_#{i}_#{Time.utc.to_unix}"
+
+        cache.set(session_key, session_data, ttl: 30.minutes)
+        cache.exists?(session_key)
+      end
+
+      # Simulate some cache deletions
+      3.times do
+        old_key = "user:#{Random.rand(20)}"
+        cache.delete(old_key)
+      end
+
+      # Test counter operations
+      2.times do
+        counter_key = "counter:#{Random.rand(5)}"
+        cache.increment(counter_key)
       end
     end
 

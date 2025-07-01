@@ -14,7 +14,6 @@ module Azu
       MIME.register(".js", "text/javascript")
       MIME.register(".png", "text/javascript")
       MIME.register(".map", "application/json")
-      MIME.register(".map", "application/json")
 
       def initialize(public_dir : String = "public", fallthrough = false, directory_listing = false)
         super

@@ -529,3 +529,107 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 **Ready to build something amazing?** Start with Azu today and experience the power of type-safe, high-performance web development in Crystal.
+
+## Performance Monitoring (Optional)
+
+Performance monitoring in Azu is **completely optional** and disabled by default. When disabled, it adds zero overhead to your application.
+
+### Enabling Performance Monitoring
+
+Set the environment variable or enable it at compile time:
+
+```bash
+# Enable performance monitoring
+export PERFORMANCE_MONITORING=true
+
+# Optional: Enable detailed profiling (development only)
+export PERFORMANCE_PROFILING=true
+export PERFORMANCE_MEMORY_MONITORING=true
+```
+
+Or compile with the flag:
+
+```bash
+crystal build --define=performance_monitoring src/app.cr
+```
+
+### Using Performance Monitoring
+
+When enabled, add the performance monitor to your handler chain:
+
+```crystal
+require "azu"
+
+# Only available when performance monitoring is enabled
+{% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
+  performance_monitor = Azu::Handler::PerformanceMonitor.new
+{% end %}
+
+MyApp.start [
+  {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
+    performance_monitor,
+  {% end %}
+  Azu::Handler::Logger.new,
+  Azu::Handler::Static.new
+]
+```
+
+### Performance Features (When Enabled)
+
+- **Request Metrics**: Response times, memory usage, error rates
+- **Component Tracking**: Mount/unmount/refresh performance
+- **Cache Metrics**: Hit rates, operation timings
+- **Memory Monitoring**: Leak detection and memory profiling
+- **Development Dashboard**: Real-time performance visualization
+
+### Zero Overhead When Disabled
+
+When `PERFORMANCE_MONITORING=false` (default):
+
+- No performance monitoring code is compiled
+- No memory overhead for metrics collection
+- No timing overhead for operations
+- Components run without tracking
+- Cache operations run without metrics
+
+This makes Azu suitable for both development (with monitoring) and production (without overhead).
+
+### Performance API (When Enabled)
+
+```crystal
+# Enable performance tracking for specific components
+component.enable_performance_tracking
+
+# Access performance data
+if monitor = Azu::CONFIG.performance_monitor
+  stats = monitor.stats
+  puts "Average response time: #{stats.avg_response_time}ms"
+  puts "Error rate: #{stats.error_rate}%"
+end
+```
+
+## Configuration
+
+```crystal
+Azu.configure do |config|
+  config.port = 4000
+  config.host = "0.0.0.0"
+
+  # Performance monitoring (only when enabled)
+  config.performance_enabled = true  # Default: false
+  config.performance_profiling_enabled = true  # Default: false
+  config.performance_memory_monitoring = true  # Default: false
+end
+```
+
+## Documentation
+
+For complete documentation, visit: [Azu Documentation](docs/)
+
+## Contributing
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and development process.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

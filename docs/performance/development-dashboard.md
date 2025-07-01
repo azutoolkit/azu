@@ -2,6 +2,47 @@
 
 A comprehensive Development Dashboard HTTP handler for the Azu web framework that provides real-time insights into application performance, metrics, and runtime behavior.
 
+> **⚠️ Important**: The Development Dashboard requires **Performance Monitoring** to be enabled. Performance monitoring in Azu is completely optional and disabled by default for zero overhead in production.
+
+## 🔧 Prerequisites
+
+### Enable Performance Monitoring
+
+The development dashboard depends on performance metrics collection. You must enable performance monitoring:
+
+**Option 1: Environment Variable**
+
+```bash
+export PERFORMANCE_MONITORING=true
+export PERFORMANCE_PROFILING=true        # Optional: Detailed profiling
+export PERFORMANCE_MEMORY_MONITORING=true # Optional: Memory tracking
+```
+
+**Option 2: Compile-time Flag**
+
+```bash
+crystal build --define=performance_monitoring src/app.cr
+```
+
+**Option 3: Configuration**
+
+```crystal
+Azu.configure do |config|
+  config.performance_enabled = true
+  config.performance_profiling_enabled = true
+  config.performance_memory_monitoring = true
+end
+```
+
+### When Performance Monitoring is Disabled
+
+If `PERFORMANCE_MONITORING=false` (default):
+
+- Dashboard will show limited functionality
+- Most metrics will display "N/A" or zero values
+- Only basic system information will be available
+- No performance overhead is incurred
+
 ## 📋 What's Implemented
 
 ### Core Components
@@ -13,6 +54,7 @@ A comprehensive Development Dashboard HTTP handler for the Azu web framework tha
    - Real-time metrics collection and display
    - Auto-refresh every 30 seconds
    - Metrics clearing functionality
+   - **Graceful degradation** when performance monitoring is disabled
 
 2. **Enhanced Router** (`src/azu/router.cr`)
 
@@ -26,6 +68,7 @@ A comprehensive Development Dashboard HTTP handler for the Azu web framework tha
    - Error simulation capabilities
    - Cache and component testing
    - Metrics management
+   - **Conditional functionality** based on performance monitoring availability
 
 4. **Request/Response Contracts**
 
@@ -36,15 +79,22 @@ A comprehensive Development Dashboard HTTP handler for the Azu web framework tha
 
 ## 🎯 Dashboard Sections Implemented
 
-### ✅ 1. Application Status
+### ✅ 1. Application Status (Always Available)
 
 - **Uptime**: Human-readable format (2h 15m 30s)
 - **Memory Usage**: Current memory consumption in MB
+- **Process Information**: PID and environment
+- **Crystal Version**: Runtime environment details
+
+**When Performance Monitoring Enabled:**
+
 - **Total Requests**: Count from PerformanceMetrics
 - **Error Rate**: Percentage with color-coded status
-- **CPU Usage**: Mocked realistic values
+- **CPU Usage**: Realistic performance tracking
 
-### ✅ 2. Performance Metrics
+### ✅ 2. Performance Metrics (Requires Performance Monitoring)
+
+**When Enabled:**
 
 - **Average Response Time**: From PerformanceMetrics.aggregate_stats
 - **P95/P99 Response Times**: Percentile calculations
@@ -52,38 +102,63 @@ A comprehensive Development Dashboard HTTP handler for the Azu web framework tha
 - **Requests/Second**: Real-time throughput calculation
 - **GC Statistics**: Crystal garbage collector metrics
 
-### ✅ 3. Cache Metrics
+**When Disabled:**
+
+- Shows "Performance monitoring disabled"
+- Displays placeholder values
+- Provides instructions to enable monitoring
+
+### ✅ 3. Cache Metrics (Partial Functionality)
+
+**Always Available:**
+
+- **Cache Store Type**: Memory/Redis/Null detection
+- **Basic Configuration**: TTL, max size, enabled status
+
+**When Performance Monitoring Enabled:**
 
 - **Hit Rate**: Color-coded performance indicator
 - **Operation Breakdown**: GET, SET, DELETE statistics
 - **Processing Times**: Average cache operation duration
 - **Data Volume**: Total data written in MB
 - **Error Rates**: Cache operation failure tracking
-- **Store Integration**: Memory/Redis store detection
 
-### ✅ 4. Component Lifecycle
+### ✅ 4. Component Lifecycle (Requires Performance Monitoring)
+
+**When Enabled:**
 
 - **Total Components**: Active component count
 - **Mount/Unmount Events**: Lifecycle tracking
 - **Refresh Events**: Component update frequency
 - **Average Component Age**: Lifespan analysis
 
-### ✅ 5. Error Logs
+**When Disabled:**
+
+- Shows basic component registry information
+- Component count without performance data
+
+### ✅ 5. Error Logs (Requires Performance Monitoring)
+
+**When Enabled:**
 
 - **Recent Errors**: Last 50 error requests
 - **Detailed Information**: Timestamp, method, path, status
 - **Performance Impact**: Processing time and memory usage
 - **Error Classification**: 4xx vs 5xx categorization
-- **Interactive Table**: Hover effects and styling
 
-### ✅ 6. Route Listing
+**When Disabled:**
+
+- Basic error information only
+- No performance correlation data
+
+### ✅ 6. Route Listing (Always Available)
 
 - **All Registered Routes**: Dynamic route discovery
 - **HTTP Methods**: Color-coded badges
 - **Handler Information**: Endpoint class names
 - **Path Parameters**: URL patterns display
 
-### ✅ 7. System Information
+### ✅ 7. System Information (Always Available)
 
 - **Crystal Version**: Runtime environment details
 - **Process Information**: PID and environment
@@ -132,17 +207,30 @@ module MyApp
   include Azu
 
   configure do
-    performance_monitor = Handler::PerformanceMonitor.new
+    # Performance monitoring must be enabled at compile time
+    {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
+      performance_monitor = Handler::PerformanceMonitor.new
+    {% end %}
   end
 end
 
-MyApp.start [
-  Azu::Handler::RequestId.new,
-  Azu::Handler::DevDashboard.new,              # 👈 Add dashboard
-  MyApp::CONFIG.performance_monitor.not_nil!,
-  Azu::Handler::Rescuer.new,
-  Azu::Handler::Logger.new,
-]
+# Conditional handler chain based on performance monitoring
+{% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
+  MyApp.start [
+    Azu::Handler::RequestId.new,
+    Azu::Handler::DevDashboard.new,              # 👈 Full dashboard functionality
+    MyApp::CONFIG.performance_monitor.not_nil!,  # Required for metrics
+    Azu::Handler::Rescuer.new,
+    Azu::Handler::Logger.new,
+  ]
+{% else %}
+  MyApp.start [
+    Azu::Handler::RequestId.new,
+    Azu::Handler::DevDashboard.new,              # 👈 Limited functionality
+    Azu::Handler::Rescuer.new,
+    Azu::Handler::Logger.new,
+  ]
+{% end %}
 ```
 
 ### Access Dashboard
@@ -346,6 +434,6 @@ end
 
 ---
 
-This implementation provides a **production-ready development dashboard** that follows Azu framework patterns and Crystal language best practices. The modular design allows for easy extension and customization while maintaining excellent performance and user experience.
+This implementation provides a **production-ready development dashboard** that intelligently adapts to your performance monitoring configuration. Whether you need zero-overhead production deployments or comprehensive development insights, the dashboard scales to your needs while maintaining excellent performance and user experience.
 
-**Ready to use**: Simply add to your middleware stack and visit `/dev-dashboard`! 🎉
+**Ready to use**: Enable performance monitoring and visit `/dev-dashboard`! 🎉
