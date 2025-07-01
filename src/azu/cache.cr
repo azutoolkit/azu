@@ -814,6 +814,9 @@ module Azu
       end
 
       private def create_store : Store
+        # If caching is disabled, always return a NullStore
+        return NullStore.new unless @config.enabled
+
         case @config.store
         when "memory"
           MemoryStore.new(@config.max_size, @config.ttl_span)
