@@ -277,11 +277,11 @@ module Azu
       @routes_registry.map do |route|
         # Extract original path from resource by removing method prefix
         original_path = case route.method
-                       when .web_socket?
-                         route.resource.sub(/^\/ws/, "")
-                       else
-                         route.resource.sub(/^\/#{route.method.to_s.downcase}/, "")
-                       end
+                        when .web_socket?
+                          route.resource.sub(/^\/ws/, "")
+                        else
+                          route.resource.sub(/^\/#{route.method.to_s.downcase}/, "")
+                        end
 
         # Get handler class name
         handler_name = route.endpoint.class.name

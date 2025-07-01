@@ -4,7 +4,7 @@ require "redis"
 
 # Conditionally require performance metrics only when needed
 {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-require "./performance_metrics"
+  require "./performance_metrics"
 {% end %}
 
 module Azu

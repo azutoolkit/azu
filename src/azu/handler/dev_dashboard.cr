@@ -22,7 +22,7 @@ module Azu
       DEFAULT_PATH = "/dev-dashboard"
 
       getter path : String
-            getter metrics : PerformanceMetrics
+      getter metrics : PerformanceMetrics
       getter log : ::Log
 
       @start_time : Time
@@ -112,7 +112,7 @@ module Azu
           "operation_breakdown"    => format_cache_breakdown(cache_breakdown),
         }
 
-                # Add cache store information if available
+        # Add cache store information if available
         begin
           cache_manager = Azu::CONFIG.cache
           cache_metrics["max_size"] = cache_manager.config.max_size.to_i32
@@ -151,11 +151,11 @@ module Azu
         # 9. System Information
         gc_stats = GC.stats
         system_info = {
-          "crystal_version" => Crystal::VERSION,
-          "environment"     => Azu::CONFIG.env.to_s,
-          "process_id"      => Process.pid.to_i32,
-          "gc_heap_size_mb" => (gc_stats.heap_size / 1024.0 / 1024.0).round(2),
-          "gc_free_bytes_mb" => (gc_stats.free_bytes / 1024.0 / 1024.0).round(2),
+          "crystal_version"   => Crystal::VERSION,
+          "environment"       => Azu::CONFIG.env.to_s,
+          "process_id"        => Process.pid.to_i32,
+          "gc_heap_size_mb"   => (gc_stats.heap_size / 1024.0 / 1024.0).round(2),
+          "gc_free_bytes_mb"  => (gc_stats.free_bytes / 1024.0 / 1024.0).round(2),
           "gc_total_bytes_mb" => (gc_stats.total_bytes / 1024.0 / 1024.0).round(2),
         }
 

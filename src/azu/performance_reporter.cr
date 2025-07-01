@@ -226,7 +226,7 @@ module Azu
   class PerformanceReportScheduler
     def self.start_periodic_reporting(
       reporter : PerformanceReporter,
-      interval : Time::Span = 60.seconds
+      interval : Time::Span = 60.seconds,
     ) : Nil
       return unless CONFIG.env.development?
 
@@ -296,7 +296,7 @@ module Azu
     # Start periodic reporting with specified reporter type
     def start_periodic_reporting(
       format : Symbol = :log,
-      interval : Time::Span = 60.seconds
+      interval : Time::Span = 60.seconds,
     ) : Nil
       reporter = case format
                  when :json then @json_reporter

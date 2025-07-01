@@ -9,7 +9,7 @@ require "./development_tools"
 
 # Conditionally require performance monitor only when needed
 {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-require "./handler/performance_monitor"
+  require "./handler/performance_monitor"
 {% end %}
 
 module Azu

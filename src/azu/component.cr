@@ -4,7 +4,7 @@ require "http/web_socket"
 
 # Conditionally require performance metrics only when enabled
 {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-require "./performance_metrics"
+  require "./performance_metrics"
 {% end %}
 
 module Azu

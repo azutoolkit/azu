@@ -39,8 +39,8 @@ require "./channels/*"
   ]
 {% else %}
   ExampleApp.start [
-    Azu::Handler::RequestId.new,                     # Enhanced request ID tracking
-    Azu::Handler::Rescuer.new,                       # Enhanced error handling
-    Azu::Handler::Logger.new,                        # Request logging
+    Azu::Handler::RequestId.new, # Enhanced request ID tracking
+    Azu::Handler::Rescuer.new,   # Enhanced error handling
+    Azu::Handler::Logger.new,    # Request logging
   ]
 {% end %}
