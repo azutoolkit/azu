@@ -83,11 +83,14 @@ module Azu
     getter radix : Radix::Tree(Route)
     private getter path_cache : PathCache
     private getter method_cache : Hash(String, String)
+    # Routes registry for development tools and introspection
+    private getter routes_registry : Array(Route)
 
     def initialize
       @radix = Radix::Tree(Route).new
       @path_cache = PathCache.new
       @method_cache = Hash(String, String).new
+      @routes_registry = Array(Route).new
       precompute_method_cache
     end
 
@@ -161,7 +164,9 @@ module Azu
     # root :web, ExampleApp::HelloWorld
     # ```
     def root(endpoint : HTTP::Handler)
-      @radix.add "/get/", Route.new(endpoint: endpoint, resource: "/get/", method: Azu::Method::Get)
+      route = Route.new(endpoint: endpoint, resource: "/get/", method: Azu::Method::Get)
+      @routes_registry << route
+      @radix.add "/get/", route
     end
 
     # Registers a websocket route
@@ -174,7 +179,9 @@ module Azu
         channel.new(socket).call(context)
       end
       resource = "/ws#{path}"
-      @radix.add resource, Route.new(handler, resource, Azu::Method::WebSocket)
+      route = Route.new(handler, resource, Azu::Method::WebSocket)
+      @routes_registry << route
+      @radix.add resource, route
     end
 
     # Registers a route for a given path
@@ -185,7 +192,9 @@ module Azu
     # ```
     def add(path : Path, endpoint : HTTP::Handler, method : Azu::Method = Azu::Method::Get)
       resource = "/#{method.to_s.downcase}#{path}"
-      @radix.add resource, Route.new(endpoint, resource, method)
+      route = Route.new(endpoint, resource, method)
+      @routes_registry << route
+      @radix.add resource, route
     rescue ex : Radix::Tree::DuplicateError
       raise DuplicateRoute.new("http_method: #{method}, path: #{path}, endpoint: #{endpoint}")
     end
@@ -260,6 +269,31 @@ module Azu
     # Clear path cache (useful for testing or memory management)
     def clear_path_cache : Nil
       @path_cache.clear
+    end
+
+    # Get route information for development tools
+    # Build array of routes from the routes registry
+    def route_info : Array(Hash(String, String))
+      @routes_registry.map do |route|
+        # Extract original path from resource by removing method prefix
+        original_path = case route.method
+                       when .web_socket?
+                         route.resource.sub(/^\/ws/, "")
+                       else
+                         route.resource.sub(/^\/#{route.method.to_s.downcase}/, "")
+                       end
+
+        # Get handler class name
+        handler_name = route.endpoint.class.name
+
+        {
+          "method"      => route.method.to_s.upcase,
+          "path"        => original_path.empty? ? "/" : original_path,
+          "resource"    => route.resource,
+          "handler"     => handler_name,
+          "description" => "#{route.method.to_s.upcase} route handler",
+        }
+      end
     end
   end
 end

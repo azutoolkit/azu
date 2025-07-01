@@ -79,7 +79,7 @@ module Azu
       @method = nil,
       @params = nil,
       @headers = nil,
-      @_load_environment = false,
+      @_load_environment = false
     )
     end
 

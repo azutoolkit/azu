@@ -22,7 +22,7 @@ module Azu
         @context = nil,
         @exception = nil,
         @source = "azu",
-        @request_id = nil,
+        @request_id = nil
       )
       end
 

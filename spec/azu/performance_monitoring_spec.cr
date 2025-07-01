@@ -178,8 +178,8 @@ describe Azu::DevelopmentTools::Benchmark do
   describe ".compare" do
     it "compares multiple benchmark operations" do
       benchmarks = {
-        "addition"       => -> { 1 + 1; nil },
-        "multiplication" => -> { 2 * 2; nil },
+        "addition"       => ->{ 1 + 1; nil },
+        "multiplication" => ->{ 2 * 2; nil },
       }
 
       results = Azu::DevelopmentTools::Benchmark.compare(benchmarks, 100)

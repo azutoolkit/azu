@@ -26,6 +26,7 @@ require "./channels/*"
 
 ExampleApp.start [
   Azu::Handler::RequestId.new,                     # Enhanced request ID tracking
+  Azu::Handler::DevDashboard.new,                  # Development Dashboard at /dev-dashboard
   ExampleApp::CONFIG.performance_monitor.not_nil!, # Performance metrics collection (shared instance)
   Azu::Handler::Rescuer.new,                       # Enhanced error handling
   Azu::Handler::Logger.new,                        # Request logging

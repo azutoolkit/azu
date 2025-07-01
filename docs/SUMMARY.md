@@ -40,6 +40,7 @@
 - [Performance & Scalability](performance.md)
   - [Monitoring](performance/monitoring.md)
   - [Development Tools](performance/development-tools.md)
+  - [Development Dashboard](performance/development-dashboard.md)
   - [Cache Metrics](performance/cache-metrics.md)
   - [Terminal Monitoring](performance/beautiful-terminal-logging.md)
   - [Benchmarks](performance/benchmarks.md)
