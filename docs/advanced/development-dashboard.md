@@ -52,6 +52,21 @@ The Development Dashboard is a built-in HTTP handler that displays:
 - **Error Logs** - Recent errors with detailed debugging information
 - **Advanced Application Status** - Request counts, error rates, CPU usage
 
+## Dashboard Preview
+
+![Azu Development Dashboard](../performance/dev-dashboard.png)
+
+_The Azu Development Dashboard in action, showing comprehensive metrics, error logs, route listings, and system information with a modern, professional interface._
+
+### Key Visual Features:
+
+- **📊 Comprehensive Metrics**: Application status, performance data, cache statistics
+- **🚨 Error Tracking**: Recent error logs with detailed debugging information
+- **🗺️ Route Discovery**: Complete listing of all registered application routes
+- **🔧 System Insights**: Crystal version, GC stats, and process information
+- **⚡ Live Data**: Real-time updates with auto-refresh functionality
+- **🎨 Professional Design**: Clean, modern interface with color-coded indicators
+
 ## Quick Start
 
 ### With Performance Monitoring (Recommended for Development)

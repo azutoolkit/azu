@@ -43,6 +43,21 @@ If `PERFORMANCE_MONITORING=false` (default):
 - Only basic system information will be available
 - No performance overhead is incurred
 
+## 🎨 Dashboard Preview
+
+![Azu Development Dashboard](dev-dashboard.png)
+
+_The Azu Development Dashboard provides a comprehensive overview of your application's performance, cache metrics, component lifecycle, error logs, and system information in a beautiful, modern interface._
+
+The dashboard features:
+
+- **📊 Real-time Metrics**: Live performance data with automatic refresh
+- **🎨 Modern UI**: Professional design with color-coded status indicators
+- **📱 Responsive Layout**: Grid-based design that adapts to screen size
+- **⚡ Zero Config**: Works out of the box with sensible defaults
+- **🔄 Live Updates**: Auto-refresh every 30 seconds with visual feedback
+- **🚀 Fast Performance**: Optimized rendering with minimal overhead
+
 ## 📋 What's Implemented
 
 ### Core Components
