@@ -14,6 +14,7 @@ require "./azu/performance_reporter"
 require "./azu/**"
 
 module Azu
+  alias Validator = Schema::Validator
   CONFIG = Configuration.new
 
   # Rails-like cache API
