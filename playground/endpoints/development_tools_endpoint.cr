@@ -103,7 +103,7 @@ module ExampleApp
 
         # Generate component metrics
         ["UserComponent", "PostComponent", "NavigationComponent"].each do |component_type|
-          3.times do |i|
+          3.times do |_|
             component_id = "#{component_type}_#{Random::Secure.hex(4)}"
 
             # Mount event

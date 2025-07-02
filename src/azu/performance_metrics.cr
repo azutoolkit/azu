@@ -566,7 +566,7 @@ module Azu
     def self.time_cache_operation(metrics : PerformanceMetrics, key : String,
                                   operation : String, store_type : String,
                                   key_size : Int32 = 0, value_size : Int32? = nil,
-                                  ttl : Time::Span? = nil, &block)
+                                  ttl : Time::Span? = nil, &)
       start_time = Time.monotonic
       error_message : String? = nil
       hit : Bool? = nil
