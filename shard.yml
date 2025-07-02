@@ -1,5 +1,5 @@
 name: azu
-version: 0.5.14
+version: 0.5.15
 authors:
   - Elias J. Perez <eliasjpr@gmail.com>
 crystal: '>= 0.35.0'
