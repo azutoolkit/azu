@@ -45,7 +45,7 @@ If `PERFORMANCE_MONITORING=false` (default):
 
 ## 🎨 Dashboard Preview
 
-![Azu Development Dashboard](https://raw.githubusercontent.com/azutoolkit/azu/refs/heads/master/docs/performance/dev-dashoard.png)
+<div><figure><img src="../.gitbook/assets/dev-dashboard.jpg" alt=""><figcaption></figcaption></figure> <figure><img src="../.gitbook/assets/dev-dashboard-errors.jpg" alt=""><figcaption></figcaption></figure> <figure><img src="../.gitbook/assets/dev-dashboard-routes.jpg" alt=""><figcaption></figcaption></figure></div>
 
 _The Azu Development Dashboard provides a comprehensive overview of your application's performance, cache metrics, component lifecycle, error logs, and system information in a beautiful, modern interface._
 
