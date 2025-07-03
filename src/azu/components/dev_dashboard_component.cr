@@ -23,30 +23,25 @@ module Azu
 
       def content
         raw "<!DOCTYPE html>"
-        html lang: "en", "data-bs-theme": "dark" do
+        html lang: "en" do
           head do
-            meta charset: "utf-8"
-            meta name: "viewport", content: "width=device-width, initial-scale=1"
-            title "AdminKit Azu Development Dashboard"
+            meta charset: "UTF-8"
+            meta name: "viewport", content: "width=device-width, initial-scale=1.0"
+            title "Azu Development Dashboard"
 
-            # Google Fonts - JetBrains Mono
             link rel: "preconnect", href: "https://fonts.googleapis.com"
             link rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "anonymous"
-            link href: "https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap",
-              rel: "stylesheet"
+            link href: "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap", rel: "stylesheet"
 
-            link href: "https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css",
-              rel: "stylesheet",
-              integrity: "sha384-LN+7fdVzj6u52u30Kp6M/trliBMCMKTyK833zpbD+pXdCLuTusPj697FH4R/5mcr",
-              crossorigin: "anonymous"
+            script src: "https://unpkg.com/lucide@latest/dist/umd/lucide.js"
 
-            # Custom styles
             style do
-              text custom_styles
+              raw custom_styles
             end
           end
 
-          body data_sidebar_position: "left", data_sidebar_layout: "default" do
+          body do
+            render_navigation
             render_header
             render_main_content
             render_scripts
@@ -54,185 +49,173 @@ module Azu
         end
       end
 
-      private def render_header
-        nav class: "navbar navbar-expand-lg navbar-dark bg-primary" do
-          div class: "container-md" do
-            a class: "navbar-brand fw-bold" do
-              i class: "feather-icon me-2", data_feather: "activity"
-              text "Azu Development Dashboard"
-            end
-
-            button class: "navbar-toggler", type: "button",
-              data_bs_toggle: "collapse", data_bs_target: "#navbarNav",
-              aria_controls: "navbarNav", aria_expanded: "false", aria_label: "Toggle navigation" do
-              span class: "navbar-toggler-icon"
-            end
-
-            div class: "collapse navbar-collapse", id: "navbarNav" do
-              div class: "d-flex ms-auto" do
-                button class: "btn btn-outline-light me-2", onclick: "window.location.reload()", type: "button" do
-                  i class: "feather-icon me-1", data_feather: "refresh-cw"
+      private def render_navigation
+        nav class: "nav" do
+          div class: "nav-container" do
+            div class: "nav-content" do
+              div class: "nav-brand" do
+                svg class: "icon", viewBox: "0 0 24 24" do
+                  path d: "M22 12h-4l-3 9L9 3l-3 9H2"
+                end
+                span "Azu Development Dashboard"
+              end
+              div class: "nav-actions" do
+                button class: "btn btn-outline", onclick: "window.location.reload()" do
+                  svg class: "icon icon-sm", viewBox: "0 0 24 24" do
+                    path d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"
+                    path d: "M21 3v5h-5"
+                    path d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"
+                    path d: "M3 21v-5h5"
+                  end
                   text "Refresh"
                 end
-                button class: "btn btn-light", onclick: "clearMetrics()", type: "button" do
-                  i class: "feather-icon me-1", data_feather: "trash-2"
+                button class: "btn btn-default", onclick: "clearMetrics()" do
                   text "Clear"
                 end
               end
             end
           end
         end
+      end
 
-        # Hero section with description
-        div class: "border-bottom py-3" do
-          div class: "container-md" do
-            div class: "row" do
-              div class: "col-12" do
-                para class: "lead mb-0 text-muted" do
-                  text "Live runtime insights and performance metrics for your Azu application"
-                end
-              end
+      private def render_header
+        div class: "header" do
+          div class: "header-container" do
+            para class: "header-text" do
+              text "Live runtime insights and performance metrics for your Azu application"
             end
           end
         end
       end
 
       private def render_main_content
-        div class: "container-md py-4" do
-          # Main Dashboard with Tabs
-          render_tabs_section
-        end
-      end
+        div class: "main" do
+          div class: "card card-large" do
+            div class: "tabs" do
+              div class: "tabs-header" do
+                div class: "tabs-list" do
+                  button class: "tab-trigger active", onclick: "showTab('dashboard')" do
+                    svg class: "icon icon-sm", viewBox: "0 0 24 24" do
+                      rect width: "4", height: "16", x: "6", y: "4"
+                      rect width: "4", height: "12", x: "14", y: "8"
+                    end
+                    text "Dashboard"
+                  end
+                  button class: "tab-trigger", onclick: "showTab('errors')" do
+                    svg class: "icon icon-sm", viewBox: "0 0 24 24" do
+                      path d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
+                      path d: "M12 9v4"
+                      path d: "m12 17 .01 0"
+                    end
+                    text "Recent Error Logs"
+                    span class: "badge badge-destructive" do
+                      text collect_error_logs.size.to_s
+                    end
+                  end
+                  button class: "tab-trigger", onclick: "showTab('routes')" do
+                    svg class: "icon icon-sm", viewBox: "0 0 24 24" do
+                      path d: "M6 3v12"
+                      path d: "M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"
+                      path d: "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"
+                      path d: "M15 6a9 9 0 0 0-9 9"
+                    end
+                    text "Application Routes"
+                    span class: "badge badge-default" do
+                      text collect_routes_data.size.to_s
+                    end
+                  end
+                end
+              end
 
-      private def render_tabs_section
-        div class: "card shadow-sm" do
-          div class: "card-header" do
-            ul class: "nav nav-tabs card-header-tabs", id: "dashboardTabs", role: "tablist" do
-              li class: "nav-item", role: "presentation" do
-                button class: "nav-link active", id: "main-tab",
-                  data_bs_toggle: "tab", data_bs_target: "#main-tab-pane",
-                  type: "button", role: "tab", aria_controls: "main-tab-pane", aria_selected: "true" do
-                  i class: "feather-icon me-2", data_feather: "monitor"
-                  text "Dashboard"
-                end
-              end
-              li class: "nav-item", role: "presentation" do
-                button class: "nav-link", id: "errors-tab",
-                  data_bs_toggle: "tab", data_bs_target: "#errors-tab-pane",
-                  type: "button", role: "tab", aria_controls: "errors-tab-pane", aria_selected: "false" do
-                  i class: "feather-icon me-2", data_feather: "alert-triangle"
-                  text "Recent Error Logs"
-                  span class: "badge bg-danger ms-2" do
-                    text collect_error_logs.size.to_s
-                  end
-                end
-              end
-              li class: "nav-item", role: "presentation" do
-                button class: "nav-link", id: "routes-tab",
-                  data_bs_toggle: "tab", data_bs_target: "#routes-tab-pane",
-                  type: "button", role: "tab", aria_controls: "routes-tab-pane", aria_selected: "false" do
-                  i class: "feather-icon me-2", data_feather: "git-branch"
-                  text "Application Routes"
-                  span class: "badge bg-primary ms-2" do
-                    text collect_routes_data.size.to_s
-                  end
-                end
-              end
-            end
-          end
-          div class: "card-body p-0" do
-            div class: "tab-content", id: "dashboardTabsContent" do
-              # Main Dashboard Tab
-              div class: "tab-pane fade show active", id: "main-tab-pane", role: "tabpanel", aria_labelledby: "main-tab", tabindex: "0" do
-                render_main_dashboard_content
-              end
-              # Error Logs Tab
-              div class: "tab-pane fade", id: "errors-tab-pane", role: "tabpanel", aria_labelledby: "errors-tab", tabindex: "0" do
-                render_error_logs_content
-              end
-              # Routes Tab
-              div class: "tab-pane fade", id: "routes-tab-pane", role: "tabpanel", aria_labelledby: "routes-tab", tabindex: "0" do
-                render_routes_content
+              div class: "tab-content" do
+                render_dashboard_tab
+                render_errors_tab
+                render_routes_tab
               end
             end
           end
         end
       end
 
-      private def render_main_dashboard_content
-        div class: "p-4" do
-          # Metrics Cards Row
-          div class: "row g-4 mb-4" do
+
+
+      private def render_dashboard_tab
+        div id: "dashboard", class: "tab-pane active" do
+          # First Row of Metrics
+          div class: "grid grid-cols-3 mb-6" do
             render_app_status_card
             render_performance_card
             render_cache_card
           end
 
-          # Second Row
-          div class: "row g-4 mb-4" do
+          # Second Row of Metrics
+          div class: "grid grid-cols-3 mb-6" do
             render_database_card
             render_component_card
             render_system_card
           end
 
-          # Test Results Card
-          div class: "row mb-4" do
-            div class: "col-12" do
-              render_test_results_card
-            end
-          end
+          # Test Results
+          render_test_results_card
         end
       end
 
-      private def render_error_logs_content
-        error_logs = collect_error_logs
+      private def render_errors_tab
+        div id: "errors", class: "tab-pane" do
+          error_logs = collect_error_logs
 
-        if error_logs.empty?
-          div class: "empty-state" do
-            i class: "feather-icon text-success", data_feather: "check-circle"
-            h4 "No recent errors!"
-            para "Your application is running smoothly."
-          end
-        else
-          div class: "table-responsive" do
-            table class: "table table-hover mb-0" do
-              thead class: "table" do
-                tr do
-                  th "Timestamp"
-                  th "Method"
-                  th "Path"
-                  th "Status"
-                  th "Time"
-                  th "Endpoint"
-                  th "Category"
-                end
+          if error_logs.empty?
+            div class: "empty-state" do
+              svg viewBox: "0 0 24 24" do
+                path d: "M9 12l2 2 4-4"
+                circle cx: "12", cy: "12", r: "9"
               end
-              tbody do
-                error_logs.each do |error|
-                  error_hash = error.as(Hash)
-                  status_code = error_hash["status_code"].as(String)
-                  badge_class = status_code.starts_with?("5") ? "bg-danger" : "bg-warning"
-
+              h4 "No recent errors!"
+              para class: "header-text" do
+                text "Your application is running smoothly."
+              end
+            end
+          else
+            div class: "table-container" do
+              table class: "table" do
+                thead do
                   tr do
-                    td class: "text-muted" do
-                      small error_hash["timestamp"]
-                    end
-                    td do
-                      span class: "badge bg-secondary" do
-                        text error_hash["method"]
+                    th "Timestamp"
+                    th "Method"
+                    th "Path"
+                    th "Status"
+                    th "Time"
+                    th "Endpoint"
+                    th "Category"
+                  end
+                end
+                tbody do
+                  error_logs.each do |error|
+                    error_hash = error.as(Hash)
+                    status_code = error_hash["status_code"].as(String)
+                    badge_class = status_code.starts_with?("5") ? "badge-destructive" : "badge-outline"
+
+                    tr do
+                      td class: "text-muted-foreground" do
+                        small error_hash["timestamp"]
                       end
-                    end
-                    td do
-                      code error_hash["path"]
-                    end
-                    td do
-                      span class: "badge #{badge_class}" do
-                        text status_code
+                      td do
+                        span class: "badge badge-outline" do
+                          text error_hash["method"]
+                        end
                       end
+                      td do
+                        code error_hash["path"]
+                      end
+                      td do
+                        span class: "badge #{badge_class}" do
+                          text status_code
+                        end
+                      end
+                      td "#{error_hash["processing_time_ms"]}ms"
+                      td error_hash["endpoint"]
+                      td error_hash["category"]
                     end
-                    td "#{error_hash["processing_time_ms"]}ms"
-                    td error_hash["endpoint"]
-                    td error_hash["category"]
                   end
                 end
               end
@@ -241,51 +224,61 @@ module Azu
         end
       end
 
-      private def render_routes_content
-        routes = collect_routes_data
+      private def render_routes_tab
+        div id: "routes", class: "tab-pane" do
+          routes = collect_routes_data
 
-        if routes.empty?
-          div class: "container empty-state" do
-            i class: "feather-icon", data_feather: "help-circle"
-            h4 "No routes found"
-            para "Routes information requires router.routes method."
-          end
-        else
-          div class: "table-responsive" do
-            table class: "table table-hover mb-0" do
-              thead class: "table" do
-                tr do
-                  th "Method"
-                  th "Path"
-                  th "Handler"
-                  th "Description"
-                end
+          if routes.empty?
+            div class: "empty-state" do
+              svg viewBox: "0 0 24 24" do
+                path d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"
+                circle cx: "12", cy: "12", r: "10"
+                line x1: "12", y1: "17", x2: "12.01", y2: "17"
               end
-              tbody do
-                routes.each do |route|
-                  route_hash = route.as(Hash)
-                  next if route_hash["method"].downcase == "options" || route_hash["method"].downcase == "head"
-                  method = route_hash["method"].as(String)
-                  next if method.downcase == "options" || method.downcase == "head"
-                  method_class = case method
-                                 when "GET"          then "bg-success"
-                                 when "POST"         then "bg-warning"
-                                 when "PUT", "PATCH" then "bg-info"
-                                 when "DELETE"       then "bg-danger"
-                                 else                     "bg-secondary"
-                                 end
-
+              h4 "No routes found"
+              para class: "header-text" do
+                text "Routes information requires router.routes method."
+              end
+            end
+          else
+            div class: "table-container" do
+              table class: "table" do
+                thead do
                   tr do
-                    td do
-                      span class: "badge #{method_class}" do
-                        text method
+                    th "Method"
+                    th "Path"
+                    th "Handler"
+                    th "Description"
+                  end
+                end
+                tbody do
+                  routes.each do |route|
+                    route_hash = route.as(Hash)
+                    next if route_hash["method"].downcase == "options" || route_hash["method"].downcase == "head"
+                    method = route_hash["method"].as(String)
+                    next if method.downcase == "options" || method.downcase == "head"
+                    method_class = case method
+                                   when "GET"          then "text-performance"
+                                   when "POST"         then "text-accent"
+                                   when "PUT", "PATCH" then "text-crystal"
+                                   when "DELETE"       then "badge-destructive"
+                                   else                     "badge-outline"
+                                   end
+
+                    tr do
+                      td do
+                        span class: "badge #{method_class}", style: method_class.starts_with?("text-") ? "background: hsl(var(--#{method_class.split("-")[1]}) / 0.2);" : "" do
+                          text method
+                        end
+                      end
+                      td do
+                        code route_hash["path"]
+                      end
+                      td route_hash["handler"]
+                      td class: "text-muted-foreground" do
+                        text route_hash["description"]
                       end
                     end
-                    td do
-                      code route_hash["path"]
-                    end
-                    td route_hash["handler"]
-                    td route_hash["description"]
                   end
                 end
               end
@@ -293,25 +286,30 @@ module Azu
           end
         end
       end
+
+
 
       private def render_app_status_card
         data = collect_app_status_data
 
-        div class: "col-lg-4 col-md-6" do
-          div class: "card h-100 shadow-sm" do
-            div class: "card-header text-white" do
-              h5 class: "card-title mb-0" do
-                i class: "feather-icon me-2", data_feather: "monitor"
-                text "Application Status"
+        div class: "card metric-card" do
+          div class: "card-header" do
+            h3 class: "card-title" do
+              svg class: "icon", viewBox: "0 0 24 24" do
+                rect width: "4", height: "16", x: "6", y: "4"
+                rect width: "4", height: "12", x: "14", y: "8"
               end
+              text "Application Status"
             end
-            ol class: "list-group  list-group-flush" do
-              render_metric_row "Uptime", data["uptime_human"].to_s, "text-success"
-              render_metric_row "Memory Usage", "#{data["memory_usage_mb"]} MB", "text-info"
-              render_metric_row "Total Requests", data["total_requests"].to_s, "text-primary"
-              render_metric_row "Error Rate", "#{data["error_rate"]}%",
-                data["error_rate"].as(Float64) > 5.0 ? "text-danger" : "text-success"
-              render_metric_row "CPU Usage", "#{data["cpu_usage"].as(Float64).round(1)}%", "text-warning"
+          end
+          div class: "card-content" do
+            div class: "metric-list" do
+              render_metric_item "Uptime", data["uptime_human"].to_s, "text-crystal"
+              render_metric_item "Memory Usage", "#{data["memory_usage_mb"]} MB", "text-crystal"
+              render_metric_item "Total Requests", data["total_requests"].to_s, "text-primary"
+              render_metric_item "Error Rate", "#{data["error_rate"]}%",
+                data["error_rate"].as(Float64) > 5.0 ? "text-muted-foreground" : "text-performance"
+              render_metric_item "CPU Usage", "#{data["cpu_usage"].as(Float64).round(1)}%", "text-accent"
             end
           end
         end
@@ -320,20 +318,22 @@ module Azu
       private def render_performance_card
         data = collect_performance_data
 
-        div class: "col-lg-4 col-md-6" do
-          div class: "card h-100 shadow-sm" do
-            div class: "card-header text-white" do
-              h5 class: "card-title mb-0" do
-                i class: "feather-icon me-2", data_feather: "zap"
-                text "Performance Metrics"
+        div class: "card metric-card" do
+          div class: "card-header" do
+            h3 class: "card-title" do
+              svg class: "icon", viewBox: "0 0 24 24" do
+                path d: "M13 2 3 14h9l-1 8 10-12h-9l1-8z"
               end
+              text "Performance Metrics"
             end
-            ol class: "list-group  list-group-flush" do
-              render_metric_row "Avg Response Time", "#{data["avg_response_time_ms"]} ms", "text-info"
-              render_metric_row "P95 Response Time", "#{data["p95_response_time_ms"]} ms", "text-warning"
-              render_metric_row "P99 Response Time", "#{data["p99_response_time_ms"]} ms", "text-danger"
-              render_metric_row "Requests/Second", data["requests_per_second"].as(Float64).round(2).to_s, "text-success"
-              render_metric_row "Peak Memory", "#{data["peak_memory_usage_mb"]} MB", "text-info"
+          end
+          div class: "card-content" do
+            div class: "metric-list" do
+              render_metric_item "Avg Response Time", "#{data["avg_response_time_ms"]} ms", "text-crystal"
+              render_metric_item "P95 Response Time", "#{data["p95_response_time_ms"]} ms", "text-accent"
+              render_metric_item "P99 Response Time", "#{data["p99_response_time_ms"]} ms", "text-muted-foreground"
+              render_metric_item "Requests/Second", data["requests_per_second"].as(Float64).round(2).to_s, "text-performance"
+              render_metric_item "Peak Memory", "#{data["peak_memory_usage_mb"]} MB", "text-crystal"
             end
           end
         end
@@ -342,23 +342,27 @@ module Azu
       private def render_cache_card
         data = collect_cache_data
         hit_rate = data["hit_rate"].as(Float64)
-        hit_rate_class = hit_rate > 80 ? "text-success" : hit_rate > 50 ? "text-warning" : "text-danger"
 
-        div class: "col-lg-4 col-md-6" do
-          div class: "card h-100 shadow-sm" do
-            div class: "card-header text-white" do
-              h5 class: "card-title mb-0" do
-                i class: "feather-icon me-2", data_feather: "database"
-                text "Cache Metrics"
+        div class: "card metric-card" do
+          div class: "card-header" do
+            h3 class: "card-title" do
+              svg class: "icon", viewBox: "0 0 24 24" do
+                ellipse cx: "12", cy: "5", rx: "9", ry: "3"
+                path d: "m3 5 9 9 9-9"
+                path d: "M3 12a9 3 0 0 0 9 3 9 3 0 0 0 9-3"
+                path d: "M3 19a9 3 0 0 0 9 3 9 3 0 0 0 9-3"
               end
+              text "Cache Metrics"
             end
-            ol class: "list-group  list-group-flush" do
-              render_metric_row "Hit Rate", "#{hit_rate}%", hit_rate > 80 ? "text-success" : hit_rate > 50 ? "text-warning" : "text-danger"
-              render_metric_row "Total Operations", data["total_operations"].to_s, "text-primary"
-              render_metric_row "GET Operations", data["get_operations"].to_s, "text-info"
-              render_metric_row "SET Operations", data["set_operations"].to_s, "text-warning"
-              render_metric_row "Avg Processing Time", "#{data["avg_processing_time_ms"]} ms", "text-secondary"
-              render_metric_row "Data Written", "#{data["total_data_written_mb"]} MB", "text-info"
+          end
+          div class: "card-content" do
+            div class: "metric-list" do
+              render_metric_item "Hit Rate", "#{hit_rate}%", "text-muted-foreground"
+              render_metric_item "Total Operations", data["total_operations"].to_s, "text-primary"
+              render_metric_item "GET Operations", data["get_operations"].to_s, "text-crystal"
+              render_metric_item "SET Operations", data["set_operations"].to_s, "text-accent"
+              render_metric_item "Avg Processing Time", "#{data["avg_processing_time_ms"]} ms", "text-muted-foreground"
+              render_metric_item "Data Written", "#{data["total_data_written_mb"]} MB", "text-crystal"
             end
           end
         end
@@ -367,19 +371,24 @@ module Azu
       private def render_database_card
         data = collect_database_data
 
-        div class: "col-lg-4 col-md-6" do
-          div class: "card h-100 shadow-sm" do
-            div class: "card-header" do
-              h5 class: "card-title mb-0" do
-                i class: "feather-icon me-2", data_feather: "server"
-                text "Database Info"
+        div class: "card metric-card" do
+          div class: "card-header" do
+            h3 class: "card-title" do
+              svg class: "icon", viewBox: "0 0 24 24" do
+                ellipse cx: "12", cy: "5", rx: "9", ry: "3"
+                path d: "m3 5 9 9 9-9"
+                path d: "M3 12a9 3 0 0 0 9 3 9 3 0 0 0 9-3"
+                path d: "M3 19a9 3 0 0 0 9 3 9 3 0 0 0 9-3"
               end
+              text "Database Info"
             end
-            ol class: "list-group  list-group-flush" do
-              render_metric_row "Connection Status", data["connection_status"].to_s, "text-success"
-              render_metric_row "Migration Status", data["migration_status"].to_s, "text-success"
-              render_metric_row "Table Count", data["table_count"].to_s, "text-primary"
-              render_metric_row "Query Performance", "#{data["query_performance_ms"]} ms", "text-info"
+          end
+          div class: "card-content" do
+            div class: "metric-list" do
+              render_metric_item "Connection Status", data["connection_status"].to_s, "text-performance"
+              render_metric_item "Migration Status", data["migration_status"].to_s, "text-performance"
+              render_metric_item "Table Count", data["table_count"].to_s, "text-primary"
+              render_metric_item "Query Performance", "#{data["query_performance_ms"]} ms", "text-crystal"
             end
           end
         end
@@ -388,20 +397,23 @@ module Azu
       private def render_component_card
         data = collect_component_data
 
-        div class: "col-lg-4 col-md-6" do
-          div class: "card h-100 shadow-sm" do
-            div class: "card-header text-white" do
-              h5 class: "card-title mb-0" do
-                i class: "feather-icon me-2", data_feather: "layers"
-                text "Component Lifecycle"
+        div class: "card metric-card" do
+          div class: "card-header" do
+            h3 class: "card-title" do
+              svg class: "icon", viewBox: "0 0 24 24" do
+                path d: "M6 6h.01M6 18h.01"
+                path d: "m13 6 5 6v7a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h2l1-1h1"
               end
+              text "Component Lifecycle"
             end
-            ol class: "list-group  list-group-flush" do
-              render_metric_row "Total Components", data["total_components"].to_s, "text-primary"
-              render_metric_row "Mount Events", data["mount_events"].to_s, "text-success"
-              render_metric_row "Unmount Events", data["unmount_events"].to_s, "text-warning"
-              render_metric_row "Refresh Events", data["refresh_events"].to_s, "text-info"
-              render_metric_row "Avg Component Age", "#{data["avg_component_age_seconds"].as(Float64).round(1)}s", "text-secondary"
+          end
+          div class: "card-content" do
+            div class: "metric-list" do
+              render_metric_item "Total Components", data["total_components"].to_s, "text-primary"
+              render_metric_item "Mount Events", data["mount_events"].to_s, "text-performance"
+              render_metric_item "Unmount Events", data["unmount_events"].to_s, "text-accent"
+              render_metric_item "Refresh Events", data["refresh_events"].to_s, "text-crystal"
+              render_metric_item "Avg Component Age", "#{data["avg_component_age_seconds"].as(Float64).round(1)}s", "text-muted-foreground"
             end
           end
         end
@@ -410,21 +422,24 @@ module Azu
       private def render_system_card
         data = collect_system_data
 
-        div class: "col-lg-4 col-md-6" do
-          div class: "card h-100 shadow-sm" do
-            div class: "card-header text-white" do
-              h5 class: "card-title mb-0" do
-                i class: "feather-icon me-2", data_feather: "settings"
-                text "System Information"
+        div class: "card metric-card" do
+          div class: "card-header" do
+            h3 class: "card-title" do
+              svg class: "icon", viewBox: "0 0 24 24" do
+                path d: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
+                circle cx: "12", cy: "12", r: "3"
               end
+              text "System Information"
             end
-            ol class: "list-group list-group-numbered list-group-flush" do
-              render_metric_row "Crystal Version", data["crystal_version"].to_s, "text-primary"
-              render_metric_row "Environment", data["environment"].to_s, "text-info"
-              render_metric_row "Process ID", data["process_id"].to_s, "text-secondary"
-              render_metric_row "GC Heap Size", "#{data["gc_heap_size_mb"]} MB", "text-warning"
-              render_metric_row "GC Free Bytes", "#{data["gc_free_bytes_mb"]} MB", "text-success"
-              render_metric_row "GC Total Bytes", "#{data["gc_total_bytes_mb"]} MB", "text-info"
+          end
+          div class: "card-content" do
+            div class: "metric-list" do
+              render_metric_item "Crystal Version", data["crystal_version"].to_s, "text-primary"
+              render_metric_item "Environment", data["environment"].to_s, "text-crystal"
+              render_metric_item "Process ID", data["process_id"].to_s, "text-muted-foreground"
+              render_metric_item "GC Heap Size", "#{data["gc_heap_size_mb"]} MB", "text-accent"
+              render_metric_item "GC Free Bytes", "#{data["gc_free_bytes_mb"]} MB", "text-performance"
+              render_metric_item "GC Total Bytes", "#{data["gc_total_bytes_mb"]} MB", "text-crystal"
             end
           end
         end
@@ -433,70 +448,62 @@ module Azu
       private def render_test_results_card
         data = collect_test_data
         coverage = data["coverage_percent"].as(Float64)
-        coverage_class = coverage > 80 ? "text-success" : coverage > 60 ? "text-warning" : "text-danger"
 
-        div class: "card shadow-sm" do
-          div class: "card-header text-white", style: "background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);" do
-            h5 class: "card-title mb-0" do
-              i class: "feather-icon me-2", data_feather: "clipboard"
+        div class: "card test-card" do
+          div class: "card-header" do
+            h3 class: "card-title" do
+              svg class: "icon", viewBox: "0 0 24 24" do
+                rect width: "8", height: "4", x: "8", y: "2"
+                path d: "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+              end
               text "Test Results"
             end
           end
-          div class: "card-body" do
-            div class: "row" do
-              div class: "col-md-3" do
-                div class: "metric-row" do
-                  span class: "metric-label" do
-                    text "Last Run"
-                  end
-                  span class: "metric-value text-secondary" do
-                    text data["last_run"].to_s
-                  end
+          div class: "card-content" do
+            div class: "test-metrics" do
+              div class: "test-metric" do
+                para class: "test-metric-label" do
+                  text "Last Run"
+                end
+                para class: "test-metric-value" do
+                  text data["last_run"].to_s
                 end
               end
-              div class: "col-md-3" do
-                div class: "metric-row" do
-                  span class: "metric-label" do
-                    text "Code Coverage"
-                  end
-                  span class: "metric-value #{coverage_class}" do
-                    text "#{coverage}%"
-                  end
+              div class: "test-metric" do
+                para class: "test-metric-label" do
+                  text "Code Coverage"
                 end
-                div class: "progress mt-2" do
-                  div class: "progress-bar bg-success", style: "width: #{coverage}%" do
+                para class: "test-metric-value" do
+                  text "#{coverage}%"
+                end
+                div class: "progress" do
+                  div class: "progress-bar", style: "width: #{coverage}%" do
                     text "#{coverage}%"
                   end
                 end
               end
-              div class: "col-md-2" do
-                div class: "metric-row" do
-                  span class: "metric-label" do
-                    text "Total Tests"
-                  end
-                  span class: "metric-value text-primary" do
-                    text data["total_tests"].to_s
-                  end
+              div class: "test-metric" do
+                para class: "test-metric-label" do
+                  text "Total Tests"
+                end
+                para class: "test-metric-value" do
+                  text data["total_tests"].to_s
                 end
               end
-              div class: "col-md-2" do
-                div class: "metric-row" do
-                  span class: "metric-label" do
-                    text "Failed Tests"
-                  end
-                  span class: "metric-value #{data["failed_tests"].as(Int32) > 0 ? "text-danger" : "text-success"}" do
-                    text data["failed_tests"].to_s
-                  end
+              div class: "test-metric" do
+                para class: "test-metric-label" do
+                  text "Failed Tests"
+                end
+                para class: "test-metric-value" do
+                  text data["failed_tests"].to_s
                 end
               end
-              div class: "col-md-2" do
-                div class: "metric-row" do
-                  span class: "metric-label" do
-                    text "Suite Time"
-                  end
-                  span class: "metric-value text-info" do
-                    text "#{data["test_suite_time_seconds"]}s"
-                  end
+              div class: "test-metric" do
+                para class: "test-metric-label" do
+                  text "Suite Time"
+                end
+                para class: "test-metric-value" do
+                  text "#{data["test_suite_time_seconds"]}s"
                 end
               end
             end
@@ -504,28 +511,18 @@ module Azu
         end
       end
 
-      private def render_metric_row(label : String, value : String, value_class : String = "")
-        li class: "list-group-item d-flex justify-content-between align-items-start" do
-          div class: "ms-2 me-auto" do
-            div class: "fw-bold" do
-              text label
-            end
+      private def render_metric_item(label : String, value : String, value_class : String = "")
+        div class: "metric-item" do
+          span class: "metric-label" do
+            text label
           end
-          span class: "#{value_class}" do
+          span class: "metric-value #{value_class}" do
             text value
           end
         end
       end
 
       private def render_scripts
-        # Bootstrap JS only (removing AdminKit to avoid conflicts)
-        script src: "https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js",
-          integrity: "sha384-ndDqU0Gzau9qJ1lfW4pNLlhNTkCfHzAVBReH9diLvGRem5+R9g2FzA8ZGN954O5Q",
-          crossorigin: "anonymous"
-
-        # Feather Icons JS for icon rendering
-        script src: "https://cdn.jsdelivr.net/npm/feather-icons@4.29.0/dist/feather.min.js"
-
         script do
           raw dashboard_scripts
         end
@@ -533,248 +530,485 @@ module Azu
 
       private def custom_styles
         <<-CSS
-        /* Developer-friendly monospace fonts with Bootstrap Dark Theme */
+        :root {
+            --background: 222.2 84% 4.9%;
+            --foreground: 210 40% 98%;
+            --card: 222.2 84% 4.9%;
+            --card-foreground: 210 40% 98%;
+            --popover: 222.2 84% 4.9%;
+            --popover-foreground: 210 40% 98%;
+            --primary: 210 40% 98%;
+            --primary-foreground: 222.2 84% 4.9%;
+            --secondary: 217.2 32.6% 17.5%;
+            --secondary-foreground: 210 40% 98%;
+            --muted: 217.2 32.6% 17.5%;
+            --muted-foreground: 215 20.2% 65.1%;
+            --accent: 217.2 32.6% 17.5%;
+            --accent-foreground: 210 40% 98%;
+            --destructive: 0 62.8% 30.6%;
+            --destructive-foreground: 210 40% 98%;
+            --border: 217.2 32.6% 17.5%;
+            --input: 217.2 32.6% 17.5%;
+            --ring: 212.7 26.8% 83.9%;
+            --chart-1: 220 70% 50%;
+            --chart-2: 160 60% 45%;
+            --chart-3: 30 80% 55%;
+            --chart-4: 280 65% 60%;
+            --chart-5: 340 75% 55%;
+
+            /* Azu Theme Colors */
+            --crystal: 188 100% 44%;
+            --performance: 160 84% 39%;
+            --accent-azu: 45 93% 47%;
+            --gradient-primary: linear-gradient(135deg, hsl(var(--performance)), hsl(var(--crystal)));
+            --gradient-card: linear-gradient(145deg, hsl(var(--card)) / 0.5, hsl(var(--card)) / 0.8);
+            --shadow-glow: 0 0 40px hsl(var(--performance)) / 0.3;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-          font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace !important;
-          font-size: 14px;
-          line-height: 1.5;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace !important;
+            background: hsl(var(--background));
+            color: hsl(var(--foreground));
+            line-height: 1.6;
+            min-height: 100vh;
         }
 
-        /* Feather icon styling */
-        .feather-icon {
-          width: 18px;
-          height: 18px;
-          stroke-width: 2;
-          vertical-align: middle;
+        /* Navigation */
+        .nav {
+            border-bottom: 1px solid hsl(var(--border));
+            background: hsl(var(--card));
         }
 
-        h1, h2, h3, h4, h5, h6 {
-          font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace !important;
-          font-weight: 600;
+        .nav-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 1rem;
+        }
+
+        .nav-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 4rem;
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: hsl(var(--foreground));
+        }
+
+        .nav-actions {
+            display: flex;
+            gap: 0.5rem;
         }
 
         .btn {
-          font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace !important;
-          font-weight: 500;
-          border-radius: 0.5rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 0.375rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            font-size: 0.875rem;
         }
 
-        .nav-link {
-          font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace !important;
-          font-weight: 500;
+        .btn-outline {
+            background: transparent;
+            color: hsl(var(--foreground));
+            border: 1px solid hsl(var(--border));
         }
 
-        /* Navbar enhancements with dark purple gradient */
-        .navbar.bg-primary {
-          background: linear-gradient(135deg, #2d1b69 0%, #11998e 100%) !important;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        .btn-outline:hover {
+            background: hsl(var(--accent));
         }
 
-        .navbar-brand {
-          font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace !important;
-          font-size: 1.5rem;
-          font-weight: 700;
+        .btn-default {
+            background: hsl(var(--primary));
+            color: hsl(var(--primary-foreground));
         }
 
-        /* List group enhancements for dark theme */
-        .list-group-numbered {
-          font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace !important;
+        .btn-default:hover {
+            background: hsl(var(--primary) / 0.9);
         }
 
-        .list-group-item {
-          font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace !important;
-          font-size: 13px;
-          padding: 0.75rem 1rem;
+        /* Header */
+        .header {
+            border-bottom: 1px solid hsl(var(--border));
+            background: hsl(var(--card) / 0.5);
         }
 
-        .list-group-item .fw-bold {
-          font-size: 14px;
-          font-weight: 600;
+        .header-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1rem;
         }
 
-        .list-group-item span {
-          font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace !important;
-          font-size: 14px;
-          font-weight: 700;
+        .header-text {
+            color: hsl(var(--muted-foreground));
         }
 
-        /* Progress bar enhancements */
-        .progress {
-          border-radius: 0.5rem;
-          background-color: rgba(255, 255, 255, 0.1);
+        /* Main Content */
+        .main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1.5rem 1rem;
         }
 
-        .progress-bar {
-          border-radius: 0.5rem;
-          font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace !important;
-          font-size: 11px;
-          font-weight: 600;
-        }
-
-        /* Empty state styling */
-        .empty-state {
-          text-align: center;
-          padding: 4rem 2rem;
-          opacity: 0.8;
-        }
-
-        .empty-state .feather-icon {
-          width: 4rem;
-          height: 4rem;
-          margin-bottom: 1rem;
-          opacity: 0.5;
-        }
-
-        /* Card hover effects */
         .card {
-          transition: all 0.2s ease-in-out;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace !important;
+            background: hsl(var(--card));
+            border: 1px solid hsl(var(--border));
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
         }
 
-        .card:hover {
-          transform: translateY(-2px);
+        .card-large {
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
         }
 
-        /* Metric row styling for test results card */
-        .metric-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 0.5rem 0;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-          transition: background-color 0.2s;
+        /* Tabs */
+        .tabs {
+            width: 100%;
         }
 
-        .metric-row:hover {
-          background-color: rgba(255, 255, 255, 0.05);
-          margin: 0 -1rem;
-          padding-left: 1rem;
-          padding-right: 1rem;
-          border-radius: 0.5rem;
+        .tabs-header {
+            padding: 1.5rem 1.5rem 0;
         }
 
-        .metric-row:last-child {
-          border-bottom: none;
+        .tabs-list {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            width: 100%;
+            background: hsl(var(--muted));
+            border-radius: 0.375rem;
+            padding: 0.25rem;
+        }
+
+        .tab-trigger {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            white-space: nowrap;
+            border-radius: 0.25rem;
+            padding: 0.375rem 0.75rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            border: none;
+            background: transparent;
+            color: hsl(var(--muted-foreground));
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .tab-trigger.active {
+            background: hsl(var(--background));
+            color: hsl(var(--foreground));
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 9999px;
+            padding: 0.125rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            line-height: 1;
+            margin-left: 0.5rem;
+        }
+
+        .badge-destructive {
+            background: hsl(var(--destructive));
+            color: hsl(var(--destructive-foreground));
+        }
+
+        .badge-default {
+            background: hsl(var(--primary));
+            color: hsl(var(--primary-foreground));
+        }
+
+        .badge-outline {
+            color: hsl(var(--foreground));
+            border: 1px solid hsl(var(--border));
+        }
+
+        /* Tab Content */
+        .tab-content {
+            padding: 1.5rem;
+        }
+
+        .tab-pane {
+            display: none;
+        }
+
+        .tab-pane.active {
+            display: block;
+        }
+
+        /* Grid Layout */
+        .grid {
+            display: grid;
+            gap: 1.5rem;
+        }
+
+        .grid-cols-3 {
+            grid-template-columns: repeat(3, 1fr);
+        }
+
+        @media (max-width: 1024px) {
+            .grid-cols-3 {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .grid-cols-3 {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .mb-6 {
+            margin-bottom: 1.5rem;
+        }
+
+        /* Metric Cards */
+        .metric-card {
+            background: var(--gradient-card);
+            border: 1px solid hsl(var(--border) / 0.5);
+        }
+
+        .card-header {
+            padding: 0.75rem 1.5rem;
+            border-bottom: 1px solid hsl(var(--border));
+        }
+
+        .card-title {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .card-content {
+            padding: 1.5rem;
+        }
+
+        .metric-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .metric-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
         .metric-label {
-          font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace !important;
-          font-size: 13px;
-          font-weight: 500;
-          opacity: 0.8;
+            font-weight: 500;
         }
 
         .metric-value {
-          font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace !important;
-          font-size: 14px;
-          font-weight: 700;
+            font-size: 0.875rem;
+            padding: 0.125rem 0.5rem;
+            border-radius: 0.25rem;
+            border: 1px solid hsl(var(--border));
+        }
+
+        .text-crystal {
+            color: hsl(var(--crystal));
+        }
+
+        .text-performance {
+            color: hsl(var(--performance));
+        }
+
+        .text-primary {
+            color: hsl(var(--primary));
+        }
+
+        .text-accent {
+            color: hsl(var(--accent-azu));
+        }
+
+        .text-muted-foreground {
+            color: hsl(var(--muted-foreground));
+        }
+
+        /* Test Results */
+        .test-card {
+            background: var(--gradient-primary);
+            border: 1px solid hsl(var(--border) / 0.5);
+        }
+
+        .test-card .card-title {
+            color: hsl(var(--primary-foreground));
+        }
+
+        .test-metrics {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 1rem;
+        }
+
+        @media (max-width: 768px) {
+            .test-metrics {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .test-metric {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .test-metric-label {
+            font-size: 0.875rem;
+            color: hsl(var(--primary-foreground) / 0.8);
+        }
+
+        .test-metric-value {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: hsl(var(--primary-foreground));
+        }
+
+        .progress {
+            width: 100%;
+            height: 0.5rem;
+            background: hsl(var(--background) / 0.2);
+            border-radius: 9999px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: hsl(var(--performance));
+            border-radius: 9999px;
+            transition: width 0.3s ease;
+        }
+
+        /* Empty State */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem;
+            text-align: center;
+        }
+
+        .empty-state svg {
+            width: 4rem;
+            height: 4rem;
+            color: hsl(var(--performance));
+            margin-bottom: 1rem;
+        }
+
+        .empty-state h4 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Routes Table */
+        .table-container {
+            overflow-x: auto;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .table th,
+        .table td {
+            text-align: left;
+            padding: 0.75rem;
+            border-bottom: 1px solid hsl(var(--border) / 0.5);
+        }
+
+        .table th {
+            font-weight: 500;
+        }
+
+        .table tr:hover {
+            background: hsl(var(--muted) / 0.5);
+        }
+
+        .table code {
+            font-size: 0.75rem;
+            background: hsl(var(--muted));
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+        }
+
+        /* Icons */
+        .icon {
+            width: 1.25rem;
+            height: 1.25rem;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 2;
+        }
+
+        .icon-sm {
+            width: 1rem;
+            height: 1rem;
         }
         CSS
       end
 
       private def dashboard_scripts
         <<-JS
-        // Global function declarations
-        window.clearMetrics = function() {
-          if (confirm('Are you sure you want to clear all performance metrics?')) {
-            window.location.href = window.location.pathname + '?clear=true';
-          }
-        };
+        function showTab(tabName) {
+            // Hide all tab panes
+            const panes = document.querySelectorAll('.tab-pane');
+            panes.forEach(pane => pane.classList.remove('active'));
+
+            // Remove active class from all triggers
+            const triggers = document.querySelectorAll('.tab-trigger');
+            triggers.forEach(trigger => trigger.classList.remove('active'));
+
+            // Show selected tab pane
+            document.getElementById(tabName).classList.add('active');
+
+            // Add active class to clicked trigger
+            event.currentTarget.classList.add('active');
+        }
+
+        function clearMetrics() {
+            if (confirm('Are you sure you want to clear all performance metrics?')) {
+                window.location.reload();
+            }
+        }
 
         // Auto-refresh every 30 seconds
         setTimeout(function() {
-          window.location.reload();
+            window.location.reload();
         }, 30000);
 
-        // Add some interactive features
-        document.addEventListener('DOMContentLoaded', function() {
-          // Initialize Feather icons
-          if (typeof feather !== 'undefined') {
-            feather.replace();
-          }
-
-          // Add hover effects to cards
-          var cards = document.querySelectorAll('.card');
-          cards.forEach(function(card) {
-            card.addEventListener('mouseenter', function() {
-              this.style.transform = 'translateY(-2px)';
-              this.style.transition = 'transform 0.2s ease';
-            });
-
-            card.addEventListener('mouseleave', function() {
-              this.style.transform = 'translateY(0)';
-            });
-          });
-
-          // Add tooltips to badges
-          var badges = document.querySelectorAll('.badge');
-          badges.forEach(function(badge) {
-            badge.setAttribute('data-bs-toggle', 'tooltip');
-            badge.setAttribute('data-bs-placement', 'top');
-          });
-
-          // Initialize Bootstrap tooltips
-          var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-          var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-            return new bootstrap.Tooltip(tooltipTriggerEl);
-          });
-
-
-
-          // Add click handlers for tab badges (Bootstrap 5.3 convention)
-          var errorBadge = document.querySelector('#errors-tab .badge');
-          var routesBadge = document.querySelector('#routes-tab .badge');
-
-          if (errorBadge) {
-            errorBadge.addEventListener('click', function(e) {
-              e.stopPropagation();
-              // Switch to errors tab using Bootstrap 5.3 Tab API
-              var errorsTab = bootstrap.Tab.getOrCreateInstance(document.querySelector('#errors-tab'));
-              errorsTab.show();
-            });
-          }
-
-          if (routesBadge) {
-            routesBadge.addEventListener('click', function(e) {
-              e.stopPropagation();
-              // Switch to routes tab using Bootstrap 5.3 Tab API
-              var routesTab = bootstrap.Tab.getOrCreateInstance(document.querySelector('#routes-tab'));
-              routesTab.show();
-            });
-          }
-
-          // Add keyboard navigation for tabs (Bootstrap 5.3 convention)
-          document.addEventListener('keydown', function(e) {
-            var isCtrlPressed = e.ctrlKey || e.metaKey;
-            if (isCtrlPressed) {
-              switch(e.key) {
-                case '1':
-                  e.preventDefault();
-                  var mainTab = bootstrap.Tab.getOrCreateInstance(document.querySelector('#main-tab'));
-                  mainTab.show();
-                  break;
-                case '2':
-                  e.preventDefault();
-                  var errorsTab = bootstrap.Tab.getOrCreateInstance(document.querySelector('#errors-tab'));
-                  errorsTab.show();
-                  break;
-                case '3':
-                  e.preventDefault();
-                  var routesTab = bootstrap.Tab.getOrCreateInstance(document.querySelector('#routes-tab'));
-                  routesTab.show();
-                  break;
-              }
-            }
-          });
-        });
-
-        console.log('🚀 Azu Development Dashboard loaded with Bootstrap Framework');
+        console.log('🚀 Azu Development Dashboard loaded');
         console.log('📊 Auto-refresh enabled (every 30 seconds)');
-
-        console.log('📋 Three-tab interface: Dashboard, Errors, and Routes');
-        console.log('⌨️  Keyboard shortcuts: Ctrl+1 (Main), Ctrl+2 (Errors), Ctrl+3 (Routes)');
-        console.log('♿ Accessible navigation with ARIA labels and proper semantics');
-        console.log('🎨 Professional UI powered by Bootstrap 5.3 framework');
         JS
       end
 

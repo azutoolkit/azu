@@ -37,6 +37,7 @@ module Azu
       canvas
       caption
       cite
+      circle
       code
       colgroup
       data
@@ -50,6 +51,7 @@ module Azu
       dl
       dt
       em
+      ellipse
       fieldset
       figcaption
       figure
@@ -72,6 +74,7 @@ module Azu
       label
       legend
       li
+      line
       main
       mark
       map
@@ -87,7 +90,9 @@ module Azu
       para
       pre
       progress
+      path
       q
+      rect
       rb
       rp
       rt
@@ -105,6 +110,7 @@ module Azu
       sub
       sup
       summary
+      svg
       table
       tbody
       td
