@@ -260,8 +260,6 @@ module Azu
         end
       end
 
-
-
       private def render_app_status_card
         data = collect_app_status_data
 
