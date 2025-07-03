@@ -32,7 +32,7 @@ module Azu
             link rel: "preconnect", href: "https://fonts.googleapis.com"
             link rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "anonymous"
             link href: "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap", rel: "stylesheet"
-
+            link rel: "stylesheet", href: "https://unpkg.com/lucide-static@latest/font/lucide.css"
             script src: "https://unpkg.com/lucide@latest/dist/umd/lucide.js"
 
             style do
@@ -54,22 +54,16 @@ module Azu
           div class: "nav-container" do
             div class: "nav-content" do
               div class: "nav-brand" do
-                svg class: "icon", viewBox: "0 0 24 24" do
-                  path d: "M22 12h-4l-3 9L9 3l-3 9H2"
-                end
+                span { i "data-lucide": "gem" }
                 span "Azu Development Dashboard"
               end
               div class: "nav-actions" do
                 button class: "btn btn-outline", onclick: "window.location.reload()" do
-                  svg class: "icon icon-sm", viewBox: "0 0 24 24" do
-                    path d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"
-                    path d: "M21 3v5h-5"
-                    path d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"
-                    path d: "M3 21v-5h5"
-                  end
+                  i "data-lucide": "refresh-cw"
                   text "Refresh"
                 end
                 button class: "btn btn-default", onclick: "clearMetrics()" do
+                  i "data-lucide": "trash-2"
                   text "Clear"
                 end
               end
@@ -95,30 +89,18 @@ module Azu
               div class: "tabs-header" do
                 div class: "tabs-list" do
                   button class: "tab-trigger active", onclick: "showTab('dashboard')" do
-                    svg class: "icon icon-sm", viewBox: "0 0 24 24" do
-                      rect width: "4", height: "16", x: "6", y: "4"
-                      rect width: "4", height: "12", x: "14", y: "8"
-                    end
+                    i "data-lucide": "gauge"
                     text "Dashboard"
                   end
                   button class: "tab-trigger", onclick: "showTab('errors')" do
-                    svg class: "icon icon-sm", viewBox: "0 0 24 24" do
-                      path d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
-                      path d: "M12 9v4"
-                      path d: "m12 17 .01 0"
-                    end
+                    i "data-lucide": "x-circle"
                     text "Recent Error Logs"
                     span class: "badge badge-destructive" do
                       text collect_error_logs.size.to_s
                     end
                   end
                   button class: "tab-trigger", onclick: "showTab('routes')" do
-                    svg class: "icon icon-sm", viewBox: "0 0 24 24" do
-                      path d: "M6 3v12"
-                      path d: "M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"
-                      path d: "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"
-                      path d: "M15 6a9 9 0 0 0-9 9"
-                    end
+                    i "data-lucide": "route"
                     text "Application Routes"
                     span class: "badge badge-default" do
                       text collect_routes_data.size.to_s
@@ -136,8 +118,6 @@ module Azu
           end
         end
       end
-
-
 
       private def render_dashboard_tab
         div id: "dashboard", class: "tab-pane active" do
@@ -166,10 +146,7 @@ module Azu
 
           if error_logs.empty?
             div class: "empty-state" do
-              svg viewBox: "0 0 24 24" do
-                path d: "M9 12l2 2 4-4"
-                circle cx: "12", cy: "12", r: "9"
-              end
+              i "data-lucide": "check"
               h4 "No recent errors!"
               para class: "header-text" do
                 text "Your application is running smoothly."
@@ -230,11 +207,7 @@ module Azu
 
           if routes.empty?
             div class: "empty-state" do
-              svg viewBox: "0 0 24 24" do
-                path d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"
-                circle cx: "12", cy: "12", r: "10"
-                line x1: "12", y1: "17", x2: "12.01", y2: "17"
-              end
+              i "data-lucide": "info"
               h4 "No routes found"
               para class: "header-text" do
                 text "Routes information requires router.routes method."
@@ -295,10 +268,7 @@ module Azu
         div class: "card metric-card" do
           div class: "card-header" do
             h3 class: "card-title" do
-              svg class: "icon", viewBox: "0 0 24 24" do
-                rect width: "4", height: "16", x: "6", y: "4"
-                rect width: "4", height: "12", x: "14", y: "8"
-              end
+              i "data-lucide": "monitor"
               text "Application Status"
             end
           end
@@ -321,9 +291,7 @@ module Azu
         div class: "card metric-card" do
           div class: "card-header" do
             h3 class: "card-title" do
-              svg class: "icon", viewBox: "0 0 24 24" do
-                path d: "M13 2 3 14h9l-1 8 10-12h-9l1-8z"
-              end
+              i "data-lucide": "zap"
               text "Performance Metrics"
             end
           end
@@ -346,12 +314,7 @@ module Azu
         div class: "card metric-card" do
           div class: "card-header" do
             h3 class: "card-title" do
-              svg class: "icon", viewBox: "0 0 24 24" do
-                ellipse cx: "12", cy: "5", rx: "9", ry: "3"
-                path d: "m3 5 9 9 9-9"
-                path d: "M3 12a9 3 0 0 0 9 3 9 3 0 0 0 9-3"
-                path d: "M3 19a9 3 0 0 0 9 3 9 3 0 0 0 9-3"
-              end
+              i "data-lucide": "database"
               text "Cache Metrics"
             end
           end
@@ -374,12 +337,7 @@ module Azu
         div class: "card metric-card" do
           div class: "card-header" do
             h3 class: "card-title" do
-              svg class: "icon", viewBox: "0 0 24 24" do
-                ellipse cx: "12", cy: "5", rx: "9", ry: "3"
-                path d: "m3 5 9 9 9-9"
-                path d: "M3 12a9 3 0 0 0 9 3 9 3 0 0 0 9-3"
-                path d: "M3 19a9 3 0 0 0 9 3 9 3 0 0 0 9-3"
-              end
+              i "data-lucide": "database"
               text "Database Info"
             end
           end
@@ -400,10 +358,7 @@ module Azu
         div class: "card metric-card" do
           div class: "card-header" do
             h3 class: "card-title" do
-              svg class: "icon", viewBox: "0 0 24 24" do
-                path d: "M6 6h.01M6 18h.01"
-                path d: "m13 6 5 6v7a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h2l1-1h1"
-              end
+              i "data-lucide": "layers"
               text "Component Lifecycle"
             end
           end
@@ -425,10 +380,7 @@ module Azu
         div class: "card metric-card" do
           div class: "card-header" do
             h3 class: "card-title" do
-              svg class: "icon", viewBox: "0 0 24 24" do
-                path d: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
-                circle cx: "12", cy: "12", r: "3"
-              end
+              i "data-lucide": "settings"
               text "System Information"
             end
           end
@@ -452,10 +404,7 @@ module Azu
         div class: "card test-card" do
           div class: "card-header" do
             h3 class: "card-title" do
-              svg class: "icon", viewBox: "0 0 24 24" do
-                rect width: "8", height: "4", x: "8", y: "2"
-                path d: "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
-              end
+              i "data-lucide": "flask-round"
               text "Test Results"
             end
           end
@@ -531,455 +480,461 @@ module Azu
       private def custom_styles
         <<-CSS
         :root {
-            --background: 222.2 84% 4.9%;
-            --foreground: 210 40% 98%;
-            --card: 222.2 84% 4.9%;
-            --card-foreground: 210 40% 98%;
-            --popover: 222.2 84% 4.9%;
-            --popover-foreground: 210 40% 98%;
-            --primary: 210 40% 98%;
-            --primary-foreground: 222.2 84% 4.9%;
-            --secondary: 217.2 32.6% 17.5%;
-            --secondary-foreground: 210 40% 98%;
-            --muted: 217.2 32.6% 17.5%;
-            --muted-foreground: 215 20.2% 65.1%;
-            --accent: 217.2 32.6% 17.5%;
-            --accent-foreground: 210 40% 98%;
-            --destructive: 0 62.8% 30.6%;
-            --destructive-foreground: 210 40% 98%;
-            --border: 217.2 32.6% 17.5%;
-            --input: 217.2 32.6% 17.5%;
-            --ring: 212.7 26.8% 83.9%;
-            --chart-1: 220 70% 50%;
-            --chart-2: 160 60% 45%;
-            --chart-3: 30 80% 55%;
-            --chart-4: 280 65% 60%;
-            --chart-5: 340 75% 55%;
-
-            /* Azu Theme Colors */
-            --crystal: 188 100% 44%;
-            --performance: 160 84% 39%;
-            --accent-azu: 45 93% 47%;
-            --gradient-primary: linear-gradient(135deg, hsl(var(--performance)), hsl(var(--crystal)));
-            --gradient-card: linear-gradient(145deg, hsl(var(--card)) / 0.5, hsl(var(--card)) / 0.8);
-            --shadow-glow: 0 0 40px hsl(var(--performance)) / 0.3;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace !important;
-            background: hsl(var(--background));
-            color: hsl(var(--foreground));
-            line-height: 1.6;
-            min-height: 100vh;
-        }
-
-        /* Navigation */
-        .nav {
-            border-bottom: 1px solid hsl(var(--border));
-            background: hsl(var(--card));
-        }
-
-        .nav-container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0 1rem;
-        }
-
-        .nav-content {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            height: 4rem;
-        }
-
-        .nav-brand {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 1.25rem;
-            font-weight: 700;
-            color: hsl(var(--foreground));
-        }
-
-        .nav-actions {
-            display: flex;
-            gap: 0.5rem;
-        }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 1rem;
-            border: none;
-            border-radius: 0.375rem;
-            font-weight: 600;
-            text-decoration: none;
-            transition: all 0.2s ease;
-            cursor: pointer;
-            font-size: 0.875rem;
-        }
-
-        .btn-outline {
-            background: transparent;
-            color: hsl(var(--foreground));
-            border: 1px solid hsl(var(--border));
-        }
-
-        .btn-outline:hover {
-            background: hsl(var(--accent));
-        }
-
-        .btn-default {
-            background: hsl(var(--primary));
-            color: hsl(var(--primary-foreground));
-        }
-
-        .btn-default:hover {
-            background: hsl(var(--primary) / 0.9);
-        }
-
-        /* Header */
-        .header {
-            border-bottom: 1px solid hsl(var(--border));
-            background: hsl(var(--card) / 0.5);
-        }
-
-        .header-container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 1rem;
-        }
-
-        .header-text {
-            color: hsl(var(--muted-foreground));
-        }
-
-        /* Main Content */
-        .main {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 1.5rem 1rem;
-        }
-
-        .card {
-            font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace !important;
-            background: hsl(var(--card));
-            border: 1px solid hsl(var(--border));
-            border-radius: 0.5rem;
-            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-        }
-
-        .card-large {
-            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-        }
-
-        /* Tabs */
-        .tabs {
-            width: 100%;
-        }
-
-        .tabs-header {
-            padding: 1.5rem 1.5rem 0;
-        }
-
-        .tabs-list {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            width: 100%;
-            background: hsl(var(--muted));
-            border-radius: 0.375rem;
-            padding: 0.25rem;
-        }
-
-        .tab-trigger {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-            white-space: nowrap;
-            border-radius: 0.25rem;
-            padding: 0.375rem 0.75rem;
-            font-size: 0.875rem;
-            font-weight: 500;
-            border: none;
-            background: transparent;
-            color: hsl(var(--muted-foreground));
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .tab-trigger.active {
-            background: hsl(var(--background));
-            color: hsl(var(--foreground));
-            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-        }
-
-        .badge {
-            display: inline-flex;
-            align-items: center;
-            border-radius: 9999px;
-            padding: 0.125rem 0.5rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-            line-height: 1;
-            margin-left: 0.5rem;
-        }
-
-        .badge-destructive {
-            background: hsl(var(--destructive));
-            color: hsl(var(--destructive-foreground));
-        }
-
-        .badge-default {
-            background: hsl(var(--primary));
-            color: hsl(var(--primary-foreground));
-        }
-
-        .badge-outline {
-            color: hsl(var(--foreground));
-            border: 1px solid hsl(var(--border));
-        }
-
-        /* Tab Content */
-        .tab-content {
-            padding: 1.5rem;
-        }
-
-        .tab-pane {
-            display: none;
-        }
-
-        .tab-pane.active {
-            display: block;
-        }
-
-        /* Grid Layout */
-        .grid {
-            display: grid;
-            gap: 1.5rem;
-        }
-
-        .grid-cols-3 {
-            grid-template-columns: repeat(3, 1fr);
-        }
-
-        @media (max-width: 1024px) {
-            .grid-cols-3 {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-
-        @media (max-width: 768px) {
-            .grid-cols-3 {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .mb-6 {
-            margin-bottom: 1.5rem;
-        }
-
-        /* Metric Cards */
-        .metric-card {
-            background: var(--gradient-card);
-            border: 1px solid hsl(var(--border) / 0.5);
-        }
-
-        .card-header {
-            padding: 0.75rem 1.5rem;
-            border-bottom: 1px solid hsl(var(--border));
-        }
-
-        .card-title {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 1.125rem;
-            font-weight: 600;
-            margin: 0;
-        }
-
-        .card-content {
-            padding: 1.5rem;
-        }
-
-        .metric-list {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-        }
-
-        .metric-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .metric-label {
-            font-weight: 500;
-        }
-
-        .metric-value {
-            font-size: 0.875rem;
-            padding: 0.125rem 0.5rem;
-            border-radius: 0.25rem;
-            border: 1px solid hsl(var(--border));
-        }
-
-        .text-crystal {
-            color: hsl(var(--crystal));
-        }
-
-        .text-performance {
-            color: hsl(var(--performance));
-        }
-
-        .text-primary {
-            color: hsl(var(--primary));
-        }
-
-        .text-accent {
-            color: hsl(var(--accent-azu));
-        }
-
-        .text-muted-foreground {
-            color: hsl(var(--muted-foreground));
-        }
-
-        /* Test Results */
-        .test-card {
-            background: var(--gradient-primary);
-            border: 1px solid hsl(var(--border) / 0.5);
-        }
-
-        .test-card .card-title {
-            color: hsl(var(--primary-foreground));
-        }
-
-        .test-metrics {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 1rem;
-        }
-
-        @media (max-width: 768px) {
-            .test-metrics {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-
-        .test-metric {
-            display: flex;
-            flex-direction: column;
-            gap: 0.25rem;
-        }
-
-        .test-metric-label {
-            font-size: 0.875rem;
-            color: hsl(var(--primary-foreground) / 0.8);
-        }
-
-        .test-metric-value {
-            font-size: 0.875rem;
-            font-weight: 500;
-            color: hsl(var(--primary-foreground));
-        }
-
-        .progress {
-            width: 100%;
-            height: 0.5rem;
-            background: hsl(var(--background) / 0.2);
-            border-radius: 9999px;
-            overflow: hidden;
-        }
-
-        .progress-bar {
-            height: 100%;
-            background: hsl(var(--performance));
-            border-radius: 9999px;
-            transition: width 0.3s ease;
-        }
-
-        /* Empty State */
-        .empty-state {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 3rem;
-            text-align: center;
-        }
-
-        .empty-state svg {
-            width: 4rem;
-            height: 4rem;
-            color: hsl(var(--performance));
-            margin-bottom: 1rem;
-        }
-
-        .empty-state h4 {
-            font-size: 1.25rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-        }
-
-        /* Routes Table */
-        .table-container {
-            overflow-x: auto;
-        }
-
-        .table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .table th,
-        .table td {
-            text-align: left;
-            padding: 0.75rem;
-            border-bottom: 1px solid hsl(var(--border) / 0.5);
-        }
-
-        .table th {
-            font-weight: 500;
-        }
-
-        .table tr:hover {
-            background: hsl(var(--muted) / 0.5);
-        }
-
-        .table code {
-            font-size: 0.75rem;
-            background: hsl(var(--muted));
-            padding: 0.25rem 0.5rem;
-            border-radius: 0.25rem;
-        }
-
-        /* Icons */
-        .icon {
-            width: 1.25rem;
-            height: 1.25rem;
-            stroke: currentColor;
-            fill: none;
-            stroke-width: 2;
-        }
-
-        .icon-sm {
-            width: 1rem;
-            height: 1rem;
-        }
+              --background: 222.2 84% 4.9%;
+              --foreground: 210 40% 98%;
+              --card: 222.2 84% 4.9%;
+              --card-foreground: 210 40% 98%;
+              --popover: 222.2 84% 4.9%;
+              --popover-foreground: 210 40% 98%;
+              --primary: 210 40% 98%;
+              --primary-foreground: 222.2 84% 4.9%;
+              --secondary: 217.2 32.6% 17.5%;
+              --secondary-foreground: 210 40% 98%;
+              --muted: 217.2 32.6% 17.5%;
+              --muted-foreground: 215 20.2% 65.1%;
+              --accent: 217.2 32.6% 17.5%;
+              --accent-foreground: 210 40% 98%;
+              --destructive: 0 62.8% 30.6%;
+              --destructive-foreground: 210 40% 98%;
+              --border: 217.2 32.6% 17.5%;
+              --input: 217.2 32.6% 17.5%;
+              --ring: 212.7 26.8% 83.9%;
+              --chart-1: 220 70% 50%;
+              --chart-2: 160 60% 45%;
+              --chart-3: 30 80% 55%;
+              --chart-4: 280 65% 60%;
+              --chart-5: 340 75% 55%;
+
+              /* Azu Theme Colors */
+              --crystal: 188 100% 44%;
+              --performance: 160 84% 39%;
+              --accent-azu: 45 93% 47%;
+              --gradient-primary: linear-gradient(135deg, hsl(var(--performance)), hsl(var(--crystal)));
+              --gradient-card: linear-gradient(145deg, hsl(var(--card)) / 0.5, hsl(var(--card)) / 0.8);
+              --shadow-glow: 0 0 40px hsl(var(--performance)) / 0.3;
+          }
+
+          * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+          }
+
+          body {
+              font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              background: hsl(var(--background));
+              color: hsl(var(--foreground));
+              line-height: 1.6;
+              min-height: 100vh;
+          }
+
+          /* Navigation */
+          .nav {
+              border-bottom: 1px solid hsl(var(--border));
+              background: hsl(var(--card));
+          }
+
+          .nav-container {
+              max-width: 1200px;
+              margin: 0 auto;
+              padding: 0 1rem;
+          }
+
+          .nav-content {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              height: 4rem;
+          }
+
+          .nav-brand {
+              display: flex;
+              align-items: center;
+              gap: 0.5rem;
+              font-size: 1.25rem;
+              font-weight: 700;
+              color: hsl(var(--foreground));
+          }
+
+          .nav-actions {
+              display: flex;
+              gap: 0.5rem;
+          }
+
+          .btn {
+              display: inline-flex;
+              align-items: center;
+              gap: 0.5rem;
+              padding: 0.5rem 1rem;
+              border: none;
+              border-radius: 0.375rem;
+              font-weight: 600;
+              text-decoration: none;
+              transition: all 0.2s ease;
+              cursor: pointer;
+              font-size: 0.875rem;
+          }
+
+          .btn-outline {
+              background: transparent;
+              color: hsl(var(--foreground));
+              border: 1px solid hsl(var(--border));
+          }
+
+          .btn-outline:hover {
+              background: hsl(var(--accent));
+          }
+
+          .btn-default {
+              background: hsl(var(--primary));
+              color: hsl(var(--primary-foreground));
+          }
+
+          .btn-default:hover {
+              background: hsl(var(--primary) / 0.9);
+          }
+
+          /* Header */
+          .header {
+              border-bottom: 1px solid hsl(var(--border));
+              background: hsl(var(--card) / 0.5);
+          }
+
+          .header-container {
+              max-width: 1200px;
+              margin: 0 auto;
+              padding: 1rem;
+          }
+
+          .header-text {
+              color: hsl(var(--muted-foreground));
+          }
+
+          /* Main Content */
+          .main {
+              max-width: 1200px;
+              margin: 0 auto;
+              padding: 1.5rem 1rem;
+          }
+
+          .card {
+              background: hsl(var(--card));
+              border: 1px solid hsl(var(--border));
+              border-radius: 0.5rem;
+              box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+          }
+
+          .card-large {
+              box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+          }
+
+          /* Tabs */
+          .tabs {
+              width: 100%;
+          }
+
+          .tabs-header {
+              padding: 1.5rem 1.5rem 0;
+          }
+
+          .tabs-list {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              width: 100%;
+              background: hsl(var(--muted));
+              border-radius: 0.375rem;
+              padding: 0.25rem;
+          }
+
+          .tab-trigger {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              gap: 0.5rem;
+              white-space: nowrap;
+              border-radius: 0.25rem;
+              padding: 0.375rem 0.75rem;
+              font-size: 0.875rem;
+              font-weight: 500;
+              border: none;
+              background: transparent;
+              color: hsl(var(--muted-foreground));
+              cursor: pointer;
+              transition: all 0.2s ease;
+          }
+
+          .tab-trigger.active {
+              background: hsl(var(--background));
+              color: hsl(var(--foreground));
+              box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+          }
+
+          .badge {
+              display: inline-flex;
+              align-items: center;
+              border-radius: 9999px;
+              padding: 0.125rem 0.5rem;
+              font-size: 0.75rem;
+              font-weight: 600;
+              line-height: 1;
+              margin-left: 0.5rem;
+          }
+
+          .badge-destructive {
+              background: hsl(var(--destructive));
+              color: hsl(var(--destructive-foreground));
+          }
+
+          .badge-default {
+              background: hsl(var(--primary));
+              color: hsl(var(--primary-foreground));
+          }
+
+          .badge-outline {
+              color: hsl(var(--foreground));
+              border: 1px solid hsl(var(--border));
+          }
+
+          /* Tab Content */
+          .tab-content {
+              padding: 1.5rem;
+          }
+
+          .tab-pane {
+              display: none;
+          }
+
+          .tab-pane.active {
+              display: block;
+          }
+
+          /* Grid Layout */
+          .grid {
+              display: grid;
+              gap: 1.5rem;
+          }
+
+          .grid-cols-3 {
+              grid-template-columns: repeat(3, 1fr);
+          }
+
+          @media (max-width: 1024px) {
+              .grid-cols-3 {
+                  grid-template-columns: repeat(2, 1fr);
+              }
+          }
+
+          @media (max-width: 768px) {
+              .grid-cols-3 {
+                  grid-template-columns: 1fr;
+              }
+          }
+
+          .mb-6 {
+              margin-bottom: 1.5rem;
+          }
+
+          /* Metric Cards */
+          .metric-card {
+              background: var(--gradient-card);
+              border: 1px solid hsl(var(--border) / 0.5);
+          }
+
+          .card-header {
+              padding: 0.75rem 1.5rem;
+              border-bottom: 1px solid hsl(var(--border));
+          }
+
+          .card-title {
+              display: flex;
+              align-items: center;
+              gap: 0.5rem;
+              font-size: 1.125rem;
+              font-weight: 600;
+              margin: 0;
+          }
+
+          .card-content {
+              padding: 1.5rem;
+          }
+
+          .metric-list {
+              display: flex;
+              flex-direction: column;
+              gap: 0.75rem;
+          }
+
+          .metric-item {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+          }
+
+          .metric-label {
+              font-weight: 500;
+          }
+
+          .metric-value {
+              font-size: 0.875rem;
+              padding: 0.125rem 0.5rem;
+              border-radius: 0.25rem;
+              border: 1px solid hsl(var(--border));
+          }
+
+          .text-crystal {
+              color: hsl(var(--crystal));
+          }
+
+          .text-performance {
+              color: hsl(var(--performance));
+          }
+
+          .text-primary {
+              color: hsl(var(--primary));
+          }
+
+          .text-accent {
+              color: hsl(var(--accent-azu));
+          }
+
+          .text-muted-foreground {
+              color: hsl(var(--muted-foreground));
+          }
+
+          /* Test Results */
+          .test-card {
+              background: var(--gradient-primary);
+              border: 1px solid hsl(var(--border) / 0.5);
+          }
+
+          .test-card .card-title {
+              color: hsl(var(--primary-foreground));
+          }
+
+          .test-metrics {
+              display: grid;
+              grid-template-columns: repeat(5, 1fr);
+              gap: 1rem;
+          }
+
+          @media (max-width: 768px) {
+              .test-metrics {
+                  grid-template-columns: repeat(2, 1fr);
+              }
+          }
+
+          .test-metric {
+              display: flex;
+              flex-direction: column;
+              gap: 0.25rem;
+          }
+
+          .test-metric-label {
+              font-size: 0.875rem;
+              color: hsl(var(--primary-foreground) / 0.8);
+          }
+
+          .test-metric-value {
+              font-size: 0.875rem;
+              font-weight: 500;
+              color: hsl(var(--primary-foreground));
+          }
+
+          .progress {
+              width: 100%;
+              height: 0.5rem;
+              background: hsl(var(--background) / 0.2);
+              border-radius: 9999px;
+              overflow: hidden;
+          }
+
+          .progress-bar {
+              height: 100%;
+              background: hsl(var(--performance));
+              border-radius: 9999px;
+              transition: width 0.3s ease;
+          }
+
+          /* Empty State */
+          .empty-state {
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              padding: 3rem;
+              text-align: center;
+          }
+
+          .empty-state svg {
+              width: 4rem;
+              height: 4rem;
+              color: hsl(var(--performance));
+              margin-bottom: 1rem;
+          }
+
+          .empty-state h4 {
+              font-size: 1.25rem;
+              font-weight: 600;
+              margin-bottom: 0.5rem;
+          }
+
+          /* Routes Table */
+          .table-container {
+              overflow-x: auto;
+          }
+
+          .table {
+              width: 100%;
+              border-collapse: collapse;
+          }
+
+          .table th,
+          .table td {
+              text-align: left;
+              padding: 0.75rem;
+              border-bottom: 1px solid hsl(var(--border) / 0.5);
+          }
+
+          .table th {
+              font-weight: 500;
+          }
+
+          .table tr:hover {
+              background: hsl(var(--muted) / 0.5);
+          }
+
+          .table code {
+              font-size: 0.75rem;
+              background: hsl(var(--muted));
+              padding: 0.25rem 0.5rem;
+              border-radius: 0.25rem;
+          }
+
+          /* Icons */
+          .icon {
+              width: 1.25rem;
+              height: 1.25rem;
+              stroke: currentColor;
+              fill: none;
+              stroke-width: 2;
+          }
+
+          .icon-sm {
+              width: 1rem;
+              height: 1rem;
+          }
         CSS
       end
 
       private def dashboard_scripts
         <<-JS
+        // Initialize Lucide icons
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+        });
+
         function showTab(tabName) {
             // Hide all tab panes
             const panes = document.querySelectorAll('.tab-pane');
@@ -1006,6 +961,11 @@ module Azu
         setTimeout(function() {
             window.location.reload();
         }, 30000);
+
+        // Re-initialize icons after page refresh
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
 
         console.log('🚀 Azu Development Dashboard loaded');
         console.log('📊 Auto-refresh enabled (every 30 seconds)');
