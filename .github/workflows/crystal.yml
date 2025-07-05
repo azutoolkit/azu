@@ -35,7 +35,7 @@ jobs:
         run: crystal tool format --check
 
       - name: Run tests
-        run: crystal spec
+        run: crystal spec -v --fail-fast
         env:
           CRYSTAL_ENV: pipeline
           CRYSTAL_LOG_SOURCES: "*"
@@ -45,9 +45,6 @@ jobs:
           HOST: 0.0.0.0
           REDIS_HOST: redis
           REDIS_PORT: 6379
-
-      - name: Generate Azu API Docs
-        run: crystal docs
   release:
     runs-on: ubuntu-latest
     needs:
