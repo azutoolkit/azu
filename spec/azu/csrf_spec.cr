@@ -16,7 +16,7 @@ def create_next_handler(expected_calls = 1)
     call_count += 1
     context.response.print "OK"
   }
-  {next_handler, ->{ call_count.should eq(expected_calls) }}
+  {next_handler, -> { call_count.should eq(expected_calls) }}
 end
 
 # Helper to read response output
@@ -408,9 +408,9 @@ describe Azu::Handler::CSRF do
       result.should be_false
     end
 
-        it "validates referer when origin is missing" do
+    it "validates referer when origin is missing" do
       headers = HTTP::Headers.new
-      headers["Referer"] = "http://example.com:80/page"  # Include explicit port to match expected behavior
+      headers["Referer"] = "http://example.com:80/page" # Include explicit port to match expected behavior
       headers["Host"] = "example.com"
 
       # Create request with proper host setup
@@ -462,6 +462,4 @@ describe Azu::Handler::CSRF do
       cookie.secure.should be_false
     end
   end
-
-
 end
