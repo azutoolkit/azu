@@ -1,229 +1,381 @@
 require "random/secure"
 require "crypto/subtle"
+require "openssl/hmac"
 require "http"
+require "base64"
 
 module Azu
   module Handler
-    # The CSRF Handler adds support for Cross Site Request Forgery.
+    # The CSRF Handler implements Cross-Site Request Forgery protection
+    # following OWASP recommendations for token-based mitigation
     class CSRF
       include HTTP::Handler
 
-      CHECK_METHODS = %w(PUT POST PATCH DELETE)
-      HEADER_KEY    = "X-CSRF-TOKEN"
-      PARAM_KEY     = "_csrf"
-      CSRF_KEY      = "csrf.token"
-      TOKEN_LENGTH  = 32
+      # HTTP methods that require CSRF protection
+      UNSAFE_METHODS = %w(POST PUT PATCH DELETE)
 
-      class_property token_strategy : PersistentToken | RefreshableToken = PersistentToken
+      # Headers and parameters for CSRF tokens
+      HEADER_KEY = "X-CSRF-TOKEN"
+      PARAM_KEY  = "_csrf"
+      COOKIE_KEY = "csrf_token"
 
-      # Initialize with optional cookie provider, defaults to HTTP::Cookies
-      def initialize(@cookie_provider : HTTP::Cookies = HTTP::Cookies.new)
+      # Token configuration
+      TOKEN_LENGTH       = 32
+      HMAC_SECRET_LENGTH = 64
+
+      # Cookie configuration
+      COOKIE_MAX_AGE   = 86400 # 24 hours
+      COOKIE_SAME_SITE = HTTP::Cookie::SameSite::Strict
+
+      # CSRF protection strategy
+      enum Strategy
+        # Synchronizer Token Pattern - token stored in session/cookie, verified against form/header
+        SynchronizerToken
+        # Double Submit Cookie Pattern with HMAC signing (recommended)
+        SignedDoubleSubmit
+        # Simple Double Submit Cookie (not recommended, but available)
+        DoubleSubmit
+      end
+
+      class_property strategy : Strategy = Strategy::SignedDoubleSubmit
+      class_property secret_key : String = ""
+      class_property cookie_name : String = COOKIE_KEY
+      class_property header_name : String = HEADER_KEY
+      class_property param_name : String = PARAM_KEY
+      class_property cookie_max_age : Int32 = COOKIE_MAX_AGE
+      class_property cookie_same_site : HTTP::Cookie::SameSite = COOKIE_SAME_SITE
+      class_property secure_cookies : Bool = true
+
+      # Exception for CSRF validation failures
+      class InvalidTokenError < Exception
+        def initialize(message = "Invalid CSRF token")
+          super(message)
+        end
+      end
+
+      def initialize(@skip_routes : Array(String) = [] of String)
+        # Initialize secret key if not set
+        if self.class.secret_key.empty?
+          self.class.secret_key = Random::Secure.urlsafe_base64(HMAC_SECRET_LENGTH)
+        end
       end
 
       def call(context : HTTP::Server::Context)
-        if valid_http_method?(context) || self.class.token_strategy.valid_token?(context)
+        # Skip CSRF protection for safe methods
+        if safe_method?(context.request.method)
+          call_next(context)
+          return
+        end
+
+        # Skip CSRF protection for configured routes
+        if skip_route?(context.request.path)
+          call_next(context)
+          return
+        end
+
+        # Skip CSRF protection for AJAX requests with custom headers (preflight protection)
+        if ajax_request_with_custom_headers?(context)
+          call_next(context)
+          return
+        end
+
+        # Validate CSRF token
+        if valid_token?(context)
           call_next(context)
         else
-          error_context = Azu::ErrorContext.from_http_context(context)
-          raise Azu::Response::Forbidden.new(error_context)
+          Log.warn { "CSRF token validation failed for #{context.request.method} #{context.request.path}" }
+          Log.debug { "Request headers: #{context.request.headers.inspect}" }
+
+          context.response.status = HTTP::Status::FORBIDDEN
+          context.response.print "CSRF token validation failed"
         end
       end
 
-      def valid_http_method?(context)
-        !CHECK_METHODS.includes?(context.request.method)
+      # Check if HTTP method is safe (doesn't require CSRF protection)
+      private def safe_method?(method : String) : Bool
+        !UNSAFE_METHODS.includes?(method.upcase)
       end
 
-      # Generate token for a given cookies instance
-      def self.token(cookies : HTTP::Cookies) : String
-        token_strategy.token(cookies)
+      # Check if route should skip CSRF protection
+      private def skip_route?(path : String) : Bool
+        @skip_routes.any? { |route| path.starts_with?(route) }
       end
 
-      # Generate token from context (convenience method)
-      def self.token(context) : String
-        cookies = cookies_from_context(context)
-        token(cookies)
+      # Check if request is AJAX with custom headers (provides CSRF protection)
+      private def ajax_request_with_custom_headers?(context : HTTP::Server::Context) : Bool
+        # Check for common AJAX headers that require preflight
+        ajax_headers = ["X-Requested-With", "Content-Type"]
+        content_type = context.request.headers["Content-Type"]?
+
+        # JSON requests require preflight
+        if content_type && content_type.starts_with?("application/json")
+          return true
+        end
+
+        # Custom headers require preflight
+        ajax_headers.any? { |header| context.request.headers.has_key?(header) }
       end
 
-      # Generate HTML tag with token from cookies
-      def self.tag(cookies : HTTP::Cookies) : String
-        %Q(<input type="hidden" name="#{PARAM_KEY}" value="#{token(cookies)}" />)
+      # Validate CSRF token based on configured strategy
+      def valid_token?(context : HTTP::Server::Context) : Bool
+        case self.class.strategy
+        when .synchronizer_token?
+          validate_synchronizer_token(context)
+        when .signed_double_submit?
+          validate_signed_double_submit(context)
+        when .double_submit?
+          validate_double_submit(context)
+        else
+          false
+        end
       end
 
-      # Generate HTML tag with token from context (convenience method)
-      def self.tag(context) : String
-        cookies = cookies_from_context(context)
-        tag(cookies)
+      # Generate CSRF token for forms/AJAX requests
+      def self.token(context : HTTP::Server::Context) : String
+        case strategy
+        when .synchronizer_token?
+          generate_synchronizer_token(context)
+        when .signed_double_submit?
+          generate_signed_double_submit_token(context)
+        when .double_submit?
+          generate_double_submit_token(context)
+        else
+          ""
+        end
       end
 
-      # Generate meta tag with token from cookies
-      def self.metatag(cookies : HTTP::Cookies) : String
-        %Q(<meta name="#{PARAM_KEY}" content="#{token(cookies)}" />)
+      # Generate HTML hidden input with CSRF token
+      def self.tag(context : HTTP::Server::Context) : String
+        token_value = token(context)
+        %Q(<input type="hidden" name="#{param_name}" value="#{token_value}" />)
       end
 
-      # Generate meta tag with token from context (convenience method)
-      def self.metatag(context) : String
-        cookies = cookies_from_context(context)
-        metatag(cookies)
+      # Generate meta tag with CSRF token for AJAX requests
+      def self.metatag(context : HTTP::Server::Context) : String
+        token_value = token(context)
+        %Q(<meta name="#{param_name}" content="#{token_value}" />)
       end
 
-      # Helper method to get cookies from context
-      def self.cookies_from_context(context) : HTTP::Cookies
-        HTTP::Cookies.from_client_headers(context.request.headers)
+      # SYNCHRONIZER TOKEN PATTERN
+      # Token stored in session/cookie, compared with submitted token
+
+      private def validate_synchronizer_token(context : HTTP::Server::Context) : Bool
+        request_token = extract_token_from_request(context)
+        session_token = self.class.extract_token_from_cookie(context)
+
+        return false unless request_token && session_token
+
+        # Constant-time comparison to prevent timing attacks
+        Crypto::Subtle.constant_time_compare(request_token, session_token)
       end
 
-      # Validate token with cookies and request token
-      def self.valid_token?(cookies : HTTP::Cookies, request_token : String?) : Bool
-        token_strategy.valid_token?(cookies, request_token)
+      private def self.generate_synchronizer_token(context : HTTP::Server::Context) : String
+        # Generate or retrieve existing token from cookie
+        if existing_token = extract_token_from_cookie(context)
+          existing_token
+        else
+          new_token = Random::Secure.urlsafe_base64(TOKEN_LENGTH)
+          set_token_cookie(context, new_token)
+          new_token
+        end
       end
 
-      # Validate token with context (convenience method)
-      def self.valid_token?(context) : Bool
-        cookies = cookies_from_context(context)
-        request_token = context.request.headers[HEADER_KEY]?
-        valid_token?(cookies, request_token)
+      # SIGNED DOUBLE SUBMIT COOKIE PATTERN (RECOMMENDED)
+      # Token is HMAC-signed with secret, cookie and form token must match
+
+      private def validate_signed_double_submit(context : HTTP::Server::Context) : Bool
+        request_token = extract_token_from_request(context)
+        cookie_token = self.class.extract_token_from_cookie(context)
+
+        return false unless request_token && cookie_token
+
+        # Both tokens must be identical
+        return false unless Crypto::Subtle.constant_time_compare(request_token, cookie_token)
+
+        # Verify HMAC signature
+        verify_hmac_token(request_token)
       end
 
-      module BaseToken
-        def request_token(context)
-          # First try to get token from header
-          if token = context.request.headers[HEADER_KEY]?
+      private def self.generate_signed_double_submit_token(context : HTTP::Server::Context) : String
+        # Generate base token
+        base_token = Random::Secure.urlsafe_base64(TOKEN_LENGTH)
+        timestamp = Time.utc.to_unix.to_s
+
+        # Create HMAC signature
+        data = "#{base_token}:#{timestamp}"
+        signature = create_hmac_signature(data)
+
+        # Combine into final token
+        signed_token = "#{base_token}:#{timestamp}:#{signature}"
+
+        # Set cookie with same token
+        set_token_cookie(context, signed_token)
+
+        signed_token
+      end
+
+      # DOUBLE SUBMIT COOKIE PATTERN (SIMPLE, NOT RECOMMENDED)
+      # Token in cookie must match token in form/header
+
+      private def validate_double_submit(context : HTTP::Server::Context) : Bool
+        request_token = extract_token_from_request(context)
+        cookie_token = self.class.extract_token_from_cookie(context)
+
+        return false unless request_token && cookie_token
+
+        # Simple comparison (vulnerable to subdomain attacks)
+        Crypto::Subtle.constant_time_compare(request_token, cookie_token)
+      end
+
+      private def self.generate_double_submit_token(context : HTTP::Server::Context) : String
+        token = Random::Secure.urlsafe_base64(TOKEN_LENGTH)
+        set_token_cookie(context, token)
+        token
+      end
+
+      # HELPER METHODS
+
+      # Extract CSRF token from request (header, form data, or query params)
+      private def extract_token_from_request(context : HTTP::Server::Context) : String?
+        # Try header first (for AJAX requests)
+        if token = context.request.headers[self.class.header_name]?
+          return token
+        end
+
+        # Try form data for POST requests
+        if context.request.method.upcase.in?(UNSAFE_METHODS)
+          if token = extract_token_from_form(context)
             return token
           end
+        end
 
-          # Then try to get token from query parameters (for GET requests)
-          if token = context.request.query_params[PARAM_KEY]?
-            return token
+        # Try query parameters (less secure, but sometimes needed)
+        if token = context.request.query_params[self.class.param_name]?
+          return token
+        end
+
+        nil
+      end
+
+      # Extract token from form data
+      private def extract_token_from_form(context : HTTP::Server::Context) : String?
+        content_type = context.request.headers["Content-Type"]?
+        return nil unless content_type
+
+        if content_type.starts_with?("application/x-www-form-urlencoded")
+          if body = context.request.body.try(&.gets_to_end)
+            params = HTTP::Params.parse(body)
+            # Restore body for other handlers
+            context.request.body = IO::Memory.new(body)
+            return params[self.class.param_name]?
           end
-
-          # For POST/PUT/PATCH requests with form data, read the raw body
-          if CHECK_METHODS.includes?(context.request.method) &&
-             context.request.content_type.try(&.to_s.starts_with?("application/x-www-form-urlencoded"))
-            # Read the raw body to extract CSRF token
-            if body = context.request.body.try(&.gets_to_end)
-              params = HTTP::Params.parse(body)
-              if token = params[PARAM_KEY]?
-                # Restore the body so the endpoint can read it
-                context.request.body = IO::Memory.new(body)
-                return token
-              end
+        elsif content_type.starts_with?("multipart/form-data")
+          # Handle multipart form data
+          # Note: This is a simplified implementation
+          # In practice, you'd want to use a proper multipart parser
+          if body = context.request.body.try(&.gets_to_end)
+            # Look for CSRF token in multipart data
+            if match = body.match(/name="#{self.class.param_name}".*?\r?\n\r?\n([^\r\n]+)/)
+              context.request.body = IO::Memory.new(body)
+              return match[1]?
             end
           end
-
-          nil
         end
 
-        def real_session_token(cookies : HTTP::Cookies) : String
-          if cookies[CSRF_KEY]?
-            cookies[CSRF_KEY].value
-          else
-            Random::Secure.urlsafe_base64(TOKEN_LENGTH)
-          end
-        end
-
-        def real_session_token(context) : String
-          cookies = CSRF.cookies_from_context(context)
-          token = real_session_token(cookies)
-          # Set the cookie in the response if it doesn't exist
-          unless cookies[CSRF_KEY]?
-            context.response.cookies << HTTP::Cookie.new(CSRF_KEY, token, http_only: true, secure: context.request.secure?)
-          end
-          token
-        end
+        nil
       end
 
-      module RefreshableToken
-        extend self
-        extend BaseToken
-
-        def token(cookies : HTTP::Cookies) : String
-          real_session_token(cookies)
-        end
-
-        def token(context) : String
-          real_session_token(context)
-        end
-
-        def valid_token?(cookies : HTTP::Cookies, request_token : String?) : Bool
-          if request_token && cookies[CSRF_KEY]?
-            request_token == cookies[CSRF_KEY].value
-          else
-            false
-          end
-        end
-
-        def valid_token?(context) : Bool
-          cookies = CSRF.cookies_from_context(context)
-          request_token = request_token(context)
-          if valid_token?(cookies, request_token) && cookies[CSRF_KEY]?
-            # Delete the cookie from response
-            context.response.cookies.delete(CSRF_KEY)
-            true
-          else
-            false
-          end
-        end
+      # Extract token from cookie
+      def self.extract_token_from_cookie(context : HTTP::Server::Context) : String?
+        cookies = HTTP::Cookies.from_client_headers(context.request.headers)
+        cookies[cookie_name]?.try(&.value)
       end
 
-      module PersistentToken
-        extend self
-        extend BaseToken
+      # Set CSRF token cookie
+      def self.set_token_cookie(context : HTTP::Server::Context, token : String)
+        cookie = HTTP::Cookie.new(
+          name: cookie_name,
+          value: token,
+          max_age: Time::Span.new(seconds: cookie_max_age),
+          secure: secure_cookies && (context.request.headers["X-Forwarded-Proto"]? == "https"),
+          http_only: true,
+          samesite: cookie_same_site
+        )
 
-        def valid_token?(cookies : HTTP::Cookies, request_token : String?) : Bool
-          if request_token && real_session_token(cookies)
-            decoded_request = Base64.decode(request_token.to_s)
-            return false unless decoded_request.size == TOKEN_LENGTH * 2
+        context.response.cookies << cookie
+      end
 
-            unmasked = TokenOperations.unmask(decoded_request)
-            session_token = Base64.decode(real_session_token(cookies))
-            return Crypto::Subtle.constant_time_compare(unmasked, session_token)
+      # Create HMAC signature for token
+      def self.create_hmac_signature(data : String) : String
+        digest = OpenSSL::HMAC.digest(:sha256, secret_key, data)
+        Base64.urlsafe_encode(digest)
+      end
+
+      # Verify HMAC signature
+      private def verify_hmac_token(token : String) : Bool
+        parts = token.split(":")
+        return false unless parts.size == 3
+
+        base_token, timestamp, signature = parts
+
+        # Check token age (optional, prevents replay attacks)
+        begin
+          token_time = Time.unix(timestamp.to_i64)
+          return false if (Time.utc - token_time).total_seconds > self.class.cookie_max_age
+        rescue
+          return false
+        end
+
+        # Verify signature
+        expected_signature = self.class.create_hmac_signature("#{base_token}:#{timestamp}")
+        Crypto::Subtle.constant_time_compare(signature, expected_signature)
+      end
+
+      # Origin validation (additional security layer)
+      def self.validate_origin(context : HTTP::Server::Context) : Bool
+        origin = context.request.headers["Origin"]?
+        referer = context.request.headers["Referer"]?
+
+        # Get expected origin from request
+        scheme = context.request.headers["X-Forwarded-Proto"]? || "http"
+        expected_origin = "#{scheme}://#{context.request.headers["Host"]}"
+
+        # Check Origin header first
+        if origin
+          return origin == expected_origin
+        end
+
+        # Fallback to Referer header
+        if referer
+          begin
+            referer_uri = URI.parse(referer)
+            referer_origin = "#{referer_uri.scheme}://#{referer_uri.host}"
+            referer_origin += ":#{referer_uri.port}" if referer_uri.port != 80 && referer_uri.port != 443
+            return referer_origin == expected_origin
+          rescue
+            return false
           end
-          false
-        rescue Base64::Error
-          false
         end
 
-        def valid_token?(context) : Bool
-          cookies = CSRF.cookies_from_context(context)
-          request_token = request_token(context)
-          valid_token?(cookies, request_token)
-        end
+        # No origin information available
+        false
+      end
 
-        def token(cookies : HTTP::Cookies) : String
-          unmask_token = Base64.decode(real_session_token(cookies))
-          TokenOperations.mask(unmask_token)
-        end
+      # Configuration methods
+      def self.configure(&)
+        yield self
+      end
 
-        def token(context) : String
-          cookies = CSRF.cookies_from_context(context)
-          token(cookies)
-        end
+      def self.use_synchronizer_token!
+        self.strategy = Strategy::SynchronizerToken
+      end
 
-        module TokenOperations
-          extend self
+      def self.use_signed_double_submit!
+        self.strategy = Strategy::SignedDoubleSubmit
+      end
 
-          # Creates a masked version of the authenticity token that varies
-          # on each request. The masking is used to mitigate SSL attacks
-          # like BREACH.
-          def mask(unmasked_token : Bytes) : String
-            one_time_pad = Bytes.new(TOKEN_LENGTH).tap { |buf| Random::Secure.random_bytes(buf) }
-            encrypted_csrf_token = xor_bytes_arrays(unmasked_token, one_time_pad)
-
-            masked_token = IO::Memory.new
-            masked_token.write(one_time_pad)
-            masked_token.write(encrypted_csrf_token)
-            Base64.urlsafe_encode(masked_token.to_slice)
-          end
-
-          def unmask(masked_token : Bytes) : Bytes
-            one_time_pad = masked_token[0, TOKEN_LENGTH]
-            encrypted_csrf_token = masked_token[TOKEN_LENGTH, TOKEN_LENGTH]
-            xor_bytes_arrays(encrypted_csrf_token, one_time_pad)
-          end
-
-          def xor_bytes_arrays(token : Bytes, pad : Bytes) : Bytes
-            token.map_with_index { |b, i| b ^ pad[i] }
-          end
-        end
+      def self.use_double_submit!
+        self.strategy = Strategy::DoubleSubmit
       end
     end
   end

@@ -59,8 +59,6 @@ module Azu::EndpointSpec
       token = csrf_token
       tag = csrf_tag
       metatag = csrf_metatag
-      valid = csrf_valid?
-      request_token = csrf_request_token
 
       TestResponse.new("csrf tested")
     end

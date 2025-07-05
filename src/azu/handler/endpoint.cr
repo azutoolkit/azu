@@ -176,20 +176,5 @@ module Azu
     private def csrf_metatag : String
       Azu::Handler::CSRF.metatag(context)
     end
-
-    # Validate CSRF token for the current request
-    private def csrf_valid? : Bool
-      Azu::Handler::CSRF.valid_token?(context)
-    end
-
-    # Get CSRF token from request headers
-    private def csrf_request_token : String?
-      context.request.headers[Azu::Handler::CSRF::HEADER_KEY]?
-    end
-
-    # Set CSRF token in response headers
-    private def csrf_header_token(token : String)
-      context.response.headers[Azu::Handler::CSRF::HEADER_KEY] = token
-    end
   end
 end
