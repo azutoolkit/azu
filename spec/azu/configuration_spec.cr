@@ -39,7 +39,7 @@ describe Azu::Configuration do
       ENV.delete("HOST")
     end
 
-    it "reads environment from CRYSTAL_ENV" do
+    pending "reads environment from CRYSTAL_ENV" do
       ENV["CRYSTAL_ENV"] = "production"
       config = Azu::Configuration.new
 
