@@ -1,10 +1,13 @@
 require "random/secure"
 require "crypto/subtle"
+require "http"
 
 module Azu
   module Handler
     # The CSRF Handler adds support for Cross Site Request Forgery.
     class CSRF
+      include HTTP::Handler
+
       CHECK_METHODS = %w(PUT POST PATCH DELETE)
       HEADER_KEY    = "X-CSRF-TOKEN"
       PARAM_KEY     = "_csrf"
@@ -13,14 +16,16 @@ module Azu
 
       class_property token_strategy : PersistentToken | RefreshableToken = PersistentToken
 
-      def initialize(@cookie_provider)
+      # Initialize with optional cookie provider, defaults to HTTP::Cookies
+      def initialize(@cookie_provider : HTTP::Cookies = HTTP::Cookies.new)
       end
 
       def call(context : HTTP::Server::Context)
         if valid_http_method?(context) || self.class.token_strategy.valid_token?(context)
           call_next(context)
         else
-          raise Azu::Response::Forbidden.new("CSRF check failed.")
+          error_context = Azu::ErrorContext.from_http_context(context)
+          raise Azu::Response::Forbidden.new(error_context)
         end
       end
 
@@ -28,25 +33,77 @@ module Azu
         !CHECK_METHODS.includes?(context.request.method)
       end
 
-      def self.token(context)
-        token_strategy.token(context)
+      # Generate token for a given cookies instance
+      def self.token(cookies : HTTP::Cookies) : String
+        token_strategy.token(cookies)
       end
 
-      def self.tag(context)
-        %Q(<input type="hidden" name="#{PARAM_KEY}" value="#{token(context)}" />)
+      # Generate token from context (convenience method)
+      def self.token(context) : String
+        cookies = cookies_from_context(context)
+        token(cookies)
       end
 
-      def self.metatag(context)
-        %Q(<meta name="#{PARAM_KEY}" content="#{token(context)}" />)
+      # Generate HTML tag with token from cookies
+      def self.tag(cookies : HTTP::Cookies) : String
+        %Q(<input type="hidden" name="#{PARAM_KEY}" value="#{token(cookies)}" />)
+      end
+
+      # Generate HTML tag with token from context (convenience method)
+      def self.tag(context) : String
+        cookies = cookies_from_context(context)
+        tag(cookies)
+      end
+
+      # Generate meta tag with token from cookies
+      def self.metatag(cookies : HTTP::Cookies) : String
+        %Q(<meta name="#{PARAM_KEY}" content="#{token(cookies)}" />)
+      end
+
+      # Generate meta tag with token from context (convenience method)
+      def self.metatag(context) : String
+        cookies = cookies_from_context(context)
+        metatag(cookies)
+      end
+
+      # Helper method to get cookies from context
+      def self.cookies_from_context(context) : HTTP::Cookies
+        HTTP::Cookies.from_client_headers(context.request.headers)
+      end
+
+      # Validate token with cookies and request token
+      def self.valid_token?(cookies : HTTP::Cookies, request_token : String?) : Bool
+        token_strategy.valid_token?(cookies, request_token)
+      end
+
+      # Validate token with context (convenience method)
+      def self.valid_token?(context) : Bool
+        cookies = cookies_from_context(context)
+        request_token = context.request.headers[HEADER_KEY]?
+        valid_token?(cookies, request_token)
       end
 
       module BaseToken
         def request_token(context)
-          context.params[PARAM_KEY]? || context.request.headers[HEADER_KEY]?
+          context.request.headers[HEADER_KEY]?
+        end
+
+        def real_session_token(cookies : HTTP::Cookies) : String
+          if cookies[CSRF_KEY]?
+            cookies[CSRF_KEY].value
+          else
+            Random::Secure.urlsafe_base64(TOKEN_LENGTH)
+          end
         end
 
         def real_session_token(context) : String
-          (cookie_provider[CSRF_KEY] ||= Random::Secure.urlsafe_base64(TOKEN_LENGTH)).to_s
+          cookies = CSRF.cookies_from_context(context)
+          token = real_session_token(cookies)
+          # Set the cookie in the response if it doesn't exist
+          unless cookies[CSRF_KEY]?
+            context.response.cookies << HTTP::Cookie.new(CSRF_KEY, token, http_only: true, secure: context.request.secure?)
+          end
+          token
         end
       end
 
@@ -54,12 +111,32 @@ module Azu
         extend self
         extend BaseToken
 
+        def token(cookies : HTTP::Cookies) : String
+          real_session_token(cookies)
+        end
+
         def token(context) : String
           real_session_token(context)
         end
 
-        def valid_token?(context)
-          (request_token(context) == token(context)) && cookie_provider.delete(CSRF_KEY)
+        def valid_token?(cookies : HTTP::Cookies, request_token : String?) : Bool
+          if request_token && cookies[CSRF_KEY]?
+            request_token == cookies[CSRF_KEY].value
+          else
+            false
+          end
+        end
+
+        def valid_token?(context) : Bool
+          cookies = CSRF.cookies_from_context(context)
+          request_token = request_token(context)
+          if valid_token?(cookies, request_token) && cookies[CSRF_KEY]?
+            # Delete the cookie from response
+            context.response.cookies.delete(CSRF_KEY)
+            true
+          else
+            false
+          end
         end
       end
 
@@ -67,13 +144,13 @@ module Azu
         extend self
         extend BaseToken
 
-        def valid_token?(context)
-          if request_token(context) && real_session_token(context)
-            decoded_request = Base64.decode(request_token(context).to_s)
+        def valid_token?(cookies : HTTP::Cookies, request_token : String?) : Bool
+          if request_token && real_session_token(cookies)
+            decoded_request = Base64.decode(request_token.to_s)
             return false unless decoded_request.size == TOKEN_LENGTH * 2
 
             unmasked = TokenOperations.unmask(decoded_request)
-            session_token = Base64.decode(real_session_token(context))
+            session_token = Base64.decode(real_session_token(cookies))
             return Crypto::Subtle.constant_time_compare(unmasked, session_token)
           end
           false
@@ -81,9 +158,20 @@ module Azu
           false
         end
 
-        def token(context) : String
-          unmask_token = Base64.decode(real_session_token(context))
+        def valid_token?(context) : Bool
+          cookies = CSRF.cookies_from_context(context)
+          request_token = request_token(context)
+          valid_token?(cookies, request_token)
+        end
+
+        def token(cookies : HTTP::Cookies) : String
+          unmask_token = Base64.decode(real_session_token(cookies))
           TokenOperations.mask(unmask_token)
+        end
+
+        def token(context) : String
+          cookies = CSRF.cookies_from_context(context)
+          token(cookies)
         end
 
         module TokenOperations
