@@ -85,7 +85,31 @@ module Azu
 
       module BaseToken
         def request_token(context)
-          context.request.headers[HEADER_KEY]?
+          # First try to get token from header
+          if token = context.request.headers[HEADER_KEY]?
+            return token
+          end
+
+          # Then try to get token from query parameters (for GET requests)
+          if token = context.request.query_params[PARAM_KEY]?
+            return token
+          end
+
+          # For POST/PUT/PATCH requests with form data, read the raw body
+          if CHECK_METHODS.includes?(context.request.method) &&
+             context.request.content_type.try(&.to_s.starts_with?("application/x-www-form-urlencoded"))
+            # Read the raw body to extract CSRF token
+            if body = context.request.body.try(&.gets_to_end)
+              params = HTTP::Params.parse(body)
+              if token = params[PARAM_KEY]?
+                # Restore the body so the endpoint can read it
+                context.request.body = IO::Memory.new(body)
+                return token
+              end
+            end
+          end
+
+          nil
         end
 
         def real_session_token(cookies : HTTP::Cookies) : String
