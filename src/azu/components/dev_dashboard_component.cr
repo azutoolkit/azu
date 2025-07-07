@@ -341,10 +341,13 @@ module Azu
           end
           div class: "card-content" do
             div class: "metric-list" do
-              render_metric_item "Connection Status", data["connection_status"].to_s, "text-performance"
+              render_metric_item "Total Queries", data["total_queries"].to_s, "text-primary"
               render_metric_item "Migration Status", data["migration_status"].to_s, "text-performance"
-              render_metric_item "Table Count", data["table_count"].to_s, "text-primary"
-              render_metric_item "Query Performance", "#{data["query_performance_ms"]} ms", "text-crystal"
+              render_metric_item "Slow Queries", data["slow_queries"].to_s, "text-crystal"
+              render_metric_item "N+1 Patterns", data["n_plus_one_patterns"].to_s, "text-accent"
+              render_metric_item "Avg Query Time", "#{data["avg_query_time"]} ms", "text-muted-foreground"
+              render_metric_item "Monitoring Enabled", data["monitoring_enabled"].to_s, "text-performance"
+              render_metric_item "Uptime", "#{data["uptime"]}s", "text-crystal"
             end
           end
         end
@@ -1016,13 +1019,45 @@ module Azu
       end
 
       private def collect_database_data
+        {% if @top_level.has_constant?("CQL::Configure") %}
+          summary = db_monitor.metrics_summary
+          {
+            "total_queries"       => summary.total_queries,
+            "migration_status"    => summary.migration_status,
+            "slow_queries"        => summary.table_count,
+            "avg_query_time"      => summary.avg_query_time,
+            "n_plus_one_patterns" => summary.n_plus_one_patterns,
+            "monitoring_enabled"  => summary.monitoring_enabled,
+            "uptime"              => Time.utc - @start_time,
+          }
+        {% else %}
+          {
+            "total_queries"       => 0_i32,
+            "migration_status"    => "N/A",
+            "slow_queries"        => 0_i32,
+            "avg_query_time"      => 0.0,
+            "n_plus_one_patterns" => 0_i32,
+            "monitoring_enabled"  => false,
+            "uptime"              => 0,
+          }
+        {% end %}
+      rescue
         {
-          "connection_status"    => "Connected",
-          "migration_status"     => "Up to date",
-          "table_count"          => 15_i32,
-          "query_performance_ms" => 12.5,
+          "total_queries"       => 0_i32,
+          "migration_status"    => "N/A",
+          "slow_queries"        => 0_i32,
+          "avg_query_time"      => 0.0,
+          "n_plus_one_patterns" => 0_i32,
+          "monitoring_enabled"  => false,
+          "uptime"              => 0,
         }
       end
+
+      {% if @top_level.has_constant?("CQL::Configure") %}
+        private def db_monitor
+          CQL::Configure.current.monitor
+        end
+      {% end %}
 
       private def collect_component_data
         component_stats = @metrics.component_stats
