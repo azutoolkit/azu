@@ -84,7 +84,7 @@ module Azu
 
       private def render_main_content
         div class: "main" do
-          div class: "card card-large" do
+          div class: "card" do
             div class: "tabs" do
               div class: "tabs-header" do
                 div class: "tabs-list" do
@@ -94,16 +94,23 @@ module Azu
                   end
                   button class: "tab-trigger", onclick: "showTab('errors')" do
                     i "data-lucide": "x-circle"
-                    text "Recent Error Logs"
+                    text "Error Logs"
                     span class: "badge badge-destructive" do
                       text collect_error_logs.size.to_s
                     end
                   end
                   button class: "tab-trigger", onclick: "showTab('routes')" do
                     i "data-lucide": "route"
-                    text "Application Routes"
+                    text "Routes"
                     span class: "badge badge-default" do
                       text collect_routes_data.size.to_s
+                    end
+                  end
+                  button class: "tab-trigger", onclick: "showTab('database')" do
+                    i "data-lucide": "database"
+                    text "DB"
+                    span class: "badge badge-default" do
+                      text collect_database_summary_count.to_s
                     end
                   end
                 end
@@ -113,6 +120,7 @@ module Azu
                 render_dashboard_tab
                 render_errors_tab
                 render_routes_tab
+                render_database_tab
               end
             end
           end
@@ -192,6 +200,233 @@ module Azu
                       td "#{error_hash["processing_time_ms"]}ms"
                       td error_hash["endpoint"]
                       td error_hash["category"]
+                    end
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+
+      private def render_database_tab
+        div id: "database", class: "tab-pane" do
+          # Database Overview Cards
+          div class: "grid grid-cols-3 mb-6" do
+            render_database_overview_cards
+            render_query_performance_card
+            render_n_plus_one_analysis_card
+          end
+          # Detailed Query Tables
+          render_slow_queries_table
+          render_query_patterns_table
+        end
+      end
+
+      private def render_database_overview_cards
+        data = collect_database_data
+        profiler_data = collect_query_profiler_data
+
+        div class: "card metric-card" do
+          div class: "card-header" do
+            h3 class: "card-title" do
+              i "data-lucide": "bar-chart-3"
+              text "Query Performance Stats"
+            end
+          end
+          div class: "card-content" do
+            div class: "metric-list" do
+              render_metric_item "Total Queries", data["total_queries"].to_s, "text-primary"
+              render_metric_item "Slow Queries", data["slow_queries"].to_s, "text-crystal"
+              render_metric_item "N+1 Patterns", data["n_plus_one_patterns"].to_s, "text-accent"
+              render_metric_item "Avg Query Time", "#{data["avg_query_time"]} ms", "text-muted-foreground"
+            end
+          end
+        end
+      end
+
+      private def render_query_performance_card
+        profiler_data = collect_query_profiler_data
+
+        div class: "card metric-card" do
+          div class: "card-header" do
+            h3 class: "card-title" do
+              i "data-lucide": "bar-chart-3"
+              text "Query Patterns"
+            end
+          end
+          div class: "card-content" do
+            div class: "metric-list" do
+              render_metric_item "Unique Patterns", profiler_data["unique_patterns"].to_s, "text-primary"
+              render_metric_item "Total Executions", profiler_data["total_executions"].to_s, "text-crystal"
+              render_metric_item "Avg Pattern Score", "#{profiler_data["avg_performance_score"].as(Float64).round(2)}", "text-performance"
+              render_metric_item "Slowest Pattern", "#{profiler_data["slowest_pattern_time"].as(Float64).round(2)}ms", "text-accent"
+              render_metric_item "Most Frequent", profiler_data["most_frequent_count"].to_s, "text-muted-foreground"
+            end
+          end
+        end
+      end
+
+      private def render_n_plus_one_analysis_card
+        n_plus_one_data = collect_n_plus_one_data
+
+        div class: "card metric-card" do
+          div class: "card-header" do
+            h3 class: "card-title" do
+              i "data-lucide": "git-branch"
+              text "N+1 Analysis"
+            end
+          end
+          div class: "card-content" do
+            if n_plus_one_data["issues"].as(Array).empty?
+              div class: "empty-state" do
+                i "data-lucide": "check"
+                h4 "No N+1 patterns detected"
+              end
+            else
+              div class: "metric-list" do
+                render_metric_item "Total Issues", n_plus_one_data["total_issues"].to_s, "text-primary"
+                render_metric_item "Critical", n_plus_one_data["critical_count"].to_s, "text-destructive"
+                render_metric_item "High", n_plus_one_data["high_count"].to_s, "text-accent"
+                render_metric_item "Medium", n_plus_one_data["medium_count"].to_s, "text-crystal"
+                render_metric_item "Low", n_plus_one_data["low_count"].to_s, "text-muted-foreground"
+              end
+            end
+          end
+        end
+      end
+
+      private def render_slow_queries_table
+        slow_queries = collect_slow_queries_data
+
+        div class: "card metric-card" do
+          div class: "card-header" do
+            h3 class: "card-title" do
+              i "data-lucide": "clock"
+              text "Recent Slow Queries"
+            end
+          end
+          div class: "card-content" do
+            if slow_queries.empty?
+              div class: "empty-state" do
+                i "data-lucide": "check"
+                h4 "No slow queries detected!"
+                para class: "header-text" do
+                  text "All queries are performing well."
+                end
+              end
+            else
+              div class: "table-container" do
+                table class: "table" do
+                  thead do
+                    tr do
+                      th "Execution Time"
+                      th "Query Pattern"
+                      th "Context"
+                      th "Timestamp"
+                      th "Severity"
+                    end
+                  end
+                  tbody do
+                    slow_queries.each do |query|
+                      query_hash = query.as(Hash)
+                      execution_time = query_hash["execution_time_ms"].as(Float64)
+                      severity_class = case execution_time
+                                       when 0..100    then "text-performance"
+                                       when 100..500  then "text-crystal"
+                                       when 500..1000 then "text-accent"
+                                       else                "text-destructive"
+                                       end
+
+                      tr do
+                        td class: severity_class do
+                          text "#{execution_time.round(2)}ms"
+                        end
+                        td do
+                          code query_hash["normalized_sql"].as(String)[0..80] + (query_hash["normalized_sql"].as(String).size > 80 ? "..." : "")
+                        end
+                        td class: "text-muted-foreground" do
+                          text query_hash["context"]? || "N/A"
+                        end
+                        td class: "text-muted-foreground" do
+                          small query_hash["timestamp"].to_s
+                        end
+                        td do
+                          span class: "badge #{severity_class == "text-destructive" ? "badge-destructive" : "badge-outline"}" do
+                            text execution_time > 1000 ? "CRITICAL" : execution_time > 500 ? "HIGH" : "MEDIUM"
+                          end
+                        end
+                      end
+                    end
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+
+      private def render_query_patterns_table
+        query_patterns = collect_query_patterns_data
+
+        div class: "card metric-card" do
+          div class: "card-header" do
+            h3 class: "card-title" do
+              i "data-lucide": "list"
+              text "Query Patterns Analysis"
+            end
+          end
+          div class: "card-content" do
+            if query_patterns.empty?
+              div class: "empty-state" do
+                i "data-lucide": "info"
+                h4 "No query patterns recorded"
+                para class: "header-text" do
+                  text "Query patterns will appear here as queries are executed."
+                end
+              end
+            else
+              div class: "table-container" do
+                table class: "table" do
+                  thead do
+                    tr do
+                      th "Pattern"
+                      th "Executions"
+                      th "Avg Time"
+                      th "Max Time"
+                      th "Performance Score"
+                    end
+                  end
+                  tbody do
+                    query_patterns.each do |pattern|
+                      pattern_hash = pattern.as(Hash)
+                      avg_time = pattern_hash["avg_time_ms"].as(Float64)
+                      performance_score = pattern_hash["performance_score"].as(Float64)
+
+                      score_class = case performance_score
+                                    when 0..50    then "text-performance"
+                                    when 50..100  then "text-crystal"
+                                    when 100..200 then "text-accent"
+                                    else               "text-destructive"
+                                    end
+
+                      tr do
+                        td do
+                          code pattern_hash["normalized_sql"].as(String)[0..60] + (pattern_hash["normalized_sql"].as(String).size > 60 ? "..." : "")
+                        end
+                        td do
+                          text pattern_hash["execution_count"].to_s
+                        end
+                        td do
+                          text "#{avg_time.round(2)}ms"
+                        end
+                        td do
+                          text "#{pattern_hash["max_time_ms"].as(Float64).round(2)}ms"
+                        end
+                        td class: score_class do
+                          text performance_score.round(2).to_s
+                        end
+                      end
                     end
                   end
                 end
@@ -342,7 +577,7 @@ module Azu
           div class: "card-content" do
             div class: "metric-list" do
               render_metric_item "Total Queries", data["total_queries"].to_s, "text-primary"
-              render_metric_item "Migration Status", data["migration_status"].to_s, "text-performance"
+              # render_metric_item "Migration Status", data["migration_status"].to_s, "text-performance"
               render_metric_item "Slow Queries", data["slow_queries"].to_s, "text-crystal"
               render_metric_item "N+1 Patterns", data["n_plus_one_patterns"].to_s, "text-accent"
               render_metric_item "Avg Query Time", "#{data["avg_query_time"]} ms", "text-muted-foreground"
@@ -640,7 +875,7 @@ module Azu
 
           .tabs-list {
               display: grid;
-              grid-template-columns: repeat(3, 1fr);
+              grid-template-columns: repeat(4, 1fr);
               width: 100%;
               background: hsl(var(--muted));
               border-radius: 0.375rem;
@@ -1019,32 +1254,22 @@ module Azu
       end
 
       private def collect_database_data
-        {% if @top_level.has_constant?("CQL::Configure") %}
-          summary = db_monitor.metrics_summary
-          {
-            "total_queries"       => summary.total_queries,
-            "migration_status"    => summary.migration_status,
-            "slow_queries"        => summary.table_count,
-            "avg_query_time"      => summary.avg_query_time,
-            "n_plus_one_patterns" => summary.n_plus_one_patterns,
-            "monitoring_enabled"  => summary.monitoring_enabled,
-            "uptime"              => Time.utc - @start_time,
-          }
-        {% else %}
-          {
-            "total_queries"       => 0_i32,
-            "migration_status"    => "N/A",
-            "slow_queries"        => 0_i32,
-            "avg_query_time"      => 0.0,
-            "n_plus_one_patterns" => 0_i32,
-            "monitoring_enabled"  => false,
-            "uptime"              => 0,
-          }
-        {% end %}
+        monitor = CQL::Performance.monitor
+        summary = monitor.metrics_summary
+        puts "summary = #{summary.inspect}"
+        {
+          "total_queries" => summary.total_queries,
+          # "migration_status"    => summary.migration_status,
+          "slow_queries"        => summary.slow_queries,
+          "avg_query_time"      => summary.avg_query_time,
+          "n_plus_one_patterns" => summary.n_plus_one_patterns,
+          "monitoring_enabled"  => summary.monitoring_enabled?,
+          "uptime"              => Time.utc - @start_time,
+        }
       rescue
         {
-          "total_queries"       => 0_i32,
-          "migration_status"    => "N/A",
+          "total_queries" => 0_i32,
+          # "migration_status"    => "N/A",
           "slow_queries"        => 0_i32,
           "avg_query_time"      => 0.0,
           "n_plus_one_patterns" => 0_i32,
@@ -1053,11 +1278,112 @@ module Azu
         }
       end
 
-      {% if @top_level.has_constant?("CQL::Configure") %}
-        private def db_monitor
-          CQL::Configure.current.monitor
+      private def collect_database_summary_count : Int32
+        begin
+          monitor = CQL::Performance.monitor
+          summary = monitor.metrics_summary
+          summary.total_queries + summary.slow_queries + summary.n_plus_one_patterns
+        rescue
+          0
         end
-      {% end %}
+      end
+
+      private def collect_query_profiler_data
+        begin
+          profiler = CQL::Performance.profiler
+          stats = profiler.statistics
+
+          total_executions = stats.values.sum(&.execution_count)
+          unique_patterns = stats.size
+          avg_performance_score = stats.empty? ? 0.0 : stats.values.sum(&.performance_score) / stats.size
+          slowest_pattern_time = stats.empty? ? 0.0 : stats.values.max_of(&.max_time.total_milliseconds)
+          most_frequent_count = stats.empty? ? 0 : stats.values.max_of(&.execution_count)
+
+          {
+            "unique_patterns"       => unique_patterns,
+            "total_executions"      => total_executions,
+            "avg_performance_score" => avg_performance_score,
+            "slowest_pattern_time"  => slowest_pattern_time,
+            "most_frequent_count"   => most_frequent_count,
+          }
+        rescue
+          {
+            "unique_patterns"       => 0,
+            "total_executions"      => 0,
+            "avg_performance_score" => 0.0,
+            "slowest_pattern_time"  => 0.0,
+            "most_frequent_count"   => 0,
+          }
+        end
+      end
+
+      private def collect_n_plus_one_data
+        begin
+          monitor = CQL::Performance.monitor
+          detector = monitor.n_plus_one_detector
+          issues = detector.issues
+
+          severity_counts = issues.group_by(&.severity)
+
+          {
+            "issues"         => issues.map(&.to_json),
+            "total_issues"   => issues.size,
+            "critical_count" => severity_counts[CQL::Performance::PerformanceIssue::Severity::Critical]?.try(&.size) || 0,
+            "high_count"     => severity_counts[CQL::Performance::PerformanceIssue::Severity::High]?.try(&.size) || 0,
+            "medium_count"   => severity_counts[CQL::Performance::PerformanceIssue::Severity::Medium]?.try(&.size) || 0,
+            "low_count"      => severity_counts[CQL::Performance::PerformanceIssue::Severity::Low]?.try(&.size) || 0,
+          }
+        rescue
+          {
+            "issues"         => [] of String,
+            "total_issues"   => 0,
+            "critical_count" => 0,
+            "high_count"     => 0,
+            "medium_count"   => 0,
+            "low_count"      => 0,
+          }
+        end
+      end
+
+      private def collect_slow_queries_data
+        begin
+          profiler = CQL::Performance.profiler
+          slow_queries = profiler.slow_queries(20) # Get last 20 slow queries
+
+          slow_queries.map do |execution|
+            {
+              "execution_time_ms" => execution.execution_time.total_milliseconds,
+              "normalized_sql"    => execution.normalized_sql,
+              "context"           => execution.context,
+              "timestamp"         => execution.timestamp.to_s,
+            }
+          end
+        rescue
+          [] of Hash(String, String | Float64)
+        end
+      end
+
+      private def collect_query_patterns_data
+        begin
+          profiler = CQL::Performance.profiler
+          stats = profiler.statistics
+
+          # Get top 15 patterns by performance score (worst first)
+          top_patterns = stats.values.sort_by!(&.performance_score).reverse[0...15]
+
+          top_patterns.map do |stat|
+            {
+              "normalized_sql"    => stat.normalized_sql,
+              "execution_count"   => stat.execution_count,
+              "avg_time_ms"       => stat.avg_time.total_milliseconds,
+              "max_time_ms"       => stat.max_time.total_milliseconds,
+              "performance_score" => stat.performance_score,
+            }
+          end
+        rescue
+          [] of Hash(String, String | Int32 | Float64)
+        end
+      end
 
       private def collect_component_data
         component_stats = @metrics.component_stats
