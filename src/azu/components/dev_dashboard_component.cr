@@ -1256,7 +1256,6 @@ module Azu
       private def collect_database_data
         monitor = CQL::Performance.monitor
         summary = monitor.metrics_summary
-        puts "summary = #{summary.inspect}"
         {
           "total_queries" => summary.total_queries,
           # "migration_status"    => summary.migration_status,
