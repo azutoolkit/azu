@@ -40,7 +40,7 @@ module Azu
     RESOURCES       = %w(connect delete get head options patch post put trace)
     METHOD_OVERRIDE = "_method"
 
-    # Path cache for frequently requested paths
+    # Thread-safe path cache for frequently requested paths
     # LRU cache with configurable maximum size
     private struct PathCache
       DEFAULT_MAX_SIZE = 1000
@@ -48,35 +48,58 @@ module Azu
       def initialize(@max_size : Int32 = DEFAULT_MAX_SIZE)
         @cache = Hash(String, String).new
         @access_order = Array(String).new
+        @mutex = Mutex.new
       end
 
       def get(key : String) : String?
-        if cached_path = @cache[key]?
-          # Move to end (most recently used)
-          @access_order.delete(key)
-          @access_order << key
-          cached_path
+        @mutex.synchronize do
+          if cached_path = @cache[key]?
+            # Move to end (most recently used)
+            @access_order.delete(key)
+            @access_order << key
+            cached_path
+          end
         end
       end
 
       def set(key : String, value : String) : Nil
-        # Remove if already exists to update position
-        if @cache.has_key?(key)
-          @access_order.delete(key)
-        elsif @cache.size >= @max_size
-          # Remove least recently used
-          if oldest = @access_order.shift?
-            @cache.delete(oldest)
+        @mutex.synchronize do
+          # Remove if already exists to update position
+          if @cache.has_key?(key)
+            @access_order.delete(key)
+          elsif @cache.size >= @max_size
+            # Remove least recently used
+            if oldest = @access_order.shift?
+              @cache.delete(oldest)
+            end
           end
-        end
 
-        @cache[key] = value
-        @access_order << key
+          @cache[key] = value
+          @access_order << key
+        end
       end
 
       def clear : Nil
-        @cache.clear
-        @access_order.clear
+        @mutex.synchronize do
+          @cache.clear
+          @access_order.clear
+        end
+      end
+
+      # Get cache statistics (useful for monitoring)
+      def stats
+        @mutex.synchronize do
+          {
+            size:     @cache.size,
+            max_size: @max_size,
+            hit_rate: calculate_hit_rate,
+          }
+        end
+      end
+
+      private def calculate_hit_rate : Float64
+        # This is a simplified version - in production you'd track hits/misses
+        @cache.size.to_f / @max_size.to_f * 100.0
       end
     end
 
