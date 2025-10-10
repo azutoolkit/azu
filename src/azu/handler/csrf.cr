@@ -37,14 +37,19 @@ module Azu
         DoubleSubmit
       end
 
-      class_property strategy : Strategy = Strategy::SignedDoubleSubmit
-      class_property secret_key : String = ""
-      class_property cookie_name : String = COOKIE_KEY
-      class_property header_name : String = HEADER_KEY
-      class_property param_name : String = PARAM_KEY
-      class_property cookie_max_age : Int32 = COOKIE_MAX_AGE
-      class_property cookie_same_site : HTTP::Cookie::SameSite = COOKIE_SAME_SITE
-      class_property secure_cookies : Bool = true
+      # Instance-level configuration properties
+      property strategy : Strategy
+      property secret_key : String
+      property cookie_name : String
+      property header_name : String
+      property param_name : String
+      property cookie_max_age : Int32
+      property cookie_same_site : HTTP::Cookie::SameSite
+      property secure_cookies : Bool
+
+      # Default instance for backward compatibility
+      @@default_instance : CSRF? = nil
+      @@instance_mutex = Mutex.new
 
       # Exception for CSRF validation failures
       class InvalidTokenError < Exception
@@ -53,11 +58,45 @@ module Azu
         end
       end
 
-      def initialize(@skip_routes : Array(String) = [] of String)
-        # Initialize secret key if not set
-        if self.class.secret_key.empty?
-          self.class.secret_key = Random::Secure.urlsafe_base64(HMAC_SECRET_LENGTH)
+      def initialize(
+        @skip_routes : Array(String) = [] of String,
+        @strategy : Strategy = Strategy::SignedDoubleSubmit,
+        @secret_key : String = Random::Secure.urlsafe_base64(HMAC_SECRET_LENGTH),
+        @cookie_name : String = COOKIE_KEY,
+        @header_name : String = HEADER_KEY,
+        @param_name : String = PARAM_KEY,
+        @cookie_max_age : Int32 = COOKIE_MAX_AGE,
+        @cookie_same_site : HTTP::Cookie::SameSite = COOKIE_SAME_SITE,
+        @secure_cookies : Bool = true,
+      )
+      end
+
+      # Get default instance (backward compatibility)
+      def self.default : CSRF
+        @@instance_mutex.synchronize do
+          @@default_instance ||= new
         end
+      end
+
+      # Reset default instance (useful for testing)
+      def self.reset_default!
+        @@instance_mutex.synchronize do
+          @@default_instance = nil
+        end
+      end
+
+      # Class-level methods for backward compatibility
+      # These delegate to the default instance
+      def self.token(context : HTTP::Server::Context) : String
+        default.token(context)
+      end
+
+      def self.tag(context : HTTP::Server::Context) : String
+        default.tag(context)
+      end
+
+      def self.metatag(context : HTTP::Server::Context) : String
+        default.metatag(context)
       end
 
       def call(context : HTTP::Server::Context)
@@ -118,7 +157,7 @@ module Azu
 
       # Validate CSRF token based on configured strategy
       def valid_token?(context : HTTP::Server::Context) : Bool
-        case self.class.strategy
+        case @strategy
         when .synchronizer_token?
           validate_synchronizer_token(context)
         when .signed_double_submit?
@@ -131,8 +170,8 @@ module Azu
       end
 
       # Generate CSRF token for forms/AJAX requests
-      def self.token(context : HTTP::Server::Context) : String
-        case strategy
+      def token(context : HTTP::Server::Context) : String
+        case @strategy
         when .synchronizer_token?
           generate_synchronizer_token(context)
         when .signed_double_submit?
@@ -145,15 +184,15 @@ module Azu
       end
 
       # Generate HTML hidden input with CSRF token
-      def self.tag(context : HTTP::Server::Context) : String
+      def tag(context : HTTP::Server::Context) : String
         token_value = token(context)
-        %Q(<input type="hidden" name="#{param_name}" value="#{token_value}" />)
+        %Q(<input type="hidden" name="#{@param_name}" value="#{token_value}" />)
       end
 
       # Generate meta tag with CSRF token for AJAX requests
-      def self.metatag(context : HTTP::Server::Context) : String
+      def metatag(context : HTTP::Server::Context) : String
         token_value = token(context)
-        %Q(<meta name="#{param_name}" content="#{token_value}" />)
+        %Q(<meta name="#{@param_name}" content="#{token_value}" />)
       end
 
       # SYNCHRONIZER TOKEN PATTERN
@@ -161,7 +200,7 @@ module Azu
 
       private def validate_synchronizer_token(context : HTTP::Server::Context) : Bool
         request_token = extract_token_from_request(context)
-        session_token = self.class.extract_token_from_cookie(context)
+        session_token = extract_token_from_cookie(context)
 
         return false unless request_token && session_token
 
@@ -169,7 +208,7 @@ module Azu
         Crypto::Subtle.constant_time_compare(request_token, session_token)
       end
 
-      private def self.generate_synchronizer_token(context : HTTP::Server::Context) : String
+      private def generate_synchronizer_token(context : HTTP::Server::Context) : String
         # Generate or retrieve existing token from cookie
         if existing_token = extract_token_from_cookie(context)
           existing_token
@@ -185,7 +224,7 @@ module Azu
 
       private def validate_signed_double_submit(context : HTTP::Server::Context) : Bool
         request_token = extract_token_from_request(context)
-        cookie_token = self.class.extract_token_from_cookie(context)
+        cookie_token = extract_token_from_cookie(context)
 
         return false unless request_token && cookie_token
 
@@ -196,7 +235,7 @@ module Azu
         verify_hmac_token(request_token)
       end
 
-      private def self.generate_signed_double_submit_token(context : HTTP::Server::Context) : String
+      private def generate_signed_double_submit_token(context : HTTP::Server::Context) : String
         # Generate base token
         base_token = Random::Secure.urlsafe_base64(TOKEN_LENGTH)
         timestamp = Time.utc.to_unix.to_s
@@ -219,7 +258,7 @@ module Azu
 
       private def validate_double_submit(context : HTTP::Server::Context) : Bool
         request_token = extract_token_from_request(context)
-        cookie_token = self.class.extract_token_from_cookie(context)
+        cookie_token = extract_token_from_cookie(context)
 
         return false unless request_token && cookie_token
 
@@ -227,7 +266,7 @@ module Azu
         Crypto::Subtle.constant_time_compare(request_token, cookie_token)
       end
 
-      private def self.generate_double_submit_token(context : HTTP::Server::Context) : String
+      private def generate_double_submit_token(context : HTTP::Server::Context) : String
         token = Random::Secure.urlsafe_base64(TOKEN_LENGTH)
         set_token_cookie(context, token)
         token
@@ -238,7 +277,7 @@ module Azu
       # Extract CSRF token from request (header, form data, or query params)
       private def extract_token_from_request(context : HTTP::Server::Context) : String?
         # Try header first (for AJAX requests)
-        if token = context.request.headers[self.class.header_name]?
+        if token = context.request.headers[@header_name]?
           return token
         end
 
@@ -250,7 +289,7 @@ module Azu
         end
 
         # Try query parameters (less secure, but sometimes needed)
-        if token = context.request.query_params[self.class.param_name]?
+        if token = context.request.query_params[@param_name]?
           return token
         end
 
@@ -267,7 +306,7 @@ module Azu
             params = HTTP::Params.parse(body)
             # Restore body for other handlers
             context.request.body = IO::Memory.new(body)
-            return params[self.class.param_name]?
+            return params[@param_name]?
           end
         elsif content_type.starts_with?("multipart/form-data")
           # Handle multipart form data
@@ -275,7 +314,7 @@ module Azu
           # In practice, you'd want to use a proper multipart parser
           if body = context.request.body.try(&.gets_to_end)
             # Look for CSRF token in multipart data
-            if match = body.match(/name="#{self.class.param_name}".*?\r?\n\r?\n([^\r\n]+)/)
+            if match = body.match(/name="#{@param_name}".*?\r?\n\r?\n([^\r\n]+)/)
               context.request.body = IO::Memory.new(body)
               return match[1]?
             end
@@ -286,28 +325,28 @@ module Azu
       end
 
       # Extract token from cookie
-      def self.extract_token_from_cookie(context : HTTP::Server::Context) : String?
+      private def extract_token_from_cookie(context : HTTP::Server::Context) : String?
         cookies = HTTP::Cookies.from_client_headers(context.request.headers)
-        cookies[cookie_name]?.try(&.value)
+        cookies[@cookie_name]?.try(&.value)
       end
 
       # Set CSRF token cookie
-      def self.set_token_cookie(context : HTTP::Server::Context, token : String)
+      private def set_token_cookie(context : HTTP::Server::Context, token : String)
         cookie = HTTP::Cookie.new(
-          name: cookie_name,
+          name: @cookie_name,
           value: token,
-          max_age: Time::Span.new(seconds: cookie_max_age),
-          secure: secure_cookies && (context.request.headers["X-Forwarded-Proto"]? == "https"),
+          max_age: Time::Span.new(seconds: @cookie_max_age),
+          secure: @secure_cookies && (context.request.headers["X-Forwarded-Proto"]? == "https"),
           http_only: true,
-          samesite: cookie_same_site
+          samesite: @cookie_same_site
         )
 
         context.response.cookies << cookie
       end
 
       # Create HMAC signature for token
-      def self.create_hmac_signature(data : String) : String
-        digest = OpenSSL::HMAC.digest(:sha256, secret_key, data)
+      private def create_hmac_signature(data : String) : String
+        digest = OpenSSL::HMAC.digest(:sha256, @secret_key, data)
         Base64.urlsafe_encode(digest)
       end
 
@@ -321,18 +360,18 @@ module Azu
         # Check token age (optional, prevents replay attacks)
         begin
           token_time = Time.unix(timestamp.to_i64)
-          return false if (Time.utc - token_time).total_seconds > self.class.cookie_max_age
+          return false if (Time.utc - token_time).total_seconds > @cookie_max_age
         rescue
           return false
         end
 
         # Verify signature
-        expected_signature = self.class.create_hmac_signature("#{base_token}:#{timestamp}")
+        expected_signature = create_hmac_signature("#{base_token}:#{timestamp}")
         Crypto::Subtle.constant_time_compare(signature, expected_signature)
       end
 
       # Origin validation (additional security layer)
-      def self.validate_origin(context : HTTP::Server::Context) : Bool
+      def validate_origin(context : HTTP::Server::Context) : Bool
         origin = context.request.headers["Origin"]?
         referer = context.request.headers["Referer"]?
 
@@ -359,23 +398,6 @@ module Azu
 
         # No origin information available
         false
-      end
-
-      # Configuration methods
-      def self.configure(&)
-        yield self
-      end
-
-      def self.use_synchronizer_token!
-        self.strategy = Strategy::SynchronizerToken
-      end
-
-      def self.use_signed_double_submit!
-        self.strategy = Strategy::SignedDoubleSubmit
-      end
-
-      def self.use_double_submit!
-        self.strategy = Strategy::DoubleSubmit
       end
     end
   end
