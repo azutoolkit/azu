@@ -196,8 +196,8 @@ describe Azu::Handler::IpSpoofing do
 
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1, 10.0.0.1"
-      headers["X-Client-IP"] = "172.16.0.1"  # Invalid
-      headers["X-Real-IP"] = "192.168.1.1"    # Valid
+      headers["X-Client-IP"] = "172.16.0.1" # Invalid
+      headers["X-Real-IP"] = "192.168.1.1"  # Valid
       context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
@@ -213,8 +213,8 @@ describe Azu::Handler::IpSpoofing do
 
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1, 10.0.0.1"
-      headers["X-Client-IP"] = "192.168.1.1"    # Valid
-      headers["X-Real-IP"] = "172.16.0.1"       # Invalid
+      headers["X-Client-IP"] = "192.168.1.1" # Valid
+      headers["X-Real-IP"] = "172.16.0.1"    # Invalid
       context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
@@ -270,7 +270,7 @@ describe Azu::Handler::IpSpoofing do
       # Attacker trying to spoof IP
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1"
-      headers["X-Client-IP"] = "10.0.0.1"  # Doesn't match forwarded chain
+      headers["X-Client-IP"] = "10.0.0.1" # Doesn't match forwarded chain
       context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
@@ -430,4 +430,3 @@ describe Azu::Handler::IpSpoofing do
     end
   end
 end
-

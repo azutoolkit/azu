@@ -107,63 +107,63 @@ module Azu
           health_metrics = metrics.health_metrics
 
           {
-            "total_queries"           => query_metrics.total_queries,
-            "slow_queries"            => query_metrics.slow_queries,
-            "very_slow_queries"       => query_metrics.very_slow_queries,
-            "error_queries"           => query_metrics.error_queries,
-            "avg_query_time"          => query_metrics.avg_execution_time.total_milliseconds,
-            "min_query_time"          => query_metrics.min_execution_time.total_milliseconds,
-            "max_query_time"          => query_metrics.max_execution_time.total_milliseconds,
-            "error_rate"              => query_metrics.error_rate,
-            "queries_per_second"      => query_metrics.queries_per_second,
-            "slow_query_rate"         => query_metrics.slow_query_rate,
-            "n_plus_one_patterns"     => n_plus_one_metrics.total_patterns,
-            "critical_n_plus_one"     => n_plus_one_metrics.critical_patterns,
-            "high_n_plus_one"         => n_plus_one_metrics.high_patterns,
-            "database_health_score"   => health_metrics.query_health_score,
-            "monitoring_enabled"      => monitor.enabled?,
-            "uptime"                  => Time.utc - @start_time,
+            "total_queries"         => query_metrics.total_queries,
+            "slow_queries"          => query_metrics.slow_queries,
+            "very_slow_queries"     => query_metrics.very_slow_queries,
+            "error_queries"         => query_metrics.error_queries,
+            "avg_query_time"        => query_metrics.avg_execution_time.total_milliseconds,
+            "min_query_time"        => query_metrics.min_execution_time.total_milliseconds,
+            "max_query_time"        => query_metrics.max_execution_time.total_milliseconds,
+            "error_rate"            => query_metrics.error_rate,
+            "queries_per_second"    => query_metrics.queries_per_second,
+            "slow_query_rate"       => query_metrics.slow_query_rate,
+            "n_plus_one_patterns"   => n_plus_one_metrics.total_patterns,
+            "critical_n_plus_one"   => n_plus_one_metrics.critical_patterns,
+            "high_n_plus_one"       => n_plus_one_metrics.high_patterns,
+            "database_health_score" => health_metrics.query_health_score,
+            "monitoring_enabled"    => monitor.enabled?,
+            "uptime"                => Time.utc - @start_time,
           }
         {% else %}
           # CQL not available - return default values
           {
-            "total_queries"           => 0_i64,
-            "slow_queries"            => 0_i64,
-            "very_slow_queries"       => 0_i64,
-            "error_queries"           => 0_i64,
-            "avg_query_time"          => 0.0,
-            "min_query_time"          => 0.0,
-            "max_query_time"          => 0.0,
-            "error_rate"              => 0.0,
-            "queries_per_second"      => 0.0,
-            "slow_query_rate"         => 0.0,
-            "n_plus_one_patterns"     => 0,
-            "critical_n_plus_one"     => 0,
-            "high_n_plus_one"         => 0,
-            "database_health_score"   => 100,
-            "monitoring_enabled"      => false,
-            "uptime"                  => Time::Span.zero,
+            "total_queries"         => 0_i64,
+            "slow_queries"          => 0_i64,
+            "very_slow_queries"     => 0_i64,
+            "error_queries"         => 0_i64,
+            "avg_query_time"        => 0.0,
+            "min_query_time"        => 0.0,
+            "max_query_time"        => 0.0,
+            "error_rate"            => 0.0,
+            "queries_per_second"    => 0.0,
+            "slow_query_rate"       => 0.0,
+            "n_plus_one_patterns"   => 0,
+            "critical_n_plus_one"   => 0,
+            "high_n_plus_one"       => 0,
+            "database_health_score" => 100,
+            "monitoring_enabled"    => false,
+            "uptime"                => Time::Span.zero,
           }
         {% end %}
       rescue ex
         @log.error { "Failed to collect database metrics: #{ex.message}" }
         {
-          "total_queries"           => 0_i64,
-          "slow_queries"            => 0_i64,
-          "very_slow_queries"       => 0_i64,
-          "error_queries"           => 0_i64,
-          "avg_query_time"          => 0.0,
-          "min_query_time"          => 0.0,
-          "max_query_time"          => 0.0,
-          "error_rate"              => 0.0,
-          "queries_per_second"      => 0.0,
-          "slow_query_rate"         => 0.0,
-          "n_plus_one_patterns"     => 0,
-          "critical_n_plus_one"     => 0,
-          "high_n_plus_one"         => 0,
-          "database_health_score"   => 100,
-          "monitoring_enabled"      => false,
-          "uptime"                  => Time::Span.zero,
+          "total_queries"         => 0_i64,
+          "slow_queries"          => 0_i64,
+          "very_slow_queries"     => 0_i64,
+          "error_queries"         => 0_i64,
+          "avg_query_time"        => 0.0,
+          "min_query_time"        => 0.0,
+          "max_query_time"        => 0.0,
+          "error_rate"            => 0.0,
+          "queries_per_second"    => 0.0,
+          "slow_query_rate"       => 0.0,
+          "n_plus_one_patterns"   => 0,
+          "critical_n_plus_one"   => 0,
+          "high_n_plus_one"       => 0,
+          "database_health_score" => 100,
+          "monitoring_enabled"    => false,
+          "uptime"                => Time::Span.zero,
         }
       end
 
@@ -175,11 +175,11 @@ module Azu
           n_plus_one_metrics = metrics.n_plus_one_metrics
 
           query_metrics.total_queries.to_i +
-          query_metrics.slow_queries.to_i +
-          query_metrics.very_slow_queries.to_i +
-          n_plus_one_metrics.total_patterns
+            query_metrics.slow_queries.to_i +
+            query_metrics.very_slow_queries.to_i +
+            n_plus_one_metrics.total_patterns
         {% else %}
-          0  # CQL not available
+          0 # CQL not available
         {% end %}
       rescue
         0
@@ -265,12 +265,12 @@ module Azu
 
           slow_queries.map do |query|
             {
-              "sql"               => query.sql,
-              "normalized_sql"    => query.normalized_sql,
+              "sql"            => query.sql,
+              "normalized_sql" => query.normalized_sql,
               # "context"           => query.context || "N/A",
               "timestamp"         => query.timestamp.to_rfc3339,
               "rows_affected"     => query.rows_affected || 0_i64,
-              "error"            => query.error || "None",
+              "error"             => query.error || "None",
               "execution_time_ms" => query.execution_time.total_milliseconds,
             }
           end
@@ -853,7 +853,7 @@ module Azu
                                   when 80.0..100.0 then "text-performance"
                                   when 60.0..79.9  then "text-crystal"
                                   when 40.0..59.9  then "text-accent"
-                                  else                 "text-destructive"
+                                  else                  "text-destructive"
                                   end
 
                     tr do

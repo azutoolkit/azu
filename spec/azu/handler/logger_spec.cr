@@ -206,7 +206,7 @@ describe Azu::Handler::Logger do
   describe "handler chain integration" do
     it "logs even when errors occur" do
       handler = Azu::Handler::Logger.new
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("Test error")
       }
       handler.next = error_handler
@@ -290,4 +290,3 @@ describe Azu::Handler::Logger do
     end
   end
 end
-

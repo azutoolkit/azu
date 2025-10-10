@@ -28,7 +28,7 @@ describe Azu::Handler::Throttle do
       handler.should be_a(Azu::Handler::Throttle)
       # Verify behavior through stats instead
       stats = handler.stats
-      stats[:tracked_ips].should eq(0)  # No requests yet
+      stats[:tracked_ips].should eq(0) # No requests yet
     end
   end
 
@@ -444,4 +444,3 @@ describe Azu::Handler::Throttle do
     end
   end
 end
-

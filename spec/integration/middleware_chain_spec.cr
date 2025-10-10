@@ -50,7 +50,7 @@ describe "Middleware Chain Integration" do
       rescuer = Azu::Handler::Rescuer.new
       logger = Azu::Handler::Logger.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("Test error")
       }
 
@@ -84,7 +84,7 @@ describe "Middleware Chain Integration" do
 
     it "Rescuer before application catches all errors" do
       rescuer = Azu::Handler::Rescuer.new
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("Application error")
       }
       rescuer.next = error_handler
@@ -97,7 +97,7 @@ describe "Middleware Chain Integration" do
 
     it "CORS before endpoint handles preflight" do
       cors = Azu::Handler::CORS.new(origins: ["https://example.com"])
-      final_handler, verify = create_next_handler(0)  # Should not reach final handler
+      final_handler, verify = create_next_handler(0) # Should not reach final handler
       cors.next = final_handler
 
       headers = HTTP::Headers.new
@@ -145,7 +145,7 @@ describe "Middleware Chain Integration" do
 
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1"
-      headers["X-Client-IP"] = "10.0.0.1"  # Spoofing
+      headers["X-Client-IP"] = "10.0.0.1" # Spoofing
       context, io = create_context("GET", "/test", headers)
 
       ip_spoofing.call(context)
@@ -263,7 +263,7 @@ describe "Middleware Chain Integration" do
       rescuer = Azu::Handler::Rescuer.new
       logger = Azu::Handler::Logger.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Azu::Response::Error.new("Custom error", HTTP::Status::UNPROCESSABLE_ENTITY, [] of String)
       }
 
@@ -284,7 +284,7 @@ describe "Middleware Chain Integration" do
       request_id = Azu::Handler::RequestId.new
       rescuer = Azu::Handler::Rescuer.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("Error with context")
       }
 
@@ -360,9 +360,8 @@ describe "Middleware Chain Integration" do
       request_id.call(context)
       elapsed = Time.monotonic - start_time
 
-      elapsed.total_milliseconds.should be < 100  # Should be fast
+      elapsed.total_milliseconds.should be < 100 # Should be fast
       verify.call
     end
   end
 end
-

@@ -63,7 +63,7 @@ describe "Security Integration" do
 
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1"
-      headers["X-Client-IP"] = "10.0.0.1"  # Spoofed
+      headers["X-Client-IP"] = "10.0.0.1" # Spoofed
       context, io = create_context("GET", "/test", headers)
 
       ip_spoofing.call(context)
@@ -323,4 +323,3 @@ describe "Security Integration" do
     end
   end
 end
-

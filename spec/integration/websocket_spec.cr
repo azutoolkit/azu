@@ -120,7 +120,7 @@ describe "WebSocket Integration" do
     it "handles errors in WebSocket setup" do
       rescuer = Azu::Handler::Rescuer.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("WebSocket error")
       }
       rescuer.next = error_handler
@@ -243,7 +243,7 @@ describe "WebSocket Integration" do
       headers = HTTP::Headers.new
       headers["Upgrade"] = "websocket"
       headers["X-Forwarded-For"] = "192.168.1.1"
-      headers["X-Client-IP"] = "10.0.0.1"  # Spoofed
+      headers["X-Client-IP"] = "10.0.0.1" # Spoofed
       context, io = create_context("GET", "/ws", headers)
 
       ip_spoofing.call(context)
@@ -316,4 +316,3 @@ describe "WebSocket Integration" do
     end
   end
 end
-

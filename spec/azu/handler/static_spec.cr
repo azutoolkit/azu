@@ -29,7 +29,7 @@ describe Azu::Handler::Static do
 
   describe "basic file serving" do
     it "serves existing files" do
-      with_temp_file("Hello, World!", "test.txt") do |dir, filepath|
+      with_temp_file("Hello, World!", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         context, io = create_context("GET", "/test.txt")
@@ -43,7 +43,7 @@ describe Azu::Handler::Static do
     end
 
     it "serves HTML files" do
-      with_temp_file("<h1>Test</h1>", "index.html") do |dir, filepath|
+      with_temp_file("<h1>Test</h1>", "index.html") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         context, io = create_context("GET", "/index.html")
@@ -87,7 +87,7 @@ describe Azu::Handler::Static do
 
   describe "MIME type handling" do
     it "sets correct Content-Type for HTML" do
-      with_temp_file("<h1>Test</h1>", "test.html") do |dir, filepath|
+      with_temp_file("<h1>Test</h1>", "test.html") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         context, io = create_context("GET", "/test.html")
@@ -98,7 +98,7 @@ describe Azu::Handler::Static do
     end
 
     it "sets correct Content-Type for CSS" do
-      with_temp_file("body { color: red; }", "style.css") do |dir, filepath|
+      with_temp_file("body { color: red; }", "style.css") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         context, io = create_context("GET", "/style.css")
@@ -109,7 +109,7 @@ describe Azu::Handler::Static do
     end
 
     it "sets correct Content-Type for JavaScript" do
-      with_temp_file("console.log('test');", "script.js") do |dir, filepath|
+      with_temp_file("console.log('test');", "script.js") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         context, io = create_context("GET", "/script.js")
@@ -120,7 +120,7 @@ describe Azu::Handler::Static do
     end
 
     it "sets correct Content-Type for JSON" do
-      with_temp_file("{\"test\": true}", "data.json") do |dir, filepath|
+      with_temp_file("{\"test\": true}", "data.json") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         context, io = create_context("GET", "/data.json")
@@ -133,7 +133,7 @@ describe Azu::Handler::Static do
 
   describe "ETags" do
     it "generates ETag for files" do
-      with_temp_file("content", "test.txt") do |dir, filepath|
+      with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         context, io = create_context("GET", "/test.txt")
@@ -145,7 +145,7 @@ describe Azu::Handler::Static do
     end
 
     it "returns 304 for matching If-None-Match" do
-      with_temp_file("content", "test.txt") do |dir, filepath|
+      with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         # First request to get ETag
@@ -165,7 +165,7 @@ describe Azu::Handler::Static do
     end
 
     it "returns full content for non-matching If-None-Match" do
-      with_temp_file("content", "test.txt") do |dir, filepath|
+      with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         headers = HTTP::Headers.new
@@ -184,7 +184,7 @@ describe Azu::Handler::Static do
 
   describe "HTTP methods" do
     it "allows GET requests" do
-      with_temp_file("content", "test.txt") do |dir, filepath|
+      with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         context, io = create_context("GET", "/test.txt")
@@ -195,7 +195,7 @@ describe Azu::Handler::Static do
     end
 
     it "allows HEAD requests" do
-      with_temp_file("content", "test.txt") do |dir, filepath|
+      with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         context, io = create_context("HEAD", "/test.txt")
@@ -206,7 +206,7 @@ describe Azu::Handler::Static do
     end
 
     it "rejects POST requests by default" do
-      with_temp_file("content", "test.txt") do |dir, filepath|
+      with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir, fallthrough: false)
 
         context, io = create_context("POST", "/test.txt")
@@ -218,7 +218,7 @@ describe Azu::Handler::Static do
     end
 
     it "falls through POST requests when fallthrough enabled" do
-      with_temp_file("content", "test.txt") do |dir, filepath|
+      with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir, fallthrough: true)
         next_handler, verify = create_next_handler(1)
         handler.next = next_handler
@@ -234,7 +234,7 @@ describe Azu::Handler::Static do
 
   describe "security" do
     it "blocks path traversal with null bytes" do
-      with_temp_file("content", "test.txt") do |dir, filepath|
+      with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir, fallthrough: false)
 
         # Crystal's HTTP::Request strips null bytes from paths for security
@@ -249,7 +249,7 @@ describe Azu::Handler::Static do
     end
 
     it "normalizes paths to prevent traversal" do
-      with_temp_file("content", "test.txt") do |dir, filepath|
+      with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         # Try to access file using path traversal
@@ -340,7 +340,7 @@ describe Azu::Handler::Static do
 
   describe "caching headers" do
     it "sets Cache-Control header" do
-      with_temp_file("content", "test.txt") do |dir, filepath|
+      with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         context, io = create_context("GET", "/test.txt")
@@ -351,7 +351,7 @@ describe Azu::Handler::Static do
     end
 
     it "sets Accept-Ranges header" do
-      with_temp_file("content", "test.txt") do |dir, filepath|
+      with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         context, io = create_context("GET", "/test.txt")
@@ -362,7 +362,7 @@ describe Azu::Handler::Static do
     end
 
     it "sets X-Content-Type-Options header" do
-      with_temp_file("content", "test.txt") do |dir, filepath|
+      with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         context, io = create_context("GET", "/test.txt")
@@ -375,8 +375,8 @@ describe Azu::Handler::Static do
 
   describe "compression" do
     it "supports gzip encoding for large files" do
-      large_content = "x" * 2000  # Above minsize threshold
-      with_temp_file(large_content, "large.html") do |dir, filepath|
+      large_content = "x" * 2000 # Above minsize threshold
+      with_temp_file(large_content, "large.html") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         headers = HTTP::Headers.new
@@ -390,7 +390,7 @@ describe Azu::Handler::Static do
 
     it "supports deflate encoding for large files" do
       large_content = "x" * 2000
-      with_temp_file(large_content, "large.html") do |dir, filepath|
+      with_temp_file(large_content, "large.html") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         headers = HTTP::Headers.new
@@ -404,7 +404,7 @@ describe Azu::Handler::Static do
 
     it "does not compress small files" do
       small_content = "small"
-      with_temp_file(small_content, "small.html") do |dir, filepath|
+      with_temp_file(small_content, "small.html") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         headers = HTTP::Headers.new
@@ -419,7 +419,7 @@ describe Azu::Handler::Static do
 
   describe "edge cases" do
     it "handles empty files" do
-      with_temp_file("", "empty.txt") do |dir, filepath|
+      with_temp_file("", "empty.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         context, io = create_context("GET", "/empty.txt")
@@ -430,7 +430,7 @@ describe Azu::Handler::Static do
     end
 
     it "handles files with special characters in name" do
-      with_temp_file("content", "test file.txt") do |dir, filepath|
+      with_temp_file("content", "test file.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         context, io = create_context("GET", "/test%20file.txt")
@@ -441,7 +441,7 @@ describe Azu::Handler::Static do
     end
 
     it "handles trailing slashes in paths" do
-      with_temp_file("content", "test.txt") do |dir, filepath|
+      with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
         context, io = create_context("GET", "/test.txt/")
@@ -453,4 +453,3 @@ describe Azu::Handler::Static do
     end
   end
 end
-

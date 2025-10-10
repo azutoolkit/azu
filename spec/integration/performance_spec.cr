@@ -78,7 +78,7 @@ describe "Performance Integration" do
       performance = Azu::Handler::PerformanceMonitor.new(metrics)
 
       slow_handler = ->(ctx : HTTP::Server::Context) {
-        sleep 0.05.seconds  # Slow request
+        sleep 0.05.seconds # Slow request
         ctx.response.print "Slow"
       }
       performance.next = slow_handler
@@ -263,4 +263,3 @@ describe "Performance Integration" do
     end
   end
 end
-

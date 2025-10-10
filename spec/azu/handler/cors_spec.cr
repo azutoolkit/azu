@@ -400,4 +400,3 @@ describe Azu::Handler::CORS do
     end
   end
 end
-

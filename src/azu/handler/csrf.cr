@@ -136,7 +136,7 @@ module Azu
       end
 
       # Configuration block
-      def self.configure
+      def self.configure(&)
         yield default
       end
 

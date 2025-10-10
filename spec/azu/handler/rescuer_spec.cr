@@ -47,7 +47,7 @@ describe Azu::Handler::Rescuer do
     it "catches and logs client errors" do
       handler = Azu::Handler::Rescuer.new
 
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         raise HTTP::Server::ClientError.new("Bad request")
       }
       handler.next = error_handler
@@ -68,7 +68,7 @@ describe Azu::Handler::Rescuer do
     it "catches and renders Response::Error" do
       handler = Azu::Handler::Rescuer.new
 
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         raise Azu::Response::Error.new("Not found", HTTP::Status::NOT_FOUND, [] of String)
       }
       handler.next = error_handler
@@ -85,7 +85,7 @@ describe Azu::Handler::Rescuer do
     it "handles custom status codes" do
       handler = Azu::Handler::Rescuer.new
 
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         raise Azu::Response::Error.new("Unauthorized", HTTP::Status::UNAUTHORIZED, [] of String)
       }
       handler.next = error_handler
@@ -102,7 +102,7 @@ describe Azu::Handler::Rescuer do
     it "includes error messages in response" do
       handler = Azu::Handler::Rescuer.new
 
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         raise Azu::Response::Error.new("Custom error message", HTTP::Status::INTERNAL_SERVER_ERROR, [] of String)
       }
       handler.next = error_handler
@@ -120,7 +120,7 @@ describe Azu::Handler::Rescuer do
     it "catches and handles generic exceptions" do
       handler = Azu::Handler::Rescuer.new
 
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         raise Exception.new("Something went wrong")
       }
       handler.next = error_handler
@@ -137,7 +137,7 @@ describe Azu::Handler::Rescuer do
     it "generates request ID for generic exceptions" do
       handler = Azu::Handler::Rescuer.new
 
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         raise Exception.new("Error")
       }
       handler.next = error_handler
@@ -154,7 +154,7 @@ describe Azu::Handler::Rescuer do
     it "uses existing request ID from headers" do
       handler = Azu::Handler::Rescuer.new
 
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         raise Exception.new("Error")
       }
       handler.next = error_handler
@@ -174,7 +174,7 @@ describe Azu::Handler::Rescuer do
     it "includes request method in error context" do
       handler = Azu::Handler::Rescuer.new
 
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         raise Exception.new("Error with context")
       }
       handler.next = error_handler
@@ -190,7 +190,7 @@ describe Azu::Handler::Rescuer do
     it "includes request path in error context" do
       handler = Azu::Handler::Rescuer.new
 
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         raise Exception.new("Error with context")
       }
       handler.next = error_handler
@@ -208,7 +208,7 @@ describe Azu::Handler::Rescuer do
     it "handles exceptions with causes" do
       handler = Azu::Handler::Rescuer.new
 
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         begin
           raise Exception.new("Inner error")
         rescue inner_ex
@@ -232,7 +232,7 @@ describe Azu::Handler::Rescuer do
       rescuer = Azu::Handler::Rescuer.new
       request_id_handler = Azu::Handler::RequestId.new
 
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         raise Exception.new("Chain error")
       }
 
@@ -250,7 +250,7 @@ describe Azu::Handler::Rescuer do
     it "catches errors from any point in chain" do
       rescuer = Azu::Handler::Rescuer.new
 
-      failing_handler = ->(context : HTTP::Server::Context) {
+      failing_handler = ->(_context : HTTP::Server::Context) {
         raise Exception.new("Middleware error")
       }
 
@@ -269,7 +269,7 @@ describe Azu::Handler::Rescuer do
     it "handles concurrent errors safely" do
       handler = Azu::Handler::Rescuer.new
 
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         raise Exception.new("Concurrent error")
       }
       handler.next = error_handler
@@ -293,7 +293,7 @@ describe Azu::Handler::Rescuer do
     it "sets appropriate content type for errors" do
       handler = Azu::Handler::Rescuer.new
 
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         raise Azu::Response::Error.new("Error", HTTP::Status::INTERNAL_SERVER_ERROR, [] of String)
       }
       handler.next = error_handler
@@ -308,7 +308,7 @@ describe Azu::Handler::Rescuer do
     it "generates valid HTML error pages" do
       handler = Azu::Handler::Rescuer.new
 
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         raise Exception.new("HTML error")
       }
       handler.next = error_handler
@@ -327,7 +327,7 @@ describe Azu::Handler::Rescuer do
     it "handles empty error messages" do
       handler = Azu::Handler::Rescuer.new
 
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         raise Exception.new("")
       }
       handler.next = error_handler
@@ -344,7 +344,7 @@ describe Azu::Handler::Rescuer do
       handler = Azu::Handler::Rescuer.new
 
       long_message = "Error: " + ("A" * 10000)
-      error_handler = ->(context : HTTP::Server::Context) {
+      error_handler = ->(_context : HTTP::Server::Context) {
         raise Exception.new(long_message)
       }
       handler.next = error_handler
@@ -370,4 +370,3 @@ describe Azu::Handler::Rescuer do
     end
   end
 end
-

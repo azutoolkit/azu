@@ -9,7 +9,7 @@ describe "Error Handling Integration" do
       request_id = Azu::Handler::RequestId.new
       rescuer = Azu::Handler::Rescuer.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("Test error")
       }
 
@@ -30,7 +30,7 @@ describe "Error Handling Integration" do
     it "generates request ID for errors without existing ID" do
       rescuer = Azu::Handler::Rescuer.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("Error without ID")
       }
 
@@ -50,7 +50,7 @@ describe "Error Handling Integration" do
       rescuer = Azu::Handler::Rescuer.new
       logger = Azu::Handler::Logger.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("Logged error")
       }
 
@@ -68,7 +68,7 @@ describe "Error Handling Integration" do
       rescuer = Azu::Handler::Rescuer.new
       logger = Azu::Handler::Logger.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         sleep 0.01.seconds
         raise Exception.new("Timed error")
       }
@@ -89,7 +89,7 @@ describe "Error Handling Integration" do
     it "handles Response::Error with custom status codes" do
       rescuer = Azu::Handler::Rescuer.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Azu::Response::Error.new("Not found", HTTP::Status::NOT_FOUND, [] of String)
       }
 
@@ -106,7 +106,7 @@ describe "Error Handling Integration" do
     it "handles validation errors" do
       rescuer = Azu::Handler::Rescuer.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Azu::Response::Error.new("Validation failed", HTTP::Status::UNPROCESSABLE_ENTITY, [] of String)
       }
 
@@ -122,7 +122,7 @@ describe "Error Handling Integration" do
     it "handles unauthorized errors" do
       rescuer = Azu::Handler::Rescuer.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Azu::Response::Error.new("Unauthorized", HTTP::Status::UNAUTHORIZED, [] of String)
       }
 
@@ -141,7 +141,7 @@ describe "Error Handling Integration" do
       request_id = Azu::Handler::RequestId.new
       rescuer = Azu::Handler::Rescuer.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("Error with method")
       }
 
@@ -159,7 +159,7 @@ describe "Error Handling Integration" do
       request_id = Azu::Handler::RequestId.new
       rescuer = Azu::Handler::Rescuer.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("Error with path")
       }
 
@@ -178,7 +178,7 @@ describe "Error Handling Integration" do
     it "handles exceptions with causes" do
       rescuer = Azu::Handler::Rescuer.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         begin
           raise Exception.new("Inner exception")
         rescue inner
@@ -202,7 +202,7 @@ describe "Error Handling Integration" do
       rescuer = Azu::Handler::Rescuer.new
       cors = Azu::Handler::CORS.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("Service error")
       }
 
@@ -226,7 +226,7 @@ describe "Error Handling Integration" do
     it "handles concurrent errors safely" do
       rescuer = Azu::Handler::Rescuer.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("Concurrent error")
       }
 
@@ -253,7 +253,7 @@ describe "Error Handling Integration" do
     it "generates HTML error pages for browsers" do
       rescuer = Azu::Handler::Rescuer.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("HTML error")
       }
 
@@ -271,7 +271,7 @@ describe "Error Handling Integration" do
     it "handles HTTP::Server::ClientError gracefully" do
       rescuer = Azu::Handler::Rescuer.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise HTTP::Server::ClientError.new("Bad request")
       }
 
@@ -293,7 +293,7 @@ describe "Error Handling Integration" do
       performance = Azu::Handler::PerformanceMonitor.new(metrics)
       rescuer = Azu::Handler::Rescuer.new
 
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Azu::Response::Error.new("Monitored error", HTTP::Status::INTERNAL_SERVER_ERROR, [] of String)
       }
 
@@ -310,4 +310,3 @@ describe "Error Handling Integration" do
     end
   end
 end
-

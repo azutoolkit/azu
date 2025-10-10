@@ -6,7 +6,7 @@ include IntegrationHelpers
 describe "Static Files Integration" do
   describe "Static + Logger integration" do
     it "logs static file requests" do
-      with_temp_file("Hello", "test.txt") do |dir, filepath|
+      with_temp_file("Hello", "test.txt") do |dir, _|
         static = Azu::Handler::Static.new(dir)
         logger = Azu::Handler::Logger.new
 
@@ -39,11 +39,11 @@ describe "Static Files Integration" do
 
   describe "Static + CORS integration" do
     it "serves static files with CORS headers" do
-      with_temp_file("Content", "file.txt") do |dir, filepath|
+      with_temp_file("Content", "file.txt") do |dir, _|
         cors = Azu::Handler::CORS.new(origins: ["https://example.com"])
         static = Azu::Handler::Static.new(dir)
 
-        static.next = ->(ctx : HTTP::Server::Context) { }
+        static.next = ->(_ctx : HTTP::Server::Context) { }
         cors.next = static
 
         headers = HTTP::Headers.new
@@ -63,11 +63,11 @@ describe "Static Files Integration" do
 
   describe "Static + RequestID integration" do
     it "adds request ID to static file responses" do
-      with_temp_file("Data", "data.json") do |dir, filepath|
+      with_temp_file("Data", "data.json") do |dir, _|
         request_id = Azu::Handler::RequestId.new
         static = Azu::Handler::Static.new(dir)
 
-        static.next = ->(ctx : HTTP::Server::Context) { }
+        static.next = ->(_ctx : HTTP::Server::Context) { }
         request_id.next = static
 
         context, io = create_context("GET", "/data.json")
@@ -81,11 +81,11 @@ describe "Static Files Integration" do
 
   describe "Static + Rescuer integration" do
     it "handles static handler errors" do
-      with_temp_file("Content", "test.txt") do |dir, filepath|
+      with_temp_file("Content", "test.txt") do |dir, _|
         rescuer = Azu::Handler::Rescuer.new
         static = Azu::Handler::Static.new(dir, fallthrough: false)
 
-        static.next = ->(ctx : HTTP::Server::Context) { }
+        static.next = ->(_ctx : HTTP::Server::Context) { }
         rescuer.next = static
 
         # Crystal's HTTP::Request automatically strips null bytes from paths for security
@@ -118,7 +118,7 @@ describe "Static Files Integration" do
     end
 
     it "serves static files before falling through" do
-      with_temp_file("Static content", "index.html") do |dir, filepath|
+      with_temp_file("Static content", "index.html") do |dir, _|
         static = Azu::Handler::Static.new(dir, fallthrough: true)
         app_handler, verify = create_next_handler(0)
 
@@ -138,11 +138,11 @@ describe "Static Files Integration" do
 
   describe "ETag caching in chain" do
     it "serves 304 for cached files" do
-      with_temp_file("Cached content", "cached.txt") do |dir, filepath|
+      with_temp_file("Cached content", "cached.txt") do |dir, _|
         request_id = Azu::Handler::RequestId.new
         static = Azu::Handler::Static.new(dir)
 
-        static.next = ->(ctx : HTTP::Server::Context) { }
+        static.next = ->(_ctx : HTTP::Server::Context) { }
         request_id.next = static
 
         # First request to get ETag
@@ -165,11 +165,11 @@ describe "Static Files Integration" do
   describe "compression in chain" do
     it "serves gzipped content when accepted" do
       large_content = "x" * 2000
-      with_temp_file(large_content, "large.html") do |dir, filepath|
+      with_temp_file(large_content, "large.html") do |dir, _|
         cors = Azu::Handler::CORS.new
         static = Azu::Handler::Static.new(dir)
 
-        static.next = ->(ctx : HTTP::Server::Context) { }
+        static.next = ->(_ctx : HTTP::Server::Context) { }
         cors.next = static
 
         headers = HTTP::Headers.new
@@ -185,7 +185,7 @@ describe "Static Files Integration" do
 
   describe "full static file chain" do
     it "processes static requests through complete chain" do
-      with_temp_file("Hello World", "hello.txt") do |dir, filepath|
+      with_temp_file("Hello World", "hello.txt") do |dir, _|
         request_id = Azu::Handler::RequestId.new
         logger = Azu::Handler::Logger.new
         cors = Azu::Handler::CORS.new(origins: ["*"])
@@ -193,7 +193,7 @@ describe "Static Files Integration" do
         performance = Azu::Handler::PerformanceMonitor.new(metrics)
         static = Azu::Handler::Static.new(dir)
 
-        static.next = ->(ctx : HTTP::Server::Context) { }
+        static.next = ->(_ctx : HTTP::Server::Context) { }
         performance.next = static
         cors.next = performance
         logger.next = cors
@@ -220,11 +220,11 @@ describe "Static Files Integration" do
 
   describe "security with static files" do
     it "prevents path traversal" do
-      with_temp_file("Secret", "secret.txt") do |dir, filepath|
+      with_temp_file("Secret", "secret.txt") do |dir, _|
         rescuer = Azu::Handler::Rescuer.new
         static = Azu::Handler::Static.new(dir)
 
-        static.next = ->(ctx : HTTP::Server::Context) { }
+        static.next = ->(_ctx : HTTP::Server::Context) { }
         rescuer.next = static
 
         context, io = create_context("GET", "/../secret.txt")
@@ -236,9 +236,9 @@ describe "Static Files Integration" do
     end
 
     it "blocks null byte injection" do
-      with_temp_file("Content", "file.txt") do |dir, filepath|
+      with_temp_file("Content", "file.txt") do |dir, _|
         static = Azu::Handler::Static.new(dir, fallthrough: false)
-        static.next = ->(ctx : HTTP::Server::Context) { }
+        static.next = ->(_ctx : HTTP::Server::Context) { }
 
         # Crystal's HTTP::Request automatically strips null bytes from paths
         # "/file\0.txt" becomes "/file", which won't match "file.txt"
@@ -254,12 +254,12 @@ describe "Static Files Integration" do
 
   describe "performance of static serving" do
     it "serves files efficiently" do
-      with_temp_file("Fast content", "fast.txt") do |dir, filepath|
+      with_temp_file("Fast content", "fast.txt") do |dir, _|
         metrics = Azu::PerformanceMetrics.new
         performance = Azu::Handler::PerformanceMonitor.new(metrics)
         static = Azu::Handler::Static.new(dir)
 
-        static.next = ->(ctx : HTTP::Server::Context) { }
+        static.next = ->(_ctx : HTTP::Server::Context) { }
         performance.next = static
 
         10.times do
@@ -269,7 +269,7 @@ describe "Static Files Integration" do
 
         stats = performance.stats
         stats.total_requests.should eq(10)
-        stats.avg_response_time.should be < 100  # Should be fast
+        stats.avg_response_time.should be < 100 # Should be fast
       end
     end
   end
@@ -283,7 +283,7 @@ describe "Static Files Integration" do
         "test.json" => "{\"test\": true}",
       }) do |dir|
         static = Azu::Handler::Static.new(dir)
-        static.next = ->(ctx : HTTP::Server::Context) { }
+        static.next = ->(_ctx : HTTP::Server::Context) { }
 
         files = [
           {"/test.html", "text/html"},
@@ -301,4 +301,3 @@ describe "Static Files Integration" do
     end
   end
 end
-

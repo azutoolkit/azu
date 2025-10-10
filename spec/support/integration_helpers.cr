@@ -57,7 +57,7 @@ module IntegrationHelpers
   end
 
   # Create temporary file for static file testing
-  def with_temp_file(content : String, filename : String = "test.txt", &block)
+  def with_temp_file(content : String, filename : String = "test.txt", &)
     dir = File.tempname("azu_test")
     Dir.mkdir_p(dir)
 
@@ -71,7 +71,7 @@ module IntegrationHelpers
   end
 
   # Create temporary directory structure for static file testing
-  def with_temp_dir(files : Hash(String, String), &block)
+  def with_temp_dir(files : Hash(String, String), &)
     dir = File.tempname("azu_test")
     Dir.mkdir_p(dir)
 
@@ -115,7 +115,7 @@ module IntegrationHelpers
   end
 
   # Wait for async operations to complete
-  def wait_for_async(timeout = 1.second, &block)
+  def wait_for_async(timeout = 1.second, &)
     start = Time.monotonic
     while Time.monotonic - start < timeout
       begin
@@ -128,4 +128,3 @@ module IntegrationHelpers
     raise "Timeout waiting for async operation"
   end
 end
-

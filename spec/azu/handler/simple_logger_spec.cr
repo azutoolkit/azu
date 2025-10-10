@@ -163,7 +163,7 @@ describe Azu::Handler::SimpleLogger do
   describe "error handling" do
     it "logs errors asynchronously" do
       handler = Azu::Handler::SimpleLogger.new
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("Test error")
       }
       handler.next = error_handler
@@ -179,7 +179,7 @@ describe Azu::Handler::SimpleLogger do
 
     it "re-raises exceptions after logging" do
       handler = Azu::Handler::SimpleLogger.new
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("Must be re-raised")
       }
       handler.next = error_handler
@@ -193,7 +193,7 @@ describe Azu::Handler::SimpleLogger do
 
     it "reports errors to error reporter" do
       handler = Azu::Handler::SimpleLogger.new
-      error_handler = ->(ctx : HTTP::Server::Context) {
+      error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("Reported error")
       }
       handler.next = error_handler
@@ -334,4 +334,3 @@ describe Azu::Handler::SimpleLogger do
     end
   end
 end
-

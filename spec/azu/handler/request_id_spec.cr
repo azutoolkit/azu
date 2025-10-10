@@ -349,4 +349,3 @@ describe Azu::Handler::RequestId do
     end
   end
 end
-

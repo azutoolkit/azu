@@ -238,7 +238,7 @@ describe Azu::Handler::PerformanceMonitor do
       metrics = Azu::PerformanceMetrics.new
       handler = Azu::Handler::PerformanceMonitor.new(metrics)
       slow_handler = ->(ctx : HTTP::Server::Context) {
-        sleep 2.seconds  # Above default threshold
+        sleep 2.seconds # Above default threshold
         ctx.response.print "Slow"
       }
       handler.next = slow_handler
@@ -344,4 +344,3 @@ describe Azu::Handler::PerformanceMonitor do
     end
   end
 end
-
