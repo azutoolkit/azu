@@ -184,18 +184,35 @@ module Azu
         context.response.headers["X-Error-ID"] = error_id
         context.response.headers["X-Error-Fingerprint"] = fingerprint
 
-        if accept = context.request.accept
-          accept.each do |a|
-            context.response << case a.sub_type.not_nil!
-            when .includes?("html")  then html(context)
-            when .includes?("json")  then json
-            when .includes?("xml")   then xml
-            when .includes?("plain") then text
-            else                          text
-            end
-            break
-          end
+        content = if accept = context.request.accept
+                    accept.first?.try do |a|
+                      case a.sub_type.not_nil!
+                      when .includes?("html")
+                        context.response.content_type = "text/html"
+                        html(context)
+                      when .includes?("json")
+                        context.response.content_type = "application/json"
+                        json
+                      when .includes?("xml")
+                        context.response.content_type = "application/xml"
+                        xml
+                      when .includes?("plain")
+                        context.response.content_type = "text/plain"
+                        text
+                      else
+                        context.response.content_type = "text/plain"
+                        text
+                      end
+                    end
+                  end
+
+        # Fallback to text if no accept header or no match
+        unless content
+          context.response.content_type = "text/plain"
+          content = text
         end
+
+        context.response.print content
       end
 
       private def generate_fingerprint : String

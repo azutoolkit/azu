@@ -15,16 +15,19 @@ module Azu
     end
 
     class CORS
+      include HTTP::Handler
+
       alias OriginType = Array(String | Regex)
-      FORBIDDEN     = "Forbidden for invalid origins, methods or headers"
-      ALLOW_METHODS = %w(POST PUT PATCH DELETE)
-      ALLOW_HEADERS = %w(Accept Content-Type)
+      FORBIDDEN        = "Forbidden for invalid origins, methods or headers"
+      ALLOW_METHODS    = %w(POST PUT PATCH DELETE)
+      ALLOW_HEADERS    = %w(Accept Content-Type)
+      DEFAULT_ORIGINS  = ["*", /./] of (String | Regex)
 
       property origins, headers, methods, credentials, max_age
       @origin : Origin
 
       def initialize(
-        @origins : OriginType = ["*", %r()],
+        origins : OriginType? = nil,
         @methods = ALLOW_METHODS,
         @headers = ALLOW_HEADERS,
         @credentials = false,
@@ -32,7 +35,12 @@ module Azu
         @expose_headers : Array(String)? = nil,
         @vary : String? = nil,
       )
-        @origin = Origin.new(origins)
+        @origins = if origins
+                     origins.map { |o| o.as(String | Regex) }.as(OriginType)
+                   else
+                     DEFAULT_ORIGINS
+                   end
+        @origin = Origin.new(@origins)
       end
 
       def call(context : HTTP::Server::Context)

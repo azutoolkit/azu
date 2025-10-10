@@ -349,24 +349,29 @@ module Azu
       since ||= @start_time
 
       MUTEX.synchronize do
-        metrics = @request_metrics.select { |m| m.endpoint == endpoint && m.timestamp >= since }
-        return {} of String => Float64 if metrics.empty?
-
-        response_times = metrics.map(&.processing_time).sort!
-        error_count = metrics.count(&.error?)
-
-        {
-          "total_requests"      => metrics.size.to_f,
-          "error_requests"      => error_count.to_f,
-          "error_rate"          => (error_count.to_f / metrics.size * 100).round(2),
-          "avg_response_time"   => response_times.sum / response_times.size,
-          "min_response_time"   => response_times.first,
-          "max_response_time"   => response_times.last,
-          "p95_response_time"   => percentile(response_times, 0.95),
-          "p99_response_time"   => percentile(response_times, 0.99),
-          "avg_memory_usage_mb" => metrics.map(&.memory_usage_mb).sum / metrics.size,
-        }
+        unsafe_endpoint_stats(endpoint, since)
       end
+    end
+
+    # Internal method without mutex - caller must hold mutex
+    private def unsafe_endpoint_stats(endpoint : String, since : Time) : Hash(String, Float64)
+      metrics = @request_metrics.select { |m| m.endpoint == endpoint && m.timestamp >= since }
+      return {} of String => Float64 if metrics.empty?
+
+      response_times = metrics.map(&.processing_time).sort!
+      error_count = metrics.count(&.error?)
+
+      {
+        "total_requests"      => metrics.size.to_f,
+        "error_requests"      => error_count.to_f,
+        "error_rate"          => (error_count.to_f / metrics.size * 100).round(2),
+        "avg_response_time"   => response_times.sum / response_times.size,
+        "min_response_time"   => response_times.first,
+        "max_response_time"   => response_times.last,
+        "p95_response_time"   => percentile(response_times, 0.95),
+        "p99_response_time"   => percentile(response_times, 0.99),
+        "avg_memory_usage_mb" => metrics.map(&.memory_usage_mb).sum / metrics.size,
+      }
     end
 
     # Get component statistics
@@ -542,7 +547,7 @@ module Azu
       endpoint_br = Hash(String, Hash(String, Float64)).new
       MUTEX.synchronize do
         @endpoint_stats.keys.each do |endpoint|
-          endpoint_br[endpoint] = endpoint_stats(endpoint)
+          endpoint_br[endpoint] = unsafe_endpoint_stats(endpoint, @start_time)
         end
       end
 

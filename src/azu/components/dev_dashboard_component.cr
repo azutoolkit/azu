@@ -4,6 +4,15 @@ require "../performance_reporter"
 require "../development_tools"
 require "../cache"
 
+# Conditionally require CQL if available
+{% begin %}
+  {% if @top_level.has_constant?("CQL") %}
+    # CQL is available, performance monitoring enabled
+  {% else %}
+    # CQL not available, using fallback implementations
+  {% end %}
+{% end %}
+
 module Azu
   module Components
     # Data provider for the development dashboard.
@@ -90,30 +99,52 @@ module Azu
       end
 
       def collect_database_data
-        monitor = CQL::Performance.monitor
-        metrics = monitor.metrics
-        query_metrics = metrics.query_metrics
-        n_plus_one_metrics = metrics.n_plus_one_metrics
-        health_metrics = metrics.health_metrics
+        {% if @top_level.has_constant?("CQL") %}
+          monitor = CQL::Performance.monitor
+          metrics = monitor.metrics
+          query_metrics = metrics.query_metrics
+          n_plus_one_metrics = metrics.n_plus_one_metrics
+          health_metrics = metrics.health_metrics
 
-        {
-          "total_queries"           => query_metrics.total_queries,
-          "slow_queries"            => query_metrics.slow_queries,
-          "very_slow_queries"       => query_metrics.very_slow_queries,
-          "error_queries"           => query_metrics.error_queries,
-          "avg_query_time"          => query_metrics.avg_execution_time.total_milliseconds,
-          "min_query_time"          => query_metrics.min_execution_time.total_milliseconds,
-          "max_query_time"          => query_metrics.max_execution_time.total_milliseconds,
-          "error_rate"              => query_metrics.error_rate,
-          "queries_per_second"      => query_metrics.queries_per_second,
-          "slow_query_rate"         => query_metrics.slow_query_rate,
-          "n_plus_one_patterns"     => n_plus_one_metrics.total_patterns,
-          "critical_n_plus_one"     => n_plus_one_metrics.critical_patterns,
-          "high_n_plus_one"         => n_plus_one_metrics.high_patterns,
-          "database_health_score"   => health_metrics.query_health_score,
-          "monitoring_enabled"      => monitor.enabled?,
-          "uptime"                  => Time.utc - @start_time,
-        }
+          {
+            "total_queries"           => query_metrics.total_queries,
+            "slow_queries"            => query_metrics.slow_queries,
+            "very_slow_queries"       => query_metrics.very_slow_queries,
+            "error_queries"           => query_metrics.error_queries,
+            "avg_query_time"          => query_metrics.avg_execution_time.total_milliseconds,
+            "min_query_time"          => query_metrics.min_execution_time.total_milliseconds,
+            "max_query_time"          => query_metrics.max_execution_time.total_milliseconds,
+            "error_rate"              => query_metrics.error_rate,
+            "queries_per_second"      => query_metrics.queries_per_second,
+            "slow_query_rate"         => query_metrics.slow_query_rate,
+            "n_plus_one_patterns"     => n_plus_one_metrics.total_patterns,
+            "critical_n_plus_one"     => n_plus_one_metrics.critical_patterns,
+            "high_n_plus_one"         => n_plus_one_metrics.high_patterns,
+            "database_health_score"   => health_metrics.query_health_score,
+            "monitoring_enabled"      => monitor.enabled?,
+            "uptime"                  => Time.utc - @start_time,
+          }
+        {% else %}
+          # CQL not available - return default values
+          {
+            "total_queries"           => 0_i64,
+            "slow_queries"            => 0_i64,
+            "very_slow_queries"       => 0_i64,
+            "error_queries"           => 0_i64,
+            "avg_query_time"          => 0.0,
+            "min_query_time"          => 0.0,
+            "max_query_time"          => 0.0,
+            "error_rate"              => 0.0,
+            "queries_per_second"      => 0.0,
+            "slow_query_rate"         => 0.0,
+            "n_plus_one_patterns"     => 0,
+            "critical_n_plus_one"     => 0,
+            "high_n_plus_one"         => 0,
+            "database_health_score"   => 100,
+            "monitoring_enabled"      => false,
+            "uptime"                  => Time::Span.zero,
+          }
+        {% end %}
       rescue ex
         @log.error { "Failed to collect database metrics: #{ex.message}" }
         {
@@ -137,32 +168,47 @@ module Azu
       end
 
       def collect_database_summary_count : Int32
-        monitor = CQL::Performance.monitor
-        metrics = monitor.metrics
-        query_metrics = metrics.query_metrics
-        n_plus_one_metrics = metrics.n_plus_one_metrics
+        {% if @top_level.has_constant?("CQL") %}
+          monitor = CQL::Performance.monitor
+          metrics = monitor.metrics
+          query_metrics = metrics.query_metrics
+          n_plus_one_metrics = metrics.n_plus_one_metrics
 
-        query_metrics.total_queries.to_i +
-        query_metrics.slow_queries.to_i +
-        query_metrics.very_slow_queries.to_i +
-        n_plus_one_metrics.total_patterns
+          query_metrics.total_queries.to_i +
+          query_metrics.slow_queries.to_i +
+          query_metrics.very_slow_queries.to_i +
+          n_plus_one_metrics.total_patterns
+        {% else %}
+          0  # CQL not available
+        {% end %}
       rescue
         0
       end
 
       def collect_query_profiler_data
-        monitor = CQL::Performance.monitor
-        metrics = monitor.metrics
-        query_metrics = metrics.query_metrics
-        top_queries = metrics.top_queries
+        {% if @top_level.has_constant?("CQL") %}
+          monitor = CQL::Performance.monitor
+          metrics = monitor.metrics
+          query_metrics = metrics.query_metrics
+          top_queries = metrics.top_queries
 
-        {
-          "unique_patterns"       => top_queries.most_frequent_queries.size,
-          "total_executions"      => query_metrics.total_queries,
-          "avg_performance_score" => calculate_performance_score(query_metrics),
-          "slowest_pattern_time"  => query_metrics.max_execution_time.total_milliseconds,
-          "most_frequent_count"   => top_queries.most_frequent_queries.first?.try(&.[:count]) || 0_i64,
-        }
+          {
+            "unique_patterns"       => top_queries.most_frequent_queries.size,
+            "total_executions"      => query_metrics.total_queries,
+            "avg_performance_score" => calculate_performance_score(query_metrics),
+            "slowest_pattern_time"  => query_metrics.max_execution_time.total_milliseconds,
+            "most_frequent_count"   => top_queries.most_frequent_queries.first?.try(&.[:count]) || 0_i64,
+          }
+        {% else %}
+          # CQL not available - return default values
+          {
+            "unique_patterns"       => 0,
+            "total_executions"      => 0_i64,
+            "avg_performance_score" => 0.0,
+            "slowest_pattern_time"  => 0.0,
+            "most_frequent_count"   => 0_i64,
+          }
+        {% end %}
       rescue ex
         @log.error { "Failed to collect query profiler data: #{ex.message}" }
         {
@@ -175,19 +221,31 @@ module Azu
       end
 
       def collect_n_plus_one_data
-        monitor = CQL::Performance.monitor
-        metrics = monitor.metrics
-        n_plus_one_metrics = metrics.n_plus_one_metrics
-        patterns = metrics.n_plus_one_patterns_by_severity(:all)
+        {% if @top_level.has_constant?("CQL") %}
+          monitor = CQL::Performance.monitor
+          metrics = monitor.metrics
+          n_plus_one_metrics = metrics.n_plus_one_metrics
+          patterns = metrics.n_plus_one_patterns_by_severity(:all)
 
-        {
-          "issues"         => patterns.map(&.to_h.to_json),
-          "total_issues"   => n_plus_one_metrics.total_patterns,
-          "critical_count" => n_plus_one_metrics.critical_patterns,
-          "high_count"     => n_plus_one_metrics.high_patterns,
-          "medium_count"   => n_plus_one_metrics.medium_patterns,
-          "low_count"      => n_plus_one_metrics.low_patterns,
-        }
+          {
+            "issues"         => patterns.map(&.to_h.to_json),
+            "total_issues"   => n_plus_one_metrics.total_patterns,
+            "critical_count" => n_plus_one_metrics.critical_patterns,
+            "high_count"     => n_plus_one_metrics.high_patterns,
+            "medium_count"   => n_plus_one_metrics.medium_patterns,
+            "low_count"      => n_plus_one_metrics.low_patterns,
+          }
+        {% else %}
+          # CQL not available - return default values
+          {
+            "issues"         => [] of String,
+            "total_issues"   => 0,
+            "critical_count" => 0,
+            "high_count"     => 0,
+            "medium_count"   => 0,
+            "low_count"      => 0,
+          }
+        {% end %}
       rescue ex
         @log.error { "Failed to collect N+1 data: #{ex.message}" }
         {
@@ -201,37 +259,47 @@ module Azu
       end
 
       def collect_slow_queries_data
-        metrics = CQL::Performance.monitor.metrics
-        slow_queries = metrics.top_queries.slowest_queries[0..20]
+        {% if @top_level.has_constant?("CQL") %}
+          metrics = CQL::Performance.monitor.metrics
+          slow_queries = metrics.top_queries.slowest_queries[0..20]
 
-        slow_queries.map do |query|
-          {
-            "sql"               => query.sql,
-            "normalized_sql"    => query.normalized_sql,
-            # "context"           => query.context || "N/A",
-            "timestamp"         => query.timestamp.to_rfc3339,
-            "rows_affected"     => query.rows_affected || 0_i64,
-            "error"            => query.error || "None",
-            "execution_time_ms" => query.execution_time.total_milliseconds,
-          }
-        end
+          slow_queries.map do |query|
+            {
+              "sql"               => query.sql,
+              "normalized_sql"    => query.normalized_sql,
+              # "context"           => query.context || "N/A",
+              "timestamp"         => query.timestamp.to_rfc3339,
+              "rows_affected"     => query.rows_affected || 0_i64,
+              "error"            => query.error || "None",
+              "execution_time_ms" => query.execution_time.total_milliseconds,
+            }
+          end
+        {% else %}
+          # CQL not available - return empty array
+          [] of Hash(String, String | Float64 | Int64)
+        {% end %}
       rescue ex
         @log.error { "Failed to collect slow queries data: #{ex.message}" }
         [] of Hash(String, String | Float64 | Int64)
       end
 
       def collect_query_patterns_data
-        metrics = CQL::Performance.monitor.metrics
-        patterns = metrics.top_queries.most_frequent_queries[0..15]
+        {% if @top_level.has_constant?("CQL") %}
+          metrics = CQL::Performance.monitor.metrics
+          patterns = metrics.top_queries.most_frequent_queries[0..15]
 
-        patterns.map do |pattern|
-          {
-            "normalized_sql"    => pattern[:sql],
-            "execution_count"   => pattern[:count],
-            "avg_time_ms"       => pattern[:avg_time].total_milliseconds,
-            "performance_score" => calculate_query_performance_score(pattern),
-          }
-        end
+          patterns.map do |pattern|
+            {
+              "normalized_sql"    => pattern[:sql],
+              "execution_count"   => pattern[:count],
+              "avg_time_ms"       => pattern[:avg_time].total_milliseconds,
+              "performance_score" => calculate_query_performance_score(pattern),
+            }
+          end
+        {% else %}
+          # CQL not available - return empty array
+          [] of Hash(String, String | Float64 | Int64)
+        {% end %}
       rescue ex
         @log.error { "Failed to collect query patterns data: #{ex.message}" }
         [] of Hash(String, String | Int64 | Float64)
@@ -277,38 +345,45 @@ module Azu
         end
       end
 
-      private def calculate_performance_score(query_metrics : CQL::Performance::PerformanceMetrics::QueryMetrics) : Float64
-        return 0.0 if query_metrics.total_queries == 0
+      {% if @top_level.has_constant?("CQL") %}
+        private def calculate_performance_score(query_metrics : CQL::Performance::PerformanceMetrics::QueryMetrics) : Float64
+          return 0.0 if query_metrics.total_queries == 0
 
-        # Calculate score based on various metrics
-        base_score = 100.0
+          # Calculate score based on various metrics
+          base_score = 100.0
 
-        # Penalize for slow queries
-        slow_query_penalty = (query_metrics.slow_query_rate * 0.5)
+          # Penalize for slow queries
+          slow_query_penalty = (query_metrics.slow_query_rate * 0.5)
 
-        # Penalize for errors
-        error_penalty = (query_metrics.error_rate * 2.0)
+          # Penalize for errors
+          error_penalty = (query_metrics.error_rate * 2.0)
 
-        # Penalize for high average execution time (assuming > 100ms is bad)
-        avg_time_penalty = (query_metrics.avg_execution_time.total_milliseconds / 100.0) * 10.0
+          # Penalize for high average execution time (assuming > 100ms is bad)
+          avg_time_penalty = (query_metrics.avg_execution_time.total_milliseconds / 100.0) * 10.0
 
-        score = base_score - slow_query_penalty - error_penalty - avg_time_penalty
-        [score, 0.0].max
-      end
+          score = base_score - slow_query_penalty - error_penalty - avg_time_penalty
+          [score, 0.0].max
+        end
 
-      private def calculate_query_performance_score(pattern : NamedTuple(sql: String, count: Int64, avg_time: Time::Span)) : Float64
-        # Base score starts at 100
-        score = 100.0
+        private def calculate_query_performance_score(pattern : NamedTuple(sql: String, count: Int64, avg_time: Time::Span)) : Float64
+          # Base score starts at 100
+          score = 100.0
 
-        # Penalize for high execution count (assuming > 1000 is concerning)
-        count_penalty = (pattern[:count] / 1000.0) * 10.0
+          # Penalize for high execution count (assuming > 1000 is concerning)
+          count_penalty = (pattern[:count] / 1000.0) * 10.0
 
-        # Penalize for high average time (assuming > 100ms is concerning)
-        time_penalty = (pattern[:avg_time].total_milliseconds / 100.0) * 20.0
+          # Penalize for high average time (assuming > 100ms is concerning)
+          time_penalty = (pattern[:avg_time].total_milliseconds / 100.0) * 20.0
 
-        score = score - count_penalty - time_penalty
-        [score, 0.0].max
-      end
+          score = score - count_penalty - time_penalty
+          [score, 0.0].max
+        end
+
+        private def calculate_database_health_score(metrics) : Int32
+          # Placeholder implementation
+          100
+        end
+      {% end %}
 
       def collect_routes_data
         routes = Azu::CONFIG.router.route_info

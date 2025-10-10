@@ -20,7 +20,7 @@ module Azu
     # ### Usage
     #
     # ```
-    # Azu::Throttle.new(
+    # Azu::Handler::Throttle.new(
     #   interval: 5,
     #   duration: 5,
     #   threshold: 10,
@@ -31,105 +31,149 @@ module Azu
     class Throttle
       include HTTP::Handler
 
+      # Thread-safe request tracker structure
+      private struct RequestTracker
+        property expires : Int64
+        property requests : Int32
+        property block_expires : Int64?
+
+        def initialize(@expires : Int64, @requests : Int32 = 0, @block_expires : Int64? = nil)
+        end
+
+        def blocked? : Bool
+          !@block_expires.nil?
+        end
+
+        def block_expired?(current_time : Int64) : Bool
+          if block_time = @block_expires
+            block_time < current_time
+          else
+            false
+          end
+        end
+
+        def watch_expired?(current_time : Int64) : Bool
+          @expires <= current_time
+        end
+
+        def increment_requests : RequestTracker
+          RequestTracker.new(@expires, @requests + 1, @block_expires)
+        end
+
+        def block(duration : Int32, current_time : Int64) : RequestTracker
+          RequestTracker.new(@expires, @requests, current_time + duration)
+        end
+      end
+
       RETRY_AFTER    = "Retry-After"
       CONTENT_TYPE   = "Content-Type"
       CONTENT_LENGTH = "Content-Length"
       REMOTE_ADDR    = "REMOTE_ADDR"
-      MAPPER         = {} of String => Hash(String, Int32 | Int64)
 
       private getter log : ::Log = CONFIG.log,
         interval : Int32 = 5,
         duration : Int32 = 900,
         threshold : Int32 = 100,
         blacklist : Array(String) = [] of String,
-        whitelist : Array(String) = [] of String,
-        remote = ""
+        whitelist : Array(String) = [] of String
+
+      @tracker : Hash(String, RequestTracker)
+      @mutex : Mutex
 
       def initialize(@interval, @duration, @threshold, @blacklist, @whitelist)
+        @tracker = Hash(String, RequestTracker).new
         @mutex = Mutex.new
       end
 
       def call(context : HTTP::Server::Context)
-        return call_next(context) unless deflect?(context)
-        too_many_requests(context)
+        remote = context.request.headers[REMOTE_ADDR]? || "unknown"
+
+        return call_next(context) unless deflect?(remote)
+        too_many_requests(context, remote)
       end
 
-      private def deflect?(context)
-        @remote = context.request.headers[REMOTE_ADDR]
+      private def deflect?(remote : String) : Bool
+        return false if whitelisted?(remote)
+        return true if blacklisted?(remote)
 
-        return false if whitelisted?
-        return true if blacklisted?
-
-        @mutex.synchronize { watch }
+        @mutex.synchronize { watch(remote) }
       end
 
-      private def too_many_requests(context)
+      private def too_many_requests(context, remote : String)
+        retry_after = @mutex.synchronize do
+          if tracker = @tracker[remote]?
+            tracker.block_expires || 0
+          else
+            0
+          end
+        end
+
         context.response.headers[CONTENT_TYPE] = "text/plain"
         context.response.headers[CONTENT_LENGTH] = "0"
-        context.response.headers[RETRY_AFTER] = "#{map["block_expires"]}"
+        context.response.headers[RETRY_AFTER] = "#{retry_after}"
         context.response.status_code = HTTP::Status::TOO_MANY_REQUESTS.value
         context.response.close
       end
 
-      private def map
-        MAPPER[remote] ||= {
-          "expires"  => Time.utc.to_unix + interval,
-          "requests" => 0,
-        }
+      # All methods below must be called within @mutex.synchronize block
+      private def watch(remote : String) : Bool
+        current_time = Time.utc.to_unix
+        tracker = get_or_create_tracker(remote, current_time)
+
+        # Increment requests
+        tracker = tracker.increment_requests
+        @tracker[remote] = tracker
+
+        # Check if watch period expired and not blocked
+        if tracker.watch_expired?(current_time) && !tracker.blocked?
+          @tracker.delete(remote)
+          return false
+        end
+
+        # Check if block period expired
+        if tracker.blocked? && tracker.block_expired?(current_time)
+          @tracker.delete(remote)
+          log.warn { "#{remote} released" }
+          return false
+        end
+
+        # Check if threshold exceeded and should be blocked
+        if !tracker.blocked? && tracker.requests > threshold
+          @tracker[remote] = tracker.block(duration, current_time)
+          log.warn { "#{remote} blocked" }
+          return true
+        end
+
+        tracker.blocked?
       end
 
-      private def watch
-        increment_requests
-
-        clear! if watch_expired? && !blocked?
-        clear! if blocked? && block_expired?
-        block! if watching? && exceeded_request_threshold?
-
-        blocked?
+      private def get_or_create_tracker(remote : String, current_time : Int64) : RequestTracker
+        @tracker[remote]? || RequestTracker.new(current_time + interval, 0)
       end
 
-      private def blacklisted?
+      private def blacklisted?(remote : String) : Bool
         blacklist.includes?(remote)
       end
 
-      private def whitelisted?
+      private def whitelisted?(remote : String) : Bool
         whitelist.includes?(remote)
       end
 
-      private def block!
-        return if blocked?
-        map["block_expires"] = Time.utc.to_unix + duration
-        log.warn { "#{remote} blocked" }
+      # Reset tracker (useful for testing)
+      def reset
+        @mutex.synchronize do
+          @tracker.clear
+        end
       end
 
-      private def clear!
-        return unless watching?
-        MAPPER.delete(remote)
-        log.warn { "#{remote} released" } if blocked?
-      end
-
-      private def blocked?
-        map.has_key?("block_expires")
-      end
-
-      private def block_expired?
-        map["block_expires"] < Time.utc.to_unix rescue false
-      end
-
-      private def watching?
-        MAPPER.has_key?(remote)
-      end
-
-      private def increment_requests
-        map["requests"] += 1
-      end
-
-      private def watch_expired?
-        map["expires"] <= Time.utc.to_unix
-      end
-
-      private def exceeded_request_threshold?
-        map["requests"] > threshold
+      # Get tracker stats (useful for monitoring)
+      def stats
+        @mutex.synchronize do
+          {
+            tracked_ips: @tracker.size,
+            blocked_ips: @tracker.count { |_, tracker| tracker.blocked? },
+          }
+        end
       end
     end
   end

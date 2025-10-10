@@ -83,13 +83,13 @@ module Azu
             context.response.content_type = "text/html"
             directory_listing(context.response, request_path, file_path)
           else
-            call_next(context)
+            call_next(context) if @fallthrough
           end
         elsif File.exists?(file_path)
           return if etag(context, file_path)
           serve_file(context, file_path)
         else
-          call_next(context)
+          call_next(context) if @fallthrough
         end
       end
 

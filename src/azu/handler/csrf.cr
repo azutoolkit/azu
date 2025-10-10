@@ -50,6 +50,7 @@ module Azu
       # Default instance for backward compatibility
       @@default_instance : CSRF? = nil
       @@instance_mutex = Mutex.new
+      @@shared_secret_key : String? = nil
 
       # Exception for CSRF validation failures
       class InvalidTokenError < Exception
@@ -61,7 +62,7 @@ module Azu
       def initialize(
         @skip_routes : Array(String) = [] of String,
         @strategy : Strategy = Strategy::SignedDoubleSubmit,
-        @secret_key : String = Random::Secure.urlsafe_base64(HMAC_SECRET_LENGTH),
+        secret_key : String? = nil,
         @cookie_name : String = COOKIE_KEY,
         @header_name : String = HEADER_KEY,
         @param_name : String = PARAM_KEY,
@@ -69,10 +70,15 @@ module Azu
         @cookie_same_site : HTTP::Cookie::SameSite = COOKIE_SAME_SITE,
         @secure_cookies : Bool = true,
       )
+        @secret_key = secret_key || (@@shared_secret_key ||= Random::Secure.urlsafe_base64(HMAC_SECRET_LENGTH))
       end
 
       # Get default instance (backward compatibility)
+      # Uses double-checked locking to avoid mutex contention
       def self.default : CSRF
+        instance = @@default_instance
+        return instance if instance
+
         @@instance_mutex.synchronize do
           @@default_instance ||= new
         end
@@ -82,6 +88,14 @@ module Azu
       def self.reset_default!
         @@instance_mutex.synchronize do
           @@default_instance = nil
+          @@shared_secret_key = nil
+        end
+      end
+
+      # Get or generate shared secret key
+      protected def self.get_or_generate_shared_secret_key : String
+        @@instance_mutex.synchronize do
+          @@shared_secret_key ||= Random::Secure.urlsafe_base64(HMAC_SECRET_LENGTH)
         end
       end
 
@@ -97,6 +111,91 @@ module Azu
 
       def self.metatag(context : HTTP::Server::Context) : String
         default.metatag(context)
+      end
+
+      def self.validate_origin(context : HTTP::Server::Context) : Bool
+        default.validate_origin(context)
+      end
+
+      # Configuration helper methods
+      def self.use_signed_double_submit!
+        default.strategy = Strategy::SignedDoubleSubmit
+      end
+
+      def self.use_synchronizer_token!
+        default.strategy = Strategy::SynchronizerToken
+      end
+
+      def self.use_double_submit!
+        default.strategy = Strategy::DoubleSubmit
+      end
+
+      # Configuration block
+      def self.configure
+        yield default
+      end
+
+      # Class-level property accessors that delegate to default instance
+      def self.strategy
+        default.strategy
+      end
+
+      def self.strategy=(value : Strategy)
+        default.strategy = value
+      end
+
+      def self.secret_key
+        key = default.secret_key
+        if key.empty?
+          key = get_or_generate_shared_secret_key
+          default.secret_key = key
+        end
+        key
+      end
+
+      def self.secret_key=(value : String)
+        @@shared_secret_key = value
+        default.secret_key = value
+      end
+
+      def self.cookie_name
+        default.cookie_name
+      end
+
+      def self.cookie_name=(value : String)
+        default.cookie_name = value
+      end
+
+      def self.header_name
+        default.header_name
+      end
+
+      def self.header_name=(value : String)
+        default.header_name = value
+      end
+
+      def self.param_name
+        default.param_name
+      end
+
+      def self.param_name=(value : String)
+        default.param_name = value
+      end
+
+      def self.cookie_max_age
+        default.cookie_max_age
+      end
+
+      def self.cookie_max_age=(value : Int32)
+        default.cookie_max_age = value
+      end
+
+      def self.secure_cookies
+        default.secure_cookies
+      end
+
+      def self.secure_cookies=(value : Bool)
+        default.secure_cookies = value
       end
 
       def call(context : HTTP::Server::Context)
