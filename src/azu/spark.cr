@@ -105,13 +105,32 @@ module Azu
 
   class Spark < Channel
     # Use thread-safe component registry instead of global hash
-    @@components = ComponentRegistry.new
+    # Support both class-level (backward compatibility) and instance-level registries
+    @@default_registry : ComponentRegistry? = nil
+    @@registry_mutex = Mutex.new
     GC_INTERVAL = 10.seconds
 
     gc_sweep
 
+    # Get the default class-level registry (backward compatibility)
     def self.components
-      @@components
+      @@registry_mutex.synchronize do
+        @@default_registry ||= ComponentRegistry.new
+      end
+    end
+
+    # Reset the default registry (useful for testing)
+    def self.reset_registry!
+      @@registry_mutex.synchronize do
+        @@default_registry = nil
+      end
+    end
+
+    # Instance-level registry for dependency injection
+    @components : ComponentRegistry
+
+    def initialize(@socket : HTTP::WebSocket, @components : ComponentRegistry = Spark.components)
+      super(@socket)
     end
 
     def self.javascript_tag
@@ -199,7 +218,9 @@ module Azu
       spawn do
         loop do
           sleep GC_INTERVAL
-          @@components.cleanup_disconnected(GC_INTERVAL)
+          if registry = @@default_registry
+            registry.cleanup_disconnected(GC_INTERVAL)
+          end
         end
       end
     end
@@ -214,7 +235,7 @@ module Azu
     end
 
     def on_close(code : HTTP::WebSocket::CloseCode? = nil, message : String? = nil)
-      @@components.cleanup_all
+      @components.cleanup_all
     end
 
     def on_message(message)
@@ -222,7 +243,7 @@ module Azu
 
       if channel = json["subscribe"]?
         spark = channel.to_s
-        if component = @@components.get(spark)
+        if component = @components.get(spark)
           component.connected = true
           component.socket = socket
           component.mount
@@ -230,19 +251,28 @@ module Azu
       elsif event_name = json["event"]?
         spark = json["channel"].not_nil!.to_s
         data = json["data"].not_nil!.as_s
-        if component = @@components.get(spark)
+        if component = @components.get(spark)
           component.on_event(event_name.as_s, data)
         end
       end
-    rescue IO::Error
-      # Handle IO errors silently (connection issues)
-    rescue JSON::ParseException
-      # Handle invalid JSON silently (malformed client messages)
-    rescue KeyError
-      # Handle missing keys silently (incomplete event messages)
+    rescue ex : IO::Error
+      log_error("WebSocket IO error", ex, severity: :debug)
+    rescue ex : JSON::ParseException
+      log_error("Invalid JSON from client", ex, severity: :warn)
+    rescue ex : KeyError
+      log_error("Incomplete event message", ex, severity: :warn)
     rescue ex
-      # Log unexpected errors only
-      STDERR.puts "Spark: Unexpected error in on_message: #{ex.class}: #{ex.message}"
+      log_error("Unexpected error in message handler", ex, severity: :error)
+    end
+
+    private def log_error(description : String, ex : Exception,
+                          severity : Symbol = :error)
+      log = Log.for("Azu::Spark")
+      case severity
+      when :debug then log.debug(exception: ex) { description }
+      when :warn  then log.warn(exception: ex) { description }
+      when :error then log.error(exception: ex) { description }
+      end
     end
   end
 end
