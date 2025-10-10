@@ -84,7 +84,7 @@ module Azu
         if Dir.exists?(file_path)
           if config["dir_listing"]
             context.response.content_type = "text/html"
-            directory_listing(context.response, request_path, file_path)
+            directory_listing(context.response, Path[request_path], Path[file_path])
           elsif @fallthrough
             call_next(context)
           else
