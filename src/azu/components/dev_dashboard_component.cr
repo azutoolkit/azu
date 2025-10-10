@@ -80,8 +80,8 @@ module Azu
             "hit"                => cache_op.hit?.to_s || "N/A",
             "processing_time_ms" => cache_op.processing_time.round(2),
             "key_size"           => cache_op.key_size,
-            "value_size"         => cache_op.value_size?.to_s || "N/A",
-            "ttl_seconds"        => cache_op.ttl_seconds?.to_s || "N/A",
+            "value_size"         => cache_op.value_size.to_s || "N/A",
+            "ttl_seconds"        => cache_op.ttl_seconds.to_s || "N/A",
             "error"              => cache_op.error || "None",
             "timestamp"          => cache_op.timestamp.to_s,
             "successful"         => cache_op.successful?.to_s || "false",
@@ -91,79 +91,105 @@ module Azu
 
       def collect_database_data
         monitor = CQL::Performance.monitor
-        summary = monitor.metrics_summary
+        metrics = monitor.metrics
+        query_metrics = metrics.query_metrics
+        n_plus_one_metrics = metrics.n_plus_one_metrics
+        health_metrics = metrics.health_metrics
+
         {
-          "total_queries" => summary.total_queries,
-          # "migration_status"    => summary.migration_status,
-          "slow_queries"        => summary.slow_queries,
-          "avg_query_time"      => summary.avg_query_time,
-          "n_plus_one_patterns" => summary.n_plus_one_patterns,
-          "monitoring_enabled"  => summary.monitoring_enabled?,
-          "uptime"              => Time.utc - @start_time,
+          "total_queries"           => query_metrics.total_queries,
+          "slow_queries"            => query_metrics.slow_queries,
+          "very_slow_queries"       => query_metrics.very_slow_queries,
+          "error_queries"           => query_metrics.error_queries,
+          "avg_query_time"          => query_metrics.avg_execution_time.total_milliseconds,
+          "min_query_time"          => query_metrics.min_execution_time.total_milliseconds,
+          "max_query_time"          => query_metrics.max_execution_time.total_milliseconds,
+          "error_rate"              => query_metrics.error_rate,
+          "queries_per_second"      => query_metrics.queries_per_second,
+          "slow_query_rate"         => query_metrics.slow_query_rate,
+          "n_plus_one_patterns"     => n_plus_one_metrics.total_patterns,
+          "critical_n_plus_one"     => n_plus_one_metrics.critical_patterns,
+          "high_n_plus_one"         => n_plus_one_metrics.high_patterns,
+          "database_health_score"   => health_metrics.query_health_score,
+          "monitoring_enabled"      => monitor.enabled?,
+          "uptime"                  => Time.utc - @start_time,
         }
-      rescue
+      rescue ex
+        @log.error { "Failed to collect database metrics: #{ex.message}" }
         {
-          "total_queries" => 0_i32,
-          # "migration_status"    => "N/A",
-          "slow_queries"        => 0_i32,
-          "avg_query_time"      => 0.0,
-          "n_plus_one_patterns" => 0_i32,
-          "monitoring_enabled"  => false,
-          "uptime"              => 0,
+          "total_queries"           => 0_i64,
+          "slow_queries"            => 0_i64,
+          "very_slow_queries"       => 0_i64,
+          "error_queries"           => 0_i64,
+          "avg_query_time"          => 0.0,
+          "min_query_time"          => 0.0,
+          "max_query_time"          => 0.0,
+          "error_rate"              => 0.0,
+          "queries_per_second"      => 0.0,
+          "slow_query_rate"         => 0.0,
+          "n_plus_one_patterns"     => 0,
+          "critical_n_plus_one"     => 0,
+          "high_n_plus_one"         => 0,
+          "database_health_score"   => 100,
+          "monitoring_enabled"      => false,
+          "uptime"                  => Time::Span.zero,
         }
       end
 
       def collect_database_summary_count : Int32
         monitor = CQL::Performance.monitor
-        summary = monitor.metrics_summary
-        summary.total_queries + summary.slow_queries + summary.n_plus_one_patterns
+        metrics = monitor.metrics
+        query_metrics = metrics.query_metrics
+        n_plus_one_metrics = metrics.n_plus_one_metrics
+
+        query_metrics.total_queries.to_i +
+        query_metrics.slow_queries.to_i +
+        query_metrics.very_slow_queries.to_i +
+        n_plus_one_metrics.total_patterns
       rescue
         0
       end
 
       def collect_query_profiler_data
-        profiler = CQL::Performance.profiler
-        stats = profiler.statistics
-
-        total_executions = stats.values.sum(&.execution_count)
-        unique_patterns = stats.size
-        avg_performance_score = stats.empty? ? 0.0 : stats.values.sum(&.performance_score) / stats.size
-        slowest_pattern_time = stats.empty? ? 0.0 : stats.values.max_of(&.max_time.total_milliseconds)
-        most_frequent_count = stats.empty? ? 0 : stats.values.max_of(&.execution_count)
+        monitor = CQL::Performance.monitor
+        metrics = monitor.metrics
+        query_metrics = metrics.query_metrics
+        top_queries = metrics.top_queries
 
         {
-          "unique_patterns"       => unique_patterns,
-          "total_executions"      => total_executions,
-          "avg_performance_score" => avg_performance_score,
-          "slowest_pattern_time"  => slowest_pattern_time,
-          "most_frequent_count"   => most_frequent_count,
+          "unique_patterns"       => top_queries.most_frequent_queries.size,
+          "total_executions"      => query_metrics.total_queries,
+          "avg_performance_score" => calculate_performance_score(query_metrics),
+          "slowest_pattern_time"  => query_metrics.max_execution_time.total_milliseconds,
+          "most_frequent_count"   => top_queries.most_frequent_queries.first?.try(&.[:count]) || 0_i64,
         }
-      rescue
+      rescue ex
+        @log.error { "Failed to collect query profiler data: #{ex.message}" }
         {
           "unique_patterns"       => 0,
-          "total_executions"      => 0,
+          "total_executions"      => 0_i64,
           "avg_performance_score" => 0.0,
           "slowest_pattern_time"  => 0.0,
-          "most_frequent_count"   => 0,
+          "most_frequent_count"   => 0_i64,
         }
       end
 
       def collect_n_plus_one_data
         monitor = CQL::Performance.monitor
-        detector = monitor.n_plus_one_detector
-        issues = detector.issues
-
-        severity_counts = issues.group_by(&.severity)
+        metrics = monitor.metrics
+        n_plus_one_metrics = metrics.n_plus_one_metrics
+        patterns = metrics.n_plus_one_patterns_by_severity(:all)
 
         {
-          "issues"         => issues.map(&.to_json),
-          "total_issues"   => issues.size,
-          "critical_count" => severity_counts[CQL::Performance::PerformanceIssue::Severity::Critical]?.try(&.size) || 0,
-          "high_count"     => severity_counts[CQL::Performance::PerformanceIssue::Severity::High]?.try(&.size) || 0,
-          "medium_count"   => severity_counts[CQL::Performance::PerformanceIssue::Severity::Medium]?.try(&.size) || 0,
-          "low_count"      => severity_counts[CQL::Performance::PerformanceIssue::Severity::Low]?.try(&.size) || 0,
+          "issues"         => patterns.map(&.to_h.to_json),
+          "total_issues"   => n_plus_one_metrics.total_patterns,
+          "critical_count" => n_plus_one_metrics.critical_patterns,
+          "high_count"     => n_plus_one_metrics.high_patterns,
+          "medium_count"   => n_plus_one_metrics.medium_patterns,
+          "low_count"      => n_plus_one_metrics.low_patterns,
         }
-      rescue
+      rescue ex
+        @log.error { "Failed to collect N+1 data: #{ex.message}" }
         {
           "issues"         => [] of String,
           "total_issues"   => 0,
@@ -175,39 +201,128 @@ module Azu
       end
 
       def collect_slow_queries_data
-        profiler = CQL::Performance.monitor.query_profiler
-        slow_queries = profiler.slow_queries(20) # Get last 20 slow queries
+        metrics = CQL::Performance.monitor.metrics
+        slow_queries = metrics.top_queries.slowest_queries[0..20]
 
-        slow_queries.map do |execution|
+        slow_queries.map do |query|
           {
-            "execution_time_ms" => execution.execution_time.total_milliseconds,
-            "normalized_sql"    => execution.normalized_sql,
-            "context"           => execution.context,
-            "timestamp"         => execution.timestamp.to_s,
+            "sql"               => query.sql,
+            "normalized_sql"    => query.normalized_sql,
+            # "context"           => query.context || "N/A",
+            "timestamp"         => query.timestamp.to_rfc3339,
+            "rows_affected"     => query.rows_affected || 0_i64,
+            "error"            => query.error || "None",
+            "execution_time_ms" => query.execution_time.total_milliseconds,
           }
         end
-      rescue
-        [] of Hash(String, String | Float64)
+      rescue ex
+        @log.error { "Failed to collect slow queries data: #{ex.message}" }
+        [] of Hash(String, String | Float64 | Int64)
       end
 
       def collect_query_patterns_data
-        profiler = CQL::Performance.profiler
-        stats = profiler.statistics
+        metrics = CQL::Performance.monitor.metrics
+        patterns = metrics.top_queries.most_frequent_queries[0..15]
 
-        # Get top 15 patterns by performance score (worst first)
-        top_patterns = stats.values.sort_by!(&.performance_score).reverse[0...15]
-
-        top_patterns.map do |stat|
+        patterns.map do |pattern|
           {
-            "normalized_sql"    => stat.normalized_sql,
-            "execution_count"   => stat.execution_count,
-            "avg_time_ms"       => stat.avg_time.total_milliseconds,
-            "max_time_ms"       => stat.max_time.total_milliseconds,
-            "performance_score" => stat.performance_score,
+            "normalized_sql"    => pattern[:sql],
+            "execution_count"   => pattern[:count],
+            "avg_time_ms"       => pattern[:avg_time].total_milliseconds,
+            "performance_score" => calculate_query_performance_score(pattern),
           }
         end
-      rescue
-        [] of Hash(String, String | Int32 | Float64)
+      rescue ex
+        @log.error { "Failed to collect query patterns data: #{ex.message}" }
+        [] of Hash(String, String | Int64 | Float64)
+      end
+
+      def collect_error_logs
+        recent_requests = @metrics.recent_requests(50)
+        errors = recent_requests.select(&.error?)
+
+        errors.map do |error_request|
+          {
+            "timestamp"          => error_request.timestamp.to_s,
+            "method"             => error_request.method,
+            "path"               => error_request.path,
+            "status_code"        => error_request.status_code.to_s,
+            "processing_time_ms" => error_request.processing_time.round(2).to_s,
+            "endpoint"           => error_request.endpoint,
+            "memory_delta_mb"    => error_request.memory_usage_mb.to_s,
+            "category"           => error_request.status_code >= 500 ? "5xx Server Error" : "4xx Client Error",
+          }
+        end
+      end
+
+      private def calculate_requests_per_second : Float64
+        uptime = Time.utc - @start_time
+        total_requests = @metrics.aggregate_stats.total_requests
+
+        return 0.0 if uptime.total_seconds <= 0
+        total_requests.to_f / uptime.total_seconds
+      end
+
+      private def get_cpu_usage_mock : Float64
+        15.5 + Random.rand(10.0)
+      end
+
+      private def format_duration(span : Time::Span) : String
+        if span.total_hours >= 1
+          "#{span.total_hours.to_i}h #{span.minutes}m #{span.seconds}s"
+        elsif span.total_minutes >= 1
+          "#{span.minutes}m #{span.seconds}s"
+        else
+          "#{span.seconds}s"
+        end
+      end
+
+      private def calculate_performance_score(query_metrics : CQL::Performance::PerformanceMetrics::QueryMetrics) : Float64
+        return 0.0 if query_metrics.total_queries == 0
+
+        # Calculate score based on various metrics
+        base_score = 100.0
+
+        # Penalize for slow queries
+        slow_query_penalty = (query_metrics.slow_query_rate * 0.5)
+
+        # Penalize for errors
+        error_penalty = (query_metrics.error_rate * 2.0)
+
+        # Penalize for high average execution time (assuming > 100ms is bad)
+        avg_time_penalty = (query_metrics.avg_execution_time.total_milliseconds / 100.0) * 10.0
+
+        score = base_score - slow_query_penalty - error_penalty - avg_time_penalty
+        [score, 0.0].max
+      end
+
+      private def calculate_query_performance_score(pattern : NamedTuple(sql: String, count: Int64, avg_time: Time::Span)) : Float64
+        # Base score starts at 100
+        score = 100.0
+
+        # Penalize for high execution count (assuming > 1000 is concerning)
+        count_penalty = (pattern[:count] / 1000.0) * 10.0
+
+        # Penalize for high average time (assuming > 100ms is concerning)
+        time_penalty = (pattern[:avg_time].total_milliseconds / 100.0) * 20.0
+
+        score = score - count_penalty - time_penalty
+        [score, 0.0].max
+      end
+
+      def collect_routes_data
+        routes = Azu::CONFIG.router.route_info
+        routes.sort_by! { |route| [route["method"], route["path"]] }
+        routes
+      rescue ex
+        @log.error { "Could not collect route information: #{ex.message}" }
+        [{
+          "method"      => "ERROR",
+          "path"        => "/routes-unavailable",
+          "resource"    => "N/A",
+          "handler"     => "Router",
+          "description" => "Route collection failed: #{ex.message}",
+        }]
       end
 
       def collect_component_data
@@ -234,20 +349,14 @@ module Azu
             "component_id"         => component.component_id,
             "component_type"       => component.component_type,
             "event"                => component.event,
-            "processing_time_ms"   => component.processing_time?.try(&.round(2).to_s) || "N/A",
-            "memory_before_mb"     => component.memory_before?.try { |mb| (mb / 1024.0 / 1024.0).round(2).to_s } || "N/A",
-            "memory_after_mb"      => component.memory_after?.try { |ma| (ma / 1024.0 / 1024.0).round(2).to_s } || "N/A",
-            "memory_delta_mb"      => component.memory_delta?.try { |md| (md / 1024.0 / 1024.0).round(2).to_s } || "N/A",
-            "age_at_event_seconds" => component.age_at_event?.try(&.total_seconds.round(2).to_s) || "N/A",
+            "processing_time_ms"   => component.processing_time.try(&.round(2).to_s) || "N/A",
+            "memory_before_mb"     => component.memory_before.try { |mb| (mb / 1024.0 / 1024.0).round(2).to_s } || "N/A",
+            "memory_after_mb"      => component.memory_after.try { |ma| (ma / 1024.0 / 1024.0).round(2).to_s } || "N/A",
+            "memory_delta_mb"      => component.memory_delta.try { |md| (md / 1024.0 / 1024.0).round(2).to_s } || "N/A",
+            "age_at_event_seconds" => component.age_at_event.try(&.total_seconds.round(2).to_s) || "N/A",
             "timestamp"            => component.timestamp.to_s,
           }
         end
-      end
-
-      def collect_endpoint_performance_data
-        # This would require access to internal endpoint stats
-        # For now, return empty hash as this is not directly accessible
-        Hash(String, Hash(String, Float64)).new
       end
 
       def collect_system_data
@@ -271,61 +380,6 @@ module Azu
           "test_suite_time_seconds" => 45.2,
           "total_tests"             => 156_i32,
         }
-      end
-
-      def collect_error_logs
-        recent_requests = @metrics.recent_requests(50)
-        errors = recent_requests.select(&.error?)
-
-        errors.map do |error_request|
-          {
-            "timestamp"          => error_request.timestamp.to_s,
-            "method"             => error_request.method,
-            "path"               => error_request.path,
-            "status_code"        => error_request.status_code.to_s,
-            "processing_time_ms" => error_request.processing_time.round(2).to_s,
-            "endpoint"           => error_request.endpoint,
-            "memory_delta_mb"    => error_request.memory_usage_mb.to_s,
-            "category"           => error_request.status_code >= 500 ? "5xx Server Error" : "4xx Client Error",
-          }
-        end
-      end
-
-      def collect_routes_data
-        routes = Azu::CONFIG.router.route_info
-        routes.sort_by! { |route| [route["method"], route["path"]] }
-        routes
-      rescue ex
-        @log.debug { "Could not collect route information: #{ex.message}" }
-        [{
-          "method"      => "ERROR",
-          "path"        => "/routes-unavailable",
-          "resource"    => "N/A",
-          "handler"     => "Router",
-          "description" => "Route collection failed: #{ex.message}",
-        }]
-      end
-
-      private def calculate_requests_per_second : Float64
-        uptime = Time.utc - @start_time
-        total_requests = @metrics.aggregate_stats.total_requests
-
-        return 0.0 if uptime.total_seconds <= 0
-        total_requests.to_f / uptime.total_seconds
-      end
-
-      private def get_cpu_usage_mock : Float64
-        15.5 + Random.rand(10.0)
-      end
-
-      private def format_duration(span : Time::Span) : String
-        if span.total_hours >= 1
-          "#{span.total_hours.to_i}h #{span.minutes}m #{span.seconds}s"
-        elsif span.total_minutes >= 1
-          "#{span.minutes}m #{span.seconds}s"
-        else
-          "#{span.seconds}s"
-        end
       end
     end
 
@@ -505,7 +559,13 @@ module Azu
           error_logs = @data_provider.collect_error_logs
 
           if error_logs.empty?
-            render_empty_state("check", "No recent errors!", "Your application is running smoothly.")
+            div class: "empty-state" do
+              i "data-lucide": "check"
+              h4 "No recent errors!"
+              para class: "header-text" do
+                text "Your application is running smoothly."
+              end
+            end
           else
             div class: "table-container" do
               table class: "table" do
@@ -575,9 +635,15 @@ module Azu
         render_metric_card "Query Performance Stats", "bar-chart-3" do
           div class: "metric-list" do
             render_metric_item "Total Queries", data["total_queries"].to_s, "text-primary"
-            render_metric_item "Slow Queries", data["slow_queries"].to_s, "text-crystal"
-            render_metric_item "N+1 Patterns", data["n_plus_one_patterns"].to_s, "text-accent"
-            render_metric_item "Avg Query Time", "#{data["avg_query_time"]} ms", "text-muted-foreground"
+            render_metric_item "Queries/Second", data["queries_per_second"].as(Float64).round(2).to_s, "text-performance"
+            render_metric_item "Avg Query Time", "#{data["avg_query_time"].as(Float64).round(2)}ms", "text-crystal"
+            render_metric_item "Min Query Time", "#{data["min_query_time"].as(Float64).round(2)}ms", "text-performance"
+            render_metric_item "Max Query Time", "#{data["max_query_time"].as(Float64).round(2)}ms",
+              data["max_query_time"].as(Float64) > 1000.0 ? "text-destructive" : "text-accent"
+            render_metric_item "Error Rate", "#{data["error_rate"].as(Float64).round(2)}%",
+              data["error_rate"].as(Float64) > 1.0 ? "text-destructive" : "text-crystal"
+            render_metric_item "Health Score", "#{data["database_health_score"]}/100",
+              data["database_health_score"].as(Int32) > 80 ? "text-performance" : "text-destructive"
           end
         end
       end
@@ -626,10 +692,11 @@ module Azu
                 thead do
                   tr do
                     th "Execution Time"
-                    th "Query Pattern"
-                    th "Context"
+                    th "Query"
+                    th "Normalized Pattern"
+                    th "Rows"
+                    th "Status"
                     th "Timestamp"
-                    th "Severity"
                   end
                 end
                 tbody do
@@ -649,19 +716,32 @@ module Azu
                       end
                       td do
                         pre class: "sql-query" do
-                          text query_hash["normalized_sql"].as(String)
+                          text query_hash["sql"].as(String)
                         end
                       end
-                      td class: "text-muted-foreground" do
-                        text query_hash["context"]? || "N/A"
+                      td do
+                        code query_hash["normalized_sql"].as(String)
+                      end
+                      td do
+                        text query_hash["rows_affected"].to_s
+                      end
+                      td do
+                        error = query_hash["error"].as(String)
+                        if error == "None"
+                          span class: "badge badge-default" do
+                            text "SUCCESS"
+                          end
+                        else
+                          span class: "badge badge-destructive" do
+                            text "ERROR"
+                            div class: "tooltip" do
+                              text error
+                            end
+                          end
+                        end
                       end
                       td class: "text-muted-foreground" do
                         small query_hash["timestamp"].to_s
-                      end
-                      td do
-                        span class: "badge #{severity_class == "text-destructive" ? "badge-destructive" : "badge-outline"}" do
-                          text execution_time > 1000 ? "CRITICAL" : execution_time > 500 ? "HIGH" : "MEDIUM"
-                        end
                       end
                     end
                   end
@@ -686,21 +766,19 @@ module Azu
                     th "Pattern"
                     th "Executions"
                     th "Avg Time"
-                    th "Max Time"
                     th "Performance Score"
                   end
                 end
                 tbody do
                   query_patterns.each do |pattern|
                     pattern_hash = pattern.as(Hash)
-                    avg_time = pattern_hash["avg_time_ms"].as(Float64)
                     performance_score = pattern_hash["performance_score"].as(Float64)
 
                     score_class = case performance_score
-                                  when 0..50    then "text-performance"
-                                  when 50..100  then "text-crystal"
-                                  when 100..200 then "text-accent"
-                                  else               "text-destructive"
+                                  when 80.0..100.0 then "text-performance"
+                                  when 60.0..79.9  then "text-crystal"
+                                  when 40.0..59.9  then "text-accent"
+                                  else                 "text-destructive"
                                   end
 
                     tr do
@@ -711,10 +789,7 @@ module Azu
                         text pattern_hash["execution_count"].to_s
                       end
                       td do
-                        text "#{avg_time.round(2)}ms"
-                      end
-                      td do
-                        text "#{pattern_hash["max_time_ms"].as(Float64).round(2)}ms"
+                        text "#{pattern_hash["avg_time_ms"].as(Float64).round(2)}ms"
                       end
                       td class: score_class do
                         text performance_score.round(2).to_s
@@ -832,12 +907,18 @@ module Azu
         render_metric_card "Database Info", "database" do
           div class: "metric-list" do
             render_metric_item "Total Queries", data["total_queries"].to_s, "text-primary"
-            # render_metric_item "Migration Status", data["migration_status"].to_s, "text-performance"
-            render_metric_item "Slow Queries", data["slow_queries"].to_s, "text-crystal"
-            render_metric_item "N+1 Patterns", data["n_plus_one_patterns"].to_s, "text-accent"
-            render_metric_item "Avg Query Time", "#{data["avg_query_time"]} ms", "text-muted-foreground"
-            render_metric_item "Monitoring Enabled", data["monitoring_enabled"].to_s, "text-performance"
-            render_metric_item "Uptime", "#{data["uptime"]}s", "text-crystal"
+            render_metric_item "Slow Queries", "#{data["slow_queries"]} (#{data["slow_query_rate"].as(Float64).round(2)}%)",
+              data["slow_query_rate"].as(Float64) > 5.0 ? "text-destructive" : "text-crystal"
+            render_metric_item "Very Slow Queries", data["very_slow_queries"].to_s, "text-destructive"
+            render_metric_item "Error Queries", "#{data["error_queries"]} (#{data["error_rate"].as(Float64).round(2)}%)",
+              data["error_rate"].as(Float64) > 1.0 ? "text-destructive" : "text-crystal"
+            render_metric_item "Avg Query Time", "#{data["avg_query_time"].as(Float64).round(2)}ms", "text-crystal"
+            render_metric_item "Max Query Time", "#{data["max_query_time"].as(Float64).round(2)}ms", "text-accent"
+            render_metric_item "Queries/Second", data["queries_per_second"].as(Float64).round(2).to_s, "text-performance"
+            render_metric_item "N+1 Patterns", "#{data["n_plus_one_patterns"]} (#{data["critical_n_plus_one"]} critical)",
+              data["critical_n_plus_one"].as(Int32) > 0 ? "text-destructive" : "text-crystal"
+            render_metric_item "Health Score", "#{data["database_health_score"]}/100",
+              data["database_health_score"].as(Int32) > 80 ? "text-performance" : "text-destructive"
           end
         end
       end
@@ -1096,7 +1177,7 @@ module Azu
                     op_hash = op.as(Hash)
                     tr do
                       td class: "text-muted-foreground" do
-                        small op_hash["timestamp"]
+                        small op_hash["timestamp"].to_s
                       end
                       td do
                         span class: "badge badge-outline" do
@@ -1106,7 +1187,7 @@ module Azu
                       td do
                         code op_hash["key"].as(String)[0..30] + (op_hash["key"].as(String).size > 30 ? "..." : "")
                       end
-                      td op_hash["store_type"]
+                      td op_hash["store_type"].to_s
                       td do
                         hit = op_hash["hit"].as(String)
                         if hit == "true"
@@ -1248,7 +1329,7 @@ module Azu
         end
       end
 
-      private def render_metric_card(title : String, icon : String, &)
+      private def render_metric_card(title : String, icon : String, &block)
         div class: "card metric-card" do
           div class: "card-header" do
             h3 class: "card-title" do
@@ -1257,21 +1338,17 @@ module Azu
             end
           end
           div class: "card-content" do
-            yield
+            block.call
           end
         end
       end
 
       private def render_empty_state(icon : String, title : String, message : String?)
-        div class: "empty-state" do
-          i "data-lucide": icon
-          h4 do
-            text title
-          end
-          if message
-            para class: "header-text" do
-              text message
-            end
+        div(class: "empty-state") do
+          i("data-lucide": icon)
+          h4 { text(title) }
+          para class: "header-text" do
+            text message
           end
         end
       end
@@ -1760,6 +1837,98 @@ module Azu
           .icon-sm {
               width: 1rem;
               height: 1rem;
+          }
+
+          /* Tooltip */
+          .tooltip {
+              display: none;
+              position: absolute;
+              background: hsl(var(--popover));
+              border: 1px solid hsl(var(--border));
+              padding: 0.5rem;
+              border-radius: 0.375rem;
+              font-size: 0.75rem;
+              max-width: 300px;
+              word-wrap: break-word;
+              z-index: 1000;
+              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+          }
+
+          .badge:hover .tooltip {
+              display: block;
+          }
+
+          /* SQL Query */
+          .sql-query {
+              font-family: 'JetBrains Mono', monospace;
+              font-size: 0.75rem;
+              background: hsl(var(--muted));
+              padding: 0.5rem;
+              border-radius: 0.375rem;
+              white-space: pre-wrap;
+              word-wrap: break-word;
+              max-width: 400px;
+              max-height: 200px;
+              overflow-y: auto;
+              border: 1px solid hsl(var(--border) / 0.3);
+              margin: 0;
+              line-height: 1.4;
+          }
+
+          /* Table Enhancements */
+          .table td {
+              vertical-align: top;
+              padding: 0.75rem;
+          }
+
+          .table pre {
+              margin: 0;
+          }
+
+          .badge {
+              position: relative;
+          }
+
+          /* Status Colors */
+          .text-performance {
+              color: hsl(var(--performance));
+          }
+
+          .text-crystal {
+              color: hsl(var(--crystal));
+          }
+
+          .text-accent {
+              color: hsl(var(--accent-azu));
+          }
+
+          .text-destructive {
+              color: hsl(var(--destructive));
+          }
+
+          /* Metric Value Enhancements */
+          .metric-value {
+              font-family: 'JetBrains Mono', monospace;
+              font-size: 0.875rem;
+              padding: 0.25rem 0.5rem;
+              border-radius: 0.25rem;
+              background: hsl(var(--muted) / 0.2);
+          }
+
+          .metric-value.text-performance {
+              background: hsl(var(--performance) / 0.1);
+          }
+
+          .metric-value.text-crystal {
+              background: hsl(var(--crystal) / 0.1);
+          }
+
+          .metric-value.text-accent {
+              background: hsl(var(--accent-azu) / 0.1);
+          }
+
+          .metric-value.text-destructive {
+              background: hsl(var(--destructive) / 0.1);
           }
         CSS
       end
