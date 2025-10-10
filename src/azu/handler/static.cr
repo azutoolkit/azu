@@ -27,8 +27,10 @@ module Azu
 
         # File path cannot contains '\0' (NUL) because all filesystem I know
         # don't accept '\0' character as file name.
-        if request_path.includes? '\0'
+        if original_path.includes?('\0') || request_path.includes?('\0')
           context.response.status_code = 400
+          context.response.print "Bad Request: Invalid path"
+          context.response.close
           return
         end
 
@@ -47,6 +49,7 @@ module Azu
         is_dir_path = Dir.exists?(file_path) && !is_dir_path
         if request_path != expanded_path || is_dir_path
           redirect_to context, file_redirect_path(expanded_path, is_dir_path)
+          return
         end
 
         call_next_with_file_path(context, request_path, file_path)
@@ -82,14 +85,18 @@ module Azu
           if config["dir_listing"]
             context.response.content_type = "text/html"
             directory_listing(context.response, request_path, file_path)
+          elsif @fallthrough
+            call_next(context)
           else
-            call_next(context) if @fallthrough
+            context.response.status_code = 404
           end
         elsif File.exists?(file_path)
           return if etag(context, file_path)
           serve_file(context, file_path)
+        elsif @fallthrough
+          call_next(context)
         else
-          call_next(context) if @fallthrough
+          context.response.status_code = 404
         end
       end
 

@@ -70,7 +70,12 @@ module Azu
         @cookie_same_site : HTTP::Cookie::SameSite = COOKIE_SAME_SITE,
         @secure_cookies : Bool = true,
       )
-        @secret_key = secret_key || (@@shared_secret_key ||= Random::Secure.urlsafe_base64(HMAC_SECRET_LENGTH))
+        # Use provided secret_key, or shared secret key if available and not empty,
+        # otherwise generate a new one
+        key = secret_key
+        key = @@shared_secret_key if key.nil? && @@shared_secret_key && !@@shared_secret_key.try(&.empty?)
+        key = Random::Secure.urlsafe_base64(HMAC_SECRET_LENGTH) if key.nil? || key.empty?
+        @secret_key = key
       end
 
       # Get default instance (backward compatibility)

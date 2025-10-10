@@ -35,14 +35,14 @@ describe "Security Integration" do
 
       # First, get a token
       context1, io1 = create_context("GET", "/form")
-      csrf.call(context1)
-      cookie = context1.response.headers["Set-Cookie"]?
+      # Generate a CSRF token explicitly
+      token = csrf.token(context1)
 
       # Now use it
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
-      headers["Cookie"] = cookie.to_s if cookie
-      headers["X-CSRF-TOKEN"] = cookie.to_s.split("=")[1].split(";")[0] if cookie
+      headers["Cookie"] = "csrf_token=#{token}"
+      headers["X-CSRF-TOKEN"] = token
       context, io = create_context("POST", "/submit", headers)
 
       cors.call(context)
@@ -218,13 +218,13 @@ describe "Security Integration" do
 
       # Get token first
       context1, io1 = create_context("GET", "/form")
-      csrf.call(context1)
-      cookie = context1.response.headers["Set-Cookie"]?
+      # Generate a CSRF token explicitly
+      token = csrf.token(context1)
 
       # Use token
       headers = HTTP::Headers.new
-      headers["Cookie"] = cookie.to_s if cookie
-      headers["X-CSRF-TOKEN"] = cookie.to_s.split("=")[1].split(";")[0] if cookie
+      headers["Cookie"] = "csrf_token=#{token}"
+      headers["X-CSRF-TOKEN"] = token
       context, io = create_context("POST", "/submit", headers)
 
       request_id.call(context)

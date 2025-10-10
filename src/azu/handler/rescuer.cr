@@ -15,7 +15,7 @@ module Azu
         @log.debug(exception: ex.cause) { ex.message }
       rescue ex : Response::Error
         ex.to_s(context)
-        context.response.flush
+        context.response.flush unless context.response.closed?
         @log.warn(exception: ex) { "Error Processing Request #{ex.status_code}".colorize(:yellow) }
       rescue ex : Exception
         request_id = context.request.headers["X-Request-ID"]? || generate_request_id
@@ -23,7 +23,7 @@ module Azu
 
         enhanced_error = Response::Error.from_exception(ex, 500, error_context)
         enhanced_error.to_s(context)
-        context.response.flush
+        context.response.flush unless context.response.closed?
 
         @log.error(exception: ex) { "Error Processing Request ".colorize(:red) }
       end

@@ -60,9 +60,11 @@ describe Azu::Handler::CSRF do
     end
 
     it "generates secret key if not set" do
+      Azu::Handler::CSRF.reset_default!
       Azu::Handler::CSRF.secret_key = ""
       handler = Azu::Handler::CSRF.new
-      Azu::Handler::CSRF.secret_key.should_not be_empty
+      # Secret key is now generated automatically during initialization
+      handler.secret_key.should_not be_empty
     end
   end
 
@@ -295,7 +297,7 @@ describe Azu::Handler::CSRF do
     describe "synchronizer token validation" do
       it "validates matching tokens" do
         Azu::Handler::CSRF.use_synchronizer_token!
-        handler = Azu::Handler::CSRF.new
+        handler = Azu::Handler::CSRF.new(strategy: Azu::Handler::CSRF::Strategy::SynchronizerToken)
         next_handler, verify_calls = create_next_handler(1)
         handler.next = next_handler
 
@@ -331,7 +333,7 @@ describe Azu::Handler::CSRF do
     describe "double submit validation" do
       it "validates matching tokens" do
         Azu::Handler::CSRF.use_double_submit!
-        handler = Azu::Handler::CSRF.new
+        handler = Azu::Handler::CSRF.new(strategy: Azu::Handler::CSRF::Strategy::DoubleSubmit)
         next_handler, verify_calls = create_next_handler(1)
         handler.next = next_handler
 
