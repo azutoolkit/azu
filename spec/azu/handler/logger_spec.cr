@@ -290,3 +290,4 @@ describe Azu::Handler::Logger do
     end
   end
 end
+

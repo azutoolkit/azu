@@ -344,3 +344,4 @@ describe Azu::Handler::PerformanceMonitor do
     end
   end
 end
+
