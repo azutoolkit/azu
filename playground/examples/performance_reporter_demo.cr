@@ -80,7 +80,7 @@ module PerformanceReporterDemo
     end
 
     def unavailable_message : String
-      "timestamp,error\n#{Time.utc.to_s},Performance monitoring is not enabled"
+      "timestamp,error\n#{Time.utc},Performance monitoring is not enabled"
     end
 
     def output(content : String) : Nil

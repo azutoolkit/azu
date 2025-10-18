@@ -24,7 +24,7 @@ class ExceptionTest
     begin
       begin
         raise "Inner exception"
-      rescue inner_ex
+      rescue ex
         raise "Outer exception caused by inner"
       end
     rescue ex

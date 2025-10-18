@@ -45,7 +45,7 @@ module Azu
     property log : Log = Log.for("Azu")
 
     property port : Int32 = ENV.fetch("PORT", "4000").to_i
-    property port_reuse : Bool = ENV.fetch("PORT_REUSE", "true") == "true"
+    property? port_reuse : Bool = ENV.fetch("PORT_REUSE", "true") == "true"
     property host : String = ENV.fetch("HOST", "0.0.0.0")
     property env : Environment = Environment.parse(ENV.fetch("CRYSTAL_ENV", "development"))
 
@@ -54,7 +54,7 @@ module Azu
       env == "development" || env == "test" || env == "pipeline"
     end
 
-    property template_hot_reload : Bool = ENV.fetch("TEMPLATE_HOT_RELOAD", Configuration.hot_reload_default.to_s) == "true"
+    property? template_hot_reload : Bool = ENV.fetch("TEMPLATE_HOT_RELOAD", Configuration.hot_reload_default.to_s) == "true"
 
     property ssl_cert : String = ENV.fetch("SSL_CERT", "")
     property ssl_key : String = ENV.fetch("SSL_KEY", "")
@@ -89,9 +89,9 @@ module Azu
     end
 
     # Performance monitoring configuration - defaults to false for truly optional behavior
-    property performance_enabled : Bool = ENV.fetch("PERFORMANCE_MONITORING", "false") == "true"
-    property performance_profiling_enabled : Bool = ENV.fetch("PERFORMANCE_PROFILING", "false") == "true"
-    property performance_memory_monitoring : Bool = ENV.fetch("PERFORMANCE_MEMORY_MONITORING", "false") == "true"
+    property? performance_enabled : Bool = ENV.fetch("PERFORMANCE_MONITORING", "false") == "true"
+    property? performance_profiling_enabled : Bool = ENV.fetch("PERFORMANCE_PROFILING", "false") == "true"
+    property? performance_memory_monitoring : Bool = ENV.fetch("PERFORMANCE_MEMORY_MONITORING", "false") == "true"
 
     # Performance monitor instance - truly optional
     {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}

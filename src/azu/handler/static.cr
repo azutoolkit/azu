@@ -48,7 +48,7 @@ module Azu
       private struct PathInfo
         getter file_path : String
         getter root_file : String
-        getter is_dir_path : Bool
+        getter? is_dir_path : Bool
 
         def initialize(@file_path : String, @root_file : String, @is_dir_path : Bool)
         end

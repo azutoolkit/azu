@@ -6,7 +6,7 @@ struct CachedResponse
 
   getter key : String
   getter data : String
-  getter cached : Bool
+  getter? cached : Bool
 
   def initialize(@key : String, @data : String, @cached : Bool)
   end
@@ -68,7 +68,7 @@ struct CacheManagementResponse
   include Azu::Response
 
   getter action : String
-  getter success : Bool
+  getter? success : Bool
   getter message : String
   getter key : String?
 

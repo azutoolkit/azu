@@ -92,7 +92,7 @@ puts "   127.0.0.1 ⤑ GET Path:/users Endpoint:UserEndpoint Status:200 Latency:
 puts "   127.0.0.1 ⤑ GET Path:/products Endpoint:ProductEndpoint Status:200 Latency:2.45ms"
 
 puts "\n4. Async logging context format:"
-async_logger = Azu::AsyncLogging::AsyncLogger.new("demo")
+_ = Azu::AsyncLogging::AsyncLogger.new("demo")
 puts "   Context would include:"
 puts "   {\"method\" => \"GET\", \"path\" => \"/users\", \"endpoint\" => \"UserEndpoint\", \"status\" => \"200\"}"
 

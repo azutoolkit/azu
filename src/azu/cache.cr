@@ -447,13 +447,13 @@ module Azu
 
     # Cache configuration
     class Configuration
-      property enabled : Bool = true
+      property? enabled : Bool = true
       property store : String = "memory"
       property max_size : Int32 = 1000
       property default_ttl : Int32 = 3600 # 1 hour in seconds
       property key_prefix : String = "azu"
-      property compress : Bool = false
-      property serialize : Bool = true
+      property? compress : Bool = false
+      property? serialize : Bool = true
 
       # Redis-specific configuration
       property redis_url : String = "redis://localhost:6379/0"

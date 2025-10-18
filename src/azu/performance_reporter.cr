@@ -10,7 +10,8 @@ module Azu
         return unavailable_message
       end
 
-      monitor = CONFIG.performance_monitor.not_nil!
+      monitor = CONFIG.performance_monitor
+      return unavailable_message unless monitor
       stats = monitor.stats(since)
       format_report(stats, since)
     end
@@ -36,7 +37,8 @@ module Azu
   # Concrete implementation for beautiful terminal logging
   class LogPerformanceReporter < PerformanceReporter
     def format_report(stats, since : Time?) : String
-      monitor = CONFIG.performance_monitor.not_nil!
+      monitor = CONFIG.performance_monitor
+      return unavailable_message unless monitor
       monitor.generate_beautiful_report(since)
     end
 
@@ -55,7 +57,8 @@ module Azu
         return
       end
 
-      monitor = CONFIG.performance_monitor.not_nil!
+      monitor = CONFIG.performance_monitor
+      return unless monitor
       monitor.log_summary_report(since)
     end
 
@@ -65,7 +68,8 @@ module Azu
         return
       end
 
-      monitor = CONFIG.performance_monitor.not_nil!
+      monitor = CONFIG.performance_monitor
+      return unless monitor
       stats = monitor.stats
       current_memory = Azu::PerformanceMetrics.current_memory_usage / 1024.0 / 1024.0
 
@@ -162,7 +166,8 @@ module Azu
         return {error: "Performance monitoring is disabled"}.to_json
       end
 
-      monitor = CONFIG.performance_monitor.not_nil!
+      monitor = CONFIG.performance_monitor
+      return {error: "Performance monitoring is disabled"}.to_json unless monitor
       stats = monitor.stats
       current_memory = Azu::PerformanceMetrics.current_memory_usage / 1024.0 / 1024.0
 

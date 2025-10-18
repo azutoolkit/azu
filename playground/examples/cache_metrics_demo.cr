@@ -24,8 +24,8 @@ class CacheMetricsDemo
     # Display overall cache stats
     stats = metrics.cache_stats
     puts "Total Operations: #{stats["total_operations"]?.try &.to_i || 0}"
-    puts "Hit Rate: #{stats["hit_rate"]?.try { |hr| "#{hr.round(2)}%" } || "0%"}"
-    puts "Error Rate: #{stats["error_rate"]?.try { |er| "#{er.round(2)}%" } || "0%"}"
+    puts "Hit Rate: #{stats["hit_rate"]?.try { |hit_rate| "#{hit_rate.round(2)}%" } || "0%"}"
+    puts "Error Rate: #{stats["error_rate"]?.try { |error_rate| "#{error_rate.round(2)}%" } || "0%"}"
     puts "Average Processing Time: #{stats["avg_processing_time"]?.try { |apt| "#{apt.round(3)}ms" } || "0ms"}"
 
     # Display operation breakdown
@@ -35,15 +35,15 @@ class CacheMetricsDemo
     breakdown.each do |operation, op_stats|
       puts "#{operation.upcase}:"
       puts "  Count: #{op_stats["count"]?.try &.to_i || 0}"
-      puts "  Avg Time: #{op_stats["avg_time"]?.try { |t| "#{t.round(3)}ms" } || "0ms"}"
-      puts "  Error Rate: #{op_stats["error_rate"]?.try { |er| "#{er.round(1)}%" } || "0%"}"
+      puts "  Avg Time: #{op_stats["avg_time"]?.try { |time| "#{time.round(3)}ms" } || "0ms"}"
+      puts "  Error Rate: #{op_stats["error_rate"]?.try { |error_rate| "#{error_rate.round(1)}%" } || "0%"}"
 
       if operation == "get" && op_stats["hit_rate"]?
-        puts "  Hit Rate: #{op_stats["hit_rate"].try { |hr| "#{hr.round(1)}%" } || "0%"}"
+        puts "  Hit Rate: #{op_stats["hit_rate"].try { |hit_rate| "#{hit_rate.round(1)}%" } || "0%"}"
       end
 
       if operation == "set" && op_stats["total_data_written"]?
-        puts "  Data Written: #{op_stats["total_data_written"].try { |dw| "#{dw.to_i} bytes" } || "0 bytes"}"
+        puts "  Data Written: #{op_stats["total_data_written"].try { |data_written| "#{data_written.to_i} bytes" } || "0 bytes"}"
       end
       puts
     end

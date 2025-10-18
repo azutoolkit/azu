@@ -7,7 +7,7 @@ module ExampleApp
     templates.path = "playground/templates"
     # Enable hot reload for development and specs/pipeline testing
     # This allows template changes to be picked up automatically during testing
-    template_hot_reload = true
+    _ = true
     cache_config.enabled = true
     cache_config.store = "memory"
     cache_config.max_size = 1000

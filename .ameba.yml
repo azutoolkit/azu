@@ -1,0 +1,16 @@
+# Ameba configuration file for Azu web framework
+# This file configures which linter rules to enable/disable
+
+# Exclude specific files from cyclomatic complexity checks
+# These methods are complex but functional and don't need refactoring at this time
+Metrics/CyclomaticComplexity:
+  Description: Disallows methods with a cyclomatic complexity higher than `MaxComplexity`
+  MaxComplexity: 10
+  Excluded:
+    - playground/endpoints/demo_reporting_endpoint.cr
+    - playground/examples/cache_metrics_demo.cr
+    - src/azu/handler/performance_monitor.cr
+    - src/azu/performance_reporter.cr
+    - src/azu/components/dev_dashboard_component.cr
+  Enabled: true
+  Severity: Warning

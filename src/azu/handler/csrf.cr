@@ -45,7 +45,7 @@ module Azu
       property param_name : String
       property cookie_max_age : Int32
       property cookie_same_site : HTTP::Cookie::SameSite
-      property secure_cookies : Bool
+      property? secure_cookies : Bool
 
       # Default instance for backward compatibility
       @@default_instance : CSRF? = nil
