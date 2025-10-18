@@ -98,7 +98,7 @@ module Azu
       end
 
       # Get or generate shared secret key
-      protected def self.get_or_generate_shared_secret_key : String
+      protected def self.or_generate_shared_secret_key : String
         @@instance_mutex.synchronize do
           @@shared_secret_key ||= Random::Secure.urlsafe_base64(HMAC_SECRET_LENGTH)
         end

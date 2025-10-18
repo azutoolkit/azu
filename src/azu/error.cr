@@ -21,14 +21,14 @@ module Azu
     private getter _cache_ttl : Time::Span = 5.minutes
 
     def self.get : Hash(String, String)
-      instance.get_environment
+      instance.environment
     end
 
     def self.refresh : Hash(String, String)
       instance.refresh_environment
     end
 
-    def get_environment : Hash(String, String)
+    def environment : Hash(String, String)
       now = Time.utc
 
       # Return cached environment if it's still valid
@@ -45,7 +45,7 @@ module Azu
     def refresh_environment : Hash(String, String)
       @_cached_env = ENV.to_h
       @_cache_time = Time.utc
-      @_cached_env.not_nil!
+      @_cached_env.as(Hash(String, String))
     end
   end
 

@@ -74,7 +74,7 @@ module Azu
     private def initialize_loader
       all_paths = ([error_path] + path).uniq
       @loader = Crinja::Loader::FileSystemLoader.new(all_paths)
-      crinja.loader = @loader.not_nil!
+      crinja.loader = @loader.as(Crinja::Loader::FileSystemLoader)
       update_template_mtimes if @hot_reload_enabled
     end
 

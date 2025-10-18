@@ -125,7 +125,7 @@ module Azu
 
       def xml
         messages = errors.map { |e| "<message>#{e}</message>" }.join("")
-        context_xml = context ? build_context_xml(context.not_nil!) : ""
+        context_xml = context ? build_context_xml(context.as(ErrorContext)) : ""
 
         <<-XML
       <?xml version="1.0" encoding="UTF-8"?>
@@ -141,7 +141,7 @@ module Azu
       end
 
       def json
-        context_data = context ? context.not_nil!.to_h : nil
+        context_data = context ? context.try(&.to_h) : nil
 
         {
           Status:      status,
@@ -159,7 +159,7 @@ module Azu
       end
 
       def text
-        context_info = context ? format_context_text(context.not_nil!) : "Context: None"
+        context_info = context ? format_context_text(context.as(ErrorContext)) : "Context: None"
 
         <<-TEXT
     Status: #{status_code}
@@ -185,20 +185,25 @@ module Azu
         context.response.headers["X-Error-Fingerprint"] = fingerprint
 
         content = if accept = context.request.accept
-                    accept.first?.try do |a|
-                      case a.sub_type.not_nil!
-                      when .includes?("html")
-                        context.response.content_type = "text/html"
-                        html(context)
-                      when .includes?("json")
-                        context.response.content_type = "application/json"
-                        json
-                      when .includes?("xml")
-                        context.response.content_type = "application/xml"
-                        xml
-                      when .includes?("plain")
-                        context.response.content_type = "text/plain"
-                        text
+                    accept.first?.try do |accept_type|
+                      if sub_type = accept_type.sub_type
+                        case sub_type
+                        when .includes?("html")
+                          context.response.content_type = "text/html"
+                          html(context)
+                        when .includes?("json")
+                          context.response.content_type = "application/json"
+                          json
+                        when .includes?("xml")
+                          context.response.content_type = "application/xml"
+                          xml
+                        when .includes?("plain")
+                          context.response.content_type = "text/plain"
+                          text
+                        else
+                          context.response.content_type = "text/plain"
+                          text
+                        end
                       else
                         context.response.content_type = "text/plain"
                         text

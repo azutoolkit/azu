@@ -56,9 +56,9 @@ module Azu::EndpointSpec
 
     def call : TestResponse
       # Test CSRF methods
-      token = csrf_token
-      tag = csrf_tag
-      metatag = csrf_metatag
+      _ = csrf_token
+      _ = csrf_tag
+      _ = csrf_metatag
 
       TestResponse.new("csrf tested")
     end
@@ -72,9 +72,9 @@ module Azu::EndpointSpec
     def call : TestResponse
       # Test various helper methods
       content_type("application/json")
-      method_val = method
-      header_val = header
-      cookies_val = cookies
+      _ = method
+      _ = header
+      _ = cookies
       status(201)
       redirect("/new-location", 302)
       error("Test error", 400, ["error1", "error2"])
@@ -102,9 +102,9 @@ module Azu::EndpointSpec
 
     def call : TestResponse
       # Test params and request object
-      params_val = params
-      request_obj = test_request
-      request_contract = test_request_contract
+      _ = params
+      _ = test_request
+      _ = test_request_contract
 
       TestResponse.new("params tested")
     end

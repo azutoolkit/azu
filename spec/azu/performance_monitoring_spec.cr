@@ -147,7 +147,7 @@ describe Azu::DevelopmentTools::MemoryLeakDetector do
       detector.take_snapshot
 
       # Allocate some memory (this will be cleaned up by GC)
-      dummy_data = Array(String).new(1000) { "memory_test" }
+      _ = Array(String).new(1000) { "memory_test" }
 
       # Take second snapshot
       detector.take_snapshot
@@ -208,7 +208,7 @@ describe Azu::Handler::PerformanceMonitor do
 
       # Should have recorded the request
       monitor.enabled?.should be_true
-      recent_requests = monitor.recent_requests(1)
+      _ = monitor.recent_requests(1)
 
       # Note: In a real scenario, this would be called through the handler chain
       # For testing, we verify the monitor is properly initialized

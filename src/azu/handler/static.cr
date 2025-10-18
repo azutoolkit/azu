@@ -22,37 +22,62 @@ module Azu
       def call(context : HTTP::Server::Context)
         return allow_get_or_head(context) unless method_get_or_head?(context.request.method)
 
-        original_path = context.request.path.not_nil!
+        original_path = context.request.path || ""
         request_path = URI.decode(original_path)
 
-        # File path cannot contains '\0' (NUL) because all filesystem I know
-        # don't accept '\0' character as file name.
-        if original_path.includes?('\0') || request_path.includes?('\0')
-          context.response.status_code = 400
-          context.response.print "Bad Request: Invalid path"
-          context.response.close
-          return
-        end
+        return handle_invalid_path(context) unless valid_path?(original_path, request_path)
 
-        is_dir_path = dir_path? original_path
+        path_info = resolve_path_info(original_path, request_path)
+        return handle_directory_request(context, path_info) if path_info.is_dir_path && File.exists?(path_info.root_file)
+        return handle_redirect(context, request_path, path_info) if should_redirect?(request_path, path_info)
+
+        call_next_with_file_path(context, request_path, path_info.file_path)
+      end
+
+      private def valid_path?(original_path : String, request_path : String) : Bool
+        return false if original_path.includes?('\0') || request_path.includes?('\0')
+        true
+      end
+
+      private def handle_invalid_path(context : HTTP::Server::Context)
+        context.response.status_code = 400
+        context.response.print "Bad Request: Invalid path"
+        context.response.close
+      end
+
+      private struct PathInfo
+        getter file_path : String
+        getter root_file : String
+        getter is_dir_path : Bool
+
+        def initialize(@file_path : String, @root_file : String, @is_dir_path : Bool)
+        end
+      end
+
+      private def resolve_path_info(original_path : String, request_path : String) : PathInfo
+        is_dir_path = dir_path?(original_path)
         expanded_path = File.expand_path(request_path, "/")
         expanded_path += "/" if is_dir_path && !dir_path?(expanded_path)
-        is_dir_path = dir_path? expanded_path
+        is_dir_path = dir_path?(expanded_path)
         file_path = File.join(@public_dir, expanded_path)
         root_file = "#{@public_dir}#{expanded_path}index.html"
+        PathInfo.new(file_path, root_file, is_dir_path)
+      end
 
-        if is_dir_path && File.exists? root_file
-          return if etag(context, root_file)
-          return serve_file(context, root_file)
-        end
+      private def handle_directory_request(context : HTTP::Server::Context, path_info : PathInfo)
+        return if etag(context, path_info.root_file)
+        serve_file(context, path_info.root_file)
+      end
 
-        is_dir_path = Dir.exists?(file_path) && !is_dir_path
-        if request_path != expanded_path || is_dir_path
-          redirect_to context, file_redirect_path(expanded_path, is_dir_path)
-          return
-        end
+      private def should_redirect?(request_path : String, path_info : PathInfo) : Bool
+        is_dir_path = Dir.exists?(path_info.file_path) && !path_info.is_dir_path
+        request_path != File.expand_path(request_path, "/") || is_dir_path
+      end
 
-        call_next_with_file_path(context, request_path, file_path)
+      private def handle_redirect(context : HTTP::Server::Context, request_path : String, path_info : PathInfo)
+        is_dir_path = Dir.exists?(path_info.file_path) && !path_info.is_dir_path
+        expanded_path = File.expand_path(request_path, "/")
+        redirect_to context, file_redirect_path(expanded_path, is_dir_path)
       end
 
       private def dir_path?(path)
@@ -105,7 +130,7 @@ module Azu
       end
 
       private def etag(context, file_path)
-        etag = %{W/"#{File.info(file_path).modification_time.to_unix.to_s}"}
+        etag = %{W/"#{File.info(file_path).modification_time.to_unix}"}
         context.response.headers["ETag"] = etag
         return false if !context.request.headers["If-None-Match"]? || context.request.headers["If-None-Match"] != etag
         context.response.headers.delete "Content-Type"

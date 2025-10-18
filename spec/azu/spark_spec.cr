@@ -34,7 +34,7 @@ end
 class TestSparkComponent
   include Azu::Component
 
-  property event_received = false
+  property? event_received = false
   property event_name = ""
   property event_data = ""
 

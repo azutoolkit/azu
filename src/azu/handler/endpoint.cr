@@ -39,7 +39,7 @@ module Azu
     # :nodoc:
     def call(context : HTTP::Server::Context)
       @context = context
-      @params = Params(Request).new(@context.not_nil!.request)
+      @params = Params(Request).new(context.request)
 
       # Set endpoint name header for performance monitoring
       endpoint_name = self.class.name.split("::").last
@@ -105,12 +105,12 @@ module Azu
 
     # Gets requests parameters
     private def params : Params
-      @params.not_nil!
+      @params.as(Params)
     end
 
     # Gets the request `raw` context
     private def context : HTTP::Server::Context
-      @context.not_nil!
+      @context.as(HTTP::Server::Context)
     end
 
     # Gets the request http method

@@ -67,14 +67,14 @@ describe Azu::Handler::Throttle do
 
       # First 3 requests should succeed
       3.times do
-        context, io = create_context_with_remote_addr("GET", "/test", "192.168.1.2")
+        context, _ = create_context_with_remote_addr("GET", "/test", "192.168.1.2")
         handler.call(context)
         get_response_body(context, io).should eq("OK")
       end
 
       # 4th and 5th requests should be blocked
       2.times do
-        context, io = create_context_with_remote_addr("GET", "/test", "192.168.1.2")
+        context, _ = create_context_with_remote_addr("GET", "/test", "192.168.1.2")
         handler.call(context)
         context.response.status_code.should eq(429)
         context.response.headers.has_key?("Retry-After").should be_true
@@ -158,7 +158,7 @@ describe Azu::Handler::Throttle do
       next_handler, verify = create_next_handler(0)
       handler.next = next_handler
 
-      context, io = create_context_with_remote_addr("GET", "/test", "10.0.0.1")
+      context, _ = create_context_with_remote_addr("GET", "/test", "10.0.0.1")
       handler.call(context)
 
       context.response.status_code.should eq(429)
@@ -221,13 +221,13 @@ describe Azu::Handler::Throttle do
 
       # Non-whitelisted IP should be limited
       2.times do
-        context, io = create_context_with_remote_addr("GET", "/test", "172.16.0.2")
+        context, _ = create_context_with_remote_addr("GET", "/test", "172.16.0.2")
         handler.call(context)
         get_response_body(context, io).should eq("OK")
       end
 
       # 3rd request should be blocked
-      context, io = create_context_with_remote_addr("GET", "/test", "172.16.0.2")
+      context, _ = create_context_with_remote_addr("GET", "/test", "172.16.0.2")
       handler.call(context)
       context.response.status_code.should eq(429)
 
@@ -249,12 +249,12 @@ describe Azu::Handler::Throttle do
       handler.next = next_handler
 
       # First request succeeds
-      context, io = create_context_with_remote_addr("GET", "/test", "192.168.2.1")
+      context, _ = create_context_with_remote_addr("GET", "/test", "192.168.2.1")
       handler.call(context)
       get_response_body(context, io).should eq("OK")
 
       # Second request is blocked
-      context, io = create_context_with_remote_addr("GET", "/test", "192.168.2.1")
+      context, _ = create_context_with_remote_addr("GET", "/test", "192.168.2.1")
       handler.call(context)
 
       context.response.status_code.should eq(429)
@@ -281,7 +281,7 @@ describe Azu::Handler::Throttle do
 
       # Make requests from 3 different IPs
       ["192.168.3.1", "192.168.3.2", "192.168.3.3"].each do |ip|
-        context, io = create_context_with_remote_addr("GET", "/test", ip)
+        context, _ = create_context_with_remote_addr("GET", "/test", ip)
         handler.call(context)
       end
 
@@ -306,7 +306,7 @@ describe Azu::Handler::Throttle do
       # Block 2 IPs
       ["192.168.4.1", "192.168.4.2"].each do |ip|
         2.times do |i|
-          context, io = create_context_with_remote_addr("GET", "/test", ip)
+          context, _ = create_context_with_remote_addr("GET", "/test", ip)
           handler.call(context)
           if i == 0
             get_response_body(context, io).should eq("OK")
@@ -335,14 +335,14 @@ describe Azu::Handler::Throttle do
       handler.next = next_handler
 
       # Make a request to start tracking
-      context, io = create_context_with_remote_addr("GET", "/test", "192.168.5.1")
+      context, _ = create_context_with_remote_addr("GET", "/test", "192.168.5.1")
       handler.call(context)
 
       # Reset handler
       handler.reset
 
       # Should be able to make request again
-      context, io = create_context_with_remote_addr("GET", "/test", "192.168.5.1")
+      context, _ = create_context_with_remote_addr("GET", "/test", "192.168.5.1")
       handler.call(context)
       get_response_body(context, io).should eq("OK")
 
@@ -367,7 +367,7 @@ describe Azu::Handler::Throttle do
       channel = Channel(Nil).new
       10.times do
         spawn do
-          context, io = create_context_with_remote_addr("GET", "/test", "192.168.6.1")
+          context, _ = create_context_with_remote_addr("GET", "/test", "192.168.6.1")
           handler.call(context)
           channel.send(nil)
         end
@@ -434,7 +434,7 @@ describe Azu::Handler::Throttle do
       next_handler, verify = create_next_handler(0)
       handler.next = next_handler
 
-      context, io = create_context_with_remote_addr("GET", "/test", "192.168.8.1")
+      context, _ = create_context_with_remote_addr("GET", "/test", "192.168.8.1")
       handler.call(context)
 
       # Should be blocked immediately

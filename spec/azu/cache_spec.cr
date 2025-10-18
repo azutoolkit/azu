@@ -483,7 +483,7 @@ describe Azu::Cache do
       # store.not_nil!.ping.should eq("PONG")
 
       # Info should return server information
-      info = store.not_nil!.info
+      info = store.try(&.info)
       info.should_not be_nil
       if info
         info.has_key?("redis_version").should be_true

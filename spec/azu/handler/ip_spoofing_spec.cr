@@ -31,7 +31,7 @@ describe Azu::Handler::IpSpoofing do
 
       headers = HTTP::Headers.new
       headers["User-Agent"] = "Test"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -48,7 +48,7 @@ describe Azu::Handler::IpSpoofing do
 
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -63,7 +63,7 @@ describe Azu::Handler::IpSpoofing do
 
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1, 10.0.0.1, 172.16.0.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -78,7 +78,7 @@ describe Azu::Handler::IpSpoofing do
 
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1,  10.0.0.1,   172.16.0.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -96,7 +96,7 @@ describe Azu::Handler::IpSpoofing do
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1, 10.0.0.1"
       headers["X-Client-IP"] = "192.168.1.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -112,7 +112,7 @@ describe Azu::Handler::IpSpoofing do
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1, 10.0.0.1"
       headers["X-Client-IP"] = "172.16.0.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -128,7 +128,7 @@ describe Azu::Handler::IpSpoofing do
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1, 10.0.0.1, 172.16.0.1"
       headers["X-Client-IP"] = "10.0.0.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -146,7 +146,7 @@ describe Azu::Handler::IpSpoofing do
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1, 10.0.0.1"
       headers["X-Real-IP"] = "10.0.0.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -162,7 +162,7 @@ describe Azu::Handler::IpSpoofing do
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1, 10.0.0.1"
       headers["X-Real-IP"] = "172.16.0.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -181,7 +181,7 @@ describe Azu::Handler::IpSpoofing do
       headers["X-Forwarded-For"] = "192.168.1.1, 10.0.0.1, 172.16.0.1"
       headers["X-Client-IP"] = "192.168.1.1"
       headers["X-Real-IP"] = "10.0.0.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -198,7 +198,7 @@ describe Azu::Handler::IpSpoofing do
       headers["X-Forwarded-For"] = "192.168.1.1, 10.0.0.1"
       headers["X-Client-IP"] = "172.16.0.1" # Invalid
       headers["X-Real-IP"] = "192.168.1.1"  # Valid
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -215,7 +215,7 @@ describe Azu::Handler::IpSpoofing do
       headers["X-Forwarded-For"] = "192.168.1.1, 10.0.0.1"
       headers["X-Client-IP"] = "192.168.1.1" # Valid
       headers["X-Real-IP"] = "172.16.0.1"    # Invalid
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -233,7 +233,7 @@ describe Azu::Handler::IpSpoofing do
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1"
       headers["X-Client-IP"] = "10.0.0.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -251,7 +251,7 @@ describe Azu::Handler::IpSpoofing do
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1"
       headers["X-Real-IP"] = "10.0.0.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -271,7 +271,7 @@ describe Azu::Handler::IpSpoofing do
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1"
       headers["X-Client-IP"] = "10.0.0.1" # Doesn't match forwarded chain
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -288,7 +288,7 @@ describe Azu::Handler::IpSpoofing do
       headers["X-Forwarded-For"] = "192.168.1.1, 192.168.1.2"
       headers["X-Client-IP"] = "10.0.0.1"
       headers["X-Real-IP"] = "172.16.0.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -305,7 +305,7 @@ describe Azu::Handler::IpSpoofing do
       headers["X-Forwarded-For"] = "203.0.113.1, 192.168.1.1, 10.0.0.1"
       headers["X-Client-IP"] = "203.0.113.1"
       headers["X-Real-IP"] = "203.0.113.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -322,7 +322,7 @@ describe Azu::Handler::IpSpoofing do
 
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = ""
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -337,7 +337,7 @@ describe Azu::Handler::IpSpoofing do
 
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "   "
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -353,7 +353,7 @@ describe Azu::Handler::IpSpoofing do
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "2001:db8::1, 192.168.1.1"
       headers["X-Client-IP"] = "2001:db8::1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -369,7 +369,7 @@ describe Azu::Handler::IpSpoofing do
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1, 2001:db8::1, 10.0.0.1"
       headers["X-Real-IP"] = "2001:db8::1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -385,7 +385,7 @@ describe Azu::Handler::IpSpoofing do
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1"
       headers["X-Client-IP"] = "192.168.1.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -405,7 +405,7 @@ describe Azu::Handler::IpSpoofing do
 
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       ip_spoofing.call(context)
 
@@ -421,7 +421,7 @@ describe Azu::Handler::IpSpoofing do
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1"
       headers["X-Client-IP"] = "10.0.0.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       ip_spoofing.call(context)
 

@@ -29,7 +29,7 @@ describe "Static Files Integration" do
 
         logger.next = static
 
-        context, io = create_context("GET", "/missing.txt")
+        context, _ = create_context("GET", "/missing.txt")
         logger.call(context)
 
         # Logger should log the 404
@@ -70,7 +70,7 @@ describe "Static Files Integration" do
         static.next = ->(_ctx : HTTP::Server::Context) { }
         request_id.next = static
 
-        context, io = create_context("GET", "/data.json")
+        context, _ = create_context("GET", "/data.json")
         request_id.call(context)
 
         context.request.headers.has_key?("X-Request-ID").should be_true
@@ -90,7 +90,7 @@ describe "Static Files Integration" do
 
         # Crystal's HTTP::Request automatically strips null bytes from paths for security
         # "/test\0.txt" becomes "/test", which won't match "test.txt"
-        context, io = create_context("GET", "/test\0.txt")
+        context, _ = create_context("GET", "/test\0.txt")
         rescuer.call(context)
 
         # Static handler with fallthrough=false simply doesn't serve non-existent files
@@ -146,14 +146,14 @@ describe "Static Files Integration" do
         request_id.next = static
 
         # First request to get ETag
-        context1, io1 = create_context("GET", "/cached.txt")
+        context1, _ = create_context("GET", "/cached.txt")
         request_id.call(context1)
         etag = context1.response.headers["ETag"]
 
         # Second request with If-None-Match
         headers = HTTP::Headers.new
         headers["If-None-Match"] = etag
-        context2, io2 = create_context("GET", "/cached.txt", headers)
+        context2, _ = create_context("GET", "/cached.txt", headers)
         request_id.call(context2)
 
         context2.response.status_code.should eq(304)
@@ -174,7 +174,7 @@ describe "Static Files Integration" do
 
         headers = HTTP::Headers.new
         headers["Accept-Encoding"] = "gzip"
-        context, io = create_context("GET", "/large.html", headers)
+        context, _ = create_context("GET", "/large.html", headers)
 
         cors.call(context)
 
@@ -227,7 +227,7 @@ describe "Static Files Integration" do
         static.next = ->(_ctx : HTTP::Server::Context) { }
         rescuer.next = static
 
-        context, io = create_context("GET", "/../secret.txt")
+        context, _ = create_context("GET", "/../secret.txt")
         rescuer.call(context)
 
         # Should not serve the file
@@ -242,7 +242,7 @@ describe "Static Files Integration" do
 
         # Crystal's HTTP::Request automatically strips null bytes from paths
         # "/file\0.txt" becomes "/file", which won't match "file.txt"
-        context, io = create_context("GET", "/file\0.txt")
+        context, _ = create_context("GET", "/file\0.txt")
         static.call(context)
 
         # Returns 404 because the path "/file" doesn't exist (only "file.txt" does)
@@ -263,7 +263,7 @@ describe "Static Files Integration" do
         performance.next = static
 
         10.times do
-          context, io = create_context("GET", "/fast.txt")
+          context, _ = create_context("GET", "/fast.txt")
           performance.call(context)
         end
 
@@ -293,7 +293,7 @@ describe "Static Files Integration" do
         ]
 
         files.each do |path, mime_type|
-          context, io = create_context("GET", path)
+          context, _ = create_context("GET", path)
           static.call(context)
           context.response.headers["Content-Type"].should contain(mime_type)
         end

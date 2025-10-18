@@ -22,12 +22,12 @@ class TestChannel < Azu::Channel
 end
 
 class LifecycleTestChannel < Azu::Channel
-  property connect_called = false
-  property message_called = false
-  property binary_called = false
-  property ping_called = false
-  property pong_called = false
-  property close_called = false
+  property? connect_called = false
+  property? message_called = false
+  property? binary_called = false
+  property? ping_called = false
+  property? pong_called = false
+  property? close_called = false
 
   def on_connect
     @connect_called = true
@@ -60,7 +60,7 @@ describe Azu::Channel do
       # Test that the ws class method exists and can be called
       # We create a temporary router to avoid CONFIG dependency issues
       router = Azu::Router.new
-      original_config = begin
+      _ = begin
         Azu::CONFIG.router
       rescue
         nil

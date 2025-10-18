@@ -22,7 +22,7 @@ describe Azu::Handler::RequestId do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       context.request.headers.has_key?("X-Request-ID").should be_true
@@ -35,11 +35,11 @@ describe Azu::Handler::RequestId do
       next_handler, verify = create_next_handler(2)
       handler.next = next_handler
 
-      context1, io1 = create_context("GET", "/test")
+      context1, _ = create_context("GET", "/test")
       handler.call(context1)
       id1 = context1.request.headers["X-Request-ID"]
 
-      context2, io2 = create_context("GET", "/test")
+      context2, _ = create_context("GET", "/test")
       handler.call(context2)
       id2 = context2.request.headers["X-Request-ID"]
 
@@ -52,7 +52,7 @@ describe Azu::Handler::RequestId do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       request_id = context.request.headers["X-Request-ID"]
@@ -70,7 +70,7 @@ describe Azu::Handler::RequestId do
 
       headers = HTTP::Headers.new
       headers["X-Request-ID"] = "existing-request-id"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -86,7 +86,7 @@ describe Azu::Handler::RequestId do
       original_id = "custom-123-abc"
       headers = HTTP::Headers.new
       headers["X-Request-ID"] = original_id
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -101,7 +101,7 @@ describe Azu::Handler::RequestId do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       context.response.headers.has_key?("X-Request-ID").should be_true
@@ -114,7 +114,7 @@ describe Azu::Handler::RequestId do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       request_id = context.request.headers["X-Request-ID"]
@@ -130,7 +130,7 @@ describe Azu::Handler::RequestId do
 
       headers = HTTP::Headers.new
       headers["X-Request-ID"] = "propagated-id"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -145,7 +145,7 @@ describe Azu::Handler::RequestId do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       context.request.headers.has_key?("X-Trace-ID").should be_true
@@ -158,7 +158,7 @@ describe Azu::Handler::RequestId do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       context.response.headers.has_key?("X-Trace-ID").should be_true
@@ -172,7 +172,7 @@ describe Azu::Handler::RequestId do
 
       headers = HTTP::Headers.new
       headers["X-Correlation-ID"] = "correlation-123"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -191,7 +191,7 @@ describe Azu::Handler::RequestId do
       cors_handler.next = next_handler
       request_id_handler.next = cors_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       request_id_handler.call(context)
 
       context.request.headers.has_key?("X-Request-ID").should be_true
@@ -209,7 +209,7 @@ describe Azu::Handler::RequestId do
       }
       request_id_handler.next = checking_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       request_id_handler.call(context)
 
       get_response_body(context, io).should eq("OK")
@@ -228,7 +228,7 @@ describe Azu::Handler::RequestId do
 
       10.times do
         spawn do
-          context, io = create_context("GET", "/test")
+          context, _ = create_context("GET", "/test")
           handler.call(context)
           request_id = context.request.headers["X-Request-ID"]
           channel.send(request_id)
@@ -251,7 +251,7 @@ describe Azu::Handler::RequestId do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       request_id = context.request.headers["X-Request-ID"]
@@ -271,7 +271,7 @@ describe Azu::Handler::RequestId do
 
       headers = HTTP::Headers.new
       headers["X-Request-ID"] = ""
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -289,7 +289,7 @@ describe Azu::Handler::RequestId do
       long_id = "x" * 1000
       headers = HTTP::Headers.new
       headers["X-Request-ID"] = long_id
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -306,7 +306,7 @@ describe Azu::Handler::RequestId do
       special_id = "req-123-αβγ-日本語"
       headers = HTTP::Headers.new
       headers["X-Request-ID"] = special_id
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -324,7 +324,7 @@ describe Azu::Handler::RequestId do
       uuid = "550e8400-e29b-41d4-a716-446655440000"
       headers = HTTP::Headers.new
       headers["X-Request-ID"] = uuid
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -340,7 +340,7 @@ describe Azu::Handler::RequestId do
       numeric_id = "123456789"
       headers = HTTP::Headers.new
       headers["X-Request-ID"] = numeric_id
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 

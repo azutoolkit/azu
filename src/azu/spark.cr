@@ -240,21 +240,7 @@ module Azu
 
     def on_message(message)
       json = JSON.parse(message)
-
-      if channel = json["subscribe"]?
-        spark = channel.to_s
-        if component = @components.get(spark)
-          component.connected = true
-          component.socket = socket
-          component.mount
-        end
-      elsif event_name = json["event"]?
-        spark = json["channel"].not_nil!.to_s
-        data = json["data"].not_nil!.as_s
-        if component = @components.get(spark)
-          component.on_event(event_name.as_s, data)
-        end
-      end
+      handle_message(json)
     rescue ex : IO::Error
       log_error("WebSocket IO error", ex, severity: :debug)
     rescue ex : JSON::ParseException
@@ -263,6 +249,32 @@ module Azu
       log_error("Incomplete event message", ex, severity: :warn)
     rescue ex
       log_error("Unexpected error in message handler", ex, severity: :error)
+    end
+
+    private def handle_message(json : JSON::Any)
+      if channel = json["subscribe"]?
+        handle_subscribe_message(channel.to_s)
+      elsif event_name = json["event"]?
+        handle_event_message(json, event_name.as_s)
+      end
+    end
+
+    private def handle_subscribe_message(spark : String)
+      if component = @components.get(spark)
+        component.connected = true
+        component.socket = socket
+        component.mount
+      end
+    end
+
+    private def handle_event_message(json : JSON::Any, event_name : String)
+      if channel = json["channel"]?
+        spark = channel.to_s
+        data = json["data"]?.try(&.as_s) || ""
+        if component = @components.get(spark)
+          component.on_event(event_name, data)
+        end
+      end
     end
 
     private def log_error(description : String, ex : Exception,

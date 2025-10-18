@@ -425,9 +425,9 @@ module Azu
             "component_type"       => component.component_type,
             "event"                => component.event,
             "processing_time_ms"   => component.processing_time.try(&.round(2).to_s) || "N/A",
-            "memory_before_mb"     => component.memory_before.try { |mb| (mb / 1024.0 / 1024.0).round(2).to_s } || "N/A",
-            "memory_after_mb"      => component.memory_after.try { |ma| (ma / 1024.0 / 1024.0).round(2).to_s } || "N/A",
-            "memory_delta_mb"      => component.memory_delta.try { |md| (md / 1024.0 / 1024.0).round(2).to_s } || "N/A",
+            "memory_before_mb"     => component.memory_before.try { |memory_bytes| (memory_bytes / 1024.0 / 1024.0).round(2).to_s } || "N/A",
+            "memory_after_mb"      => component.memory_after.try { |memory_bytes| (memory_bytes / 1024.0 / 1024.0).round(2).to_s } || "N/A",
+            "memory_delta_mb"      => component.memory_delta.try { |memory_bytes| (memory_bytes / 1024.0 / 1024.0).round(2).to_s } || "N/A",
             "age_at_event_seconds" => component.age_at_event.try(&.total_seconds.round(2).to_s) || "N/A",
             "timestamp"            => component.timestamp.to_s,
           }
@@ -1326,7 +1326,7 @@ module Azu
             render_empty_state("info", "No component events recorded", "Component events will appear here as they occur.")
           else
             div class: "metric-list" do
-              avg_processing_time = recent_events.compact_map { |e| e["processing_time_ms"].as(String) }.select { |t| t != "N/A" }.map(&.to_f).sum / recent_events.size
+              avg_processing_time = recent_events.compact_map { |event| event["processing_time_ms"].as(String) }.select { |time_str| time_str != "N/A" }.sum(&.to_f) / recent_events.size
               render_metric_item "Avg Processing Time", "#{avg_processing_time.round(2)} ms", "text-crystal"
               render_metric_item "Recent Events", recent_events.size.to_s, "text-primary"
             end

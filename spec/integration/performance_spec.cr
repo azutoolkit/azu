@@ -18,7 +18,7 @@ describe "Performance Integration" do
       performance.next = logger
       request_id.next = performance
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       request_id.call(context)
 
       stats = performance.stats
@@ -35,12 +35,12 @@ describe "Performance Integration" do
 
       headers1 = HTTP::Headers.new
       headers1["X-Azu-Endpoint"] = "UsersEndpoint"
-      context1, io1 = create_context("GET", "/users", headers1)
+      context1, _ = create_context("GET", "/users", headers1)
       performance.call(context1)
 
       headers2 = HTTP::Headers.new
       headers2["X-Azu-Endpoint"] = "PostsEndpoint"
-      context2, io2 = create_context("GET", "/posts", headers2)
+      context2, _ = create_context("GET", "/posts", headers2)
       performance.call(context2)
       performance.call(context2)
 
@@ -61,7 +61,7 @@ describe "Performance Integration" do
       performance.next = final_handler
 
       5.times do
-        context, io = create_context("GET", "/test")
+        context, _ = create_context("GET", "/test")
         performance.call(context)
       end
 
@@ -102,7 +102,7 @@ describe "Performance Integration" do
 
       20.times do
         spawn do
-          context, io = create_context("GET", "/test")
+          context, _ = create_context("GET", "/test")
           performance.call(context)
           channel.send(true)
         end
@@ -135,12 +135,12 @@ describe "Performance Integration" do
 
       # 3 successful requests
       3.times do
-        context, io = create_context("GET", "/ok")
+        context, _ = create_context("GET", "/ok")
         performance.call(context)
       end
 
       # 1 error request
-      context, io = create_context("GET", "/error")
+      context, _ = create_context("GET", "/error")
       performance.call(context)
 
       stats = performance.stats
@@ -158,7 +158,7 @@ describe "Performance Integration" do
       performance.next = final_handler
 
       100.times do
-        context, io = create_context("GET", "/test")
+        context, _ = create_context("GET", "/test")
         performance.call(context)
       end
 
@@ -178,7 +178,7 @@ describe "Performance Integration" do
       performance.next = final_handler
 
       5.times do
-        context, io = create_context("GET", "/test")
+        context, _ = create_context("GET", "/test")
         performance.call(context)
       end
 
@@ -198,7 +198,7 @@ describe "Performance Integration" do
       performance.next = final_handler
 
       3.times do
-        context, io = create_context("GET", "/test")
+        context, _ = create_context("GET", "/test")
         performance.call(context)
       end
 
@@ -221,7 +221,7 @@ describe "Performance Integration" do
       performance.next = final_handler
 
       10.times do |i|
-        context, io = create_context("GET", "/test#{i}")
+        context, _ = create_context("GET", "/test#{i}")
         performance.call(context)
       end
 
@@ -250,7 +250,7 @@ describe "Performance Integration" do
       request_id.next = rescuer
 
       start_time = Time.monotonic
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       request_id.call(context)
       elapsed = Time.monotonic - start_time
 

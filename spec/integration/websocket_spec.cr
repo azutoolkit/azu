@@ -5,7 +5,7 @@ include IntegrationHelpers
 
 # Test channel implementation
 class IntegrationTestChannel < Azu::Channel
-  property connect_called = false
+  property? connect_called = false
   property message_received : String? = nil
 
   def on_connect
@@ -68,7 +68,7 @@ describe "WebSocket Integration" do
       headers = HTTP::Headers.new
       headers["Upgrade"] = "websocket"
       headers["Connection"] = "Upgrade"
-      context, io = create_context("GET", "/ws", headers)
+      context, _ = create_context("GET", "/ws", headers)
 
       request_id.call(context)
 
@@ -90,7 +90,7 @@ describe "WebSocket Integration" do
       headers["Origin"] = "https://example.com"
       headers["Upgrade"] = "websocket"
       headers["Connection"] = "Upgrade"
-      context, io = create_context("GET", "/ws", headers)
+      context, _ = create_context("GET", "/ws", headers)
 
       cors.call(context)
 
@@ -107,7 +107,7 @@ describe "WebSocket Integration" do
       headers = HTTP::Headers.new
       headers["Origin"] = "https://evil.com"
       headers["Upgrade"] = "websocket"
-      context, io = create_context("GET", "/ws", headers)
+      context, _ = create_context("GET", "/ws", headers)
 
       cors.call(context)
 
@@ -127,7 +127,7 @@ describe "WebSocket Integration" do
 
       headers = HTTP::Headers.new
       headers["Upgrade"] = "websocket"
-      context, io = create_context("GET", "/ws", headers)
+      context, _ = create_context("GET", "/ws", headers)
 
       rescuer.call(context)
 
@@ -155,7 +155,7 @@ describe "WebSocket Integration" do
       headers["Origin"] = "https://example.com"
       headers["Upgrade"] = "websocket"
       headers["Connection"] = "Upgrade"
-      context, io = create_context("GET", "/ws", headers)
+      context, _ = create_context("GET", "/ws", headers)
 
       request_id.call(context)
 
@@ -200,7 +200,7 @@ describe "WebSocket Integration" do
 
       headers = HTTP::Headers.new
       headers["Upgrade"] = "websocket"
-      context, io = create_context("GET", "/ws", headers)
+      context, _ = create_context("GET", "/ws", headers)
 
       performance.call(context)
 
@@ -227,7 +227,7 @@ describe "WebSocket Integration" do
       headers["Origin"] = "https://example.com"
       headers["Upgrade"] = "websocket"
       headers["X-Forwarded-For"] = "192.168.1.1"
-      context, io = create_context("GET", "/ws", headers)
+      context, _ = create_context("GET", "/ws", headers)
 
       request_id.call(context)
 
@@ -244,7 +244,7 @@ describe "WebSocket Integration" do
       headers["Upgrade"] = "websocket"
       headers["X-Forwarded-For"] = "192.168.1.1"
       headers["X-Client-IP"] = "10.0.0.1" # Spoofed
-      context, io = create_context("GET", "/ws", headers)
+      context, _ = create_context("GET", "/ws", headers)
 
       ip_spoofing.call(context)
 
@@ -270,7 +270,7 @@ describe "WebSocket Integration" do
       headers["Upgrade"] = "websocket"
       headers["Connection"] = "Upgrade"
 
-      context, io = create_context("GET", "/ws", headers)
+      context, _ = create_context("GET", "/ws", headers)
 
       context.request.headers["Upgrade"]?.should eq("websocket")
       context.request.headers["Connection"]?.should eq("Upgrade")
@@ -306,7 +306,7 @@ describe "WebSocket Integration" do
       10.times do
         headers = HTTP::Headers.new
         headers["Upgrade"] = "websocket"
-        context, io = create_context("GET", "/ws", headers)
+        context, _ = create_context("GET", "/ws", headers)
         performance.call(context)
       end
 

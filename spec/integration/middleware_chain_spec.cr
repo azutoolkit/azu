@@ -18,7 +18,7 @@ describe "Middleware Chain Integration" do
       rescuer.next = logger
       request_id.next = rescuer
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       request_id.call(context)
 
       get_response_body(context, io).should eq("OK")
@@ -39,7 +39,7 @@ describe "Middleware Chain Integration" do
       logger.next = checking_handler
       request_id.next = logger
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       request_id.call(context)
 
       get_response_body(context, io).should eq("Verified")
@@ -58,7 +58,7 @@ describe "Middleware Chain Integration" do
       rescuer.next = logger
       request_id.next = rescuer
 
-      context, io = create_context("GET", "/error")
+      context, _ = create_context("GET", "/error")
       request_id.call(context)
 
       context.response.status_code.should eq(500)
@@ -75,7 +75,7 @@ describe "Middleware Chain Integration" do
       logger.next = final_handler
       request_id.next = logger
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       request_id.call(context)
 
       context.request.headers.has_key?("X-Request-ID").should be_true
@@ -89,7 +89,7 @@ describe "Middleware Chain Integration" do
       }
       rescuer.next = error_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       rescuer.call(context)
 
       context.response.status_code.should eq(500)
@@ -104,7 +104,7 @@ describe "Middleware Chain Integration" do
       headers["Origin"] = "https://example.com"
       headers["Access-Control-Request-Method"] = "POST"
       headers["Access-Control-Request-Headers"] = "Content-Type"
-      context, io = create_context("OPTIONS", "/test", headers)
+      context, _ = create_context("OPTIONS", "/test", headers)
 
       cors.call(context)
 
@@ -127,7 +127,7 @@ describe "Middleware Chain Integration" do
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
       headers["X-Forwarded-For"] = "192.168.1.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       ip_spoofing.call(context)
 
@@ -146,7 +146,7 @@ describe "Middleware Chain Integration" do
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1"
       headers["X-Client-IP"] = "10.0.0.1" # Spoofing
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       ip_spoofing.call(context)
 
@@ -167,7 +167,7 @@ describe "Middleware Chain Integration" do
       performance.next = logger
       request_id.next = performance
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       request_id.call(context)
 
       stats = performance.stats
@@ -186,7 +186,7 @@ describe "Middleware Chain Integration" do
       logger.next = performance
       request_id.next = logger
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       request_id.call(context)
 
       request_id_value = context.request.headers["X-Request-ID"]
@@ -240,7 +240,7 @@ describe "Middleware Chain Integration" do
 
       10.times do
         spawn do
-          context, io = create_context("GET", "/test")
+          context, _ = create_context("GET", "/test")
           request_id.call(context)
           id = context.request.headers["X-Request-ID"]
           channel.send(id)
@@ -291,7 +291,7 @@ describe "Middleware Chain Integration" do
       rescuer.next = error_handler
       request_id.next = rescuer
 
-      context, io = create_context("GET", "/error")
+      context, _ = create_context("GET", "/error")
       request_id.call(context)
 
       context.response.status_code.should eq(500)
@@ -310,7 +310,7 @@ describe "Middleware Chain Integration" do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       cors.call(context)
 
@@ -331,7 +331,7 @@ describe "Middleware Chain Integration" do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://test.com"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       request_id.call(context)
 
@@ -356,7 +356,7 @@ describe "Middleware Chain Integration" do
       request_id.next = logger
 
       start_time = Time.monotonic
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       request_id.call(context)
       elapsed = Time.monotonic - start_time
 

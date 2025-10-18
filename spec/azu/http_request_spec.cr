@@ -67,9 +67,9 @@ describe "HTTP::Request Extensions" do
       accept = request.accept
 
       accept.should_not be_nil
-      accept.not_nil!.size.should eq(1)
-      accept.not_nil!.first.type.should eq("application")
-      accept.not_nil!.first.sub_type.should eq("json")
+      accept.try(&.size).should eq(1)
+      accept.try(&.first).try(&.type).should eq("application")
+      accept.try(&.first).try(&.sub_type).should eq("json")
     end
 
     it "parses accept header with multiple types" do
@@ -79,9 +79,9 @@ describe "HTTP::Request Extensions" do
       accept = request.accept
 
       accept.should_not be_nil
-      accept.not_nil!.size.should eq(4)
-      accept.not_nil!.first.type.should eq("text")
-      accept.not_nil!.first.sub_type.should eq("html")
+      accept.try(&.size).should eq(4)
+      accept.try(&.first).try(&.type).should eq("text")
+      accept.try(&.first).try(&.sub_type).should eq("html")
     end
 
     it "sorts by quality value" do
@@ -91,11 +91,11 @@ describe "HTTP::Request Extensions" do
       accept = request.accept
 
       accept.should_not be_nil
-      accept.not_nil!.size.should eq(3)
+      accept.try(&.size).should eq(3)
       # Should be sorted by quality value (highest first)
-      accept.not_nil!.first.sub_type.should eq("plain") # q=1.0
-      accept.not_nil![1].sub_type.should eq("json")     # q=0.9
-      accept.not_nil![2].sub_type.should eq("html")     # q=0.8
+      accept.try(&.first).try(&.sub_type).should eq("plain") # q=1.0
+      accept.try(&.[1]).try(&.sub_type).should eq("json")    # q=0.9
+      accept.try(&.[2]).try(&.sub_type).should eq("html")    # q=0.8
     end
 
     it "handles missing accept header" do
@@ -148,7 +148,7 @@ describe "HTTP::Request Extensions" do
       accept = request.accept
 
       accept.should_not be_nil
-      accept.not_nil!.size.should eq(2)
+      accept.try(&.size).should eq(2)
     end
 
     it "handles accept header with parameters" do
@@ -158,7 +158,7 @@ describe "HTTP::Request Extensions" do
       accept = request.accept
 
       accept.should_not be_nil
-      accept.not_nil!.size.should eq(2)
+      accept.try(&.size).should eq(2)
     end
   end
 end

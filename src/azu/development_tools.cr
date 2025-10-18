@@ -249,8 +249,8 @@ module Azu
           end
 
           # Check memory growth ratio
-          total_bytes_start = start_snap.gc_stats["total_bytes"]
-          total_bytes_end = end_snap.gc_stats["total_bytes"]
+          # total_bytes_start = start_snap.gc_stats["total_bytes"]
+          # total_bytes_end = end_snap.gc_stats["total_bytes"]
           bytes_since_gc_end = end_snap.gc_stats["bytes_since_gc"]
 
           # If we have significant growth and many bytes allocated since last GC
@@ -282,7 +282,7 @@ module Azu
           str << "Memory Growth: #{analysis.memory_growth_mb.round(2)}MB\n"
           str << "Leak Detected: #{analysis.leak_detected? ? "YES" : "NO"}\n"
 
-          if analysis.suspected_leaks.any?
+          if !analysis.suspected_leaks.empty?
             str << "\nSuspected Issues:\n"
             analysis.suspected_leaks.each do |issue|
               str << "- #{issue}\n"
@@ -321,7 +321,7 @@ module Azu
 
           # Calculate standard deviation
           mean = @avg_time.total_nanoseconds
-          variance = times.map { |t| (t.total_nanoseconds - mean) ** 2 }.sum / times.size
+          variance = times.sum { |time| (time.total_nanoseconds - mean) ** 2 } / times.size
           @std_deviation = Math.sqrt(variance)
         end
 
@@ -406,7 +406,7 @@ module Azu
           select
           when time = channel.receive
             response_times << time
-          when error = errors.receive
+          when _ = errors.receive
             error_count += 1
           when timeout(timeout)
             break

@@ -176,7 +176,7 @@ module Azu
     @cache_operation_counts = Hash(String, Int32).new(0)
     @cache_hit_counts = Hash(String, Int32).new(0)
     @cache_miss_counts = Hash(String, Int32).new(0)
-    @endpoint_stats = Hash(String, Array(Float64)).new { |h, k| h[k] = [] of Float64 }
+    @endpoint_stats = Hash(String, Array(Float64)).new { |hash, key| hash[key] = [] of Float64 }
     @start_time = Time.utc
     @enabled = true
 
@@ -304,7 +304,7 @@ module Azu
       since ||= @start_time
 
       MUTEX.synchronize do
-        relevant_metrics = @request_metrics.select { |m| m.timestamp >= since }
+        relevant_metrics = @request_metrics.select { |metric| metric.timestamp >= since }
 
         return AggregatedStats.new(
           total_requests: 0,
@@ -355,7 +355,7 @@ module Azu
 
     # Internal method without mutex - caller must hold mutex
     private def unsafe_endpoint_stats(endpoint : String, since : Time) : Hash(String, Float64)
-      metrics = @request_metrics.select { |m| m.endpoint == endpoint && m.timestamp >= since }
+      metrics = @request_metrics.select { |metric| metric.endpoint == endpoint && metric.timestamp >= since }
       return {} of String => Float64 if metrics.empty?
 
       response_times = metrics.map(&.processing_time).sort!
@@ -370,7 +370,7 @@ module Azu
         "max_response_time"   => response_times.last,
         "p95_response_time"   => percentile(response_times, 0.95),
         "p99_response_time"   => percentile(response_times, 0.99),
-        "avg_memory_usage_mb" => metrics.map(&.memory_usage_mb).sum / metrics.size,
+        "avg_memory_usage_mb" => metrics.sum(&.memory_usage_mb) / metrics.size,
       }
     end
 
@@ -379,22 +379,22 @@ module Azu
       since ||= @start_time
 
       MUTEX.synchronize do
-        metrics = @component_metrics.select do |m|
-          m.timestamp >= since && (component_type.nil? || m.component_type == component_type)
+        metrics = @component_metrics.select do |metric|
+          metric.timestamp >= since && (component_type.nil? || metric.component_type == component_type)
         end
 
         return {} of String => Float64 if metrics.empty?
 
-        mount_events = metrics.select { |m| m.event == "mount" }
-        unmount_events = metrics.select { |m| m.event == "unmount" }
-        refresh_events = metrics.select { |m| m.event == "refresh" }
+        mount_events = metrics.select { |metric| metric.event == "mount" }
+        unmount_events = metrics.select { |metric| metric.event == "unmount" }
+        refresh_events = metrics.select { |metric| metric.event == "refresh" }
 
         {
           "total_components"  => metrics.map(&.component_id).uniq!.size.to_f,
           "mount_events"      => mount_events.size.to_f,
           "unmount_events"    => unmount_events.size.to_f,
           "refresh_events"    => refresh_events.size.to_f,
-          "avg_component_age" => mount_events.compact_map(&.age_at_event).map(&.total_seconds).sum / mount_events.size,
+          "avg_component_age" => mount_events.compact_map(&.age_at_event).sum(&.total_seconds) / mount_events.size,
         }
       end
     end
@@ -404,16 +404,16 @@ module Azu
       since ||= @start_time
 
       MUTEX.synchronize do
-        metrics = @cache_metrics.select do |m|
-          m.timestamp >= since && (store_type.nil? || m.store_type == store_type)
+        metrics = @cache_metrics.select do |metric|
+          metric.timestamp >= since && (store_type.nil? || metric.store_type == store_type)
         end
 
         return {} of String => Float64 if metrics.empty?
 
-        get_operations = metrics.select { |m| m.operation == "get" }
-        set_operations = metrics.select { |m| m.operation == "set" }
-        delete_operations = metrics.select { |m| m.operation == "delete" }
-        error_operations = metrics.select { |m| !m.successful? }
+        get_operations = metrics.select { |metric| metric.operation == "get" }
+        set_operations = metrics.select { |metric| metric.operation == "set" }
+        delete_operations = metrics.select { |metric| metric.operation == "delete" }
+        error_operations = metrics.select { |metric| !metric.successful? }
         hit_operations = get_operations.select(&.hit?)
         miss_operations = get_operations.select(&.miss?)
 
@@ -453,18 +453,18 @@ module Azu
       since ||= @start_time
 
       MUTEX.synchronize do
-        metrics = @cache_metrics.select { |m| m.timestamp >= since }
+        metrics = @cache_metrics.select { |metric| metric.timestamp >= since }
         breakdown = Hash(String, Hash(String, Float64)).new
 
         # Group by operation type
         operations = ["get", "set", "delete", "exists", "clear", "increment", "decrement"]
 
         operations.each do |operation|
-          op_metrics = metrics.select { |m| m.operation == operation }
+          op_metrics = metrics.select { |metric| metric.operation == operation }
           next if op_metrics.empty?
 
           processing_times = op_metrics.map(&.processing_time).sort!
-          error_count = op_metrics.count { |m| !m.successful? }
+          error_count = op_metrics.count { |metric| !metric.successful? }
 
           operation_stats = {
             "count"       => op_metrics.size.to_f,

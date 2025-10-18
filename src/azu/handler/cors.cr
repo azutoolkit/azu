@@ -36,7 +36,7 @@ module Azu
         @vary : String? = nil,
       )
         @origins = if origins
-                     origins.map { |o| o.as(String | Regex) }.as(OriginType)
+                     origins.map { |origin| origin.as(String | Regex) }.as(OriginType)
                    else
                      DEFAULT_ORIGINS
                    end
@@ -68,8 +68,10 @@ module Azu
 
       private def put_response_headers(response)
         response.headers[Headers::ALLOW_CREDENTIALS] = @credentials.to_s if @credentials
-        response.headers[Headers::ALLOW_ORIGIN] = @origin.request_origin.not_nil!
-        response.headers[Headers::VARY] = vary unless @origin.any?
+        if request_origin = @origin.request_origin
+          response.headers[Headers::ALLOW_ORIGIN] = request_origin
+        end
+        response.headers[Headers::VARY] = vary unless @origin.origins.includes?("*")
       end
 
       private def vary
@@ -121,6 +123,7 @@ module Azu
 
     struct Origin
       getter request_origin : String?
+      getter origins : CORS::OriginType
 
       def initialize(@origins : CORS::OriginType)
       end

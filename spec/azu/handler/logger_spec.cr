@@ -24,7 +24,7 @@ describe Azu::Handler::Logger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       get_response_body(context, io).should eq("OK")
@@ -36,7 +36,7 @@ describe Azu::Handler::Logger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("POST", "/api/users")
+      context, _ = create_context("POST", "/api/users")
       handler.call(context)
 
       verify.call
@@ -47,7 +47,7 @@ describe Azu::Handler::Logger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/api/users/123")
+      context, _ = create_context("GET", "/api/users/123")
       handler.call(context)
 
       verify.call
@@ -58,7 +58,7 @@ describe Azu::Handler::Logger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       verify.call
@@ -73,7 +73,7 @@ describe Azu::Handler::Logger do
 
       headers = HTTP::Headers.new
       headers["X-Azu-Endpoint"] = "TestEndpoint"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -85,7 +85,7 @@ describe Azu::Handler::Logger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       verify.call
@@ -98,7 +98,7 @@ describe Azu::Handler::Logger do
 
       headers = HTTP::Headers.new
       headers["X-Azu-Endpoint"] = "MyApp::Endpoints::UserEndpoint"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -113,7 +113,7 @@ describe Azu::Handler::Logger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       verify.call
@@ -124,7 +124,7 @@ describe Azu::Handler::Logger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       verify.call
@@ -140,7 +140,7 @@ describe Azu::Handler::Logger do
       }
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       context.response.status_code.should eq(200)
@@ -154,7 +154,7 @@ describe Azu::Handler::Logger do
       }
       handler.next = next_handler
 
-      context, io = create_context("GET", "/missing")
+      context, _ = create_context("GET", "/missing")
       handler.call(context)
 
       context.response.status_code.should eq(404)
@@ -168,7 +168,7 @@ describe Azu::Handler::Logger do
       }
       handler.next = next_handler
 
-      context, io = create_context("GET", "/error")
+      context, _ = create_context("GET", "/error")
       handler.call(context)
 
       context.response.status_code.should eq(500)
@@ -184,7 +184,7 @@ describe Azu::Handler::Logger do
       }
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       # Latency should be logged
@@ -196,7 +196,7 @@ describe Azu::Handler::Logger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/fast")
+      context, _ = create_context("GET", "/fast")
       handler.call(context)
 
       verify.call
@@ -211,7 +211,7 @@ describe Azu::Handler::Logger do
       }
       handler.next = error_handler
 
-      context, io = create_context("GET", "/error")
+      context, _ = create_context("GET", "/error")
 
       # Should log and then raise
       expect_raises(Exception, "Test error") do
@@ -224,7 +224,7 @@ describe Azu::Handler::Logger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       verify.call
@@ -241,7 +241,7 @@ describe Azu::Handler::Logger do
 
       5.times do |i|
         spawn do
-          context, io = create_context("GET", "/test#{i}")
+          context, _ = create_context("GET", "/test#{i}")
           handler.call(context)
           channel.send(true)
         end
@@ -259,7 +259,7 @@ describe Azu::Handler::Logger do
       handler.next = next_handler
 
       long_path = "/" + ("a" * 1000)
-      context, io = create_context("GET", long_path)
+      context, _ = create_context("GET", long_path)
       handler.call(context)
 
       verify.call
@@ -270,7 +270,7 @@ describe Azu::Handler::Logger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test?param=value&other=αβγ")
+      context, _ = create_context("GET", "/test?param=value&other=αβγ")
       handler.call(context)
 
       verify.call
@@ -282,7 +282,7 @@ describe Azu::Handler::Logger do
       handler.next = next_handler
 
       ["GET", "POST", "PUT", "PATCH", "DELETE"].each do |method|
-        context, io = create_context(method, "/test")
+        context, _ = create_context(method, "/test")
         handler.call(context)
       end
 

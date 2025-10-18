@@ -169,7 +169,7 @@ describe Azu::Handler::CSRF do
     describe "signed double submit strategy" do
       it "generates valid signed tokens" do
         Azu::Handler::CSRF.use_signed_double_submit!
-        context, io = create_context("GET", "/")
+        context, _ = create_context("GET", "/")
 
         token = Azu::Handler::CSRF.token(context)
 
@@ -179,7 +179,7 @@ describe Azu::Handler::CSRF do
 
       it "sets cookie when generating token" do
         Azu::Handler::CSRF.use_signed_double_submit!
-        context, io = create_context("GET", "/")
+        context, _ = create_context("GET", "/")
 
         token = Azu::Handler::CSRF.token(context)
 
@@ -193,7 +193,7 @@ describe Azu::Handler::CSRF do
     describe "synchronizer token strategy" do
       it "generates tokens and stores in cookie" do
         Azu::Handler::CSRF.use_synchronizer_token!
-        context, io = create_context("GET", "/")
+        context, _ = create_context("GET", "/")
 
         token = Azu::Handler::CSRF.token(context)
 
@@ -208,7 +208,7 @@ describe Azu::Handler::CSRF do
 
         headers = HTTP::Headers.new
         headers["Cookie"] = "csrf_token=#{existing_token}"
-        context, io = create_context("GET", "/", headers)
+        context, _ = create_context("GET", "/", headers)
 
         token = Azu::Handler::CSRF.token(context)
 
@@ -220,7 +220,7 @@ describe Azu::Handler::CSRF do
     describe "double submit strategy" do
       it "generates simple tokens" do
         Azu::Handler::CSRF.use_double_submit!
-        context, io = create_context("GET", "/")
+        context, _ = create_context("GET", "/")
 
         token = Azu::Handler::CSRF.token(context)
 
@@ -233,7 +233,7 @@ describe Azu::Handler::CSRF do
 
   describe "HTML helper methods" do
     it "generates hidden input tag" do
-      context, io = create_context("GET", "/")
+      context, _ = create_context("GET", "/")
 
       tag = Azu::Handler::CSRF.tag(context)
 
@@ -243,7 +243,7 @@ describe Azu::Handler::CSRF do
     end
 
     it "generates meta tag" do
-      context, io = create_context("GET", "/")
+      context, _ = create_context("GET", "/")
 
       metatag = Azu::Handler::CSRF.metatag(context)
 
@@ -261,7 +261,7 @@ describe Azu::Handler::CSRF do
         handler.next = next_handler
 
         # Generate token first
-        get_context, get_io = create_context("GET", "/")
+        get_context, _ = create_context("GET", "/")
         token = Azu::Handler::CSRF.token(get_context)
 
         # Use token in POST request
@@ -285,7 +285,7 @@ describe Azu::Handler::CSRF do
         headers = HTTP::Headers.new
         headers["X-CSRF-TOKEN"] = "invalid_token"
         headers["Cookie"] = "csrf_token=invalid_token"
-        context, io = create_context("POST", "/submit", headers)
+        context, _ = create_context("POST", "/submit", headers)
 
         handler.call(context)
 
@@ -321,7 +321,7 @@ describe Azu::Handler::CSRF do
 
         headers = HTTP::Headers.new
         headers["X-CSRF-TOKEN"] = "test_token"
-        context, io = create_context("POST", "/submit", headers)
+        context, _ = create_context("POST", "/submit", headers)
 
         handler.call(context)
 
@@ -394,7 +394,7 @@ describe Azu::Handler::CSRF do
       headers = HTTP::Headers.new
       headers["Origin"] = "http://example.com"
       headers["Host"] = "example.com"
-      context, io = create_context("POST", "/", headers)
+      context, _ = create_context("POST", "/", headers)
 
       result = Azu::Handler::CSRF.validate_origin(context)
       result.should be_true
@@ -404,7 +404,7 @@ describe Azu::Handler::CSRF do
       headers = HTTP::Headers.new
       headers["Origin"] = "http://evil.com"
       headers["Host"] = "example.com"
-      context, io = create_context("POST", "/", headers)
+      context, _ = create_context("POST", "/", headers)
 
       result = Azu::Handler::CSRF.validate_origin(context)
       result.should be_false
@@ -430,7 +430,7 @@ describe Azu::Handler::CSRF do
       headers["Origin"] = "https://example.com"
       headers["Host"] = "example.com"
       headers["X-Forwarded-Proto"] = "https"
-      context, io = create_context("POST", "/", headers)
+      context, _ = create_context("POST", "/", headers)
 
       result = Azu::Handler::CSRF.validate_origin(context)
       result.should be_true
@@ -443,9 +443,9 @@ describe Azu::Handler::CSRF do
 
       headers = HTTP::Headers.new
       headers["X-Forwarded-Proto"] = "https"
-      context, io = create_context("GET", "/", headers)
+      context, _ = create_context("GET", "/", headers)
 
-      token = Azu::Handler::CSRF.token(context)
+      Azu::Handler::CSRF.token(context)
 
       context.response.cookies.size.should eq(1)
       cookie = context.response.cookies.first
@@ -455,9 +455,9 @@ describe Azu::Handler::CSRF do
     it "does not set secure flag for HTTP requests" do
       Azu::Handler::CSRF.secure_cookies = true
 
-      context, io = create_context("GET", "/")
+      context, _ = create_context("GET", "/")
 
-      token = Azu::Handler::CSRF.token(context)
+      Azu::Handler::CSRF.token(context)
 
       context.response.cookies.size.should eq(1)
       cookie = context.response.cookies.first

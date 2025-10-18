@@ -12,7 +12,7 @@ describe "Design Pattern Refactoring" do
       )
 
       # Create mock contexts
-      contexts = Array(HTTP::Server::Context).new
+      _ = Array(HTTP::Server::Context).new
 
       # Test that we can reset state
       throttle.reset
@@ -68,7 +68,7 @@ describe "Design Pattern Refactoring" do
     end
 
     it "accepts custom registry via dependency injection" do
-      custom_registry = Azu::ComponentRegistry.new
+      _ = Azu::ComponentRegistry.new
       # Spark needs a socket, but we're just testing initialization
       # This would need a proper mock socket for full testing
     end

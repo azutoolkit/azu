@@ -16,7 +16,7 @@ describe "Error Handling Integration" do
       rescuer.next = error_handler
       request_id.next = rescuer
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       request_id.call(context)
 
       context.response.status_code.should eq(500)
@@ -36,7 +36,7 @@ describe "Error Handling Integration" do
 
       rescuer.next = error_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       rescuer.call(context)
 
       context.response.status_code.should eq(500)
@@ -57,7 +57,7 @@ describe "Error Handling Integration" do
       logger.next = error_handler
       rescuer.next = logger
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       rescuer.call(context)
 
       context.response.status_code.should eq(500)
@@ -77,7 +77,7 @@ describe "Error Handling Integration" do
       rescuer.next = logger
       request_id.next = rescuer
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       request_id.call(context)
 
       context.response.status_code.should eq(500)
@@ -95,7 +95,7 @@ describe "Error Handling Integration" do
 
       rescuer.next = error_handler
 
-      context, io = create_context("GET", "/missing")
+      context, _ = create_context("GET", "/missing")
       rescuer.call(context)
 
       context.response.status_code.should eq(404)
@@ -112,7 +112,7 @@ describe "Error Handling Integration" do
 
       rescuer.next = error_handler
 
-      context, io = create_context("POST", "/api/users")
+      context, _ = create_context("POST", "/api/users")
       rescuer.call(context)
 
       context.response.status_code.should eq(422)
@@ -128,7 +128,7 @@ describe "Error Handling Integration" do
 
       rescuer.next = error_handler
 
-      context, io = create_context("GET", "/admin")
+      context, _ = create_context("GET", "/admin")
       rescuer.call(context)
 
       context.response.status_code.should eq(401)
@@ -148,7 +148,7 @@ describe "Error Handling Integration" do
       rescuer.next = error_handler
       request_id.next = rescuer
 
-      context, io = create_context("POST", "/api/users")
+      context, _ = create_context("POST", "/api/users")
       request_id.call(context)
 
       context.response.status_code.should eq(500)
@@ -166,7 +166,7 @@ describe "Error Handling Integration" do
       rescuer.next = error_handler
       request_id.next = rescuer
 
-      context, io = create_context("GET", "/api/users/123")
+      context, _ = create_context("GET", "/api/users/123")
       request_id.call(context)
 
       context.response.status_code.should eq(500)
@@ -181,14 +181,14 @@ describe "Error Handling Integration" do
       error_handler = ->(_ctx : HTTP::Server::Context) {
         begin
           raise Exception.new("Inner exception")
-        rescue inner
-          raise Exception.new("Outer exception", cause: inner)
+        rescue ex
+          raise Exception.new("Outer exception", cause: ex)
         end
       }
 
       rescuer.next = error_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       rescuer.call(context)
 
       context.response.status_code.should eq(500)
@@ -212,7 +212,7 @@ describe "Error Handling Integration" do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       request_id.call(context)
 
@@ -236,7 +236,7 @@ describe "Error Handling Integration" do
 
       10.times do
         spawn do
-          context, io = create_context("GET", "/test")
+          context, _ = create_context("GET", "/test")
           rescuer.call(context)
           channel.send(context.response.status_code)
         end
@@ -259,7 +259,7 @@ describe "Error Handling Integration" do
 
       rescuer.next = error_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       rescuer.call(context)
 
       context.response.headers.has_key?("Content-Type").should be_true
@@ -300,7 +300,7 @@ describe "Error Handling Integration" do
       rescuer.next = error_handler
       performance.next = rescuer
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       performance.call(context)
 
       stats = performance.stats

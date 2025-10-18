@@ -5,23 +5,28 @@ module Azu
       return if context.response.headers["content_type"]?
 
       if accept = context.request.accept
-        accept.each do |a|
+        accept.each do |accept_type|
           # Extract just the basic media type without parameters
-          basic_type = a.to_s.split(';').first.strip
+          basic_type = accept_type.to_s.split(';').first.strip
 
-          case a.sub_type.not_nil!
-          when .includes?("html")
-            context.response.content_type = basic_type
-            break
-          when .includes?("json")
-            context.response.content_type = basic_type
-            break
-          when .includes?("xml")
-            context.response.content_type = basic_type
-            break
-          when .includes?("plain"), "*"
-            context.response.content_type = basic_type
-            break
+          if sub_type = accept_type.sub_type
+            case sub_type
+            when .includes?("html")
+              context.response.content_type = basic_type
+              break
+            when .includes?("json")
+              context.response.content_type = basic_type
+              break
+            when .includes?("xml")
+              context.response.content_type = basic_type
+              break
+            when .includes?("plain"), "*"
+              context.response.content_type = basic_type
+              break
+            else
+              context.response.content_type = basic_type
+              break
+            end
           else
             context.response.content_type = basic_type
             break

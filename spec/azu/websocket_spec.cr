@@ -34,10 +34,10 @@ end
 class TestWSChannel < Azu::Channel
   ws "/test-websocket"
 
-  property message_received = false
+  property? message_received = false
   property message_content = ""
-  property connect_called = false
-  property close_called = false
+  property? connect_called = false
+  property? close_called = false
 
   def on_connect
     @connect_called = true

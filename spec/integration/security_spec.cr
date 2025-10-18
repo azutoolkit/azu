@@ -17,7 +17,7 @@ describe "Security Integration" do
       headers["Origin"] = "https://example.com"
       headers["Access-Control-Request-Method"] = "POST"
       headers["Access-Control-Request-Headers"] = "Content-Type"
-      context, io = create_context("OPTIONS", "/test", headers)
+      context, _ = create_context("OPTIONS", "/test", headers)
 
       cors.call(context)
 
@@ -34,7 +34,7 @@ describe "Security Integration" do
       cors.next = csrf
 
       # First, get a token
-      context1, io1 = create_context("GET", "/form")
+      context1, _ = create_context("GET", "/form")
       # Generate a CSRF token explicitly
       token = csrf.token(context1)
 
@@ -64,7 +64,7 @@ describe "Security Integration" do
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1"
       headers["X-Client-IP"] = "10.0.0.1" # Spoofed
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       ip_spoofing.call(context)
 
@@ -87,13 +87,13 @@ describe "Security Integration" do
 
       # First 2 requests should pass
       2.times do
-        context, io = create_context("GET", "/test", headers)
+        context, _ = create_context("GET", "/test", headers)
         ip_spoofing.call(context)
         get_response_body(context, io).should eq("OK")
       end
 
       # 3rd request should be throttled
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
       ip_spoofing.call(context)
       context.response.status_code.should eq(429)
 
@@ -121,7 +121,7 @@ describe "Security Integration" do
       headers["Origin"] = "https://example.com"
       headers["X-Forwarded-For"] = "192.168.1.1"
       headers["REMOTE_ADDR"] = "192.168.1.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       request_id.call(context)
 
@@ -145,7 +145,7 @@ describe "Security Integration" do
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1"
       headers["X-Client-IP"] = "10.0.0.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       ip_spoofing.call(context)
 
@@ -173,7 +173,7 @@ describe "Security Integration" do
       get_response_body(context1, io1).should eq("OK")
 
       # Second request should be blocked
-      context2, io2 = create_context("GET", "/test", headers)
+      context2, _ = create_context("GET", "/test", headers)
       cors.call(context2)
       context2.response.status_code.should eq(429)
 
@@ -195,7 +195,7 @@ describe "Security Integration" do
 
       # Should allow unlimited requests from whitelisted IP
       5.times do
-        context, io = create_context("GET", "/test", headers)
+        context, _ = create_context("GET", "/test", headers)
         cors.call(context)
         get_response_body(context, io).should eq("OK")
       end
@@ -217,7 +217,7 @@ describe "Security Integration" do
       request_id.next = cors
 
       # Get token first
-      context1, io1 = create_context("GET", "/form")
+      context1, _ = create_context("GET", "/form")
       # Generate a CSRF token explicitly
       token = csrf.token(context1)
 
@@ -248,7 +248,7 @@ describe "Security Integration" do
       headers["Origin"] = "https://allowed.com"
       headers["Access-Control-Request-Method"] = "POST"
       headers["Access-Control-Request-Headers"] = "Content-Type"
-      context, io = create_context("OPTIONS", "/test", headers)
+      context, _ = create_context("OPTIONS", "/test", headers)
 
       cors.call(context)
 
@@ -265,7 +265,7 @@ describe "Security Integration" do
       headers["Origin"] = "https://evil.com"
       headers["Access-Control-Request-Method"] = "POST"
       headers["Access-Control-Request-Headers"] = "Content-Type"
-      context, io = create_context("OPTIONS", "/test", headers)
+      context, _ = create_context("OPTIONS", "/test", headers)
 
       cors.call(context)
 
@@ -285,7 +285,7 @@ describe "Security Integration" do
 
       headers = HTTP::Headers.new
       headers["REMOTE_ADDR"] = "10.0.0.1"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       throttle.call(context)
 
@@ -311,7 +311,7 @@ describe "Security Integration" do
           headers = HTTP::Headers.new
           headers["Origin"] = "https://test.com"
           headers["REMOTE_ADDR"] = "192.168.1.#{i}"
-          context, io = create_context("GET", "/test", headers)
+          context, _ = create_context("GET", "/test", headers)
           cors.call(context)
           channel.send(true)
         end

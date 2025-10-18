@@ -30,7 +30,7 @@ describe Azu::Handler::PerformanceMonitor do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       stats = handler.stats
@@ -47,7 +47,7 @@ describe Azu::Handler::PerformanceMonitor do
       }
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       stats = handler.stats
@@ -60,7 +60,7 @@ describe Azu::Handler::PerformanceMonitor do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       stats = handler.stats
@@ -76,7 +76,7 @@ describe Azu::Handler::PerformanceMonitor do
 
       headers = HTTP::Headers.new
       headers["X-Azu-Endpoint"] = "TestEndpoint"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -92,7 +92,7 @@ describe Azu::Handler::PerformanceMonitor do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       context.request.headers.has_key?("X-Request-ID").should be_true
@@ -106,7 +106,7 @@ describe Azu::Handler::PerformanceMonitor do
 
       headers = HTTP::Headers.new
       headers["X-Request-ID"] = "existing-id"
-      context, io = create_context("GET", "/test", headers)
+      context, _ = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -123,7 +123,7 @@ describe Azu::Handler::PerformanceMonitor do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       stats = handler.stats
@@ -138,7 +138,7 @@ describe Azu::Handler::PerformanceMonitor do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       stats = handler.stats
@@ -155,7 +155,7 @@ describe Azu::Handler::PerformanceMonitor do
       handler.next = next_handler
 
       5.times do
-        context, io = create_context("GET", "/test")
+        context, _ = create_context("GET", "/test")
         handler.call(context)
       end
 
@@ -173,7 +173,7 @@ describe Azu::Handler::PerformanceMonitor do
       }
       handler.next = error_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       stats = handler.stats
@@ -188,7 +188,7 @@ describe Azu::Handler::PerformanceMonitor do
       handler.next = next_handler
 
       10.times do
-        context, io = create_context("GET", "/test")
+        context, _ = create_context("GET", "/test")
         handler.call(context)
       end
 
@@ -207,7 +207,7 @@ describe Azu::Handler::PerformanceMonitor do
       handler.next = next_handler
 
       3.times do |i|
-        context, io = create_context("GET", "/test#{i}")
+        context, _ = create_context("GET", "/test#{i}")
         handler.call(context)
       end
 
@@ -223,7 +223,7 @@ describe Azu::Handler::PerformanceMonitor do
       handler.next = next_handler
 
       10.times do
-        context, io = create_context("GET", "/test")
+        context, _ = create_context("GET", "/test")
         handler.call(context)
       end
 
@@ -259,7 +259,7 @@ describe Azu::Handler::PerformanceMonitor do
       handler.next = next_handler
 
       3.times do
-        context, io = create_context("GET", "/test")
+        context, _ = create_context("GET", "/test")
         handler.call(context)
       end
 
@@ -278,7 +278,7 @@ describe Azu::Handler::PerformanceMonitor do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       json_io = IO::Memory.new
@@ -302,7 +302,7 @@ describe Azu::Handler::PerformanceMonitor do
 
       10.times do
         spawn do
-          context, io = create_context("GET", "/test")
+          context, _ = create_context("GET", "/test")
           handler.call(context)
           channel.send(true)
         end
@@ -322,7 +322,7 @@ describe Azu::Handler::PerformanceMonitor do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test")
       handler.call(context)
 
       stats = handler.stats
@@ -335,7 +335,7 @@ describe Azu::Handler::PerformanceMonitor do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/fast")
+      context, _ = create_context("GET", "/fast")
       handler.call(context)
 
       stats = handler.stats

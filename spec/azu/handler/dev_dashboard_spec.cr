@@ -27,7 +27,7 @@ describe Azu::Handler::DevDashboard do
     it "handles dashboard requests" do
       handler = Azu::Handler::DevDashboard.new
 
-      context, io = create_context("GET", "/dev-dashboard")
+      context, _ = create_context("GET", "/dev-dashboard")
       handler.call(context)
 
       context.response.close
@@ -52,7 +52,7 @@ describe Azu::Handler::DevDashboard do
     it "respects custom dashboard path" do
       handler = Azu::Handler::DevDashboard.new("/metrics")
 
-      context, io = create_context("GET", "/metrics")
+      context, _ = create_context("GET", "/metrics")
       handler.call(context)
 
       context.response.headers["Content-Type"].should contain("text/html")
@@ -64,7 +64,7 @@ describe Azu::Handler::DevDashboard do
       metrics = Azu::PerformanceMetrics.new
       handler = Azu::Handler::DevDashboard.new(metrics: metrics)
 
-      context, io = create_context("GET", "/dev-dashboard")
+      context, _ = create_context("GET", "/dev-dashboard")
       handler.call(context)
 
       context.response.close
@@ -91,7 +91,7 @@ describe Azu::Handler::DevDashboard do
 
       handler = Azu::Handler::DevDashboard.new(metrics: metrics)
 
-      context, io = create_context("GET", "/dev-dashboard")
+      context, _ = create_context("GET", "/dev-dashboard")
       handler.call(context)
 
       context.response.close
@@ -117,7 +117,7 @@ describe Azu::Handler::DevDashboard do
 
       handler = Azu::Handler::DevDashboard.new(metrics: metrics)
 
-      context, io = create_context("GET", "/dev-dashboard?clear=true")
+      context, _ = create_context("GET", "/dev-dashboard?clear=true")
       handler.call(context)
 
       context.response.status_code.should eq(302)
@@ -142,7 +142,7 @@ describe Azu::Handler::DevDashboard do
 
       handler = Azu::Handler::DevDashboard.new(metrics: metrics)
 
-      context, io = create_context("GET", "/dev-dashboard")
+      context, _ = create_context("GET", "/dev-dashboard")
       handler.call(context)
 
       context.response.status_code.should eq(200)
@@ -158,7 +158,7 @@ describe Azu::Handler::DevDashboard do
       handler = Azu::Handler::DevDashboard.new(metrics: metrics)
 
       # Create valid request
-      context, io = create_context("GET", "/dev-dashboard")
+      context, _ = create_context("GET", "/dev-dashboard")
 
       # Should not raise exception
       handler.call(context)
@@ -193,7 +193,7 @@ describe Azu::Handler::DevDashboard do
       next_handler, verify = create_next_handler(0)
       dashboard_handler.next = next_handler
 
-      context, io = create_context("GET", "/dev-dashboard")
+      context, _ = create_context("GET", "/dev-dashboard")
       dashboard_handler.call(context)
 
       context.response.headers["Content-Type"].should contain("text/html")
@@ -208,7 +208,7 @@ describe Azu::Handler::DevDashboard do
 
       5.times do
         spawn do
-          context, io = create_context("GET", "/dev-dashboard")
+          context, _ = create_context("GET", "/dev-dashboard")
           handler.call(context)
           context.response.headers["Content-Type"].should contain("text/html")
           channel.send(true)
@@ -224,7 +224,7 @@ describe Azu::Handler::DevDashboard do
       metrics = Azu::PerformanceMetrics.new
       handler = Azu::Handler::DevDashboard.new(metrics: metrics)
 
-      context, io = create_context("GET", "/dev-dashboard")
+      context, _ = create_context("GET", "/dev-dashboard")
       handler.call(context)
 
       context.response.status_code.should eq(200)
@@ -233,7 +233,7 @@ describe Azu::Handler::DevDashboard do
     it "handles query parameters in dashboard path" do
       handler = Azu::Handler::DevDashboard.new
 
-      context, io = create_context("GET", "/dev-dashboard?param=value")
+      context, _ = create_context("GET", "/dev-dashboard?param=value")
       handler.call(context)
 
       # Should still render dashboard

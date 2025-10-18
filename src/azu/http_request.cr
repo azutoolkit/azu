@@ -27,12 +27,12 @@ class HTTP::Request
         # Handle empty or whitespace-only accept headers
         return nil if header.strip.empty?
 
-        header.split(",").map do |a|
-          trimmed = a.strip
+        header.split(",").compact_map do |accept_type|
+          trimmed = accept_type.strip
           next if trimmed.empty?
           MIME::MediaType.parse(trimmed)
-        end.compact.sort! do |a, b|
-          (b["q"]?.try &.to_f || 1.0) <=> (a["q"]?.try &.to_f || 1.0)
+        end.sort! do |media_type_a, media_type_b|
+          (media_type_b["q"]?.try &.to_f || 1.0) <=> (media_type_a["q"]?.try &.to_f || 1.0)
         end
       end
     )

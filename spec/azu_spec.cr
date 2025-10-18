@@ -6,7 +6,7 @@ process = Process.new("./bin/example_app")
 sleep 1.seconds
 
 Spec.after_suite do
-  process.not_nil!.signal Signal::KILL
+  process.try(&.signal(Signal::KILL))
 end
 
 describe Azu do

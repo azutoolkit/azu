@@ -101,7 +101,7 @@ module Azu
             end
           when timeout(1.second)
             # Periodic flush of partial batches
-            if batch.any?
+            if !batch.empty?
               process_batch(batch, worker_id)
               batch.clear
               last_flush = Time.monotonic
@@ -110,7 +110,7 @@ module Azu
         rescue ex
           Log.for("Azu::AsyncLogging").error(exception: ex) { "Worker #{worker_id} failed" }
           # Process remaining entries synchronously
-          batch.each { |entry| process_entry_sync(entry) }
+          batch.each { |log_entry| process_entry_sync(log_entry) }
           batch.clear
         end
       end
@@ -162,27 +162,38 @@ module Azu
 
       private def self.process_entry_sync(entry : LogEntry)
         log = Log.for(entry.source)
+        log_entry_by_severity(log, entry)
+      end
 
-        if entry.exception
-          case entry.severity
-          when .debug? then log.debug(exception: entry.exception) { entry.message }
-          when .info?  then log.info(exception: entry.exception) { entry.message }
-          when .warn?  then log.warn(exception: entry.exception) { entry.message }
-          when .error? then log.error(exception: entry.exception) { entry.message }
-          when .fatal? then log.fatal(exception: entry.exception) { entry.message }
-          else
-            log.info(exception: entry.exception) { entry.message }
-          end
+      private def self.log_entry_by_severity(log : Log, entry : LogEntry)
+        if exception = entry.exception
+          log_with_exception(log, entry.severity, exception, entry.message)
         else
-          case entry.severity
-          when .debug? then log.debug { entry.message }
-          when .info?  then log.info { entry.message }
-          when .warn?  then log.warn { entry.message }
-          when .error? then log.error { entry.message }
-          when .fatal? then log.fatal { entry.message }
-          else
-            log.info { entry.message }
-          end
+          log_without_exception(log, entry.severity, entry.message)
+        end
+      end
+
+      private def self.log_with_exception(log : Log, severity : Log::Severity, exception : Exception, message : String)
+        case severity
+        when .debug? then log.debug(exception: exception) { message }
+        when .info?  then log.info(exception: exception) { message }
+        when .warn?  then log.warn(exception: exception) { message }
+        when .error? then log.error(exception: exception) { message }
+        when .fatal? then log.fatal(exception: exception) { message }
+        else
+          log.info(exception: exception) { message }
+        end
+      end
+
+      private def self.log_without_exception(log : Log, severity : Log::Severity, message : String)
+        case severity
+        when .debug? then log.debug { message }
+        when .info?  then log.info { message }
+        when .warn?  then log.warn { message }
+        when .error? then log.error { message }
+        when .fatal? then log.fatal { message }
+        else
+          log.info { message }
         end
       end
 
@@ -214,7 +225,7 @@ module Azu
           end
         end
 
-        if pending.any?
+        if !pending.empty?
           process_batch(pending, -1) # -1 indicates flush worker
         end
       end

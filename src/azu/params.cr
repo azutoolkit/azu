@@ -21,7 +21,7 @@ module Azu
 
       case request.content_type.sub_type
       when "json"
-        @json = request.body.not_nil!.gets_to_end
+        @json = request.body.try(&.gets_to_end)
       when "x-www-form-urlencoded"
         @form = Form.parse(request)
       when "form-data"
@@ -32,7 +32,7 @@ module Azu
     end
 
     def [](key)
-      (form[key]? || path[key]? || query[key]?).not_nil!
+      form[key]? || path[key]? || query[key]? || raise KeyError.new("Missing parameter: #{key}")
     end
 
     def []?(key)
@@ -60,9 +60,9 @@ module Azu
     end
 
     def to_query
-      String.build do |s|
+      String.build do |builder|
         to_h.each do |key, value|
-          s << key << "=" << value << "&"
+          builder << key << "=" << value << "&"
         end
       end
     end
@@ -100,7 +100,7 @@ module Azu
           timestamp = Time.utc.to_unix_ms
           random_suffix = Random.rand(999999)
           temp_filename = "azu_upload_#{timestamp}_#{random_suffix}"
-          temp_filename += "_#{@filename}" if @filename && !@filename.not_nil!.empty?
+          temp_filename += "_#{@filename}" if @filename && !@filename.try(&.empty?)
           @temp_path = Path[CONFIG.upload.temp_dir, temp_filename].to_s
 
           # Create temp file and stream upload data
