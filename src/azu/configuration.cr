@@ -77,7 +77,7 @@ module Azu
     getter cache : Cache::Manager do
       manager = Cache::Manager.new(cache_config)
       # Connect cache with performance metrics only if available and enabled
-      if performance_enabled && (monitor = performance_monitor)
+      if performance_enable? && (monitor = performance_monitor)
         manager.metrics = monitor.metrics
       end
       manager
