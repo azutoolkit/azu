@@ -47,9 +47,9 @@ module Azu
                end
 
       if config.tls?
-        server.bind_tls config.host, config.port, config.tls, config.port_reuse
+        server.bind_tls config.host, config.port, config.tls, config.port_reuse?
       else
-        server.bind_tcp config.host, config.port, config.port_reuse
+        server.bind_tcp config.host, config.port, config.port_reuse?
       end
 
       Signal::INT.trap do

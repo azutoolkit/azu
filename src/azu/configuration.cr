@@ -77,7 +77,7 @@ module Azu
     getter cache : Cache::Manager do
       manager = Cache::Manager.new(cache_config)
       # Connect cache with performance metrics only if available and enabled
-      if performance_enable? && (monitor = performance_monitor)
+      if performance_enabled? && (monitor = performance_monitor)
         manager.metrics = monitor.metrics
       end
       manager
@@ -113,7 +113,7 @@ module Azu
     {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
       def performance_monitor : Handler::PerformanceMonitor?
         return @performance_monitor if @performance_monitor
-        return nil unless performance_enabled
+        return nil unless performance_enabled?
 
         @performance_monitor = Handler::PerformanceMonitor.new
       end

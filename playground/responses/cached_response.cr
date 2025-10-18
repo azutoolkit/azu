@@ -15,11 +15,11 @@ struct CachedResponse
     {
       "key"        => key,
       "data"       => JSON.parse(data),
-      "cached"     => cached,
+      "cached"     => cached?,
       "timestamp"  => Time.utc.to_unix,
       "cache_info" => {
-        "hit"    => cached,
-        "source" => cached ? "cache" : "generated",
+        "hit"    => cached?,
+        "source" => cached? ? "cache" : "generated",
       },
     }.to_json
   end
@@ -78,7 +78,7 @@ struct CacheManagementResponse
   def render : String
     response = {
       "action"    => action,
-      "success"   => success,
+      "success"   => success?,
       "message"   => message,
       "timestamp" => Time.utc.to_unix,
     }
