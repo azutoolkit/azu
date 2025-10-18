@@ -241,4 +241,3 @@ describe Azu::Handler::DevDashboard do
     end
   end
 end
-

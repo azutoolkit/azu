@@ -430,4 +430,3 @@ describe Azu::Handler::IpSpoofing do
     end
   end
 end
-

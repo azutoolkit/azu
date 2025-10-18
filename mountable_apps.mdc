@@ -1,0 +1,285 @@
+Awesome request. I analyzed Azu’s repo and docs to see how it composes apps today (handlers, router, middleware, templates) and what gaps exist for Rails-style “mountable engines.” Azu already leans on explicit handler chains (Crystal HTTP::Handler) and a flexible router, which makes clean delegation to sub-apps very feasible. ￼
+
+Below is a ready-to-drop .mdc design doc you can paste into Cursor. It includes motivation, APIs, architecture, code stubs, acceptance criteria, and a migration plan.
+
+⸻
+
+Mountable Azu Applications (“Engines”) — Design (.mdc)
+
+Title
+
+Mounting Other Azu Applications on a Main Application (Rails Engine–style)
+
+Author
+
+eperez
+
+Status
+
+Draft → Review → Pilot in azu-examples → Release in azu >= 0.6.0
+
+Motivation / Problem
+
+We want to compose a main Azu app from smaller, independently developed Azu apps (admin panel, billing UI, blog, auth UI, etc.), each with its own routes, templates, middleware, and configuration. Today, Azu exposes a handler chain and router primitives but lacks a first-class engine/mount abstraction with:
+• Path and host-based mounting
+• Per-engine middleware stacks
+• Isolated config (templates, static assets, websockets)
+• URL helpers aware of mount prefixes
+• Shared session/cookie store with namespacing to avoid clashes
+
+Azu’s existing concepts (handler chain, endpoints, middleware) make this straightforward to implement without invasive changes. ￼
+
+Goals (MVP) 1. Mount any Azu app under a path prefix (e.g., /admin, /blog). 2. Optional host constraint (e.g., admin.example.com). 3. Per-engine middleware that runs before the engine’s router. 4. Prefix-aware URL helpers so path generation includes the engine base path. 5. Shared session compatibility with optional key scoping. 6. Graceful 404/405 propagation when the path doesn’t match.
+
+Non-Goals (for v1)
+• Asset compilation pipeline.
+• Cross-engine constant autoloading.
+• Cross-engine dependency management.
+(These can come in v2 with “Engine Packs.”)
+
+High-Level Architecture
+
+We introduce two core types:
+• Azu::Engine: a small wrapper around an Azu application providing:
+• #call(context) (implements HTTP::Handler)
+• Its own router, endpoints, templates, channels, etc.
+• Local middleware chain for pre-routing concerns.
+• Azu::MountTable: resides in the main app and routes requests to mounted engines by (host, path_prefix). Each entry holds:
+• base_path : String
+• host : String?
+• handler_chain : Array(HTTP::Handler) (engine middleware + engine)
+• engine : Azu::Engine
+
+Mounting is implemented as an early handler in the main app’s chain. If a request matches an engine’s constraint, we strip the prefix and delegate to the engine’s chain; otherwise, we call_next.
+
+Request Path Rewriting
+
+To keep engines oblivious of their mount path, we present them a “virtual root” by adjusting:
+• context.request.path (or store X-Original-Path and provide a helper to read base).
+• Provide Azu::Mount.env_base_path(context) to recover the mount base when generating URLs.
+
+URL Helpers
+
+Azu::Router#url_for gains an optional base: param. In engines, a tiny helper fetches the base from the context and preprends it.
+
+Public API (Proposed)
+
+module Azu
+
+# Engine contract
+
+abstract class Engine
+include HTTP::Handler
+
+    getter name : String
+    getter router : Azu::Router
+    getter middleware : Array(HTTP::Handler)
+
+    def initialize(@name : String, @router : Azu::Router, @middleware = [] of HTTP::Handler)
+    end
+
+    # Engines build their own handler chain ending in router
+    def call(ctx : HTTP::Server::Context)
+      chain = Azu::Handler.build_chain(@middleware + [router])
+      chain.call(ctx)
+    end
+
+end
+
+# Mount descriptor
+
+struct Mount
+getter base_path : String
+getter host : String?
+getter app : Engine
+getter handler : HTTP::Handler # cached composed chain
+
+    def initialize(@base_path, @app, @host = nil, middleware = [] of HTTP::Handler)
+      @handler = Azu::Handler.build_chain(middleware + [StripPrefix.new(@base_path), @app])
+    end
+
+end
+
+# Central registry & dispatcher
+
+class MountTable
+def initialize
+@mounts = [] of Mount
+end
+
+    def add(mount : Mount); @mounts << mount; end
+
+    # Finds a matching mount by host and path prefix
+    def find(ctx) : Mount?
+      req_host = ctx.request.headers["Host"]?
+      req_path = ctx.request.path
+      @mounts.find do |m|
+        host_ok = m.host.nil? || req_host.try(&.starts_with?(m.host.not_nil!))
+        path_ok = req_path.starts_with?(m.base_path)
+        host_ok && path_ok
+      end
+    end
+
+end
+
+# Main-app handler that dispatches to engines when matched
+
+class MountDispatcher
+include HTTP::Handler
+
+    def initialize(@table : MountTable)
+    end
+
+    def call(ctx)
+      if mount = @table.find(ctx)
+        mount.handler.call(ctx)
+      else
+        call_next(ctx)
+      end
+    end
+
+end
+
+# Responsible for presenting a rewritten path to the engine
+
+class StripPrefix
+include HTTP::Handler
+def initialize(@prefix : String); end
+def call(ctx)
+if ctx.request.path.starts_with?(@prefix)
+original = ctx.request.path
+ctx.request.path = original[@prefix.size..-1] || "/"
+ctx.request.headers.add("X-AZU-Mount-Base", @prefix)
+end
+call_next(ctx)
+end
+end
+end
+
+Notes: The shapes align with Azu’s current handler-chain approach and router model described in the repo/docs. ￼
+
+Engine Authoring Pattern
+
+# src/admin/app.cr
+
+module Admin
+class App < Azu::Engine
+def self.build
+router = Azu::Router.new.tap do |r|
+r.get("/", Dashboard::Index)
+r.get("/users", Users::Index) # ...
+end
+
+      middleware = [
+        Admin::AuthMiddleware.new,
+        Azu::Handler::CSRF.new,
+      ]
+
+      new("admin", router, middleware)
+    end
+
+end
+end
+
+Mounting in Main App
+
+# server.cr (main app)
+
+require "azu"
+require "./src/my_app"
+require "./engines/admin" # brings Admin::App
+
+table = Azu::MountTable.new
+table.add(
+Azu::Mount.new(
+base_path: "/admin",
+app: Admin::App.build,
+host: ENV["ADMIN_HOST"]? # optional host constraint
+)
+)
+
+main_chain = Azu::Handler.build_chain([
+Azu::Handler::RequestId.new,
+Azu::Handler::Rescuer.new,
+Azu::MountDispatcher.new(table), # 👈 dispatch early
+MyApp.router # main app router at the end
+])
+
+HTTP::Server.new(main_chain).bind_tcp(MyApp::CONFIG.host, MyApp::CONFIG.port).listen
+
+URL Helper (Prefix-Aware)
+
+module Azu::Mount
+def self.base_path(ctx : HTTP::Server::Context) : String
+ctx.request.headers["X-AZU-Mount-Base"]? || ""
+end
+end
+
+# Example in an Admin endpoint:
+
+def index(ctx)
+base = Azu::Mount.base_path(ctx)
+json({ users_url: MyRoutes.url_for(:users_index, base: base) })
+end
+
+Sessions & Cookies
+• Engines use the main app’s Azu::Handler::Session instance by default (shared in the composed chain).
+• Optional namespacing via a cookie/session key prefix set at mount time:
+• Azu::Mount.new(..., middleware: [Azu::Handler::Session.new(namespace: "admin")])
+
+WebSockets / Channels
+• If an engine defines channels, the engine’s router can include ws "/socket", Admin::ChannelHub. The mount prefix rules still apply so /admin/socket is exposed externally while the engine sees /socket.
+
+Error Handling
+• The MountDispatcher only delegates when path matches. Otherwise it call_next(ctx).
+• Inside an engine, unmatched routes should emit 404 which bubble up normally.
+
+Security
+• Host constraints prevent accidental exposure on the wrong domain.
+• Path stripping is tight and only occurs when prefix matches.
+• Session namespace avoids key collisions between engines.
+
+Configuration Surface
+• Azu::Engine accepts its own template/search paths and static directories (via engine-local config). The main app’s Static handler should include the engine’s public dir via multi-root option (future optimization).
+
+Tests (Outline)
+• Mount match and non-match routing.
+• Prefix stripping behavior (/admin/users → engine sees /users).
+• URL helper includes base.
+• Separate middleware stacks (engine auth vs main).
+• Session namespacing works.
+• Host-constrained mount works.
+
+Examples Repo
+• Add examples/mounting/ showing:
+• MainApp with / routes.
+• Admin::App mounted at /admin.
+• Blog::App mounted at /blog with host constraint blog.local.
+
+Migration Plan 1. Implement Azu::Engine, Azu::Mount, Azu::MountTable, Azu::MountDispatcher. 2. Add helper Azu::Mount.base_path(ctx) and extend URL helpers with base:. 3. Provide examples/mounting. 4. Write spec coverage for delegation, middleware, and URL generation. 5. Release behind azu >= 0.6.0 with changelog and docs page “Mountable Apps”.
+
+Acceptance Criteria
+• ✅ Can mount two independent Azu apps at /admin and /blog.
+• ✅ Engine routes render correctly and do not need to know their mount path.
+• ✅ Per-engine middleware runs only for its path.
+• ✅ URL helpers generate prefix-aware links.
+• ✅ Sessions are shared by default; optional namespace supported.
+• ✅ 100% of example scenarios pass specs.
+
+Open Questions
+• Should engines be able to export routes for the main app to import (advanced composition)?
+• Asset/static directory multi-root in Azu::Handler::Static (add now or later)?
+• Do we need a compile-time macro to auto-register engines?
+
+References
+• Azu handler/chain and router usage in the repo and docs. ￼
+• Crystal HTTP::Handler composition patterns (compare with Lucky’s docs for handler chains). ￼
+
+⸻
+
+Implementation Sketch (PR checklist)
+• Add src/azu/engine.cr, src/azu/mount.cr, src/azu/mount_table.cr, src/azu/handlers/mount_dispatcher.cr, src/azu/handlers/strip_prefix.cr.
+• Extend router URL helpers to accept base: (non-breaking default "").
+• Specs in spec/mounting/.
+• examples/mounting/ with Admin & Blog engines.
+• Docs page “Mountable Applications” with copy/paste snippets.

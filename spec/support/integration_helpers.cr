@@ -128,4 +128,3 @@ module IntegrationHelpers
     raise "Timeout waiting for async operation"
   end
 end
-
