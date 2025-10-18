@@ -4,7 +4,7 @@ class TestMarkup
   include Azu::Markup
 end
 
-class TestComponent
+class TestMarkupComponent
   include Azu::Component
   include Azu::Markup
 
@@ -106,7 +106,7 @@ describe Azu::Markup do
   describe "integration" do
     it "works with the component system" do
       # Test that markup can be used with components
-      component = TestComponent.new
+      component = TestMarkupComponent.new
       component.should be_a(Azu::Component)
       component.should be_a(Azu::Markup)
     end
