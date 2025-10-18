@@ -22,12 +22,12 @@ class TestChannel < Azu::Channel
 end
 
 class LifecycleTestChannel < Azu::Channel
-  property? connect_called = false
-  property? message_called = false
-  property? binary_called = false
-  property? ping_called = false
-  property? pong_called = false
-  property? close_called = false
+  property connect_called = false
+  property message_called = false
+  property binary_called = false
+  property ping_called = false
+  property pong_called = false
+  property close_called = false
 
   def on_connect
     @connect_called = true

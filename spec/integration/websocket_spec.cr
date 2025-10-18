@@ -5,7 +5,7 @@ include IntegrationHelpers
 
 # Test channel implementation
 class IntegrationTestChannel < Azu::Channel
-  property? connect_called = false
+  property connect_called = false
   property message_received : String? = nil
 
   def on_connect
@@ -90,7 +90,7 @@ describe "WebSocket Integration" do
       headers["Origin"] = "https://example.com"
       headers["Upgrade"] = "websocket"
       headers["Connection"] = "Upgrade"
-      context, _ = create_context("GET", "/ws", headers)
+      context, io = create_context("GET", "/ws", headers)
 
       cors.call(context)
 
@@ -155,7 +155,7 @@ describe "WebSocket Integration" do
       headers["Origin"] = "https://example.com"
       headers["Upgrade"] = "websocket"
       headers["Connection"] = "Upgrade"
-      context, _ = create_context("GET", "/ws", headers)
+      context, io = create_context("GET", "/ws", headers)
 
       request_id.call(context)
 
@@ -227,7 +227,7 @@ describe "WebSocket Integration" do
       headers["Origin"] = "https://example.com"
       headers["Upgrade"] = "websocket"
       headers["X-Forwarded-For"] = "192.168.1.1"
-      context, _ = create_context("GET", "/ws", headers)
+      context, io = create_context("GET", "/ws", headers)
 
       request_id.call(context)
 

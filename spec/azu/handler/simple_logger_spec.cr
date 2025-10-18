@@ -29,7 +29,7 @@ describe Azu::Handler::SimpleLogger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       context.request.headers.has_key?("X-Request-ID").should be_true
@@ -43,7 +43,7 @@ describe Azu::Handler::SimpleLogger do
 
       headers = HTTP::Headers.new
       headers["X-Request-ID"] = "existing-id"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -75,7 +75,7 @@ describe Azu::Handler::SimpleLogger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       # Give async logger time to complete
@@ -89,7 +89,7 @@ describe Azu::Handler::SimpleLogger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, _ = create_context("GET", "/api/users")
+      context, io = create_context("GET", "/api/users")
       handler.call(context)
 
       sleep 0.1.seconds
@@ -106,7 +106,7 @@ describe Azu::Handler::SimpleLogger do
       }
       handler.next = next_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       sleep 0.1.seconds
@@ -122,7 +122,7 @@ describe Azu::Handler::SimpleLogger do
       }
       handler.next = next_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       sleep 0.1.seconds
@@ -137,7 +137,7 @@ describe Azu::Handler::SimpleLogger do
       }
       handler.next = next_handler
 
-      context, _ = create_context("GET", "/missing")
+      context, io = create_context("GET", "/missing")
       handler.call(context)
 
       sleep 0.1.seconds
@@ -152,7 +152,7 @@ describe Azu::Handler::SimpleLogger do
       }
       handler.next = next_handler
 
-      context, _ = create_context("GET", "/error")
+      context, io = create_context("GET", "/error")
       handler.call(context)
 
       sleep 0.1.seconds
@@ -168,7 +168,7 @@ describe Azu::Handler::SimpleLogger do
       }
       handler.next = error_handler
 
-      context, _ = create_context("GET", "/error")
+      context, io = create_context("GET", "/error")
 
       expect_raises(Exception, "Test error") do
         handler.call(context)
@@ -184,7 +184,7 @@ describe Azu::Handler::SimpleLogger do
       }
       handler.next = error_handler
 
-      context, _ = create_context("GET", "/error")
+      context, io = create_context("GET", "/error")
 
       expect_raises(Exception, "Must be re-raised") do
         handler.call(context)
@@ -198,7 +198,7 @@ describe Azu::Handler::SimpleLogger do
       }
       handler.next = error_handler
 
-      context, _ = create_context("GET", "/error")
+      context, io = create_context("GET", "/error")
 
       expect_raises(Exception, "Reported error") do
         handler.call(context)
@@ -214,7 +214,7 @@ describe Azu::Handler::SimpleLogger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, _ = create_context("POST", "/test")
+      context, io = create_context("POST", "/test")
       handler.call(context)
 
       sleep 0.1.seconds
@@ -226,7 +226,7 @@ describe Azu::Handler::SimpleLogger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, _ = create_context("GET", "/api/users/123")
+      context, io = create_context("GET", "/api/users/123")
       handler.call(context)
 
       sleep 0.1.seconds
@@ -240,7 +240,7 @@ describe Azu::Handler::SimpleLogger do
 
       headers = HTTP::Headers.new
       headers["X-Azu-Endpoint"] = "UserEndpoint"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -256,7 +256,7 @@ describe Azu::Handler::SimpleLogger do
       }
       handler.next = next_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       sleep 0.15.seconds
@@ -276,7 +276,7 @@ describe Azu::Handler::SimpleLogger do
 
       5.times do
         spawn do
-          context, _ = create_context("GET", "/test")
+          context, io = create_context("GET", "/test")
           handler.call(context)
           channel.send(context.request.headers["X-Request-ID"])
         end
@@ -299,7 +299,7 @@ describe Azu::Handler::SimpleLogger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       sleep 0.1.seconds
@@ -311,7 +311,7 @@ describe Azu::Handler::SimpleLogger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, _ = create_context("GET", "/fast")
+      context, io = create_context("GET", "/fast")
       handler.call(context)
 
       sleep 0.1.seconds
@@ -326,7 +326,7 @@ describe Azu::Handler::SimpleLogger do
       }
       handler.next = next_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       sleep 0.1.seconds

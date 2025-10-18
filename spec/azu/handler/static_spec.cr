@@ -32,7 +32,7 @@ describe Azu::Handler::Static do
       with_temp_file("Hello, World!", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
-        context, _ = create_context("GET", "/test.txt")
+        context, io = create_context("GET", "/test.txt")
         handler.call(context)
 
         context.response.close
@@ -90,7 +90,7 @@ describe Azu::Handler::Static do
       with_temp_file("<h1>Test</h1>", "test.html") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
-        context, _ = create_context("GET", "/test.html")
+        context, io = create_context("GET", "/test.html")
         handler.call(context)
 
         context.response.headers["Content-Type"].should contain("text/html")
@@ -101,7 +101,7 @@ describe Azu::Handler::Static do
       with_temp_file("body { color: red; }", "style.css") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
-        context, _ = create_context("GET", "/style.css")
+        context, io = create_context("GET", "/style.css")
         handler.call(context)
 
         context.response.headers["Content-Type"].should contain("text/css")
@@ -112,7 +112,7 @@ describe Azu::Handler::Static do
       with_temp_file("console.log('test');", "script.js") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
-        context, _ = create_context("GET", "/script.js")
+        context, io = create_context("GET", "/script.js")
         handler.call(context)
 
         context.response.headers["Content-Type"].should contain("text/javascript")
@@ -123,7 +123,7 @@ describe Azu::Handler::Static do
       with_temp_file("{\"test\": true}", "data.json") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
-        context, _ = create_context("GET", "/data.json")
+        context, io = create_context("GET", "/data.json")
         handler.call(context)
 
         context.response.headers["Content-Type"].should contain("application/json")
@@ -136,7 +136,7 @@ describe Azu::Handler::Static do
       with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
-        context, _ = create_context("GET", "/test.txt")
+        context, io = create_context("GET", "/test.txt")
         handler.call(context)
 
         context.response.headers.has_key?("ETag").should be_true
@@ -187,7 +187,7 @@ describe Azu::Handler::Static do
       with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
-        context, _ = create_context("GET", "/test.txt")
+        context, io = create_context("GET", "/test.txt")
         handler.call(context)
 
         context.response.status_code.should eq(200)
@@ -198,7 +198,7 @@ describe Azu::Handler::Static do
       with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
-        context, _ = create_context("HEAD", "/test.txt")
+        context, io = create_context("HEAD", "/test.txt")
         handler.call(context)
 
         context.response.status_code.should eq(200)
@@ -209,7 +209,7 @@ describe Azu::Handler::Static do
       with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir, fallthrough: false)
 
-        context, _ = create_context("POST", "/test.txt")
+        context, io = create_context("POST", "/test.txt")
         handler.call(context)
 
         context.response.status_code.should eq(405)
@@ -223,7 +223,7 @@ describe Azu::Handler::Static do
         next_handler, verify = create_next_handler(1)
         handler.next = next_handler
 
-        context, _ = create_context("POST", "/test.txt")
+        context, io = create_context("POST", "/test.txt")
         handler.call(context)
 
         get_response_body(context, io).should eq("OK")
@@ -239,7 +239,7 @@ describe Azu::Handler::Static do
 
         # Crystal's HTTP::Request strips null bytes from paths for security
         # "/test\0.txt" becomes "/test", which won't match "test.txt"
-        context, _ = create_context("GET", "/test\0.txt")
+        context, io = create_context("GET", "/test\0.txt")
         handler.call(context)
 
         # Returns 404 because "/test" doesn't exist (only "test.txt" does)
@@ -253,7 +253,7 @@ describe Azu::Handler::Static do
         handler = Azu::Handler::Static.new(dir)
 
         # Try to access file using path traversal
-        context, _ = create_context("GET", "/../test.txt")
+        context, io = create_context("GET", "/../test.txt")
         handler.call(context)
 
         # Should either block or redirect, not serve the file directly
@@ -269,7 +269,7 @@ describe Azu::Handler::Static do
         next_handler, verify = create_next_handler(1)
         handler.next = next_handler
 
-        context, _ = create_context("GET", "/missing.txt")
+        context, io = create_context("GET", "/missing.txt")
         handler.call(context)
 
         get_response_body(context, io).should eq("OK")
@@ -283,7 +283,7 @@ describe Azu::Handler::Static do
         next_handler, verify = create_next_handler(0)
         handler.next = next_handler
 
-        context, _ = create_context("GET", "/missing.txt")
+        context, io = create_context("GET", "/missing.txt")
         handler.call(context)
 
         # Should not call next handler
@@ -343,7 +343,7 @@ describe Azu::Handler::Static do
       with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
-        context, _ = create_context("GET", "/test.txt")
+        context, io = create_context("GET", "/test.txt")
         handler.call(context)
 
         context.response.headers.has_key?("Cache-Control").should be_true
@@ -354,7 +354,7 @@ describe Azu::Handler::Static do
       with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
-        context, _ = create_context("GET", "/test.txt")
+        context, io = create_context("GET", "/test.txt")
         handler.call(context)
 
         context.response.headers["Accept-Ranges"].should eq("bytes")
@@ -365,7 +365,7 @@ describe Azu::Handler::Static do
       with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
-        context, _ = create_context("GET", "/test.txt")
+        context, io = create_context("GET", "/test.txt")
         handler.call(context)
 
         context.response.headers["X-Content-Type-Options"].should eq("nosniff")
@@ -381,7 +381,7 @@ describe Azu::Handler::Static do
 
         headers = HTTP::Headers.new
         headers["Accept-Encoding"] = "gzip"
-        context, _ = create_context("GET", "/large.html", headers)
+        context, io = create_context("GET", "/large.html", headers)
         handler.call(context)
 
         context.response.headers["Content-Encoding"]?.should eq("gzip")
@@ -395,7 +395,7 @@ describe Azu::Handler::Static do
 
         headers = HTTP::Headers.new
         headers["Accept-Encoding"] = "deflate"
-        context, _ = create_context("GET", "/large.html", headers)
+        context, io = create_context("GET", "/large.html", headers)
         handler.call(context)
 
         context.response.headers["Content-Encoding"]?.should eq("deflate")
@@ -409,7 +409,7 @@ describe Azu::Handler::Static do
 
         headers = HTTP::Headers.new
         headers["Accept-Encoding"] = "gzip"
-        context, _ = create_context("GET", "/small.html", headers)
+        context, io = create_context("GET", "/small.html", headers)
         handler.call(context)
 
         context.response.headers.has_key?("Content-Encoding").should be_false
@@ -422,7 +422,7 @@ describe Azu::Handler::Static do
       with_temp_file("", "empty.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
-        context, _ = create_context("GET", "/empty.txt")
+        context, io = create_context("GET", "/empty.txt")
         handler.call(context)
 
         context.response.status_code.should eq(200)
@@ -433,7 +433,7 @@ describe Azu::Handler::Static do
       with_temp_file("content", "test file.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
-        context, _ = create_context("GET", "/test%20file.txt")
+        context, io = create_context("GET", "/test%20file.txt")
         handler.call(context)
 
         context.response.status_code.should eq(200)
@@ -444,7 +444,7 @@ describe Azu::Handler::Static do
       with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
 
-        context, _ = create_context("GET", "/test.txt/")
+        context, io = create_context("GET", "/test.txt/")
         handler.call(context)
 
         # Should redirect or handle gracefully

@@ -115,7 +115,6 @@ describe Azu::Spark do
       spark.on_message(message)
 
       component.connected?.should be_true
-      component.connected?.should be_true
     end
 
     it "handles event messages" do
@@ -132,7 +131,7 @@ describe Azu::Spark do
 
       spark.on_message(message)
 
-      component.event_received.should be_true
+      component.event_received?.should be_true
       component.event_name.should eq("test_event")
       component.event_data.should eq("test_data")
     end
@@ -280,7 +279,7 @@ describe Azu::Spark do
       }.to_json
       spark.on_message(event_message)
 
-      component.event_received.should be_true
+      component.event_received?.should be_true
       component.event_name.should eq("custom_event")
       component.event_data.should eq("custom_data")
     end

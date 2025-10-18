@@ -511,7 +511,7 @@ module Azu
 
       # Rails-like API methods with optional performance metrics
       def get(key : String) : String?
-        return nil unless @config.enabled
+        return nil unless @config.enabled?
 
         {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
           if metrics = @metrics
@@ -531,7 +531,7 @@ module Azu
 
       # Overloaded get method with block and TTL support (Rails-like)
       def get(key : String, ttl : Time::Span? = nil, & : -> String) : String
-        return yield unless @config.enabled
+        return yield unless @config.enabled?
 
         prefixed = prefixed_key(key)
 
@@ -582,7 +582,7 @@ module Azu
       end
 
       def set(key : String, value : String, ttl : Time::Span? = nil) : Bool
-        return false unless @config.enabled
+        return false unless @config.enabled?
 
         {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
           if metrics = @metrics
@@ -605,7 +605,7 @@ module Azu
       end
 
       def fetch(key : String, ttl : Time::Span? = nil, & : -> String) : String
-        return yield unless @config.enabled
+        return yield unless @config.enabled?
 
         prefixed = prefixed_key(key)
 
@@ -656,7 +656,7 @@ module Azu
       end
 
       def delete(key : String) : Bool
-        return false unless @config.enabled
+        return false unless @config.enabled?
 
         {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
           if metrics = @metrics
@@ -675,7 +675,7 @@ module Azu
       end
 
       def exists?(key : String) : Bool
-        return false unless @config.enabled
+        return false unless @config.enabled?
 
         {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
           if metrics = @metrics
@@ -694,7 +694,7 @@ module Azu
       end
 
       def clear : Bool
-        return false unless @config.enabled
+        return false unless @config.enabled?
 
         {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
           if metrics = @metrics
@@ -713,13 +713,13 @@ module Azu
       end
 
       def size : Int32
-        return 0 unless @config.enabled
+        return 0 unless @config.enabled?
         @store.size
       end
 
       # Multi-key operations
       def get_multi(keys : Array(String)) : Hash(String, String?)
-        return Hash(String, String?).new unless @config.enabled
+        return Hash(String, String?).new unless @config.enabled?
 
         prefixed_keys = keys.map { |key| prefixed_key(key) }
         result = @store.get_multi(prefixed_keys)
@@ -733,7 +733,7 @@ module Azu
       end
 
       def set_multi(values : Hash(String, String), ttl : Time::Span? = nil) : Bool
-        return false unless @config.enabled
+        return false unless @config.enabled?
 
         prefixed_values = Hash(String, String).new
         values.each do |key, value|
@@ -746,7 +746,7 @@ module Azu
 
       # Counter operations
       def increment(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
-        return nil unless @config.enabled
+        return nil unless @config.enabled?
         ttl = ttl || @config.ttl_span
 
         {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
@@ -766,7 +766,7 @@ module Azu
       end
 
       def decrement(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
-        return nil unless @config.enabled
+        return nil unless @config.enabled?
         ttl = ttl || @config.ttl_span
 
         {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
@@ -788,7 +788,7 @@ module Azu
       # Utility methods
       def stats : Hash(String, Int32 | Float64 | String)
         base_stats = Hash(String, Int32 | Float64 | String).new
-        base_stats["enabled"] = @config.enabled ? 1 : 0
+        base_stats["enabled"] = @config.enabled? ? 1 : 0
         base_stats["store_type"] = @config.store
         base_stats["size"] = size
 
@@ -804,18 +804,18 @@ module Azu
 
       # Redis-specific methods (only available when using Redis store)
       def ping : String?
-        return nil unless @config.enabled && @store.is_a?(RedisStore)
+        return nil unless @config.enabled? && @store.is_a?(RedisStore)
         @store.as(RedisStore).ping
       end
 
       def redis_info : Hash(String, String)?
-        return nil unless @config.enabled && @store.is_a?(RedisStore)
+        return nil unless @config.enabled? && @store.is_a?(RedisStore)
         @store.as(RedisStore).info
       end
 
       private def create_store : Store
         # If caching is disabled, always return a NullStore
-        return NullStore.new unless @config.enabled
+        return NullStore.new unless @config.enabled?
 
         case @config.store
         when "memory"

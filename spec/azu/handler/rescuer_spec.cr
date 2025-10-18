@@ -23,7 +23,7 @@ describe Azu::Handler::Rescuer do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       get_response_body(context, io).should eq("OK")
@@ -35,7 +35,7 @@ describe Azu::Handler::Rescuer do
       next_handler, verify = create_next_handler(1, "Custom response")
       handler.next = next_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       get_response_body(context, io).should eq("Custom response")
@@ -52,7 +52,7 @@ describe Azu::Handler::Rescuer do
       }
       handler.next = error_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
 
       # Should not raise exception
       handler.call(context)
@@ -73,7 +73,7 @@ describe Azu::Handler::Rescuer do
       }
       handler.next = error_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       context.response.status_code.should eq(404)
@@ -90,7 +90,7 @@ describe Azu::Handler::Rescuer do
       }
       handler.next = error_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       context.response.status_code.should eq(401)
@@ -107,7 +107,7 @@ describe Azu::Handler::Rescuer do
       }
       handler.next = error_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       io.rewind
@@ -125,7 +125,7 @@ describe Azu::Handler::Rescuer do
       }
       handler.next = error_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       context.response.status_code.should eq(500)
@@ -142,7 +142,7 @@ describe Azu::Handler::Rescuer do
       }
       handler.next = error_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       io.rewind
@@ -217,7 +217,7 @@ describe Azu::Handler::Rescuer do
       }
       handler.next = error_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       context.response.status_code.should eq(500)
@@ -239,7 +239,7 @@ describe Azu::Handler::Rescuer do
       request_id_handler.next = error_handler
       rescuer.next = request_id_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       rescuer.call(context)
 
       context.response.status_code.should eq(500)
@@ -256,7 +256,7 @@ describe Azu::Handler::Rescuer do
 
       rescuer.next = failing_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
 
       # Should not propagate exception
       rescuer.call(context)
@@ -278,7 +278,7 @@ describe Azu::Handler::Rescuer do
 
       10.times do
         spawn do
-          context, _ = create_context("GET", "/test")
+          context, io = create_context("GET", "/test")
           handler.call(context)
           context.response.status_code.should eq(500)
           channel.send(true)
@@ -298,7 +298,7 @@ describe Azu::Handler::Rescuer do
       }
       handler.next = error_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       # Response should have content type set
@@ -313,7 +313,7 @@ describe Azu::Handler::Rescuer do
       }
       handler.next = error_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       io.rewind
@@ -332,7 +332,7 @@ describe Azu::Handler::Rescuer do
       }
       handler.next = error_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
 
       # Should not crash
       handler.call(context)
@@ -349,7 +349,7 @@ describe Azu::Handler::Rescuer do
       }
       handler.next = error_handler
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       handler.call(context)
 
       context.response.status_code.should eq(500)
@@ -358,7 +358,7 @@ describe Azu::Handler::Rescuer do
     it "handles nil next handler gracefully" do
       handler = Azu::Handler::Rescuer.new
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
 
       # Crystal's HTTP::Handler doesn't raise an exception when there's no next handler
       # It simply does nothing, which leaves the response in its default state

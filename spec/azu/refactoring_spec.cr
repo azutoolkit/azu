@@ -85,7 +85,7 @@ describe "Design Pattern Refactoring" do
 
       csrf.strategy.should eq Azu::Handler::CSRF::Strategy::SynchronizerToken
       csrf.cookie_name.should eq "test_csrf"
-      csrf.secure_cookies.should be_false
+      csrf.secure_cookies?.should be_false
     end
 
     it "provides default instance for backward compatibility" do

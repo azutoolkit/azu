@@ -212,7 +212,7 @@ describe Azu::Cache do
     it "loads default configuration" do
       config = Azu::Cache::Configuration.new
 
-      config.enabled.should be_true
+      config.enabled?.should be_true
       config.store.should eq("memory")
       config.max_size.should eq(1000)
       config.default_ttl.should eq(3600)
@@ -228,7 +228,7 @@ describe Azu::Cache do
 
       config = Azu::Cache::Configuration.new
 
-      config.enabled.should be_false
+      config.enabled?.should be_false
       config.store.should eq("redis")
       config.max_size.should eq(2000)
       config.default_ttl.should eq(7200)

@@ -61,7 +61,7 @@ describe Azu::Handler::CORS do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -77,7 +77,7 @@ describe Azu::Handler::CORS do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -93,7 +93,7 @@ describe Azu::Handler::CORS do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://api.example.com"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -109,7 +109,7 @@ describe Azu::Handler::CORS do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://evil.com"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -125,7 +125,7 @@ describe Azu::Handler::CORS do
 
       headers = HTTP::Headers.new
       headers["X-Origin"] = "https://example.com"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -149,7 +149,7 @@ describe Azu::Handler::CORS do
       headers["Origin"] = "https://example.com"
       headers["Access-Control-Request-Method"] = "POST"
       headers["Access-Control-Request-Headers"] = "Content-Type"
-      context, _ = create_context("OPTIONS", "/test", headers)
+      context, io = create_context("OPTIONS", "/test", headers)
 
       handler.call(context)
 
@@ -174,7 +174,7 @@ describe Azu::Handler::CORS do
       headers["Origin"] = "https://example.com"
       headers["Access-Control-Request-Method"] = "DELETE"
       headers["Access-Control-Request-Headers"] = "Content-Type"
-      context, _ = create_context("OPTIONS", "/test", headers)
+      context, io = create_context("OPTIONS", "/test", headers)
 
       handler.call(context)
 
@@ -194,7 +194,7 @@ describe Azu::Handler::CORS do
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
       headers["Access-Control-Request-Method"] = "POST"
-      context, _ = create_context("OPTIONS", "/test", headers)
+      context, io = create_context("OPTIONS", "/test", headers)
 
       handler.call(context)
 
@@ -215,7 +215,7 @@ describe Azu::Handler::CORS do
       headers["Origin"] = "https://example.com"
       headers["Access-Control-Request-Method"] = "POST"
       headers["Access-Control-Request-Headers"] = "Content-Type, Authorization"
-      context, _ = create_context("OPTIONS", "/test", headers)
+      context, io = create_context("OPTIONS", "/test", headers)
 
       handler.call(context)
 
@@ -235,7 +235,7 @@ describe Azu::Handler::CORS do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -253,7 +253,7 @@ describe Azu::Handler::CORS do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -270,7 +270,7 @@ describe Azu::Handler::CORS do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -285,7 +285,7 @@ describe Azu::Handler::CORS do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -303,7 +303,7 @@ describe Azu::Handler::CORS do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -323,7 +323,7 @@ describe Azu::Handler::CORS do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -338,7 +338,7 @@ describe Azu::Handler::CORS do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -355,7 +355,7 @@ describe Azu::Handler::CORS do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 
@@ -376,7 +376,7 @@ describe Azu::Handler::CORS do
       headers["Origin"] = "https://example.com"
       headers["Access-Control-Request-Method"] = "POST"
       headers["Access-Control-Request-Headers"] = "content-type"
-      context, _ = create_context("OPTIONS", "/test", headers)
+      context, io = create_context("OPTIONS", "/test", headers)
 
       handler.call(context)
 
@@ -391,7 +391,7 @@ describe Azu::Handler::CORS do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://other.com"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
 

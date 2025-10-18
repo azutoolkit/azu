@@ -67,7 +67,7 @@ module Azu
       Templates.new(
         ENV.fetch("TEMPLATES_PATH", Path[TEMPLATES_PATH].expand.to_s).split(","),
         ENV.fetch("ERROR_TEMPLATE", Path[ERROR_TEMPLATE].expand.to_s),
-        template_hot_reload
+        template_hot_reload?
       )
     end
 
@@ -142,11 +142,11 @@ module Azu
       end
 
       # Only initialize development tools if performance features are enabled
-      if performance_profiling_enabled
+      if performance_profiling_enabled?
         development_tools.profiler.enabled = true
       end
 
-      if performance_memory_monitoring
+      if performance_memory_monitoring?
         development_tools.memory_detector.start_monitoring
       end
     end
@@ -169,7 +169,7 @@ module Azu
       AsyncLogging.shutdown
 
       # Only shutdown development tools if they were started
-      if performance_memory_monitoring
+      if performance_memory_monitoring?
         development_tools.memory_detector.stop_monitoring
       end
     end

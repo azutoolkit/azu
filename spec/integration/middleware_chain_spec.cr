@@ -18,7 +18,7 @@ describe "Middleware Chain Integration" do
       rescuer.next = logger
       request_id.next = rescuer
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       request_id.call(context)
 
       get_response_body(context, io).should eq("OK")
@@ -39,7 +39,7 @@ describe "Middleware Chain Integration" do
       logger.next = checking_handler
       request_id.next = logger
 
-      context, _ = create_context("GET", "/test")
+      context, io = create_context("GET", "/test")
       request_id.call(context)
 
       get_response_body(context, io).should eq("Verified")
@@ -127,7 +127,7 @@ describe "Middleware Chain Integration" do
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
       headers["X-Forwarded-For"] = "192.168.1.1"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       ip_spoofing.call(context)
 

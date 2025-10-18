@@ -87,7 +87,7 @@ describe "Security Integration" do
 
       # First 2 requests should pass
       2.times do
-        context, _ = create_context("GET", "/test", headers)
+        context, io = create_context("GET", "/test", headers)
         ip_spoofing.call(context)
         get_response_body(context, io).should eq("OK")
       end
@@ -121,7 +121,7 @@ describe "Security Integration" do
       headers["Origin"] = "https://example.com"
       headers["X-Forwarded-For"] = "192.168.1.1"
       headers["REMOTE_ADDR"] = "192.168.1.1"
-      context, _ = create_context("GET", "/test", headers)
+      context, io = create_context("GET", "/test", headers)
 
       request_id.call(context)
 
@@ -195,7 +195,7 @@ describe "Security Integration" do
 
       # Should allow unlimited requests from whitelisted IP
       5.times do
-        context, _ = create_context("GET", "/test", headers)
+        context, io = create_context("GET", "/test", headers)
         cors.call(context)
         get_response_body(context, io).should eq("OK")
       end

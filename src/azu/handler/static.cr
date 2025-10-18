@@ -28,7 +28,7 @@ module Azu
         return handle_invalid_path(context) unless valid_path?(original_path, request_path)
 
         path_info = resolve_path_info(original_path, request_path)
-        return handle_directory_request(context, path_info) if path_info.is_dir_path && File.exists?(path_info.root_file)
+        return handle_directory_request(context, path_info) if path_info.is_dir_path? && File.exists?(path_info.root_file)
         return handle_redirect(context, request_path, path_info) if should_redirect?(request_path, path_info)
 
         call_next_with_file_path(context, request_path, path_info.file_path)
@@ -70,12 +70,12 @@ module Azu
       end
 
       private def should_redirect?(request_path : String, path_info : PathInfo) : Bool
-        is_dir_path = Dir.exists?(path_info.file_path) && !path_info.is_dir_path
+        is_dir_path = Dir.exists?(path_info.file_path) && !path_info.is_dir_path?
         request_path != File.expand_path(request_path, "/") || is_dir_path
       end
 
       private def handle_redirect(context : HTTP::Server::Context, request_path : String, path_info : PathInfo)
-        is_dir_path = Dir.exists?(path_info.file_path) && !path_info.is_dir_path
+        is_dir_path = Dir.exists?(path_info.file_path) && !path_info.is_dir_path?
         expanded_path = File.expand_path(request_path, "/")
         redirect_to context, file_redirect_path(expanded_path, is_dir_path)
       end

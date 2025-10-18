@@ -52,7 +52,7 @@ describe Azu::Configuration do
       ENV["PORT_REUSE"] = "false"
       config = Azu::Configuration.new
 
-      config.port_reuse.should be_false
+      config.port_reuse?.should be_false
 
       ENV["PORT_REUSE"] = "false"
     end
@@ -139,7 +139,7 @@ describe Azu::Configuration do
       ENV["CRYSTAL_ENV"] = "development"
       config = Azu::Configuration.new
 
-      config.template_hot_reload.should be_true
+      config.template_hot_reload?.should be_true
 
       # Restore original environment
       if original_env
@@ -157,7 +157,7 @@ describe Azu::Configuration do
       ENV["CRYSTAL_ENV"] = "test"
       config = Azu::Configuration.new
 
-      config.template_hot_reload.should be_true
+      config.template_hot_reload?.should be_true
 
       # Restore original environment
       if original_env
@@ -175,7 +175,7 @@ describe Azu::Configuration do
       ENV["CRYSTAL_ENV"] = "pipeline"
       config = Azu::Configuration.new
 
-      config.template_hot_reload.should be_true
+      config.template_hot_reload?.should be_true
 
       # Restore original environment
       if original_env
@@ -193,7 +193,7 @@ describe Azu::Configuration do
       ENV["CRYSTAL_ENV"] = "production"
       config = Azu::Configuration.new
 
-      config.template_hot_reload.should be_false
+      config.template_hot_reload?.should be_false
 
       # Restore original environment
       if original_env
@@ -213,14 +213,14 @@ describe Azu::Configuration do
       ENV["TEMPLATE_HOT_RELOAD"] = "true"
       config = Azu::Configuration.new
 
-      config.template_hot_reload.should be_true
+      config.template_hot_reload?.should be_true
 
       # Test override in development (normally true)
       ENV["CRYSTAL_ENV"] = "development"
       ENV["TEMPLATE_HOT_RELOAD"] = "false"
       config = Azu::Configuration.new
 
-      config.template_hot_reload.should be_false
+      config.template_hot_reload?.should be_false
 
       # Restore original environment
       if original_env
@@ -240,10 +240,10 @@ describe Azu::Configuration do
       config = Azu::Configuration.new
 
       config.template_hot_reload = true
-      config.template_hot_reload.should be_true
+      config.template_hot_reload?.should be_true
 
       config.template_hot_reload = false
-      config.template_hot_reload.should be_false
+      config.template_hot_reload?.should be_false
     end
 
     it "passes hot reload setting to templates" do
@@ -256,14 +256,14 @@ describe Azu::Configuration do
       ENV.delete("TEMPLATE_HOT_RELOAD") if ENV.has_key?("TEMPLATE_HOT_RELOAD")
       config = Azu::Configuration.new
 
-      config.template_hot_reload.should be_true
+      config.template_hot_reload?.should be_true
       config.templates.@hot_reload_enabled.should be_true
 
       # Test with hot reload disabled via environment override
       ENV["TEMPLATE_HOT_RELOAD"] = "false"
       config = Azu::Configuration.new
 
-      config.template_hot_reload.should be_false
+      config.template_hot_reload?.should be_false
       config.templates.@hot_reload_enabled.should be_false
 
       # Restore original environment
