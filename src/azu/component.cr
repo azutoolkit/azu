@@ -37,7 +37,7 @@ module Azu
 
         {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
           # Track component mount performance only when enabled
-          if component.@performance_tracking_enabled && Azu::CONFIG.performance_enabled
+          if component.@performance_tracking_enabled && Azu::CONFIG.performance_enabled?
             end_time = Time.monotonic
             memory_after = Azu::PerformanceMetrics.current_memory_usage
             processing_time = (end_time - start_time).total_milliseconds
@@ -81,7 +81,7 @@ module Azu
 
       {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
         # Track mount performance only when enabled
-        if @performance_tracking_enabled && Azu::CONFIG.performance_enabled
+        if @performance_tracking_enabled && Azu::CONFIG.performance_enabled?
           end_time = Time.monotonic
           memory_after = Azu::PerformanceMetrics.current_memory_usage
           processing_time = (end_time - start_time).total_milliseconds
@@ -114,7 +114,7 @@ module Azu
 
       {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
         # Track unmount performance only when enabled
-        if @performance_tracking_enabled && Azu::CONFIG.performance_enabled
+        if @performance_tracking_enabled && Azu::CONFIG.performance_enabled?
           end_time = Time.monotonic
           memory_after = Azu::PerformanceMetrics.current_memory_usage
           processing_time = (end_time - start_time).total_milliseconds
@@ -147,7 +147,7 @@ module Azu
 
       {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
         # Track event handling performance only when enabled
-        if @performance_tracking_enabled && Azu::CONFIG.performance_enabled
+        if @performance_tracking_enabled && Azu::CONFIG.performance_enabled?
           end_time = Time.monotonic
           memory_after = Azu::PerformanceMetrics.current_memory_usage
           processing_time = (end_time - start_time).total_milliseconds
@@ -190,7 +190,7 @@ module Azu
 
       {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
         # Track refresh performance only when enabled
-        if @performance_tracking_enabled && Azu::CONFIG.performance_enabled
+        if @performance_tracking_enabled && Azu::CONFIG.performance_enabled?
           end_time = Time.monotonic
           memory_after = Azu::PerformanceMetrics.current_memory_usage
           processing_time = (end_time - start_time).total_milliseconds
