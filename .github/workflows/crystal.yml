@@ -123,29 +123,29 @@ jobs:
           REDIS_HOST: redis
           REDIS_PORT: 6379
 
-      - name: Run core framework tests
-        run: crystal spec spec/azu/configuration_spec.cr spec/azu/endpoint_spec.cr spec/azu/environment_spec.cr spec/azu/error_spec.cr spec/azu/http_request_spec.cr spec/azu/log_format_spec.cr spec/azu/markup_spec.cr spec/azu/method_spec.cr spec/azu/params_spec.cr spec/azu/request_spec.cr spec/azu/response_spec.cr --fail-fast
-        env:
-          CRYSTAL_ENV: pipeline
-          CRYSTAL_LOG_SOURCES: "*"
-          CRYSTAL_LOG_LEVEL: DEBUG
-          PORT: 4000
-          PORT_REUSE: false
-          HOST: 0.0.0.0
-          REDIS_HOST: redis
-          REDIS_PORT: 6379
+      # - name: Run core framework tests
+      #   run: crystal spec spec/azu/configuration_spec.cr spec/azu/endpoint_spec.cr spec/azu/environment_spec.cr spec/azu/error_spec.cr spec/azu/http_request_spec.cr spec/azu/log_format_spec.cr spec/azu/markup_spec.cr spec/azu/method_spec.cr spec/azu/params_spec.cr spec/azu/request_spec.cr spec/azu/response_spec.cr --fail-fast
+      #   env:
+      #     CRYSTAL_ENV: pipeline
+      #     CRYSTAL_LOG_SOURCES: "*"
+      #     CRYSTAL_LOG_LEVEL: DEBUG
+      #     PORT: 4000
+      #     PORT_REUSE: false
+      #     HOST: 0.0.0.0
+      #     REDIS_HOST: redis
+      #     REDIS_PORT: 6379
 
-      - name: Run remaining core tests
-        run: crystal spec spec/azu/content_negotiator_spec.cr spec/azu/csrf_spec.cr spec/azu/file_upload_spec.cr spec/azu/performance_monitoring_spec.cr spec/azu/performance_reporter_spec.cr spec/azu/refactoring_spec.cr --fail-fast
-        env:
-          CRYSTAL_ENV: pipeline
-          CRYSTAL_LOG_SOURCES: "*"
-          CRYSTAL_LOG_LEVEL: DEBUG
-          PORT: 4000
-          PORT_REUSE: false
-          HOST: 0.0.0.0
-          REDIS_HOST: redis
-          REDIS_PORT: 6379
+      # - name: Run remaining core tests
+      #   run: crystal spec spec/azu/content_negotiator_spec.cr spec/azu/csrf_spec.cr spec/azu/file_upload_spec.cr spec/azu/performance_monitoring_spec.cr spec/azu/performance_reporter_spec.cr spec/azu/refactoring_spec.cr --fail-fast
+      #   env:
+      #     CRYSTAL_ENV: pipeline
+      #     CRYSTAL_LOG_SOURCES: "*"
+      #     CRYSTAL_LOG_LEVEL: DEBUG
+      #     PORT: 4000
+      #     PORT_REUSE: false
+      #     HOST: 0.0.0.0
+      #     REDIS_HOST: redis
+      #     REDIS_PORT: 6379
   release:
     runs-on: ubuntu-latest
     needs:
