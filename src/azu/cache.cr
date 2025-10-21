@@ -69,6 +69,8 @@ module Azu
       end
 
       # Increment counter (for stores that support it)
+      # WARNING: Base implementation is NOT thread-safe for concurrent access
+      # MemoryStore and RedisStore override with atomic implementations
       def increment(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
         current = get(key)
         if current
@@ -82,6 +84,8 @@ module Azu
       end
 
       # Decrement counter
+      # WARNING: Base implementation is NOT thread-safe for concurrent access
+      # MemoryStore and RedisStore override with atomic implementations
       def decrement(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
         increment(key, -amount, ttl)
       end
@@ -123,11 +127,15 @@ module Azu
       @mutex : Mutex
       @max_size : Int32
       @default_ttl : Time::Span?
+      @cleanup_interval : Time::Span
+      @cleanup_fiber : Fiber?
 
-      def initialize(@max_size : Int32 = DEFAULT_MAX_SIZE, @default_ttl : Time::Span? = DEFAULT_TTL)
+      def initialize(@max_size : Int32 = DEFAULT_MAX_SIZE, @default_ttl : Time::Span? = DEFAULT_TTL, cleanup_interval : Time::Span = 5.minutes)
         @cache = Hash(String, CacheEntry).new
         @access_order = Array(String).new
         @mutex = Mutex.new
+        @cleanup_interval = cleanup_interval
+        start_cleanup_task
       end
 
       def get(key : String) : String?
@@ -246,43 +254,95 @@ module Azu
         total_size = @cache.sum { |key, entry| key.bytesize + entry.value.bytesize }
         total_size.to_f / (1024 * 1024)
       end
+
+      # Override increment with atomic implementation
+      def increment(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
+        @mutex.synchronize do
+          entry = @cache[key]?
+          if entry && !entry.expired?
+            # Update existing entry
+            new_value = entry.value.to_i + amount
+            @cache[key] = CacheEntry.new(new_value.to_s, ttl || @default_ttl)
+            new_value
+          else
+            # Create new entry
+            @cache[key] = CacheEntry.new(amount.to_s, ttl || @default_ttl)
+            amount
+          end
+        end
+      end
+
+      # Override decrement with atomic implementation
+      def decrement(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
+        increment(key, -amount, ttl)
+      end
+
+      # Start background cleanup task
+      private def start_cleanup_task
+        @cleanup_fiber = spawn(name: "cache-cleanup") do
+          loop do
+            sleep(@cleanup_interval)
+            cleanup_expired
+          rescue ex
+            Log.for("Azu::Cache::MemoryStore").error(exception: ex) { "Cache cleanup task failed" }
+          end
+        end
+      end
+
+      # Stop cleanup task (for testing or shutdown)
+      def stop_cleanup_task
+        if fiber = @cleanup_fiber
+          fiber.kill
+          @cleanup_fiber = nil
+        end
+      end
     end
 
     # Redis-based cache store with Redis::PooledClient
     class RedisStore < Store
       @client : Redis::PooledClient
       @default_ttl : Time::Span?
+      @operation_timeout : Time::Span
 
-      def initialize(redis_url : String, pool_size : Int32 = 5, timeout : Time::Span = 5.seconds, @default_ttl : Time::Span? = nil)
+      def initialize(redis_url : String, pool_size : Int32 = 5, timeout : Time::Span = 5.seconds, @default_ttl : Time::Span? = nil, operation_timeout : Time::Span = 2.seconds)
         @client = Redis::PooledClient.new(
           url: redis_url,
           pool_size: pool_size,
           pool_timeout: timeout.total_seconds
         )
+        @operation_timeout = operation_timeout
       end
 
       def get(key : String) : String?
-        @client.get(key)
+        start_time = Time.monotonic
+        with_timeout("get", key) { @client.get(key) }
       rescue ex
-        Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to get key: #{key}" }
+        duration = Time.monotonic - start_time
+        Log.for("Azu::Cache::RedisStore").error(exception: ex) {
+          "Redis GET operation failed for key '#{key}' after #{duration.total_milliseconds}ms - #{classify_redis_error(ex)}"
+        }
         nil
       end
 
       def set(key : String, value : String, ttl : Time::Span? = nil) : Bool
+        start_time = Time.monotonic
         ttl = ttl || @default_ttl
         if ttl
-          @client.setex(key, ttl.total_seconds.to_i, value)
+          with_timeout("setex", key) { @client.setex(key, ttl.total_seconds.to_i, value) }
         else
-          @client.set(key, value)
+          with_timeout("set", key) { @client.set(key, value) }
         end
         true
       rescue ex
-        Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to set key: #{key}" }
+        duration = Time.monotonic - start_time
+        Log.for("Azu::Cache::RedisStore").error(exception: ex) {
+          "Redis SET operation failed for key '#{key}' after #{duration.total_milliseconds}ms - #{classify_redis_error(ex)}"
+        }
         false
       end
 
       def delete(key : String) : Bool
-        result = @client.del(key)
+        result = with_timeout("del", key) { @client.del(key) }
         result > 0
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to delete key: #{key}" }
@@ -290,14 +350,15 @@ module Azu
       end
 
       def exists?(key : String) : Bool
-        @client.exists(key) > 0
+        result = with_timeout("exists", key) { @client.exists(key) }
+        result > 0
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to check existence of key: #{key}" }
         false
       end
 
       def clear : Bool
-        @client.flushdb
+        with_timeout("flushdb", "all") { @client.flushdb }
         true
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to clear cache" }
@@ -306,7 +367,7 @@ module Azu
 
       def size : Int32
         # Get database info as hash
-        info_hash = @client.info
+        info_hash = with_timeout("info", "size") { @client.info }
         # Look for db0 or current database keys count
         if keyspace = info_hash["db0"]?
           # Parse db0 value like "keys=123,expires=45"
@@ -326,14 +387,14 @@ module Azu
       # Override increment for Redis native support
       def increment(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
         result = if amount == 1
-                   @client.incr(key)
+                   with_timeout("incr", key) { @client.incr(key) }
                  else
-                   @client.incrby(key, amount)
+                   with_timeout("incrby", key) { @client.incrby(key, amount) }
                  end
 
         # Set TTL if provided and key was just created
         if ttl && result == amount
-          @client.expire(key, ttl.total_seconds.to_i)
+          with_timeout("expire", key) { @client.expire(key, ttl.total_seconds.to_i) }
         end
 
         result.to_i
@@ -345,14 +406,14 @@ module Azu
       # Override decrement for Redis native support
       def decrement(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
         result = if amount == 1
-                   @client.decr(key)
+                   with_timeout("decr", key) { @client.decr(key) }
                  else
-                   @client.decrby(key, amount)
+                   with_timeout("decrby", key) { @client.decrby(key, amount) }
                  end
 
         # Set TTL if provided
         if ttl
-          @client.expire(key, ttl.total_seconds.to_i)
+          with_timeout("expire", key) { @client.expire(key, ttl.total_seconds.to_i) }
         end
 
         result.to_i
@@ -365,7 +426,7 @@ module Azu
       def get_multi(keys : Array(String)) : Hash(String, String?)
         return Hash(String, String?).new if keys.empty?
 
-        values = @client.mget(keys)
+        values = with_timeout("mget", keys.join(",")) { @client.mget(keys) }
         result = Hash(String, String?).new
         keys.each_with_index do |key, index|
           result[key] = values[index]?.as(String | Nil)
@@ -382,12 +443,14 @@ module Azu
         return true if values.empty?
 
         # Use Redis pipeline for better performance
-        @client.pipelined do |pipeline|
-          values.each do |key, value|
-            if ttl
-              pipeline.setex(key, ttl.total_seconds.to_i, value)
-            else
-              pipeline.set(key, value)
+        with_timeout("pipeline", values.keys.join(",")) do
+          @client.pipelined do |pipeline|
+            values.each do |key, value|
+              if ttl
+                pipeline.setex(key, ttl.total_seconds.to_i, value)
+              else
+                pipeline.set(key, value)
+              end
             end
           end
         end
@@ -400,14 +463,14 @@ module Azu
 
       # Redis-specific methods
       def ping : String?
-        @client.ping
+        with_timeout("ping", "health") { @client.ping }
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Redis ping failed" }
         nil
       end
 
       def info : Hash(String, String)?
-        @client.info
+        with_timeout("info", "status") { @client.info }
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Redis info failed" }
         nil
@@ -415,6 +478,58 @@ module Azu
 
       def close
         # Redis::PooledClient handles connection cleanup automatically
+      end
+
+      # Classify Redis errors for better error messages
+      private def classify_redis_error(ex : Exception) : String
+        case ex.message
+        when /Connection refused/
+          "Connection refused - Redis server may be down"
+        when /timeout/i
+          "Operation timeout - Redis server may be overloaded"
+        when /NOAUTH/
+          "Authentication required - check Redis password"
+        when /WRONGTYPE/
+          "Data type mismatch - key exists with different type"
+        when /BUSY/
+          "Redis is busy - server may be loading data"
+        when /OOM/
+          "Out of memory - Redis memory limit exceeded"
+        else
+          "Unknown Redis error: #{ex.message}"
+        end
+      end
+
+      # Timeout wrapper for Redis operations
+      private def with_timeout(operation : String, key : String, &block)
+        channel = Channel(typeof(block.call)).new
+        timeout_channel = Channel(Nil).new
+
+        # Spawn the operation
+        spawn do
+          begin
+            result = block.call
+            channel.send(result)
+          rescue ex
+            channel.close
+            Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Redis #{operation} operation failed for key: #{key}" }
+          end
+        end
+
+        # Spawn timeout
+        spawn do
+          sleep(@operation_timeout)
+          timeout_channel.send(nil)
+        end
+
+        # Wait for either result or timeout
+        select
+        when result = channel.receive
+          result
+        when timeout_channel.receive
+          Log.for("Azu::Cache::RedisStore").warn { "Redis #{operation} operation timed out after #{@operation_timeout.total_seconds}s for key: #{key}" }
+          raise TimeoutError.new("Redis #{operation} operation timed out")
+        end
       end
     end
 
@@ -459,6 +574,14 @@ module Azu
       property redis_url : String = "redis://localhost:6379/0"
       property redis_pool_size : Int32 = 5
       property redis_timeout : Int32 = 5
+      property redis_operation_timeout : Int32 = 2 # Operation-level timeout in seconds
+
+      # Connection retry configuration
+      property cache_connection_retries : Int32 = 3
+      property cache_connection_retry_delay : Int32 = 1 # Delay between retries in seconds
+
+      # Memory store cleanup configuration
+      property cache_cleanup_interval : Int32 = 300 # Cleanup interval in seconds
 
       # File cache configuration
       property file_cache_path : String = "./tmp/cache"
@@ -479,6 +602,10 @@ module Azu
         @redis_url = ENV.fetch("CACHE_REDIS_URL", "redis://localhost:6379/0")
         @redis_pool_size = ENV.fetch("CACHE_REDIS_POOL_SIZE", "5").to_i
         @redis_timeout = ENV.fetch("CACHE_REDIS_TIMEOUT", "5").to_i
+        @redis_operation_timeout = ENV.fetch("CACHE_REDIS_OPERATION_TIMEOUT", "2").to_i
+        @cache_connection_retries = ENV.fetch("CACHE_CONNECTION_RETRIES", "3").to_i
+        @cache_connection_retry_delay = ENV.fetch("CACHE_CONNECTION_RETRY_DELAY", "1").to_i
+        @cache_cleanup_interval = ENV.fetch("CACHE_CLEANUP_INTERVAL", "300").to_i
         @file_cache_path = ENV.fetch("CACHE_FILE_PATH", "./tmp/cache")
         @file_cache_permissions = ENV.fetch("CACHE_FILE_PERMISSIONS", "755").to_i(8)
       end
@@ -490,6 +617,14 @@ module Azu
       def redis_timeout_span : Time::Span
         Time::Span.new(seconds: @redis_timeout)
       end
+
+      def redis_operation_timeout_span : Time::Span
+        Time::Span.new(seconds: @redis_operation_timeout)
+      end
+
+      def cache_cleanup_interval_span : Time::Span
+        Time::Span.new(seconds: @cache_cleanup_interval)
+      end
     end
 
     # Main cache interface
@@ -497,14 +632,22 @@ module Azu
       getter store : Store
       getter config : Configuration
 
+      # Stampede protection: per-key locks to prevent thundering herd
+      @fetch_locks : Hash(String, Mutex)
+      @locks_mutex : Mutex
+
       {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
         property metrics : Azu::PerformanceMetrics?
 
         def initialize(@config : Configuration = Configuration.new, @metrics : Azu::PerformanceMetrics? = nil)
+          @fetch_locks = Hash(String, Mutex).new
+          @locks_mutex = Mutex.new
           @store = create_store
         end
       {% else %}
         def initialize(@config : Configuration = Configuration.new)
+          @fetch_locks = Hash(String, Mutex).new
+          @locks_mutex = Mutex.new
           @store = create_store
         end
       {% end %}
@@ -533,33 +676,45 @@ module Azu
       def get(key : String, ttl : Time::Span? = nil, & : -> String) : String
         return yield unless @config.enabled?
 
-        prefixed = prefixed_key(key)
+        # Use stampede protection for expensive operations
+        with_stampede_protection(key) do
+          prefixed = prefixed_key(key)
 
-        {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-          if metrics = @metrics
-            cached_result = Azu::PerformanceMetrics.time_cache_operation(
-              metrics, key, "get", @config.store, key.bytesize
-            ) do
-              @store.get(prefixed)
-            end
-
-            cached = cached_result.as(String?)
-
-            if cached
-              deserialize_value(cached)
-            else
-              value = yield
-              ttl = ttl || @config.ttl_span
-              serialized_value = serialize_value(value)
-              set_result = Azu::PerformanceMetrics.time_cache_operation(
-                metrics, key, "set", @config.store, key.bytesize, serialized_value.bytesize, ttl
+          {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
+            if metrics = @metrics
+              cached_result = Azu::PerformanceMetrics.time_cache_operation(
+                metrics, key, "get", @config.store, key.bytesize
               ) do
-                @store.set(prefixed, serialized_value, ttl)
+                @store.get(prefixed)
               end
-              set_result.as(Bool)
-              value
+
+              cached = cached_result.as(String?)
+
+              if cached
+                deserialize_value(cached)
+              else
+                value = yield
+                ttl = ttl || @config.ttl_span
+                serialized_value = serialize_value(value)
+                set_result = Azu::PerformanceMetrics.time_cache_operation(
+                  metrics, key, "set", @config.store, key.bytesize, serialized_value.bytesize, ttl
+                ) do
+                  @store.set(prefixed, serialized_value, ttl)
+                end
+                set_result.as(Bool)
+                value
+              end
+            else
+              if cached = @store.get(prefixed)
+                deserialize_value(cached)
+              else
+                value = yield
+                ttl = ttl || @config.ttl_span
+                @store.set(prefixed, serialize_value(value), ttl)
+                value
+              end
             end
-          else
+          {% else %}
             if cached = @store.get(prefixed)
               deserialize_value(cached)
             else
@@ -568,17 +723,8 @@ module Azu
               @store.set(prefixed, serialize_value(value), ttl)
               value
             end
-          end
-        {% else %}
-          if cached = @store.get(prefixed)
-            deserialize_value(cached)
-          else
-            value = yield
-            ttl = ttl || @config.ttl_span
-            @store.set(prefixed, serialize_value(value), ttl)
-            value
-          end
-        {% end %}
+          {% end %}
+        end
       end
 
       def set(key : String, value : String, ttl : Time::Span? = nil) : Bool
@@ -607,33 +753,45 @@ module Azu
       def fetch(key : String, ttl : Time::Span? = nil, & : -> String) : String
         return yield unless @config.enabled?
 
-        prefixed = prefixed_key(key)
+        # Use stampede protection for expensive operations
+        with_stampede_protection(key) do
+          prefixed = prefixed_key(key)
 
-        {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-          if metrics = @metrics
-            cached_result = Azu::PerformanceMetrics.time_cache_operation(
-              metrics, key, "get", @config.store, key.bytesize
-            ) do
-              @store.get(prefixed)
-            end
-
-            cached = cached_result.as(String?)
-
-            if cached
-              deserialize_value(cached)
-            else
-              value = yield
-              ttl = ttl || @config.ttl_span
-              serialized_value = serialize_value(value)
-              set_result = Azu::PerformanceMetrics.time_cache_operation(
-                metrics, key, "set", @config.store, key.bytesize, serialized_value.bytesize, ttl
+          {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
+            if metrics = @metrics
+              cached_result = Azu::PerformanceMetrics.time_cache_operation(
+                metrics, key, "get", @config.store, key.bytesize
               ) do
-                @store.set(prefixed, serialized_value, ttl)
+                @store.get(prefixed)
               end
-              set_result.as(Bool)
-              value
+
+              cached = cached_result.as(String?)
+
+              if cached
+                deserialize_value(cached)
+              else
+                value = yield
+                ttl = ttl || @config.ttl_span
+                serialized_value = serialize_value(value)
+                set_result = Azu::PerformanceMetrics.time_cache_operation(
+                  metrics, key, "set", @config.store, key.bytesize, serialized_value.bytesize, ttl
+                ) do
+                  @store.set(prefixed, serialized_value, ttl)
+                end
+                set_result.as(Bool)
+                value
+              end
+            else
+              if cached = @store.get(prefixed)
+                deserialize_value(cached)
+              else
+                value = yield
+                ttl = ttl || @config.ttl_span
+                @store.set(prefixed, serialize_value(value), ttl)
+                value
+              end
             end
-          else
+          {% else %}
             if cached = @store.get(prefixed)
               deserialize_value(cached)
             else
@@ -642,17 +800,8 @@ module Azu
               @store.set(prefixed, serialize_value(value), ttl)
               value
             end
-          end
-        {% else %}
-          if cached = @store.get(prefixed)
-            deserialize_value(cached)
-          else
-            value = yield
-            ttl = ttl || @config.ttl_span
-            @store.set(prefixed, serialize_value(value), ttl)
-            value
-          end
-        {% end %}
+          {% end %}
+        end
       end
 
       def delete(key : String) : Bool
@@ -813,15 +962,36 @@ module Azu
         @store.as(RedisStore).info
       end
 
+      # Stampede protection: ensures only one fiber computes expensive operations per key
+      private def with_stampede_protection(key : String, &)
+        # Get or create a mutex for this specific key
+        key_mutex = @locks_mutex.synchronize do
+          @fetch_locks[key] ||= Mutex.new
+        end
+
+        # Lock for this key and execute the block
+        key_mutex.synchronize do
+          yield
+        ensure
+          # Clean up the lock if no other operations are waiting
+          @locks_mutex.synchronize do
+            # Only remove if this is the only reference
+            if @fetch_locks[key]? == key_mutex
+              @fetch_locks.delete(key)
+            end
+          end
+        end
+      end
+
       private def create_store : Store
         # If caching is disabled, always return a NullStore
         return NullStore.new unless @config.enabled?
 
         case @config.store
         when "memory"
-          MemoryStore.new(@config.max_size, @config.ttl_span)
+          MemoryStore.new(@config.max_size, @config.ttl_span, @config.cache_cleanup_interval_span)
         when "redis"
-          RedisStore.new(@config.redis_url, @config.redis_pool_size, @config.redis_timeout_span, @config.ttl_span)
+          RedisStore.new(@config.redis_url, @config.redis_pool_size, @config.redis_timeout_span, @config.ttl_span, @config.redis_operation_timeout_span)
         when "null"
           NullStore.new
         else

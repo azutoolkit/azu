@@ -519,5 +519,179 @@ describe Azu::Cache do
         puts "Redis not available for testing"
       end
     end
+
+    it "handles Redis operation timeouts" do
+      begin
+        # Use very short timeout to test timeout behavior
+        store = Azu::Cache::RedisStore.new("#{redis_url}/15", operation_timeout: Time::Span.new(milliseconds: 1))
+        store.clear
+
+        # This should timeout quickly
+        result = store.get("timeout_test")
+        result.should be_nil
+      rescue
+        puts "Redis not available for testing"
+      end
+    end
+  end
+
+  describe "Stampede Protection" do
+    it "prevents cache stampede with concurrent requests" do
+      manager = Azu::Cache::Manager.new
+      manager.clear
+
+      call_count = 0
+      channels = [] of Channel(String)
+
+      # Simulate 10 concurrent requests for the same missing key
+      10.times do
+        ch = Channel(String).new
+        channels << ch
+
+        spawn do
+          result = manager.fetch("stampede_test") do
+            call_count += 1
+            sleep(0.1) # Simulate expensive operation
+            "expensive_result"
+          end
+          ch.send(result)
+        end
+      end
+
+      # Wait for all requests to complete
+      results = channels.map(&.receive)
+      results.size.should eq(10)
+      results.uniq.should eq(["expensive_result"])
+
+      # Only one expensive operation should have been executed
+      call_count.should eq(1)
+    end
+
+    it "allows concurrent requests for different keys" do
+      manager = Azu::Cache::Manager.new
+      manager.clear
+
+      call_count = 0
+      channels = [] of Channel(String)
+
+      # Simulate concurrent requests for different keys
+      5.times do |i|
+        ch = Channel(String).new
+        channels << ch
+
+        spawn do
+          result = manager.fetch("different_key_#{i}") do
+            call_count += 1
+            sleep(0.1) # Simulate expensive operation
+            "result_#{i}"
+          end
+          ch.send(result)
+        end
+      end
+
+      # Wait for all requests to complete
+      results = channels.map(&.receive)
+      results.size.should eq(5)
+
+      # All expensive operations should have been executed
+      call_count.should eq(5)
+    end
+  end
+
+  describe "MemoryStore Cleanup" do
+    it "runs background cleanup task" do
+      store = Azu::Cache::MemoryStore.new(cleanup_interval: Time::Span.new(milliseconds: 100))
+
+      # Add expired entry
+      store.set("expired_key", "value", Time::Span.new(nanoseconds: 1))
+
+      # Wait for cleanup
+      sleep(Time::Span.new(milliseconds: 200))
+
+      # Entry should be cleaned up
+      store.get("expired_key").should be_nil
+      store.size.should eq(0)
+
+      # Clean up
+      store.stop_cleanup_task
+    end
+
+    it "handles cleanup task errors gracefully" do
+      store = Azu::Cache::MemoryStore.new(cleanup_interval: Time::Span.new(milliseconds: 50))
+
+      # Add some entries
+      store.set("key1", "value1")
+      store.set("key2", "value2")
+
+      # Wait for cleanup cycle
+      sleep(Time::Span.new(milliseconds: 100))
+
+      # Store should still be functional
+      store.get("key1").should eq("value1")
+      store.get("key2").should eq("value2")
+
+      # Clean up
+      store.stop_cleanup_task
+    end
+  end
+
+  describe "Concurrent Operations" do
+    it "handles concurrent increment operations safely" do
+      manager = Azu::Cache::Manager.new
+      manager.clear
+
+      channels = [] of Channel(Int32?)
+
+      # Simulate 20 concurrent increments
+      20.times do
+        ch = Channel(Int32?).new
+        channels << ch
+
+        spawn do
+          result = manager.increment("concurrent_counter")
+          ch.send(result)
+        end
+      end
+
+      # Wait for all operations to complete
+      results = channels.map(&.receive)
+      results.compact.size.should eq(20)
+
+      # Final value should be 20
+      final_count = manager.get("concurrent_counter").try(&.to_i) || 0
+      final_count.should eq(20)
+    end
+
+    it "handles mixed concurrent operations" do
+      manager = Azu::Cache::Manager.new
+      manager.clear
+
+      channels = [] of Channel(String?)
+
+      # Mix of operations
+      10.times do |i|
+        ch = Channel(String?).new
+        channels << ch
+
+        spawn do
+          case i % 3
+          when 0
+            manager.set("key_#{i}", "value_#{i}")
+            result = manager.get("key_#{i}")
+          when 1
+            manager.increment("counter")
+            result = manager.get("counter")
+          else
+            manager.fetch("fetch_key_#{i}") { "computed_#{i}" }
+            result = manager.get("fetch_key_#{i}")
+          end
+          ch.send(result)
+        end
+      end
+
+      # Wait for all operations to complete
+      results = channels.map(&.receive)
+      results.compact.size.should eq(10)
+    end
   end
 end

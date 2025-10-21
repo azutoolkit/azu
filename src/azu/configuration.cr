@@ -75,12 +75,7 @@ module Azu
 
     # Cache configuration and manager
     getter cache : Cache::Manager do
-      manager = Cache::Manager.new(cache_config)
-      # Connect cache with performance metrics only if available and enabled
-      if performance_enabled? && (monitor = performance_monitor)
-        manager.metrics = monitor.metrics
-      end
-      manager
+      initialize_cache_with_retry
     end
 
     # Separate cache configuration object for advanced customization
@@ -172,6 +167,53 @@ module Azu
       if performance_memory_monitoring?
         development_tools.memory_detector.stop_monitoring
       end
+    end
+
+    # Initialize cache with retry logic and graceful fallback
+    private def initialize_cache_with_retry : Cache::Manager
+      manager = Cache::Manager.new(cache_config)
+
+      # Connect cache with performance metrics only if available and enabled
+      if performance_enabled? && (monitor = performance_monitor)
+        manager.metrics = monitor.metrics
+      end
+
+      # Test cache connectivity if Redis store is configured
+      if cache_config.store == "redis"
+        test_redis_connectivity_with_retry(manager)
+      end
+
+      manager
+    rescue ex
+      log.error(exception: ex) { "Cache initialization failed, falling back to NullStore" }
+      # Fall back to NullStore if initialization fails
+      fallback_config = Cache::Configuration.new
+      fallback_config.enabled = false
+      Cache::Manager.new(fallback_config)
+    end
+
+    # Test Redis connectivity with retry logic
+    private def test_redis_connectivity_with_retry(manager : Cache::Manager)
+      retries = cache_config.cache_connection_retries
+      delay = cache_config.cache_connection_retry_delay
+
+      retries.times do |attempt|
+        begin
+          if manager.ping == "PONG"
+            log.info { "Redis cache connection successful" }
+            return
+          end
+        rescue ex
+          log.warn(exception: ex) { "Redis connection attempt #{attempt + 1}/#{retries} failed" }
+        end
+
+        if attempt < retries - 1
+          sleep(delay.seconds)
+          delay *= 2 # Exponential backoff
+        end
+      end
+
+      raise "Redis connection failed after #{retries} attempts"
     end
   end
 

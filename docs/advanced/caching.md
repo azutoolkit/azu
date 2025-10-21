@@ -462,8 +462,17 @@ end
 
 - **Thread Safety**: Uses mutex for thread-safe operations
 - **LRU Eviction**: Efficiently manages memory usage
-- **Cleanup**: Automatic expired entry cleanup
+- **Cleanup**: Automatic expired entry cleanup with background task
 - **Access Tracking**: Maintains access order for LRU
+- **Stampede Protection**: Prevents thundering herd with per-key locks
+
+### Redis Store Performance
+
+- **Connection Pooling**: Efficient connection reuse
+- **Operation Timeouts**: Configurable timeouts prevent hanging
+- **Native Commands**: Uses Redis INCR/DECR for atomic operations
+- **Pipeline Support**: Batch operations for better performance
+- **Error Classification**: Intelligent error handling and retry logic
 
 ### Optimization Tips
 
@@ -494,6 +503,51 @@ Azu.cache.set("user:settings:#{id}", settings_data)
 
 # Avoid: Very long keys
 "user_profile_with_all_settings_and_preferences_123"
+```
+
+## Stampede Protection
+
+Azu's cache system includes built-in stampede protection to prevent the "thundering herd" problem when multiple concurrent requests try to compute the same expensive operation.
+
+### How It Works
+
+```crystal
+# Multiple concurrent requests for the same missing key
+10.times do
+  spawn do
+    # Only one request will execute the expensive block
+    # Others will wait and receive the cached result
+    result = Azu.cache.fetch("expensive_data") do
+      expensive_database_query()
+    end
+  end
+end
+```
+
+### Benefits
+
+- **Prevents Resource Exhaustion**: Only one expensive operation runs per cache key
+- **Improved Performance**: Subsequent requests get cached results instantly
+- **Automatic Cleanup**: Per-key locks are cleaned up automatically
+- **Zero Configuration**: Works out of the box with no setup required
+
+### Best Practices for Stampede Protection
+
+```crystal
+# Good: Use descriptive cache keys
+Azu.cache.fetch("user_profile:#{user_id}") do
+  fetch_user_profile(user_id)
+end
+
+# Good: Include versioning for cache invalidation
+Azu.cache.fetch("api_response:v2:#{endpoint}") do
+  generate_api_response(endpoint)
+end
+
+# Avoid: Very generic keys that might conflict
+Azu.cache.fetch("data") do
+  expensive_operation()
+end
 ```
 
 ## Best Practices
@@ -622,18 +676,22 @@ Azu.cache.stats : Hash(String, Int32 | Float64 | String)
 
 ## Environment Variables Reference
 
-| Variable                | Default                    | Description                                  |
-| ----------------------- | -------------------------- | -------------------------------------------- |
-| `CACHE_ENABLED`         | `true`                     | Enable/disable caching                       |
-| `CACHE_STORE`           | `memory`                   | Cache store type (`memory`, `redis`, `null`) |
-| `CACHE_MAX_SIZE`        | `1000`                     | Maximum cache entries (memory store)         |
-| `CACHE_DEFAULT_TTL`     | `3600`                     | Default TTL in seconds                       |
-| `CACHE_KEY_PREFIX`      | `azu`                      | Prefix for all cache keys                    |
-| `CACHE_COMPRESS`        | `false`                    | Enable compression                           |
-| `CACHE_SERIALIZE`       | `true`                     | Enable serialization                         |
-| `CACHE_REDIS_URL`       | `redis://localhost:6379/0` | Redis connection URL                         |
-| `CACHE_REDIS_POOL_SIZE` | `5`                        | Redis connection pool size                   |
-| `CACHE_REDIS_TIMEOUT`   | `5`                        | Redis connection timeout (seconds)           |
+| Variable                        | Default                    | Description                                  |
+| ------------------------------- | -------------------------- | -------------------------------------------- |
+| `CACHE_ENABLED`                 | `true`                     | Enable/disable caching                       |
+| `CACHE_STORE`                   | `memory`                   | Cache store type (`memory`, `redis`, `null`) |
+| `CACHE_MAX_SIZE`                | `1000`                     | Maximum cache entries (memory store)         |
+| `CACHE_DEFAULT_TTL`             | `3600`                     | Default TTL in seconds                       |
+| `CACHE_KEY_PREFIX`              | `azu`                      | Prefix for all cache keys                    |
+| `CACHE_COMPRESS`                | `false`                    | Enable compression                           |
+| `CACHE_SERIALIZE`               | `true`                     | Enable serialization                         |
+| `CACHE_REDIS_URL`               | `redis://localhost:6379/0` | Redis connection URL                         |
+| `CACHE_REDIS_POOL_SIZE`         | `5`                        | Redis connection pool size                   |
+| `CACHE_REDIS_TIMEOUT`           | `5`                        | Redis connection timeout (seconds)           |
+| `CACHE_REDIS_OPERATION_TIMEOUT` | `2`                        | Redis operation timeout (seconds)            |
+| `CACHE_CLEANUP_INTERVAL`        | `300`                      | Memory cleanup interval (seconds)            |
+| `CACHE_CONNECTION_RETRIES`      | `3`                        | Connection retry attempts                    |
+| `CACHE_CONNECTION_RETRY_DELAY`  | `1`                        | Delay between retries (seconds)              |
 
 ## Error Handling
 
@@ -772,6 +830,50 @@ config.redis_url = "redis://:your-password@localhost:6379/0"
 3. Monitor Redis memory usage:
    ```bash
    redis-cli info memory
+   ```
+
+### Timeout Issues
+
+#### Operation Timeouts
+
+**Problem:** `Redis operation timed out after 2s`
+
+**Solutions:**
+
+1. Increase operation timeout:
+
+   ```bash
+   CACHE_REDIS_OPERATION_TIMEOUT=5
+   ```
+
+2. Check Redis server performance:
+
+   ```bash
+   redis-cli info stats | grep instantaneous_ops_per_sec
+   ```
+
+3. Monitor Redis slow log:
+   ```bash
+   redis-cli slowlog get 10
+   ```
+
+#### Connection Pool Timeouts
+
+**Problem:** `Redis connection pool timeout`
+
+**Solutions:**
+
+1. Increase pool size and timeout:
+
+   ```bash
+   CACHE_REDIS_POOL_SIZE=20
+   CACHE_REDIS_TIMEOUT=10
+   ```
+
+2. Check for connection leaks in your application
+3. Monitor Redis connection count:
+   ```bash
+   redis-cli info clients
    ```
 
 ### Performance Optimization
