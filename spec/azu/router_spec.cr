@@ -455,6 +455,170 @@ describe Azu::Router do
       final_stats[:size].should eq(100)
       final_stats[:max_size].should eq(1000)
     end
+
+    it "handles concurrent cache access safely" do
+      # Test thread safety of cache under concurrent access
+      router = Azu::Router.new
+      endpoint = SimpleEndpoint.new
+
+      # Add routes
+      (1..10).each do |i|
+        router.get("/concurrent#{i}", endpoint)
+      end
+
+      # Create multiple fibers to simulate concurrent access
+      results = [] of String
+      results_mutex = Mutex.new
+      completed_fibers = 0
+      completion_mutex = Mutex.new
+
+      # Spawn 20 concurrent fibers making requests
+      20.times do |fiber_id|
+        spawn do
+          (1..10).each do |i|
+            request = HTTP::Request.new("GET", "/concurrent#{i}")
+            io = IO::Memory.new
+            response = HTTP::Server::Response.new(io)
+            context = HTTP::Server::Context.new(request, response)
+
+            router.process(context)
+            response.close
+            io.rewind
+            response_body = io.gets_to_end
+
+            results_mutex.synchronize do
+              results << response_body
+            end
+          end
+
+          completion_mutex.synchronize do
+            completed_fibers += 1
+          end
+        end
+      end
+
+      # Wait for all fibers to complete
+      while completion_mutex.synchronize { completed_fibers < 20 }
+        sleep(0.001.seconds)
+      end
+
+      # Verify all requests completed successfully
+      results.size.should eq(200) # 20 fibers * 10 requests each
+      results.all? { |r| r.includes?("Hello, World!") }.should be_true
+
+      # Verify cache is working correctly
+      final_stats = router.path_cache.stats
+      final_stats[:size].should eq(10) # Should have 10 unique routes cached
+      final_stats[:max_size].should eq(1000)
+    end
+
+    it "handles concurrent cache writes safely" do
+      # Test that concurrent cache writes don't cause issues
+      router = Azu::Router.new
+      endpoint = SimpleEndpoint.new
+
+      # Add routes for all possible requests
+      (0...10).each do |fiber_id|
+        (1..5).each do |i|
+          router.get("/concurrent_write#{fiber_id}_#{i}", endpoint)
+        end
+      end
+
+      # Create multiple fibers writing to cache simultaneously
+      results = [] of String
+      results_mutex = Mutex.new
+      completed_fibers = 0
+      completion_mutex = Mutex.new
+
+      # Spawn 10 concurrent fibers making different requests
+      10.times do |fiber_id|
+        spawn do
+          (1..5).each do |i|
+            request = HTTP::Request.new("GET", "/concurrent_write#{fiber_id}_#{i}")
+            io = IO::Memory.new
+            response = HTTP::Server::Response.new(io)
+            context = HTTP::Server::Context.new(request, response)
+
+            router.process(context)
+            response.close
+            io.rewind
+            response_body = io.gets_to_end
+
+            results_mutex.synchronize do
+              results << response_body
+            end
+          end
+
+          completion_mutex.synchronize do
+            completed_fibers += 1
+          end
+        end
+      end
+
+      # Wait for all fibers to complete
+      while completion_mutex.synchronize { completed_fibers < 10 }
+        sleep(0.001.seconds)
+      end
+
+      # Verify all requests completed successfully
+      results.size.should eq(50) # 10 fibers * 5 requests each
+      results.all? { |r| r.includes?("Hello, World!") }.should be_true
+
+      # Verify cache is working correctly
+      final_stats = router.path_cache.stats
+      final_stats[:size].should eq(50) # Should have 50 unique routes cached
+      final_stats[:max_size].should eq(1000)
+    end
+
+    it "handles cache performance under concurrent load" do
+      # Test cache performance with concurrent requests
+      router = Azu::Router.new
+      endpoint = SimpleEndpoint.new
+
+      # Add routes
+      (1..20).each do |i|
+        router.get("/perf#{i}", endpoint)
+      end
+
+      # Create concurrent load
+      completed_fibers = 0
+      completion_mutex = Mutex.new
+      start_time = Time.monotonic
+
+      # Spawn 50 concurrent fibers
+      50.times do |fiber_id|
+        spawn do
+          (1..20).each do |i|
+            request = HTTP::Request.new("GET", "/perf#{i}")
+            io = IO::Memory.new
+            response = HTTP::Server::Response.new(io)
+            context = HTTP::Server::Context.new(request, response)
+
+            router.process(context)
+            response.close
+          end
+
+          completion_mutex.synchronize do
+            completed_fibers += 1
+          end
+        end
+      end
+
+      # Wait for all fibers to complete
+      while completion_mutex.synchronize { completed_fibers < 50 }
+        sleep(0.001.seconds)
+      end
+      end_time = Time.monotonic
+
+      # Performance check: should complete quickly (under 500ms for 1000 concurrent requests)
+      elapsed_time = end_time - start_time
+      elapsed_time.total_milliseconds.should be < 500
+
+      # Verify cache is working
+      final_stats = router.path_cache.stats
+      final_stats[:size].should eq(20) # Should have 20 unique routes cached
+      final_stats[:max_size].should eq(1000)
+    end
   end
 
   describe "original functionality" do

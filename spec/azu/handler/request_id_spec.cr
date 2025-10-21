@@ -224,20 +224,23 @@ describe Azu::Handler::RequestId do
 
       ids = Set(String).new
       mutex = Mutex.new
-      channel = Channel(String).new
+      completed_fibers = 0
+      completion_mutex = Mutex.new
 
       10.times do
         spawn do
           context, io = create_context("GET", "/test")
           handler.call(context)
           request_id = context.request.headers["X-Request-ID"]
-          channel.send(request_id)
+
+          mutex.synchronize { ids << request_id }
+          completion_mutex.synchronize { completed_fibers += 1 }
         end
       end
 
-      10.times do
-        id = channel.receive
-        mutex.synchronize { ids << id }
+      # Wait for all fibers to complete
+      while completion_mutex.synchronize { completed_fibers < 10 }
+        sleep(0.001.seconds)
       end
 
       ids.size.should eq(10)

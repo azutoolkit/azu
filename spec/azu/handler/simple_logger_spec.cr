@@ -272,19 +272,23 @@ describe Azu::Handler::SimpleLogger do
 
       ids = Set(String).new
       mutex = Mutex.new
-      channel = Channel(String).new
+      completed_fibers = 0
+      completion_mutex = Mutex.new
 
       5.times do
         spawn do
           context, io = create_context("GET", "/test")
           handler.call(context)
-          channel.send(context.request.headers["X-Request-ID"])
+          request_id = context.request.headers["X-Request-ID"]
+
+          mutex.synchronize { ids << request_id }
+          completion_mutex.synchronize { completed_fibers += 1 }
         end
       end
 
-      5.times do
-        id = channel.receive
-        mutex.synchronize { ids << id }
+      # Wait for all fibers to complete
+      while completion_mutex.synchronize { completed_fibers < 5 }
+        sleep(0.001.seconds)
       end
 
       ids.size.should eq(5)
