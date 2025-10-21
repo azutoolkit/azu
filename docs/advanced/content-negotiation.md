@@ -1,837 +1,731 @@
-# Content Negotiation in Azu
+# Content Negotiation
 
-Azu provides sophisticated content negotiation capabilities, allowing your endpoints to respond with different content types based on client preferences. This guide covers handling multiple response formats, language negotiation, and custom content types.
+Content negotiation in Azu allows your API to serve different content types based on client preferences. With support for multiple formats, automatic content type detection, and flexible response handling, content negotiation makes your API more versatile and user-friendly.
 
-## Overview
+## What is Content Negotiation?
 
-```mermaid
-graph TD
-    A[HTTP Request] --> B[Content Negotiator]
-    B --> C[Accept Header Parsing]
-    C --> D[Format Selection]
-    D --> E[Response Generation]
+Content negotiation in Azu provides:
 
-    F[Accept-Language] --> B
-    G[Accept-Encoding] --> B
-    H[Custom Headers] --> B
-```
+- **Multiple Formats**: Support for JSON, XML, HTML, and custom formats
+- **Automatic Detection**: Detect client preferences from headers
+- **Flexible Responses**: Serve different content types for the same endpoint
+- **Format Validation**: Validate content types and handle errors
+- **Custom Serializers**: Implement custom serialization logic
 
 ## Basic Content Negotiation
 
-### Accept Header Handling
+### Accept Header Detection
 
 ```crystal
-struct ContentNegotiationRequest
-  include Request
-
-  getter accept : String?
-  getter accept_language : String?
-  getter accept_encoding : String?
-
-  def initialize(@accept = nil, @accept_language = nil, @accept_encoding = nil)
-  end
-
-  def self.from_headers(headers : HTTP::Headers) : self
-    new(
-      accept: headers["Accept"]?,
-      accept_language: headers["Accept-Language"]?,
-      accept_encoding: headers["Accept-Encoding"]?
-    )
-  end
-end
-
-struct ContentNegotiationResponse
-  include Response
-
-  getter content : String
-  getter content_type : String
-  getter language : String?
-
-  def initialize(@content, @content_type, @language = nil)
-  end
-
-  def render : String
-    content
-  end
-
-  def headers : HTTP::Headers
-    headers = HTTP::Headers.new
-    headers["Content-Type"] = content_type
-    headers["Content-Language"] = language if language
-    headers
-  end
-end
-
-struct ContentNegotiationEndpoint
-  include Endpoint(ContentNegotiationRequest, ContentNegotiationResponse)
+class ContentNegotiationEndpoint
+  include Azu::Endpoint(Azu::Request::Empty, Azu::Response::Text)
 
   get "/api/data"
 
-  def call : ContentNegotiationResponse
-    negotiator = Azu::ContentNegotiator.new(request.accept)
+  def call : Azu::Response::Text
+    # Detect client preferences
+    accept_header = context.request.headers["Accept"]?
+    content_type = determine_content_type(accept_header)
 
-    case negotiator.best_match(["application/json", "application/xml", "text/html"])
+    # Set response content type
+    context.response.headers["Content-Type"] = content_type
+
+    # Generate response based on content type
+    case content_type
     when "application/json"
-      render_json
+      generate_json_response
     when "application/xml"
-      render_xml
+      generate_xml_response
     when "text/html"
-      render_html
+      generate_html_response
     else
-      render_json  # Default fallback
+      generate_json_response  # Default to JSON
     end
   end
 
-  private def render_json : ContentNegotiationResponse
-    data = {
-      "message" => "Hello World",
-      "timestamp" => Time.utc.to_unix,
-      "format" => "json"
-    }
+  private def determine_content_type(accept_header : String?) : String
+    return "application/json" unless accept_header
 
-    ContentNegotiationResponse.new(
-      data.to_json,
-      "application/json; charset=utf-8"
-    )
+    # Parse Accept header
+    preferences = parse_accept_header(accept_header)
+
+    # Find best match
+    if preferences.includes?("application/json")
+      "application/json"
+    elsif preferences.includes?("application/xml")
+      "application/xml"
+    elsif preferences.includes?("text/html")
+      "text/html"
+    else
+      "application/json"  # Default
+    end
   end
 
-  private def render_xml : ContentNegotiationResponse
-    xml = <<-XML
-      <?xml version="1.0" encoding="UTF-8"?>
-      <response>
-        <message>Hello World</message>
-        <timestamp>#{Time.utc.to_unix}</timestamp>
-        <format>xml</format>
-      </response>
-      XML
-
-    ContentNegotiationResponse.new(
-      xml,
-      "application/xml; charset=utf-8"
-    )
-  end
-
-  private def render_html : ContentNegotiationResponse
-    html = <<-HTML
-      <!DOCTYPE html>
-      <html>
-        <head><title>Data</title></head>
-        <body>
-          <h1>Hello World</h1>
-          <p>Timestamp: #{Time.utc.to_unix}</p>
-          <p>Format: HTML</p>
-        </body>
-      </html>
-      HTML
-
-    ContentNegotiationResponse.new(
-      html,
-      "text/html; charset=utf-8"
-    )
+  private def parse_accept_header(accept_header : String) : Array(String)
+    accept_header.split(",").map(&.strip)
   end
 end
 ```
 
-## Advanced Content Negotiation
+### Content Type Validation
+
+```crystal
+class ContentTypeValidator
+  def self.validate_content_type(content_type : String) : Bool
+    valid_types = [
+      "application/json",
+      "application/xml",
+      "text/html",
+      "text/plain",
+      "application/x-www-form-urlencoded",
+      "multipart/form-data"
+    ]
+
+    valid_types.includes?(content_type)
+  end
+
+  def self.validate_accept_header(accept_header : String) : Bool
+    # Validate Accept header format
+    accept_header.split(",").all? do |type|
+      type.strip.match(/\A[a-zA-Z0-9\-\/]+\z/)
+    end
+  end
+end
+```
+
+## Multiple Format Support
+
+### JSON Response
+
+```crystal
+class JsonResponse
+  include Azu::Response
+
+  def initialize(@data : Hash(String, JSON::Any))
+  end
+
+  def render
+    @data.to_json
+  end
+end
+```
+
+### XML Response
+
+```crystal
+class XmlResponse
+  include Azu::Response
+
+  def initialize(@data : Hash(String, JSON::Any))
+  end
+
+  def render
+    generate_xml(@data)
+  end
+
+  private def generate_xml(data : Hash(String, JSON::Any)) : String
+    xml = String.build do |str|
+      str << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+      str << "<response>\n"
+
+      data.each do |key, value|
+        str << "  <#{key}>#{escape_xml(value.to_s)}</#{key}>\n"
+      end
+
+      str << "</response>"
+    end
+
+    xml
+  end
+
+  private def escape_xml(text : String) : String
+    text.gsub("&", "&amp;")
+        .gsub("<", "&lt;")
+        .gsub(">", "&gt;")
+        .gsub("\"", "&quot;")
+        .gsub("'", "&#39;")
+  end
+end
+```
+
+### HTML Response
+
+```crystal
+class HtmlResponse
+  include Azu::Response
+  include Azu::Templates::Renderable
+
+  def initialize(@data : Hash(String, JSON::Any), @template : String = "api/data.html")
+  end
+
+  def render
+    view @template, @data
+  end
+end
+```
+
+## Content Negotiation Middleware
+
+### Content Negotiation Middleware
+
+```crystal
+class ContentNegotiationMiddleware
+  include HTTP::Handler
+
+  def call(context : HTTP::Server::Context)
+    # Detect content type from request
+    content_type = detect_request_content_type(context)
+
+    # Set context for use in endpoints
+    context.set("request_content_type", content_type)
+
+    # Process request
+    call_next(context)
+
+    # Negotiate response content type
+    negotiate_response_content_type(context)
+  end
+
+  private def detect_request_content_type(context : HTTP::Server::Context) : String
+    content_type = context.request.headers["Content-Type"]?
+    return "application/json" unless content_type
+
+    # Extract main content type
+    content_type.split(";").first.strip
+  end
+
+  private def negotiate_response_content_type(context : HTTP::Server::Context)
+    # Get client preferences
+    accept_header = context.request.headers["Accept"]?
+    preferred_type = determine_preferred_type(accept_header)
+
+    # Set response content type
+    context.response.headers["Content-Type"] = preferred_type
+  end
+
+  private def determine_preferred_type(accept_header : String?) : String
+    return "application/json" unless accept_header
+
+    # Parse quality values
+    preferences = parse_accept_header_with_quality(accept_header)
+
+    # Find best match
+    preferences.max_by { |_, quality| quality }?.try(&.first) || "application/json"
+  end
+
+  private def parse_accept_header_with_quality(accept_header : String) : Array({String, Float64})
+    accept_header.split(",").map do |type|
+      if type.includes?(";q=")
+        type_part, quality_part = type.split(";q=", 2)
+        quality = quality_part.to_f
+        {type_part.strip, quality}
+      else
+        {type.strip, 1.0}
+    end
+  end
+end
+```
+
+## Format Handlers
+
+### JSON Handler
+
+```crystal
+class JsonHandler
+  def self.serialize(data : Hash(String, JSON::Any)) : String
+    data.to_json
+  end
+
+  def self.deserialize(json : String) : Hash(String, JSON::Any)
+    JSON.parse(json).as_h
+  end
+
+  def self.validate(json : String) : Bool
+    begin
+      JSON.parse(json)
+      true
+    rescue
+      false
+    end
+  end
+end
+```
+
+### XML Handler
+
+```crystal
+class XmlHandler
+  def self.serialize(data : Hash(String, JSON::Any)) : String
+    generate_xml(data)
+  end
+
+  def self.deserialize(xml : String) : Hash(String, JSON::Any)
+    parse_xml(xml)
+  end
+
+  def self.validate(xml : String) : Bool
+    begin
+      parse_xml(xml)
+      true
+    rescue
+      false
+    end
+  end
+
+  private def self.generate_xml(data : Hash(String, JSON::Any)) : String
+    # Implement XML generation
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<response>#{data.to_json}</response>"
+  end
+
+  private def self.parse_xml(xml : String) : Hash(String, JSON::Any)
+    # Implement XML parsing
+    # This would use an XML parsing library
+    {} of String => JSON::Any
+  end
+end
+```
+
+### HTML Handler
+
+```crystal
+class HtmlHandler
+  def self.serialize(data : Hash(String, JSON::Any), template : String) : String
+    # Render HTML template
+    render_template(template, data)
+  end
+
+  def self.deserialize(html : String) : Hash(String, JSON::Any)
+    # Extract data from HTML
+    extract_data_from_html(html)
+  end
+
+  def self.validate(html : String) : Bool
+    # Validate HTML
+    validate_html_structure(html)
+  end
+
+  private def self.render_template(template : String, data : Hash(String, JSON::Any)) : String
+    # Implement template rendering
+    # This would use a template engine
+    template
+  end
+
+  private def self.extract_data_from_html(html : String) : Hash(String, JSON::Any)
+    # Extract data from HTML
+    # This would parse HTML and extract data
+    {} of String => JSON::Any
+  end
+
+  private def self.validate_html_structure(html : String) : Bool
+    # Validate HTML structure
+    # This would use an HTML validator
+    true
+  end
+end
+```
+
+## Custom Format Support
+
+### Custom Format Handler
+
+```crystal
+class CustomFormatHandler
+  def self.serialize(data : Hash(String, JSON::Any)) : String
+    # Implement custom serialization
+    data.map do |key, value|
+      "#{key}: #{value}"
+    end.join("\n")
+  end
+
+  def self.deserialize(content : String) : Hash(String, JSON::Any)
+    # Implement custom deserialization
+    result = {} of String => JSON::Any
+
+    content.each_line do |line|
+      if line.includes?(":")
+        key, value = line.split(":", 2)
+        result[key.strip] = JSON::Any.new(value.strip)
+      end
+    end
+
+    result
+  end
+
+  def self.validate(content : String) : Bool
+    # Validate custom format
+    content.lines.all? { |line| line.includes?(":") }
+  end
+end
+```
+
+### Format Registry
+
+```crystal
+class FormatRegistry
+  @@handlers = {} of String => FormatHandler
+
+  def self.register(content_type : String, handler : FormatHandler)
+    @@handlers[content_type] = handler
+  end
+
+  def self.get_handler(content_type : String) : FormatHandler?
+    @@handlers[content_type]?
+  end
+
+  def self.supported_types : Array(String)
+    @@handlers.keys
+  end
+end
+
+# Register format handlers
+FormatRegistry.register("application/json", JsonHandler.new)
+FormatRegistry.register("application/xml", XmlHandler.new)
+FormatRegistry.register("text/html", HtmlHandler.new)
+FormatRegistry.register("text/custom", CustomFormatHandler.new)
+```
+
+## Content Negotiation in Endpoints
+
+### Flexible Endpoint
+
+```crystal
+class FlexibleEndpoint
+  include Azu::Endpoint(Azu::Request::Empty, Azu::Response::Text)
+
+  get "/api/flexible"
+
+  def call : Azu::Response::Text
+    # Get client preferences
+    accept_header = context.request.headers["Accept"]?
+    content_type = negotiate_content_type(accept_header)
+
+    # Set response content type
+    context.response.headers["Content-Type"] = content_type
+
+    # Generate response
+    response_data = generate_response_data
+    serialized_response = serialize_response(response_data, content_type)
+
+    Azu::Response::Text.new(serialized_response)
+  end
+
+  private def negotiate_content_type(accept_header : String?) : String
+    return "application/json" unless accept_header
+
+    # Parse preferences
+    preferences = parse_accept_header(accept_header)
+
+    # Find best match
+    if preferences.includes?("application/json")
+      "application/json"
+    elsif preferences.includes?("application/xml")
+      "application/xml"
+    elsif preferences.includes?("text/html")
+      "text/html"
+    else
+      "application/json"
+    end
+  end
+
+  private def serialize_response(data : Hash(String, JSON::Any), content_type : String) : String
+    case content_type
+    when "application/json"
+      JsonHandler.serialize(data)
+    when "application/xml"
+      XmlHandler.serialize(data)
+    when "text/html"
+      HtmlHandler.serialize(data, "api/flexible.html")
+    else
+      JsonHandler.serialize(data)
+    end
+  end
+end
+```
 
 ### Multi-Format Endpoint
 
 ```crystal
-struct MultiFormatRequest
-  include Request
+class MultiFormatEndpoint
+  include Azu::Endpoint(Azu::Request::Empty, Azu::Response::Text)
 
-  getter format : String?
-  getter language : String?
+  get "/api/multi"
 
-  def initialize(@format = nil, @language = nil)
-  end
+  def call : Azu::Response::Text
+    # Get client preferences
+    accept_header = context.request.headers["Accept"]?
+    content_type = determine_content_type(accept_header)
 
-  def self.from_params(params : Params) : self
-    new(
-      format: params.get_string?("format"),
-      language: params.get_string?("lang")
-    )
-  end
+    # Set response content type
+    context.response.headers["Content-Type"] = content_type
 
-  def self.from_headers(headers : HTTP::Headers) : self
-    new(
-      format: extract_format_from_accept(headers["Accept"]?),
-      language: extract_language_from_accept(headers["Accept-Language"]?)
-    )
-  end
-
-  private def self.extract_format_from_accept(accept : String?) : String?
-    return nil unless accept
-
-    # Parse Accept header and return preferred format
-    if accept.includes?("application/json")
-      "json"
-    elsif accept.includes?("application/xml")
-      "xml"
-    elsif accept.includes?("text/html")
-      "html"
+    # Generate response based on content type
+    response = case content_type
+    when "application/json"
+      generate_json_response
+    when "application/xml"
+      generate_xml_response
+    when "text/html"
+      generate_html_response
     else
-      nil
+      generate_json_response
     end
+
+    Azu::Response::Text.new(response)
   end
 
-  private def self.extract_language_from_accept(accept_language : String?) : String?
-    return nil unless accept_language
-
-    # Parse Accept-Language header and return preferred language
-    if accept_language.includes?("en")
-      "en"
-    elsif accept_language.includes?("es")
-      "es"
-    elsif accept_language.includes?("fr")
-      "fr"
-    else
-      "en"  # Default
-    end
-  end
-end
-
-struct MultiFormatResponse
-  include Response
-
-  getter data : Hash(String, String)
-  getter format : String
-  getter language : String
-
-  def initialize(@data, @format, @language)
+  private def generate_json_response : String
+    {
+      "message" => "Hello, World!",
+      "timestamp" => Time.utc.to_rfc3339,
+      "format" => "json"
+    }.to_json
   end
 
-  def render : String
-    case format
-    when "json"
-      render_json
-    when "xml"
-      render_xml
-    when "html"
-      render_html
-    else
-      render_json
-    end
+  private def generate_xml_response : String
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+    "<response>\n" +
+    "  <message>Hello, World!</message>\n" +
+    "  <timestamp>#{Time.utc.to_rfc3339}</timestamp>\n" +
+    "  <format>xml</format>\n" +
+    "</response>"
   end
 
-  def content_type : String
-    case format
-    when "json"
-      "application/json; charset=utf-8"
-    when "xml"
-      "application/xml; charset=utf-8"
-    when "html"
-      "text/html; charset=utf-8"
-    else
-      "application/json; charset=utf-8"
-    end
-  end
-
-  private def render_json : String
-    data.to_json
-  end
-
-  private def render_xml : String
-    String.build do |str|
-      str << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-      str << "<response>\n"
-      data.each do |key, value|
-        str << "  <#{key}>#{value}</#{key}>\n"
-      end
-      str << "</response>"
-    end
-  end
-
-  private def render_html : String
-    String.build do |str|
-      str << "<!DOCTYPE html>\n"
-      str << "<html lang=\"#{language}\">\n"
-      str << "<head><title>Data</title></head>\n"
-      str << "<body>\n"
-      data.each do |key, value|
-        str << "<p><strong>#{key}:</strong> #{value}</p>\n"
-      end
-      str << "</body>\n"
-      str << "</html>"
-    end
-  end
-end
-
-struct MultiFormatEndpoint
-  include Endpoint(MultiFormatRequest, MultiFormatResponse)
-
-  get "/api/multi-format"
-
-  def call : MultiFormatResponse
-    format = request.format || "json"
-    language = request.language || "en"
-
-    data = {
-      "message" => get_localized_message(language),
-      "timestamp" => Time.utc.to_unix.to_s,
-      "format" => format,
-      "language" => language
-    }
-
-    MultiFormatResponse.new(data, format, language)
-  end
-
-  private def get_localized_message(language : String) : String
-    case language
-    when "en"
-      "Hello World"
-    when "es"
-      "Hola Mundo"
-    when "fr"
-      "Bonjour le Monde"
-    else
-      "Hello World"
-    end
+  private def generate_html_response : String
+    "<!DOCTYPE html>\n" +
+    "<html>\n" +
+    "<head><title>API Response</title></head>\n" +
+    "<body>\n" +
+    "  <h1>Hello, World!</h1>\n" +
+    "  <p>Timestamp: #{Time.utc.to_rfc3339}</p>\n" +
+    "  <p>Format: HTML</p>\n" +
+    "</body>\n" +
+    "</html>"
   end
 end
 ```
 
-## Language Negotiation
+## Error Handling
 
-### Internationalization Support
-
-```crystal
-class LanguageNegotiator
-  SUPPORTED_LANGUAGES = ["en", "es", "fr", "de", "ja"]
-  DEFAULT_LANGUAGE = "en"
-
-  def self.negotiate(accept_language : String?) : String
-    return DEFAULT_LANGUAGE unless accept_language
-
-    # Parse Accept-Language header
-    languages = parse_accept_language(accept_language)
-
-    # Find best match
-    languages.each do |lang, quality|
-      if SUPPORTED_LANGUAGES.includes?(lang)
-        return lang
-      end
-    end
-
-    DEFAULT_LANGUAGE
-  end
-
-  private def self.parse_accept_language(accept_language : String) : Array(Tuple(String, Float64))
-    languages = [] of Tuple(String, Float64)
-
-    accept_language.split(",").each do |part|
-      if part.includes?(";")
-        lang, quality_part = part.split(";", 2)
-        quality = quality_part.split("=", 2)[1]?.try(&.to_f) || 1.0
-        languages << {lang.strip, quality}
-      else
-        languages << {part.strip, 1.0}
-      end
-    end
-
-    # Sort by quality (highest first)
-    languages.sort_by { |_, quality| -quality }
-  end
-end
-
-struct LocalizedRequest
-  include Request
-
-  getter language : String
-
-  def initialize(@language)
-  end
-
-  def self.from_headers(headers : HTTP::Headers) : self
-    language = LanguageNegotiator.negotiate(headers["Accept-Language"]?)
-    new(language)
-  end
-end
-
-struct LocalizedResponse
-  include Response
-
-  getter content : String
-  getter language : String
-
-  def initialize(@content, @language)
-  end
-
-  def render : String
-    content
-  end
-
-  def headers : HTTP::Headers
-    headers = HTTP::Headers.new
-    headers["Content-Type"] = "text/html; charset=utf-8"
-    headers["Content-Language"] = language
-    headers
-  end
-end
-
-struct LocalizedEndpoint
-  include Endpoint(LocalizedRequest, LocalizedResponse)
-
-  get "/localized"
-
-  def call : LocalizedResponse
-    content = generate_localized_content(request.language)
-    LocalizedResponse.new(content, request.language)
-  end
-
-  private def generate_localized_content(language : String) : String
-    case language
-    when "en"
-      "<h1>Welcome to our application</h1><p>This is the English version.</p>"
-    when "es"
-      "<h1>Bienvenido a nuestra aplicación</h1><p>Esta es la versión en español.</p>"
-    when "fr"
-      "<h1>Bienvenue dans notre application</h1><p>Ceci est la version française.</p>"
-    when "de"
-      "<h1>Willkommen in unserer Anwendung</h1><p>Dies ist die deutsche Version.</p>"
-    when "ja"
-      "<h1>アプリケーションへようこそ</h1><p>これは日本語版です。</p>"
-    else
-      "<h1>Welcome to our application</h1><p>This is the English version.</p>"
-    end
-  end
-end
-```
-
-## Custom Content Types
-
-### API Versioning with Content Types
+### Content Negotiation Errors
 
 ```crystal
-struct VersionedRequest
-  include Request
-
-  getter version : String
-  getter format : String
-
-  def initialize(@version, @format)
-  end
-
-  def self.from_headers(headers : HTTP::Headers) : self
-    accept = headers["Accept"]? || ""
-
-    # Parse custom content types like "application/vnd.myapp.v1+json"
-    if accept.includes?("application/vnd.myapp.v1")
-      version = "v1"
-    elsif accept.includes?("application/vnd.myapp.v2")
-      version = "v2"
-    else
-      version = "v1"  # Default
-    end
-
-    format = if accept.includes?("+json")
-      "json"
-    elsif accept.includes?("+xml")
-      "xml"
-    else
-      "json"  # Default
-    end
-
-    new(version, format)
+class ContentNegotiationError < Exception
+  def initialize(message : String, @content_type : String? = nil)
+    super(message)
   end
 end
 
-struct VersionedResponse
-  include Response
-
-  getter data : Hash(String, String)
-  getter version : String
-  getter format : String
-
-  def initialize(@data, @version, @format)
-  end
-
-  def render : String
-    case format
-    when "json"
-      data.to_json
-    when "xml"
-      render_xml
-    else
-      data.to_json
-    end
-  end
-
-  def content_type : String
-    case format
-    when "json"
-      "application/vnd.myapp.#{version}+json"
-    when "xml"
-      "application/vnd.myapp.#{version}+xml"
-    else
-      "application/vnd.myapp.#{version}+json"
-    end
-  end
-
-  private def render_xml : String
-    String.build do |str|
-      str << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-      str << "<response version=\"#{version}\">\n"
-      data.each do |key, value|
-        str << "  <#{key}>#{value}</#{key}>\n"
-      end
-      str << "</response>"
-    end
-  end
-end
-
-struct VersionedEndpoint
-  include Endpoint(VersionedRequest, VersionedResponse)
-
-  get "/api/versioned"
-
-  def call : VersionedResponse
-    data = case request.version
-    when "v1"
-      {
-        "message" => "Hello from v1",
-        "version" => "1.0",
-        "deprecated" => "false"
-      }
-    when "v2"
-      {
-        "message" => "Hello from v2",
-        "version" => "2.0",
-        "deprecated" => "false",
-        "new_feature" => "available"
-      }
-    else
-      {
-        "message" => "Hello from v1",
-        "version" => "1.0",
-        "deprecated" => "false"
-      }
-    end
-
-    VersionedResponse.new(data, request.version, request.format)
-  end
-end
-```
-
-## Response Format Selection
-
-### Dynamic Format Selection
-
-```crystal
-class ResponseFormatter
-  def self.format(data : Hash, format : String, options : Hash = {} of String => String) : String
-    case format
-    when "json"
-      format_json(data, options)
-    when "xml"
-      format_xml(data, options)
-    when "csv"
-      format_csv(data, options)
-    when "yaml"
-      format_yaml(data, options)
-    else
-      format_json(data, options)
-    end
-  end
-
-  private def self.format_json(data : Hash, options : Hash) : String
-    if options["pretty"]? == "true"
-      JSON.build do |json|
-        json.object do
-          data.each do |key, value|
-            json.field key, value
-          end
-        end
-      end
-    else
-      data.to_json
-    end
-  end
-
-  private def self.format_xml(data : Hash, options : Hash) : String
-    root_element = options["root"]? || "data"
-
-    String.build do |str|
-      str << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-      str << "<#{root_element}>\n"
-      data.each do |key, value|
-        str << "  <#{key}>#{value}</#{key}>\n"
-      end
-      str << "</#{root_element}>"
-    end
-  end
-
-  private def self.format_csv(data : Hash, options : Hash) : String
-    String.build do |str|
-      str << "key,value\n"
-      data.each do |key, value|
-        str << "#{key},#{value}\n"
-      end
-    end
-  end
-
-  private def self.format_yaml(data : Hash, options : Hash) : String
-    # This would typically use a YAML library
-    # For now, return a simple representation
-    String.build do |str|
-      data.each do |key, value|
-        str << "#{key}: #{value}\n"
-      end
-    end
-  end
-end
-
-struct DynamicFormatRequest
-  include Request
-
-  getter format : String
-  getter options : Hash(String, String)
-
-  def initialize(@format, @options = {} of String => String)
-  end
-
-  def self.from_params(params : Params) : self
-    format = params.get_string?("format") || "json"
-    options = {
-      "pretty" => params.get_string?("pretty") || "false",
-      "root" => params.get_string?("root") || "data"
+class ContentNegotiationErrorHandler
+  def self.handle_unsupported_format(content_type : String) : Azu::Response::Text
+    error_response = {
+      "error" => "Unsupported Content Type",
+      "message" => "The requested content type '#{content_type}' is not supported",
+      "supported_types" => ["application/json", "application/xml", "text/html"],
+      "timestamp" => Time.utc.to_rfc3339
     }
 
-    new(format, options)
-  end
-end
-
-struct DynamicFormatResponse
-  include Response
-
-  getter content : String
-  getter content_type : String
-
-  def initialize(@content, @content_type)
+    Azu::Response::Text.new(error_response.to_json)
   end
 
-  def render : String
-    content
-  end
-end
-
-struct DynamicFormatEndpoint
-  include Endpoint(DynamicFormatRequest, DynamicFormatResponse)
-
-  get "/api/dynamic-format"
-
-  def call : DynamicFormatResponse
-    data = {
-      "message" => "Hello World",
-      "timestamp" => Time.utc.to_unix.to_s,
-      "format" => request.format
+  def self.handle_parsing_error(content_type : String, error : Exception) : Azu::Response::Text
+    error_response = {
+      "error" => "Content Parsing Error",
+      "message" => "Failed to parse #{content_type} content",
+      "details" => error.message,
+      "timestamp" => Time.utc.to_rfc3339
     }
 
-    content = ResponseFormatter.format(data, request.format, request.options)
-    content_type = get_content_type(request.format)
-
-    DynamicFormatResponse.new(content, content_type)
-  end
-
-  private def get_content_type(format : String) : String
-    case format
-    when "json"
-      "application/json; charset=utf-8"
-    when "xml"
-      "application/xml; charset=utf-8"
-    when "csv"
-      "text/csv; charset=utf-8"
-    when "yaml"
-      "application/x-yaml; charset=utf-8"
-    else
-      "application/json; charset=utf-8"
-    end
+    Azu::Response::Text.new(error_response.to_json)
   end
 end
 ```
 
 ## Testing Content Negotiation
 
-### Content Negotiation Testing
+### Unit Testing
 
 ```crystal
-describe "ContentNegotiationEndpoint" do
-  it "responds with JSON when Accept header requests JSON" do
+require "spec"
+
+describe ContentNegotiationEndpoint do
+  it "handles JSON requests" do
+    context = create_test_context(headers: {"Accept" => "application/json"})
     endpoint = ContentNegotiationEndpoint.new
 
-    headers = HTTP::Headers.new
-    headers["Accept"] = "application/json"
+    response = endpoint.call
 
-    request = ContentNegotiationRequest.from_headers(headers)
-    response = endpoint.call(request)
-
-    assert response.content_type == "application/json; charset=utf-8"
-    assert response.content.includes?("\"format\":\"json\"")
+    response.content_type.should eq("application/json")
+    JSON.parse(response.body).should be_a(JSON::Any)
   end
 
-  it "responds with XML when Accept header requests XML" do
+  it "handles XML requests" do
+    context = create_test_context(headers: {"Accept" => "application/xml"})
     endpoint = ContentNegotiationEndpoint.new
 
-    headers = HTTP::Headers.new
-    headers["Accept"] = "application/xml"
+    response = endpoint.call
 
-    request = ContentNegotiationRequest.from_headers(headers)
-    response = endpoint.call(request)
-
-    assert response.content_type == "application/xml; charset=utf-8"
-    assert response.content.includes?("<format>xml</format>")
+    response.content_type.should eq("application/xml")
+    response.body.should contain("<?xml")
   end
 
-  it "responds with HTML when Accept header requests HTML" do
+  it "handles HTML requests" do
+    context = create_test_context(headers: {"Accept" => "text/html"})
     endpoint = ContentNegotiationEndpoint.new
 
-    headers = HTTP::Headers.new
-    headers["Accept"] = "text/html"
+    response = endpoint.call
 
-    request = ContentNegotiationRequest.from_headers(headers)
-    response = endpoint.call(request)
-
-    assert response.content_type == "text/html; charset=utf-8"
-    assert response.content.includes?("<h1>Hello World</h1>")
-  end
-
-  it "defaults to JSON when no Accept header is provided" do
-    endpoint = ContentNegotiationEndpoint.new
-
-    request = ContentNegotiationRequest.new
-    response = endpoint.call(request)
-
-    assert response.content_type == "application/json; charset=utf-8"
+    response.content_type.should eq("text/html")
+    response.body.should contain("<html>")
   end
 end
+```
 
-describe "LanguageNegotiator" do
-  it "negotiates English language" do
-    language = LanguageNegotiator.negotiate("en-US,en;q=0.9,es;q=0.8")
-    assert language == "en"
+### Integration Testing
+
+```crystal
+describe "Content Negotiation Integration" do
+  it "negotiates content type based on Accept header" do
+    # Test JSON negotiation
+    response = make_request("/api/data", headers: {"Accept" => "application/json"})
+    response.headers["Content-Type"].should eq("application/json")
+
+    # Test XML negotiation
+    response = make_request("/api/data", headers: {"Accept" => "application/xml"})
+    response.headers["Content-Type"].should eq("application/xml")
+
+    # Test HTML negotiation
+    response = make_request("/api/data", headers: {"Accept" => "text/html"})
+    response.headers["Content-Type"].should eq("text/html")
   end
 
-  it "negotiates Spanish language" do
-    language = LanguageNegotiator.negotiate("es-ES,es;q=0.9,en;q=0.8")
-    assert language == "es"
-  end
+  it "handles quality values in Accept header" do
+    response = make_request("/api/data", headers: {
+      "Accept" => "application/json;q=0.8, application/xml;q=0.9, text/html;q=1.0"
+    })
 
-  it "defaults to English for unsupported languages" do
-    language = LanguageNegotiator.negotiate("zh-CN,zh;q=0.9")
-    assert language == "en"
-  end
-
-  it "defaults to English when no Accept-Language header" do
-    language = LanguageNegotiator.negotiate(nil)
-    assert language == "en"
+    # Should prefer HTML due to higher quality value
+    response.headers["Content-Type"].should eq("text/html")
   end
 end
 ```
 
 ## Best Practices
 
-### 1. Always Provide a Default Format
+### 1. Use Appropriate Content Types
 
 ```crystal
-# Good: Always have a fallback
-def select_format(accept : String?) : String
-  case accept
-  when .try(&.includes?("application/json"))
-    "json"
-  when .try(&.includes?("application/xml"))
-    "xml"
-  else
-    "json"  # Default fallback
-  end
+# Good: Appropriate content types
+case content_type
+when "application/json"
+  generate_json_response
+when "application/xml"
+  generate_xml_response
+when "text/html"
+  generate_html_response
 end
 
-# Avoid: No fallback
-def select_format(accept : String?) : String
-  case accept
-  when .try(&.includes?("application/json"))
-    "json"
-  when .try(&.includes?("application/xml"))
-    "xml"
-  end  # No fallback!
+# Avoid: Wrong content types
+case content_type
+when "json"  # Should be "application/json"
+  generate_json_response
+when "xml"   # Should be "application/xml"
+  generate_xml_response
 end
 ```
 
-### 2. Use Quality Values in Accept Headers
+### 2. Handle Content Negotiation Errors
 
 ```crystal
-# Good: Respect quality values
-def parse_accept_header(accept : String) : Array(Tuple(String, Float64))
-  accept.split(",").map do |part|
-    if part.includes?(";q=")
-      media_type, quality = part.split(";q=", 2)
-      {media_type.strip, quality.to_f}
+# Good: Handle errors gracefully
+def negotiate_content_type(accept_header : String?) : String
+  return "application/json" unless accept_header
+
+  begin
+    preferences = parse_accept_header(accept_header)
+    find_best_match(preferences)
+  rescue
+    "application/json"  # Fallback to default
+  end
+end
+
+# Avoid: Ignoring errors
+def negotiate_content_type(accept_header : String?) : String
+  preferences = parse_accept_header(accept_header)  # Can raise exception
+  find_best_match(preferences)
+end
+```
+
+### 3. Validate Content Types
+
+```crystal
+# Good: Validate content types
+def validate_content_type(content_type : String) : Bool
+  valid_types = ["application/json", "application/xml", "text/html"]
+  valid_types.includes?(content_type)
+end
+
+# Avoid: No validation
+def process_content_type(content_type : String)
+  # No validation - can cause errors
+end
+```
+
+### 4. Use Quality Values
+
+```crystal
+# Good: Handle quality values
+def parse_accept_header(accept_header : String) : Array({String, Float64})
+  accept_header.split(",").map do |type|
+    if type.includes?(";q=")
+      type_part, quality_part = type.split(";q=", 2)
+      {type_part.strip, quality_part.to_f}
     else
-      {part.strip, 1.0}
+      {type.strip, 1.0}
     end
-  end.sort_by { |_, quality| -quality }
-end
-
-# Avoid: Ignore quality values
-def parse_accept_header(accept : String) : Array(String)
-  accept.split(",").map(&.strip)
-end
-```
-
-### 3. Set Appropriate Content-Type Headers
-
-```crystal
-# Good: Set proper content type
-def content_type(format : String) : String
-  case format
-  when "json"
-    "application/json; charset=utf-8"
-  when "xml"
-    "application/xml; charset=utf-8"
-  when "html"
-    "text/html; charset=utf-8"
   end
 end
 
-# Avoid: Generic content type
-def content_type(format : String) : String
-  "text/plain"  # Too generic
+# Avoid: Ignoring quality values
+def parse_accept_header(accept_header : String) : Array(String)
+  accept_header.split(",").map(&.strip)  # Ignores quality values
 end
 ```
 
-### 4. Handle Language Negotiation Properly
+### 5. Provide Fallbacks
 
 ```crystal
-# Good: Proper language negotiation
-def negotiate_language(accept_language : String?) : String
-  return "en" unless accept_language
+# Good: Provide fallbacks
+def negotiate_content_type(accept_header : String?) : String
+  return "application/json" unless accept_header
 
-  languages = parse_accept_language(accept_language)
-  supported = ["en", "es", "fr"]
+  preferences = parse_accept_header(accept_header)
 
-  languages.each do |lang, _|
-    return lang if supported.includes?(lang)
-  end
-
-  "en"  # Default
-end
-
-# Avoid: Simple string matching
-def negotiate_language(accept_language : String?) : String
-  return "en" unless accept_language
-
-  if accept_language.includes?("es")
-    "es"
-  elsif accept_language.includes?("fr")
-    "fr"
+  if preferences.includes?("application/json")
+    "application/json"
+  elsif preferences.includes?("application/xml")
+    "application/xml"
   else
-    "en"
+    "application/json"  # Fallback to default
   end
+end
+
+# Avoid: No fallbacks
+def negotiate_content_type(accept_header : String?) : String
+  preferences = parse_accept_header(accept_header)
+  find_best_match(preferences)  # Can return nil
 end
 ```
 
 ## Next Steps
 
-- [Environment Management](advanced/environments.md) - Configure content negotiation per environment
-- [Performance Tuning](advanced/performance-tuning.md) - Optimize content negotiation performance
-- [File Uploads](advanced/file-uploads.md) - Handle file uploads with content negotiation
-- [API Reference](api-reference.md) - Explore content negotiation APIs
+Now that you understand content negotiation:
+
+1. **[API Design](../features/api-design.md)** - Design flexible APIs
+2. **[Testing](../testing.md)** - Test content negotiation
+3. **[Performance](performance.md)** - Optimize content negotiation
+4. **[Deployment](../deployment/production.md)** - Deploy with content negotiation
+5. **[Security](../advanced/security.md)** - Implement secure content negotiation
+
+---
+
+_Content negotiation in Azu provides flexible, client-aware API responses. With support for multiple formats, automatic detection, and error handling, it makes your API more versatile and user-friendly._

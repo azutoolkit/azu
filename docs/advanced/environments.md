@@ -1,262 +1,209 @@
-# Environment Management in Azu
+# Environment Management
 
-Azu provides comprehensive environment management capabilities, allowing you to configure your application differently across development, staging, and production environments. This guide covers environment-specific configuration, feature flags, and deployment strategies.
+Environment management in Azu provides a robust way to handle different deployment environments with appropriate configurations, security settings, and feature flags. With support for multiple environments, configuration inheritance, and environment-specific settings, you can maintain consistent deployments across development, staging, and production.
 
-## Overview
+## What is Environment Management?
 
-```mermaid
-graph TD
-    A[Environment Detection] --> B[Configuration Loading]
-    B --> C[Feature Flags]
-    C --> D[Environment-Specific Behavior]
+Environment management in Azu provides:
 
-    E[Development] --> B
-    F[Staging] --> B
-    G[Production] --> B
-    H[Custom] --> B
-```
+- **Multiple Environments**: Development, staging, production, and custom environments
+- **Configuration Inheritance**: Base configuration with environment-specific overrides
+- **Security Settings**: Environment-specific security configurations
+- **Feature Flags**: Enable/disable features based on environment
+- **Environment Variables**: Secure configuration through environment variables
 
-## Environment Detection
+## Basic Environment Configuration
 
-### Automatic Environment Detection
+### Environment Detection
 
 ```crystal
-class EnvironmentManager
-  # Environment constants
-  DEVELOPMENT = "development"
-  STAGING = "staging"
-  PRODUCTION = "production"
-  TEST = "test"
+module MyApp
+  include Azu
 
-  # Environment detection
-  def self.current : String
-    ENV["AZU_ENV"]? || ENV["CRYSTAL_ENV"]? || DEVELOPMENT
+  configure do |config|
+    # Environment detection
+    config.env = ENV.fetch("AZU_ENV", "development")
+
+    # Environment-specific configuration
+    case config.env
+    when "development"
+      configure_development(config)
+    when "staging"
+      configure_staging(config)
+    when "production"
+      configure_production(config)
+    else
+      configure_default(config)
+    end
   end
 
-  def self.development? : Bool
-    current == DEVELOPMENT
+  private def self.configure_development(config)
+    config.debug = true
+    config.log_level = Log::Severity::DEBUG
+    config.template_hot_reload = true
+    config.cache.enabled = false
   end
 
-  def self.staging? : Bool
-    current == STAGING
+  private def self.configure_staging(config)
+    config.debug = false
+    config.log_level = Log::Severity::INFO
+    config.template_hot_reload = false
+    config.cache.enabled = true
+    config.cache.backend = :redis
   end
 
-  def self.production? : Bool
-    current == PRODUCTION
-  end
-
-  def self.test? : Bool
-    current == TEST
-  end
-
-  def self.custom?(name : String) : Bool
-    current == name
-  end
-end
-
-# Usage in endpoints
-struct EnvironmentAwareEndpoint
-  include Endpoint(EnvironmentRequest, EnvironmentResponse)
-
-  get "/api/environment"
-
-  def call : EnvironmentResponse
-    data = {
-      "environment" => EnvironmentManager.current,
-      "is_development" => EnvironmentManager.development?,
-      "is_production" => EnvironmentManager.production?,
-      "debug_enabled" => EnvironmentManager.development?,
-      "timestamp" => Time.utc.to_unix
-    }
-
-    EnvironmentResponse.new(data)
-  end
-end
-
-struct EnvironmentRequest
-  include Request
-
-  def initialize
-  end
-end
-
-struct EnvironmentResponse
-  include Response
-
-  getter data : Hash(String, String | Bool | Int64)
-
-  def initialize(@data)
-  end
-
-  def render : String
-    data.to_json
+  private def self.configure_production(config)
+    config.debug = false
+    config.log_level = Log::Severity::WARN
+    config.template_hot_reload = false
+    config.cache.enabled = true
+    config.cache.backend = :redis
+    config.performance_monitoring = true
   end
 end
 ```
 
-## Configuration Management
-
-### Environment-Specific Configuration
+### Environment Variables
 
 ```crystal
-class Configuration
-  # Database configuration
-  DATABASE_URL = ENV["DATABASE_URL"]? || "sqlite://./dev.db"
-  DATABASE_POOL_SIZE = (ENV["DATABASE_POOL_SIZE"]? || "5").to_i
-
-  # Redis configuration
-  REDIS_URL = ENV["REDIS_URL"]? || "redis://localhost:6379"
-
-  # Application settings
-  APP_NAME = ENV["APP_NAME"]? || "Azu App"
-  APP_VERSION = ENV["APP_VERSION"]? || "1.0.0"
-  APP_SECRET = ENV["APP_SECRET"]? || "dev-secret-key"
-
-  # Server configuration
-  HOST = ENV["HOST"]? || "0.0.0.0"
-  PORT = (ENV["PORT"]? || "3000").to_i
-  WORKERS = (ENV["WORKERS"]? || "1").to_i
-
-  # Logging configuration
-  LOG_LEVEL = ENV["LOG_LEVEL"]? || default_log_level
-  LOG_FORMAT = ENV["LOG_FORMAT"]? || "json"
-
-  # Security settings
-  SSL_ENABLED = (ENV["SSL_ENABLED"]? || "false").downcase == "true"
-  SSL_CERT_PATH = ENV["SSL_CERT_PATH"]?
-  SSL_KEY_PATH = ENV["SSL_KEY_PATH"]?
-
-  # Feature flags
-  FEATURE_FLAGS = load_feature_flags
-
-  private def self.default_log_level : String
-    case EnvironmentManager.current
-    when EnvironmentManager::DEVELOPMENT
-      "debug"
-    when EnvironmentManager::STAGING
-      "info"
-    when EnvironmentManager::PRODUCTION
-      "warn"
-    else
-      "info"
-    end
+class EnvironmentConfig
+  def self.database_url : String
+    ENV.fetch("DATABASE_URL", "sqlite://./db/development.sqlite")
   end
 
-  private def self.load_feature_flags : Hash(String, Bool)
-    {
-      "beta_features" => EnvironmentManager.development? || EnvironmentManager.staging?,
-      "debug_mode" => EnvironmentManager.development?,
-      "performance_monitoring" => EnvironmentManager.production?,
-      "detailed_logging" => EnvironmentManager.development?,
-      "rate_limiting" => EnvironmentManager.production? || EnvironmentManager.staging?
-    }
+  def self.redis_url : String
+    ENV.fetch("REDIS_URL", "redis://localhost:6379")
+  end
+
+  def self.secret_key : String
+    ENV.fetch("SECRET_KEY", "development-secret-key")
+  end
+
+  def self.api_key : String?
+    ENV["API_KEY"]?
+  end
+
+  def self.debug_mode : Bool
+    ENV.fetch("DEBUG", "false") == "true"
+  end
+
+  def self.log_level : Log::Severity
+    case ENV.fetch("LOG_LEVEL", "info").downcase
+    when "debug"
+      Log::Severity::DEBUG
+    when "info"
+      Log::Severity::INFO
+    when "warn"
+      Log::Severity::WARN
+    when "error"
+      Log::Severity::ERROR
+    else
+      Log::Severity::INFO
+    end
   end
 end
 ```
 
-### Configuration Classes
+## Environment-Specific Configuration
+
+### Development Environment
 
 ```crystal
-struct DatabaseConfig
-  getter url : String
-  getter pool_size : Int32
-  getter timeout : Time::Span
-  getter ssl_mode : String
+class DevelopmentConfig
+  def self.configure(config)
+    # Development-specific settings
+    config.host = "localhost"
+    config.port = 3000
+    config.debug = true
+    config.log_level = Log::Severity::DEBUG
 
-  def initialize
-    @url = ENV["DATABASE_URL"]? || default_url
-    @pool_size = (ENV["DATABASE_POOL_SIZE"]? || "5").to_i
-    @timeout = Time::Span.new(seconds: (ENV["DATABASE_TIMEOUT"]? || "30").to_i)
-    @ssl_mode = ENV["DATABASE_SSL_MODE"]? || default_ssl_mode
-  end
+    # Development features
+    config.template_hot_reload = true
+    config.auto_reload = true
+    config.cache.enabled = false
 
-  private def default_url : String
-    case EnvironmentManager.current
-    when EnvironmentManager::DEVELOPMENT
-      "sqlite://./dev.db"
-    when EnvironmentManager::TEST
-      "sqlite://./test.db"
-    when EnvironmentManager::STAGING
-      "postgresql://staging:pass@localhost/staging_db"
-    when EnvironmentManager::PRODUCTION
-      "postgresql://prod:pass@prod-host/prod_db"
-    else
-      "sqlite://./dev.db"
-    end
-  end
+    # Development database
+    config.database.url = "sqlite://./db/development.sqlite"
+    config.database.pool_size = 5
 
-  private def default_ssl_mode : String
-    case EnvironmentManager.current
-    when EnvironmentManager::PRODUCTION
-      "require"
-    else
-      "disable"
-    end
+    # Development logging
+    config.logging.outputs = [:console]
+    config.logging.async = false
+
+    # Development security
+    config.security.csrf_protection = false
+    config.security.rate_limiting = false
   end
 end
+```
 
-struct SecurityConfig
-  getter secret_key : String
-  getter session_timeout : Time::Span
-  getter csrf_enabled : Bool
-  getter rate_limit_enabled : Bool
-  getter cors_origins : Array(String)
+### Staging Environment
 
-  def initialize
-    @secret_key = ENV["SECRET_KEY"]? || default_secret_key
-    @session_timeout = Time::Span.new(hours: (ENV["SESSION_TIMEOUT_HOURS"]? || "24").to_i)
-    @csrf_enabled = (ENV["CSRF_ENABLED"]? || default_csrf_enabled).downcase == "true"
-    @rate_limit_enabled = (ENV["RATE_LIMIT_ENABLED"]? || default_rate_limit_enabled).downcase == "true"
-    @cors_origins = parse_cors_origins
+```crystal
+class StagingConfig
+  def self.configure(config)
+    # Staging-specific settings
+    config.host = "0.0.0.0"
+    config.port = ENV.fetch("PORT", "3000").to_i
+    config.debug = false
+    config.log_level = Log::Severity::INFO
+
+    # Staging features
+    config.template_hot_reload = false
+    config.auto_reload = false
+    config.cache.enabled = true
+
+    # Staging database
+    config.database.url = ENV.fetch("DATABASE_URL", "postgresql://localhost/staging")
+    config.database.pool_size = 10
+
+    # Staging logging
+    config.logging.outputs = [:console, :file]
+    config.logging.async = true
+    config.logging.file_path = "/var/log/app/staging.log"
+
+    # Staging security
+    config.security.csrf_protection = true
+    config.security.rate_limiting = true
+    config.security.rate_limit = 1000  # requests per hour
   end
+end
+```
 
-  private def default_secret_key : String
-    case EnvironmentManager.current
-    when EnvironmentManager::DEVELOPMENT
-      "dev-secret-key-change-in-production"
-    when EnvironmentManager::TEST
-      "test-secret-key"
-    else
-      raise "SECRET_KEY environment variable is required in #{EnvironmentManager.current}"
-    end
-  end
+### Production Environment
 
-  private def default_csrf_enabled : String
-    case EnvironmentManager.current
-    when EnvironmentManager::DEVELOPMENT
-      "false"
-    else
-      "true"
-    end
-  end
+```crystal
+class ProductionConfig
+  def self.configure(config)
+    # Production-specific settings
+    config.host = "0.0.0.0"
+    config.port = ENV.fetch("PORT", "8080").to_i
+    config.debug = false
+    config.log_level = Log::Severity::WARN
 
-  private def default_rate_limit_enabled : String
-    case EnvironmentManager.current
-    when EnvironmentManager::DEVELOPMENT
-      "false"
-    else
-      "true"
-    end
-  end
+    # Production features
+    config.template_hot_reload = false
+    config.auto_reload = false
+    config.cache.enabled = true
+    config.performance_monitoring = true
 
-  private def parse_cors_origins : Array(String)
-    origins = ENV["CORS_ORIGINS"]?
-    return default_cors_origins unless origins
+    # Production database
+    config.database.url = ENV.fetch("DATABASE_URL")
+    config.database.pool_size = 20
+    config.database.ssl = true
 
-    origins.split(",").map(&.strip)
-  end
+    # Production logging
+    config.logging.outputs = [:file, :external]
+    config.logging.async = true
+    config.logging.file_path = "/var/log/app/production.log"
+    config.logging.external_endpoint = ENV.fetch("LOG_ENDPOINT")
 
-  private def default_cors_origins : Array(String)
-    case EnvironmentManager.current
-    when EnvironmentManager::DEVELOPMENT
-      ["http://localhost:3000", "http://localhost:3001"]
-    when EnvironmentManager::STAGING
-      ["https://staging.example.com"]
-    when EnvironmentManager::PRODUCTION
-      ["https://example.com", "https://www.example.com"]
-    else
-      ["http://localhost:3000"]
-    end
+    # Production security
+    config.security.csrf_protection = true
+    config.security.rate_limiting = true
+    config.security.rate_limit = 10000  # requests per hour
+    config.security.ssl_required = true
+    config.security.secure_cookies = true
   end
 end
 ```
@@ -267,207 +214,155 @@ end
 
 ```crystal
 class FeatureFlags
-  @@flags = {} of String => Bool
-  @@callbacks = {} of String => Array(->)
-
-  def self.enabled?(flag : String) : Bool
-    @@flags[flag]? || false
-  end
-
-  def self.disabled?(flag : String) : Bool
-    !enabled?(flag)
-  end
-
-  def self.set(flag : String, enabled : Bool)
-    @@flags[flag] = enabled
-    notify_callbacks(flag, enabled)
-  end
-
-  def self.on_change(flag : String, &block : ->)
-    @@callbacks[flag] ||= [] of ->
-    @@callbacks[flag] << block
-  end
-
-  def self.load_from_env
-    # Load feature flags from environment variables
-    ENV.each do |key, value|
-      if key.starts_with?("FEATURE_")
-        flag_name = key[8..-1].downcase  # Remove "FEATURE_" prefix
-        enabled = value.downcase == "true"
-        set(flag_name, enabled)
-      end
-    end
-
-    # Set default flags based on environment
-    set_default_flags
-  end
-
-  private def self.set_default_flags
-    case EnvironmentManager.current
-    when EnvironmentManager::DEVELOPMENT
-      set("debug_mode", true)
-      set("beta_features", true)
-      set("detailed_logging", true)
-      set("performance_monitoring", false)
-    when EnvironmentManager::STAGING
-      set("debug_mode", false)
-      set("beta_features", true)
-      set("detailed_logging", true)
-      set("performance_monitoring", true)
-    when EnvironmentManager::PRODUCTION
-      set("debug_mode", false)
-      set("beta_features", false)
-      set("detailed_logging", false)
-      set("performance_monitoring", true)
-    end
-  end
-
-  private def self.notify_callbacks(flag : String, enabled : Bool)
-    if callbacks = @@callbacks[flag]?
-      callbacks.each(&.call)
-    end
-  end
-end
-
-# Feature flag usage in endpoints
-struct FeatureFlagEndpoint
-  include Endpoint(FeatureFlagRequest, FeatureFlagResponse)
-
-  get "/api/features"
-
-  def call : FeatureFlagResponse
-    flags = {
-      "debug_mode" => FeatureFlags.enabled?("debug_mode"),
-      "beta_features" => FeatureFlags.enabled?("beta_features"),
-      "detailed_logging" => FeatureFlags.enabled?("detailed_logging"),
-      "performance_monitoring" => FeatureFlags.enabled?("performance_monitoring")
-    }
-
-    FeatureFlagResponse.new(flags)
-  end
-end
-
-struct FeatureFlagRequest
-  include Request
-
-  def initialize
-  end
-end
-
-struct FeatureFlagResponse
-  include Response
-
-  getter flags : Hash(String, Bool)
-
-  def initialize(@flags)
-  end
-
-  def render : String
-    flags.to_json
-  end
-end
-
-# Conditional feature usage
-struct ConditionalFeatureEndpoint
-  include Endpoint(ConditionalRequest, ConditionalResponse)
-
-  get "/api/conditional-feature"
-
-  def call : ConditionalResponse
-    if FeatureFlags.enabled?("beta_features")
-      # Beta feature implementation
-      data = {
-        "feature" => "beta",
-        "message" => "This is a beta feature",
-        "experimental" => true
-      }
+  def self.is_enabled?(feature : String) : Bool
+    case feature
+    when "user_registration"
+      user_registration_enabled?
+    when "email_notifications"
+      email_notifications_enabled?
+    when "advanced_search"
+      advanced_search_enabled?
+    when "beta_features"
+      beta_features_enabled?
     else
-      # Standard implementation
-      data = {
-        "feature" => "standard",
-        "message" => "This is the standard feature",
-        "experimental" => false
-      }
+      false
     end
+  end
 
-    ConditionalResponse.new(data)
+  private def self.user_registration_enabled? : Bool
+    ENV.fetch("FEATURE_USER_REGISTRATION", "true") == "true"
+  end
+
+  private def self.email_notifications_enabled? : Bool
+    ENV.fetch("FEATURE_EMAIL_NOTIFICATIONS", "false") == "true"
+  end
+
+  private def self.advanced_search_enabled? : Bool
+    ENV.fetch("FEATURE_ADVANCED_SEARCH", "false") == "true"
+  end
+
+  private def self.beta_features_enabled? : Bool
+    ENV.fetch("FEATURE_BETA_FEATURES", "false") == "true"
   end
 end
 ```
 
-## Environment-Specific Middleware
-
-### Conditional Middleware
+### Feature Flag Usage
 
 ```crystal
-class EnvironmentAwareMiddleware
-  def self.create_stack : Array(Azu::Handler::Base)
-    stack = [] of Azu::Handler::Base
+class UserRegistrationEndpoint
+  include Azu::Endpoint(UserRegistrationRequest, UserResponse)
 
-    # Always include these handlers
-    stack << Azu::Handler::Rescuer.new
-    stack << Azu::Handler::Logger.new
+  post "/users"
 
-    # Environment-specific middleware
-    case EnvironmentManager.current
-    when EnvironmentManager::DEVELOPMENT
-      stack << Azu::Handler::CORS.new(
-        origins: ["http://localhost:3000", "http://localhost:3001"],
-        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-      )
-      stack << Azu::Handler::Static.new("public")
-
-    when EnvironmentManager::STAGING
-      stack << Azu::Handler::CORS.new(
-        origins: ["https://staging.example.com"],
-        methods: ["GET", "POST", "PUT", "DELETE"]
-      )
-      stack << Azu::Handler::Throttle.new(requests_per_minute: 100)
-      stack << Azu::Handler::RequestId.new
-
-    when EnvironmentManager::PRODUCTION
-      stack << Azu::Handler::CORS.new(
-        origins: ["https://example.com"],
-        methods: ["GET", "POST", "PUT", "DELETE"]
-      )
-      stack << Azu::Handler::Throttle.new(requests_per_minute: 60)
-      stack << Azu::Handler::RequestId.new
-      stack << Azu::Handler::IpSpoofing.new
+  def call : UserResponse
+    # Check feature flag
+    unless FeatureFlags.is_enabled?("user_registration")
+      raise Azu::Response::Forbidden.new("User registration is disabled")
     end
 
-    stack
+    # Process registration
+    user = create_user(user_registration_request)
+
+    # Send email notification if enabled
+    if FeatureFlags.is_enabled?("email_notifications")
+      send_welcome_email(user)
+    end
+
+    UserResponse.new(user)
   end
 end
+```
 
-# Application startup with environment-aware middleware
-class Application
-  def self.start
-    middleware_stack = EnvironmentAwareMiddleware.create_stack
+## Environment-Specific Security
 
-    Azu.start(middleware_stack) do |app|
-      # Register routes
-      register_routes(app)
+### Security Configuration
+
+```crystal
+class SecurityConfig
+  def self.configure_security(config)
+    case config.env
+    when "development"
+      configure_development_security(config)
+    when "staging"
+      configure_staging_security(config)
+    when "production"
+      configure_production_security(config)
     end
   end
 
-  private def self.register_routes(app)
-    # Register endpoints based on environment
-    if EnvironmentManager.development?
-      register_development_routes(app)
+  private def self.configure_development_security(config)
+    # Development security (relaxed)
+    config.security.csrf_protection = false
+    config.security.rate_limiting = false
+    config.security.ssl_required = false
+    config.security.secure_cookies = false
+    config.security.cors.origins = ["http://localhost:3000", "http://localhost:3001"]
+  end
+
+  private def self.configure_staging_security(config)
+    # Staging security (moderate)
+    config.security.csrf_protection = true
+    config.security.rate_limiting = true
+    config.security.rate_limit = 1000
+    config.security.ssl_required = false
+    config.security.secure_cookies = false
+    config.security.cors.origins = ["https://staging.example.com"]
+  end
+
+  private def self.configure_production_security(config)
+    # Production security (strict)
+    config.security.csrf_protection = true
+    config.security.rate_limiting = true
+    config.security.rate_limit = 10000
+    config.security.ssl_required = true
+    config.security.secure_cookies = true
+    config.security.cors.origins = ["https://example.com"]
+    config.security.cors.credentials = true
+    config.security.cors.max_age = 86400
+  end
+end
+```
+
+### Environment-Specific Secrets
+
+```crystal
+class SecretManager
+  def self.get_secret(key : String) : String
+    case Azu.env
+    when "development"
+      get_development_secret(key)
+    when "staging"
+      get_staging_secret(key)
+    when "production"
+      get_production_secret(key)
+    else
+      raise "Unknown environment: #{Azu.env}"
     end
-
-    register_production_routes(app)
   end
 
-  private def self.register_development_routes(app)
-    # Development-only routes (debug endpoints, etc.)
-    app.get("/debug/info") { |context| debug_info(context) }
-    app.get("/debug/features") { |context| debug_features(context) }
+  private def self.get_development_secret(key : String) : String
+    # Development secrets (can be hardcoded or from .env file)
+    case key
+    when "database_password"
+      "development_password"
+    when "api_key"
+      "development_api_key"
+    when "secret_key"
+      "development_secret_key"
+    else
+      raise "Unknown secret: #{key}"
+    end
   end
 
-  private def self.register_production_routes(app)
-    # Production routes
-    app.get("/api/health") { |context| health_check(context) }
+  private def self.get_staging_secret(key : String) : String
+    # Staging secrets (from environment variables)
+    ENV.fetch("STAGING_#{key.upcase}")
+  end
+
+  private def self.get_production_secret(key : String) : String
+    # Production secrets (from secure secret management)
+    ENV.fetch("PRODUCTION_#{key.upcase}")
   end
 end
 ```
@@ -477,269 +372,260 @@ end
 ### Logging Configuration
 
 ```crystal
-class LoggerConfig
-  def self.configure
-    case EnvironmentManager.current
-    when EnvironmentManager::DEVELOPMENT
-      configure_development_logging
-    when EnvironmentManager::STAGING
-      configure_staging_logging
-    when EnvironmentManager::PRODUCTION
-      configure_production_logging
+class LoggingConfig
+  def self.configure_logging(config)
+    case config.env
+    when "development"
+      configure_development_logging(config)
+    when "staging"
+      configure_staging_logging(config)
+    when "production"
+      configure_production_logging(config)
     end
   end
 
-  private def self.configure_development_logging
-    Log.setup do |c|
-      c.bind("*", :debug, Log::IOBackend.new)
-      c.bind("azu.*", :debug, Log::IOBackend.new)
-    end
+  private def self.configure_development_logging(config)
+    # Development logging (verbose)
+    config.logging.level = Log::Severity::DEBUG
+    config.logging.outputs = [:console]
+    config.logging.async = false
+    config.logging.colors = true
+    config.logging.timestamps = true
   end
 
-  private def self.configure_staging_logging
-    Log.setup do |c|
-      c.bind("*", :info, Log::IOBackend.new)
-      c.bind("azu.*", :debug, Log::IOBackend.new)
-
-      # Add file logging for staging
-      c.bind("*", :info, Log::IOBackend.new(File.new("logs/staging.log", "a")))
-    end
+  private def self.configure_staging_logging(config)
+    # Staging logging (moderate)
+    config.logging.level = Log::Severity::INFO
+    config.logging.outputs = [:console, :file]
+    config.logging.async = true
+    config.logging.file_path = "/var/log/app/staging.log"
+    config.logging.colors = false
+    config.logging.timestamps = true
   end
 
-  private def self.configure_production_logging
-    Log.setup do |c|
-      c.bind("*", :warn, Log::IOBackend.new)
-      c.bind("azu.*", :info, Log::IOBackend.new)
-
-      # Add structured logging for production
-      c.bind("*", :warn, Log::IOBackend.new(File.new("logs/production.log", "a")))
-
-      # Add error logging
-      c.bind("*", :error, Log::IOBackend.new(File.new("logs/errors.log", "a")))
-    end
-  end
-end
-
-# Usage in endpoints
-struct LoggingEndpoint
-  include Endpoint(LoggingRequest, LoggingResponse)
-
-  get "/api/logging-test"
-
-  def call : LoggingResponse
-    Log.debug { "Debug message from logging test" }
-    Log.info { "Info message from logging test" }
-    Log.warn { "Warning message from logging test" }
-    Log.error { "Error message from logging test" }
-
-    LoggingResponse.new("Logging test completed")
+  private def self.configure_production_logging(config)
+    # Production logging (minimal)
+    config.logging.level = Log::Severity::WARN
+    config.logging.outputs = [:file, :external]
+    config.logging.async = true
+    config.logging.file_path = "/var/log/app/production.log"
+    config.logging.external_endpoint = ENV.fetch("LOG_ENDPOINT")
+    config.logging.colors = false
+    config.logging.timestamps = true
+    config.logging.structured = true
   end
 end
 ```
 
-## Environment Variables Management
+## Environment Validation
 
-### Environment Variable Validation
+### Environment Health Check
 
 ```crystal
-class EnvironmentValidator
-  REQUIRED_VARS = {
-    EnvironmentManager::PRODUCTION => ["DATABASE_URL", "SECRET_KEY", "REDIS_URL"],
-    EnvironmentManager::STAGING => ["DATABASE_URL", "SECRET_KEY"],
-    EnvironmentManager::DEVELOPMENT => [],
-    EnvironmentManager::TEST => []
-  }
+class EnvironmentHealthCheck
+  def self.check_environment : Hash(String, JSON::Any)
+    {
+      "environment" => Azu.env,
+      "configuration" => check_configuration,
+      "secrets" => check_secrets,
+      "database" => check_database,
+      "cache" => check_cache,
+      "external_services" => check_external_services
+    }
+  end
 
-  def self.validate!
-    missing_vars = find_missing_vars
+  private def self.check_configuration : Hash(String, JSON::Any)
+    {
+      "host" => Azu.config.host,
+      "port" => Azu.config.port,
+      "debug" => Azu.config.debug,
+      "log_level" => Azu.config.log_level.to_s
+    }
+  end
 
-    unless missing_vars.empty?
-      raise "Missing required environment variables for #{EnvironmentManager.current}: #{missing_vars.join(", ")}"
+  private def self.check_secrets : Hash(String, JSON::Any)
+    {
+      "database_url" => EnvironmentConfig.database_url.present?,
+      "secret_key" => EnvironmentConfig.secret_key.present?,
+      "api_key" => EnvironmentConfig.api_key.present?
+    }
+  end
+
+  private def self.check_database : Hash(String, JSON::Any)
+    begin
+      User.count
+      {"status" => "healthy", "connection" => "ok"}
+    rescue e
+      {"status" => "unhealthy", "error" => e.message}
     end
   end
 
-  private def self.find_missing_vars : Array(String)
-    required = REQUIRED_VARS[EnvironmentManager.current]? || [] of String
-
-    required.select { |var| ENV[var]?.nil? || ENV[var].empty? }
-  end
-end
-
-# Application startup with validation
-class Application
-  def self.start
-    # Validate environment variables
-    EnvironmentValidator.validate!
-
-    # Load feature flags
-    FeatureFlags.load_from_env
-
-    # Configure logging
-    LoggerConfig.configure
-
-    # Start application
-    middleware_stack = EnvironmentAwareMiddleware.create_stack
-
-    Azu.start(middleware_stack) do |app|
-      register_routes(app)
+  private def self.check_cache : Hash(String, JSON::Any)
+    begin
+      Azu.cache.set("health_check", "ok", ttl: 1.minute)
+      result = Azu.cache.get("health_check")
+      {"status" => result == "ok" ? "healthy" : "unhealthy"}
+    rescue e
+      {"status" => "unhealthy", "error" => e.message}
     end
+  end
+
+  private def self.check_external_services : Hash(String, JSON::Any)
+    {
+      "email_service" => check_email_service,
+      "payment_service" => check_payment_service,
+      "analytics_service" => check_analytics_service
+    }
   end
 end
 ```
 
-## Testing Environment Management
+## Environment-Specific Testing
 
-### Environment Testing
+### Test Environment Configuration
 
 ```crystal
-describe "EnvironmentManager" do
-  it "detects development environment" do
-    ENV["AZU_ENV"] = "development"
+class TestConfig
+  def self.configure_test_environment(config)
+    # Test-specific settings
+    config.env = "test"
+    config.debug = false
+    config.log_level = Log::Severity::ERROR
 
-    assert EnvironmentManager.current == "development"
-    assert EnvironmentManager.development?
-    assert !EnvironmentManager.production?
-  end
+    # Test database
+    config.database.url = "sqlite://./db/test.sqlite"
+    config.database.pool_size = 1
 
-  it "detects production environment" do
-    ENV["AZU_ENV"] = "production"
+    # Test cache
+    config.cache.enabled = false
 
-    assert EnvironmentManager.current == "production"
-    assert EnvironmentManager.production?
-    assert !EnvironmentManager.development?
-  end
+    # Test logging
+    config.logging.outputs = [:console]
+    config.logging.async = false
 
-  it "defaults to development when no environment set" do
-    ENV.delete("AZU_ENV")
-    ENV.delete("CRYSTAL_ENV")
-
-    assert EnvironmentManager.current == "development"
-  end
-end
-
-describe "FeatureFlags" do
-  before_each do
-    ENV["AZU_ENV"] = "development"
-    FeatureFlags.load_from_env
-  end
-
-  it "enables debug mode in development" do
-    assert FeatureFlags.enabled?("debug_mode")
-  end
-
-  it "disables debug mode in production" do
-    ENV["AZU_ENV"] = "production"
-    FeatureFlags.load_from_env
-
-    assert !FeatureFlags.enabled?("debug_mode")
-  end
-
-  it "loads feature flags from environment variables" do
-    ENV["FEATURE_NEW_UI"] = "true"
-    FeatureFlags.load_from_env
-
-    assert FeatureFlags.enabled?("new_ui")
+    # Test security
+    config.security.csrf_protection = false
+    config.security.rate_limiting = false
   end
 end
+```
 
-describe "Configuration" do
-  it "uses environment-specific database URLs" do
-    ENV["AZU_ENV"] = "development"
-    config = DatabaseConfig.new
+### Environment-Specific Test Helpers
 
-    assert config.url.includes?("dev.db")
+```crystal
+class TestHelpers
+  def self.setup_test_environment
+    # Set test environment
+    ENV["AZU_ENV"] = "test"
+
+    # Configure test database
+    ENV["DATABASE_URL"] = "sqlite://./db/test.sqlite"
+
+    # Configure test cache
+    ENV["CACHE_ENABLED"] = "false"
+
+    # Configure test logging
+    ENV["LOG_LEVEL"] = "error"
   end
 
-  it "requires SSL in production" do
-    ENV["AZU_ENV"] = "production"
-    config = DatabaseConfig.new
+  def self.cleanup_test_environment
+    # Clean up test database
+    File.delete("./db/test.sqlite") if File.exists?("./db/test.sqlite")
 
-    assert config.ssl_mode == "require"
+    # Clean up test cache
+    Azu.cache.clear if Azu.cache.enabled?
   end
 end
 ```
 
 ## Best Practices
 
-### 1. Use Environment Variables for Configuration
+### 1. Use Environment Variables
 
 ```crystal
-# Good: Environment-based configuration
-class Config
-  DATABASE_URL = ENV["DATABASE_URL"]? || "sqlite://./dev.db"
-  SECRET_KEY = ENV["SECRET_KEY"]? || raise "SECRET_KEY required"
-end
+# Good: Use environment variables
+config.database.url = ENV.fetch("DATABASE_URL")
+config.redis.url = ENV.fetch("REDIS_URL")
+config.secret_key = ENV.fetch("SECRET_KEY")
 
-# Avoid: Hardcoded configuration
-class Config
-  DATABASE_URL = "postgresql://user:pass@localhost/db"
-  SECRET_KEY = "hardcoded-secret"
-end
+# Avoid: Hardcoded values
+config.database.url = "postgresql://localhost/production"
+config.redis.url = "redis://localhost:6379"
+config.secret_key = "hardcoded-secret"
 ```
 
-### 2. Validate Required Environment Variables
+### 2. Validate Environment Configuration
 
 ```crystal
-# Good: Validate required variables
-def self.validate_environment!
+# Good: Validate configuration
+def validate_environment_config
   required_vars = ["DATABASE_URL", "SECRET_KEY"]
-  missing = required_vars.select { |var| ENV[var]?.nil? }
+  missing_vars = required_vars.select { |var| ENV[var]?.nil? }
 
-  unless missing.empty?
-    raise "Missing required environment variables: #{missing.join(", ")}"
+  if missing_vars.any?
+    raise "Missing required environment variables: #{missing_vars.join(", ")}"
   end
 end
 
 # Avoid: No validation
-def self.start
-  # Start without checking required variables
+# No validation - can cause runtime errors
+```
+
+### 3. Use Feature Flags
+
+```crystal
+# Good: Use feature flags
+if FeatureFlags.is_enabled?("user_registration")
+  # Enable user registration
+end
+
+# Avoid: Environment-specific code
+if Azu.env == "production"
+  # Production-specific code
 end
 ```
 
-### 3. Use Feature Flags for Gradual Rollouts
+### 4. Secure Environment Variables
 
 ```crystal
-# Good: Feature flag usage
-def process_request
-  if FeatureFlags.enabled?("new_algorithm")
-    new_algorithm
-  else
-    old_algorithm
-  end
-end
+# Good: Secure environment variables
+config.secret_key = ENV.fetch("SECRET_KEY")
+config.api_key = ENV.fetch("API_KEY")
 
-# Avoid: Environment-based feature switching
-def process_request
-  if EnvironmentManager.development?
-    new_algorithm
-  else
-    old_algorithm
-  end
-end
+# Avoid: Exposing secrets
+config.secret_key = "development-secret"  # Exposed in code
 ```
 
-### 4. Configure Logging Per Environment
+### 5. Test Environment Configuration
 
 ```crystal
-# Good: Environment-specific logging
-def self.configure_logging
-  case EnvironmentManager.current
-  when EnvironmentManager::DEVELOPMENT
-    Log.setup("*", :debug)
-  when EnvironmentManager::PRODUCTION
-    Log.setup("*", :warn)
+# Good: Test environment configuration
+describe "Environment Configuration" do
+  it "configures development environment" do
+    ENV["AZU_ENV"] = "development"
+    # Test development configuration
+  end
+
+  it "configures production environment" do
+    ENV["AZU_ENV"] = "production"
+    # Test production configuration
   end
 end
 
-# Avoid: Same logging for all environments
-def self.configure_logging
-  Log.setup("*", :info)  # Same for all environments
-end
+# Avoid: No environment testing
+# No testing - can cause deployment issues
 ```
 
 ## Next Steps
 
-- [Performance Tuning](advanced/performance-tuning.md) - Optimize performance per environment
-- [File Uploads](advanced/file-uploads.md) - Configure upload settings per environment
-- [Content Negotiation](advanced/content-negotiation.md) - Environment-specific content handling
-- [API Reference](api-reference.md) - Explore environment management APIs
+Now that you understand environment management:
+
+1. **[Configuration](configuration.md)** - Configure your application
+2. **[Security](security.md)** - Implement security measures
+3. **[Deployment](../deployment/production.md)** - Deploy with environment management
+4. **[Testing](../testing.md)** - Test environment configurations
+5. **[Monitoring](monitoring.md)** - Monitor environment health
+
+---
+
+_Environment management in Azu provides a robust way to handle different deployment environments. With configuration inheritance, feature flags, and environment-specific settings, you can maintain consistent deployments across all environments._

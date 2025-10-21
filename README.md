@@ -6,6 +6,33 @@
 
 **Azu** is a high-performance, type-safe web framework for Crystal that emphasizes developer productivity, compile-time safety, and real-time capabilities. Built with modern web development patterns, Azu provides a robust foundation for building scalable applications with elegant, expressive syntax.
 
+## Quick Start
+
+```crystal
+require "azu"
+
+# Define a type-safe endpoint
+struct HelloEndpoint
+  include Azu::Endpoint
+
+  get "/hello/:name"
+
+  def call
+    response.body("Hello, #{request.param("name")}!")
+  end
+end
+
+# Start the server
+Azu.start
+```
+
+## Key Features
+
+- **Type-Safe**: Compile-time type checking for requests, responses, and parameters
+- **Real-Time**: WebSocket channels and live components with client-server synchronization
+- **Performance**: High-performance routing with LRU cache and path optimization
+- **Developer Experience**: Comprehensive error handling, content negotiation, and flexible middleware
+
 ## 🚀 Key Features
 
 ### Type-Safe Architecture

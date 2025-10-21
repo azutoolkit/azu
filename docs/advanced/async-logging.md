@@ -1,362 +1,627 @@
-# Async Logging System
+# Async Logging
 
-Azu provides a sophisticated asynchronous logging system with structured data, batch processing, and background error reporting. This system is designed for high-performance applications that need reliable, non-blocking logging.
+Asynchronous logging in Azu provides high-performance, non-blocking log processing that ensures your application remains responsive even under heavy logging loads. With support for multiple log levels, structured logging, and external log aggregation, async logging is essential for production applications.
 
-## Overview
+## What is Async Logging?
 
-The async logging system consists of several components:
+Async logging in Azu provides:
 
-- **Structured Log Entries**: Rich metadata with timestamps, severity, context, and request tracing
-- **Batch Processing**: Efficient processing of log entries in batches to reduce I/O overhead
-- **Background Error Reporting**: Dedicated error processing pipeline with external service integration
-- **Request Tracing**: Automatic request ID generation and correlation across log entries
+- **Non-blocking**: Log operations don't block the main thread
+- **High Performance**: Efficient log processing with minimal overhead
+- **Structured Logging**: JSON-formatted logs with metadata
+- **Multiple Outputs**: Console, file, and external log aggregation
+- **Log Levels**: Configurable log levels for different environments
 
-## Basic Usage
+## Basic Async Logging
 
-### Simple Async Logging
-
-```crystal
-# Create an async logger
-logger = Azu::AsyncLogging::AsyncLogger.new("my_app")
-
-# Log messages with context
-logger.info("User logged in", {
-  "user_id" => "123",
-  "ip_address" => "192.168.1.1"
-})
-
-logger.error("Database connection failed", {
-  "database" => "users_db",
-  "retry_count" => "3"
-}, database_exception)
-```
-
-### Request-Scoped Logging
+### Configuration
 
 ```crystal
-class MyEndpoint
-  include Endpoint(MyRequest, MyResponse)
+module MyApp
+  include Azu
 
-  get "/api/users/:id"
+  configure do |config|
+    # Enable async logging
+    config.logging.async = true
+    config.logging.async_buffer_size = 1000
+    config.logging.async_flush_interval = 1.second
 
-  def call : MyResponse
-    # Create logger with request ID for tracing
-    logger = AsyncLogging::AsyncLogger.new("users_api")
-      .with_request_id(context.request.headers["X-Request-ID"]?)
+    # Configure log levels
+    config.logging.level = config.env.development? ? Log::Severity::DEBUG : Log::Severity::INFO
 
-    logger.info("Processing user request", {
-      "user_id" => @request.id,
-      "method" => "GET"
-    })
-
-    # Your endpoint logic here
-    user = fetch_user(@request.id)
-
-    logger.info("User request completed", {
-      "user_id" => @request.id,
-      "status" => "success"
-    })
-
-    MyResponse.new(user)
-  rescue ex
-    logger.error("User request failed", {
-      "user_id" => @request.id,
-      "error_type" => ex.class.name
-    }, ex)
-    raise ex
+    # Configure outputs
+    config.logging.outputs = [:console, :file, :external]
+    config.logging.file_path = "logs/app.log"
+    config.logging.external_endpoint = "https://logs.example.com/api/logs"
   end
 end
 ```
 
-## Advanced Features
-
-### Batch Processing Configuration
-
-The batch processor automatically groups log entries for efficient processing:
+### Basic Usage
 
 ```crystal
-# Configure batch processing (in your app initialization)
-class MyApp
-  def self.configure_logging
-    # The system automatically:
-    # - Processes logs in batches of 50 entries
-    # - Flushes every 5 seconds
-    # - Uses 4 worker threads
-    # - Groups by severity for optimal processing
+class UserService
+  def create_user(user_data : Hash(String, JSON::Any)) : User
+    # Log user creation
+    Log.info { "Creating user: #{user_data["email"]}" }
+
+    begin
+      user = User.new(user_data)
+      user.save
+
+      # Log success
+      Log.info { "User created successfully: #{user.id}" }
+      user
+    rescue e
+      # Log error
+      Log.error(exception: e) { "Failed to create user: #{e.message}" }
+      raise
+    end
   end
 end
 ```
 
-### Error Reporting
+## Structured Logging
 
-Errors are automatically processed through a dedicated pipeline:
+### JSON Logging
 
 ```crystal
-# Manual error reporting
-begin
-  risky_operation
-rescue ex
-  # Report to background error processor
-  AsyncLogging::ErrorReporter.report_error(ex)
+class StructuredLogger
+  def self.log_user_action(action : String, user_id : Int64, metadata : Hash(String, JSON::Any))
+    log_data = {
+      timestamp: Time.utc.to_rfc3339,
+      level: "info",
+      message: "User action: #{action}",
+      user_id: user_id,
+      metadata: metadata
+    }
 
-  # Also log with context
-  logger.error("Operation failed", {
-    "operation" => "risky_operation",
-    "attempt" => "1"
-  }, ex)
+    Log.info { log_data.to_json }
+  end
+
+  def self.log_request(request_id : String, method : String, path : String, duration : Time::Span)
+    log_data = {
+      timestamp: Time.utc.to_rfc3339,
+      level: "info",
+      message: "HTTP request",
+      request_id: request_id,
+      method: method,
+      path: path,
+      duration_ms: duration.total_milliseconds
+    }
+
+    Log.info { log_data.to_json }
+  end
+
+  def self.log_error(error : Exception, context : Hash(String, JSON::Any))
+    log_data = {
+      timestamp: Time.utc.to_rfc3339,
+      level: "error",
+      message: error.message,
+      exception: error.class.name,
+      backtrace: error.backtrace,
+      context: context
+    }
+
+    Log.error { log_data.to_json }
+  end
 end
 ```
 
-### External Service Integration
-
-The system supports integration with external logging services:
+### Contextual Logging
 
 ```crystal
-# Example: Sentry integration (implement in your app)
-class SentryIntegration
-  def self.send_batch(batch : Array(AsyncLogging::LogEntry))
-    batch.each do |entry|
-      if entry.severity.error? || entry.severity.fatal?
-        Sentry.capture_exception(entry.exception) if entry.exception
+class ContextualLogger
+  def initialize(@context : Hash(String, JSON::Any))
+  end
+
+  def info(message : String, metadata : Hash(String, JSON::Any) = {} of String => JSON::Any)
+    log_data = {
+      timestamp: Time.utc.to_rfc3339,
+      level: "info",
+      message: message,
+      context: @context,
+      metadata: metadata
+    }
+
+    Log.info { log_data.to_json }
+  end
+
+  def error(message : String, exception : Exception? = nil, metadata : Hash(String, JSON::Any) = {} of String => JSON::Any)
+    log_data = {
+      timestamp: Time.utc.to_rfc3339,
+      level: "error",
+      message: message,
+      context: @context,
+      metadata: metadata
+    }
+
+    if exception
+      log_data["exception"] = exception.class.name
+      log_data["backtrace"] = exception.backtrace
+    end
+
+    Log.error { log_data.to_json }
+  end
+end
+```
+
+## Log Levels
+
+### Configurable Log Levels
+
+```crystal
+class LogLevelManager
+  def self.configure_log_levels
+    # Development: Debug level
+    if Azu.env.development?
+      Log.setup(:debug)
+    end
+
+    # Production: Info level
+    if Azu.env.production?
+      Log.setup(:info)
+    end
+
+    # Test: Error level
+    if Azu.env.test?
+      Log.setup(:error)
+    end
+  end
+
+  def self.set_log_level(level : Log::Severity)
+    Log.setup(level)
+  end
+
+  def self.set_component_log_level(component : String, level : Log::Severity)
+    Log.setup(component, level)
+  end
+end
+```
+
+### Conditional Logging
+
+```crystal
+class ConditionalLogger
+  def self.debug_if_enabled(message : String, &block)
+    if Log.level <= Log::Severity::DEBUG
+      Log.debug { message }
+      yield if block
+    end
+  end
+
+  def self.info_if_enabled(message : String, &block)
+    if Log.level <= Log::Severity::INFO
+      Log.info { message }
+      yield if block
+    end
+  end
+
+  def self.warn_if_enabled(message : String, &block)
+    if Log.level <= Log::Severity::WARN
+      Log.warn { message }
+      yield if block
+    end
+  end
+end
+```
+
+## Log Outputs
+
+### Console Logging
+
+```crystal
+class ConsoleLogger
+  def self.setup_console_logging
+    Log.setup do |c|
+      c.bind "*", :info, Log::IOBackend.new(STDOUT)
+      c.bind "*", :warn, Log::IOBackend.new(STDERR)
+      c.bind "*", :error, Log::IOBackend.new(STDERR)
+    end
+  end
+
+  def self.setup_colored_console_logging
+    Log.setup do |c|
+      c.bind "*", :info, Log::IOBackend.new(STDOUT, formatter: ColoredFormatter.new)
+      c.bind "*", :warn, Log::IOBackend.new(STDERR, formatter: ColoredFormatter.new)
+      c.bind "*", :error, Log::IOBackend.new(STDERR, formatter: ColoredFormatter.new)
+    end
+  end
+end
+```
+
+### File Logging
+
+```crystal
+class FileLogger
+  def self.setup_file_logging(log_file : String)
+    Log.setup do |c|
+      c.bind "*", :info, Log::IOBackend.new(File.open(log_file, "a"))
+      c.bind "*", :warn, Log::IOBackend.new(File.open(log_file, "a"))
+      c.bind "*", :error, Log::IOBackend.new(File.open(log_file, "a"))
+    end
+  end
+
+  def self.setup_rotating_file_logging(log_file : String, max_size : Int64 = 10.megabytes)
+    # Implement log rotation
+    if File.exists?(log_file) && File.size(log_file) > max_size
+      rotate_log_file(log_file)
+    end
+
+    setup_file_logging(log_file)
+  end
+
+  private def self.rotate_log_file(log_file : String)
+    timestamp = Time.utc.to_s("%Y%m%d_%H%M%S")
+    rotated_file = "#{log_file}.#{timestamp}"
+
+    File.rename(log_file, rotated_file)
+
+    # Compress old log files
+    spawn compress_log_file(rotated_file)
+  end
+
+  private def self.compress_log_file(log_file : String)
+    # Implement log compression
+    # This would use gzip or similar
+  end
+end
+```
+
+### External Log Aggregation
+
+```crystal
+class ExternalLogger
+  def self.setup_external_logging(endpoint : String, api_key : String)
+    Log.setup do |c|
+      c.bind "*", :info, ExternalLogBackend.new(endpoint, api_key)
+      c.bind "*", :warn, ExternalLogBackend.new(endpoint, api_key)
+      c.bind "*", :error, ExternalLogBackend.new(endpoint, api_key)
+    end
+  end
+end
+
+class ExternalLogBackend < Log::Backend
+  def initialize(@endpoint : String, @api_key : String)
+    @http_client = HTTP::Client.new(@endpoint)
+    @http_client.basic_auth("Bearer", @api_key)
+  end
+
+  def write(entry : Log::Entry)
+    log_data = {
+      timestamp: entry.timestamp.to_rfc3339,
+      level: entry.severity.to_s,
+      message: entry.message,
+      source: entry.source
+    }
+
+    # Send to external service
+    spawn send_log(log_data)
+  end
+
+  private def send_log(log_data : Hash(String, JSON::Any))
+    begin
+      @http_client.post("/api/logs", headers: {"Content-Type" => "application/json"}) do |request|
+        request.body = log_data.to_json
+      end
+    rescue e
+      # Fallback to console if external service fails
+      Log.error { "Failed to send log to external service: #{e.message}" }
+    end
+  end
+end
+```
+
+## Performance Optimization
+
+### Async Log Processing
+
+```crystal
+class AsyncLogProcessor
+  def initialize(@buffer_size : Int32 = 1000, @flush_interval : Time::Span = 1.second)
+    @log_queue = Channel(LogEntry).new(@buffer_size)
+    @flush_timer = Timer.new(@flush_interval) { flush_logs }
+
+    # Start log processing thread
+    spawn process_logs
+  end
+
+  def log(entry : LogEntry)
+    @log_queue.send(entry)
+  end
+
+  private def process_logs
+    loop do
+      entry = @log_queue.receive
+      process_log_entry(entry)
+    end
+  end
+
+  private def process_log_entry(entry : LogEntry)
+    # Process log entry
+    case entry.level
+    when :info
+      process_info_log(entry)
+    when :warn
+      process_warn_log(entry)
+    when :error
+      process_error_log(entry)
+    end
+  end
+
+  private def flush_logs
+    # Flush buffered logs
+    # Implementation depends on log backend
+  end
+end
+```
+
+### Log Batching
+
+```crystal
+class LogBatcher
+  def initialize(@batch_size : Int32 = 100, @batch_timeout : Time::Span = 5.seconds)
+    @log_batch = [] of LogEntry
+    @batch_mutex = Mutex.new
+    @flush_timer = Timer.new(@batch_timeout) { flush_batch }
+  end
+
+  def add_log(entry : LogEntry)
+    @batch_mutex.synchronize do
+      @log_batch << entry
+
+      if @log_batch.size >= @batch_size
+        flush_batch
       end
     end
   end
-end
 
-# Example: DataDog integration
-class DataDogIntegration
-  def self.send_batch(batch : Array(AsyncLogging::LogEntry))
-    batch.each do |entry|
-      DataDog.log(
-        entry.message,
-        level: entry.severity.to_s,
-        tags: entry.context.try(&.keys.map { |k| "#{k}:#{entry.context[k]}" })
-      )
+  private def flush_batch
+    @batch_mutex.synchronize do
+      return if @log_batch.empty?
+
+      # Send batch to external service
+      send_log_batch(@log_batch.dup)
+      @log_batch.clear
+    end
+  end
+
+  private def send_log_batch(batch : Array(LogEntry))
+    # Send batch to external service
+    # This would use HTTP client to send multiple logs at once
+  end
+end
+```
+
+## Log Filtering
+
+### Level-based Filtering
+
+```crystal
+class LogFilter
+  def self.filter_by_level(level : Log::Severity) : Bool
+    case level
+    when Log::Severity::DEBUG
+      Azu.env.development?
+    when Log::Severity::INFO
+      true
+    when Log::Severity::WARN
+      true
+    when Log::Severity::ERROR
+      true
+    else
+      false
     end
   end
 end
 ```
 
-## Performance Benefits
-
-### Non-Blocking Operations
+### Component-based Filtering
 
 ```crystal
-# Before: Blocking synchronous logging
-def process_request
-  # This blocks the request thread
-  Log.info { "Processing request" }
+class ComponentLogFilter
+  def self.filter_by_component(component : String) : Bool
+    # Allow all components in development
+    return true if Azu.env.development?
 
-  # Request processing...
-  result = expensive_operation
-
-  # This also blocks
-  Log.info { "Request completed" }
-  result
-end
-
-# After: Non-blocking async logging
-def process_request
-  logger = AsyncLogging::AsyncLogger.new("api")
-
-  # This doesn't block the request thread
-  logger.info("Processing request")
-
-  # Request processing continues immediately
-  result = expensive_operation
-
-  # This also doesn't block
-  logger.info("Request completed")
-  result
-end
-```
-
-### Batch Processing Efficiency
-
-```crystal
-# The system automatically batches similar log entries:
-# Instead of 100 individual log writes:
-# 100 * 1ms = 100ms total
-
-# The system processes them in batches:
-# 2 batches * 5ms = 10ms total
-# 90% performance improvement
-```
-
-## Configuration
-
-### Environment Variables
-
-```bash
-# Logging configuration
-CRYSTAL_ENV=production
-LOG_LEVEL=info
-LOG_BATCH_SIZE=50
-LOG_FLUSH_INTERVAL=5
-LOG_WORKERS=4
-```
-
-### Custom Configuration
-
-```crystal
-class CustomLoggingConfig
-  def self.setup
-    # Custom batch size
-    AsyncLogging::BatchProcessor.class_variable_set(:@@batch_size, 100)
-
-    # Custom flush interval
-    AsyncLogging::BatchProcessor.class_variable_set(:@@flush_interval, 10.seconds)
-
-    # Custom worker count
-    AsyncLogging::BatchProcessor.class_variable_set(:@@workers, 8)
+    # Filter components in production
+    allowed_components = ["UserService", "AuthService", "PaymentService"]
+    allowed_components.includes?(component)
   end
 end
 ```
 
-## Monitoring and Debugging
-
-### Health Checks
+### Content-based Filtering
 
 ```crystal
-class LoggingHealthCheck
-  def self.status : Hash(String, String)
-    {
-      "batch_processor_running" => AsyncLogging::BatchProcessor.running?.to_s,
-      "error_reporter_running" => AsyncLogging::ErrorReporter.running?.to_s,
-      "queue_size" => AsyncLogging::BatchProcessor.queue_size.to_s
-    }
+class ContentLogFilter
+  def self.filter_by_content(message : String) : Bool
+    # Filter out sensitive information
+    sensitive_patterns = [
+      /password/i,
+      /token/i,
+      /secret/i,
+      /key/i
+    ]
+
+    sensitive_patterns.none? { |pattern| message.match(pattern) }
   end
 end
 ```
 
-### Metrics Collection
+## Log Analysis
+
+### Log Parsing
 
 ```crystal
-class LoggingMetrics
-  def self.collect : Hash(String, Int64)
+class LogParser
+  def self.parse_log_line(line : String) : LogEntry?
+    begin
+      log_data = JSON.parse(line).as_h
+
+      LogEntry.new(
+        timestamp: Time.parse_rfc3339(log_data["timestamp"].as_s),
+        level: log_data["level"].as_s.to_sym,
+        message: log_data["message"].as_s,
+        source: log_data["source"]?.try(&.as_s),
+        metadata: log_data["metadata"]?.try(&.as_h) || {} of String => JSON::Any
+      )
+    rescue
+      nil
+    end
+  end
+end
+```
+
+### Log Analytics
+
+```crystal
+class LogAnalytics
+  def self.analyze_logs(log_file : String) : Hash(String, JSON::Any)
+    log_entries = [] of LogEntry
+
+    # Parse log file
+    File.each_line(log_file) do |line|
+      if entry = LogParser.parse_log_line(line)
+        log_entries << entry
+      end
+    end
+
+    # Analyze logs
     {
-      "logs_processed" => AsyncLogging::BatchProcessor.processed_count,
-      "errors_reported" => AsyncLogging::ErrorReporter.reported_count,
-      "batch_flushes" => AsyncLogging::BatchProcessor.flush_count
+      "total_logs" => log_entries.size,
+      "log_levels" => analyze_log_levels(log_entries),
+      "error_rate" => calculate_error_rate(log_entries),
+      "top_errors" => get_top_errors(log_entries),
+      "performance_metrics" => analyze_performance_logs(log_entries)
     }
+  end
+
+  private def self.analyze_log_levels(entries : Array(LogEntry)) : Hash(String, Int32)
+    level_counts = {} of String => Int32
+
+    entries.each do |entry|
+      level = entry.level.to_s
+      level_counts[level] = (level_counts[level]? || 0) + 1
+    end
+
+    level_counts
+  end
+
+  private def self.calculate_error_rate(entries : Array(LogEntry)) : Float64
+    error_count = entries.count { |entry| entry.level == :error }
+    total_count = entries.size
+
+    return 0.0 if total_count == 0
+    error_count.to_f / total_count
+  end
+
+  private def self.get_top_errors(entries : Array(LogEntry)) : Array(Hash(String, JSON::Any))
+    error_messages = entries
+      .select { |entry| entry.level == :error }
+      .map(&.message)
+      .tally
+      .sort_by { |_, count| -count }
+      .first(10)
+
+    error_messages.map do |message, count|
+      {
+        "message" => JSON::Any.new(message),
+        "count" => JSON::Any.new(count)
+      }
+    end
   end
 end
 ```
 
 ## Best Practices
 
-### 1. Use Structured Context
+### 1. Use Structured Logging
 
 ```crystal
-# Good: Rich context for debugging
-logger.info("User action", {
-  "user_id" => user.id,
-  "action" => "profile_update",
-  "ip_address" => request.remote_address,
-  "user_agent" => request.headers["User-Agent"]
-})
+# Good: Structured logging
+Log.info { {
+  message: "User created",
+  user_id: user.id,
+  email: user.email,
+  timestamp: Time.utc.to_rfc3339
+}.to_json }
 
-# Avoid: Minimal context
-logger.info("User did something")
+# Avoid: Unstructured logging
+Log.info { "User created: #{user.id} - #{user.email}" }
 ```
 
-### 2. Request Tracing
+### 2. Include Context
 
 ```crystal
-# Always use request IDs for tracing
-logger = AsyncLogging::AsyncLogger.new("api")
-  .with_request_id(request.headers["X-Request-ID"]?)
+# Good: Include context
+Log.info { {
+  message: "Request processed",
+  request_id: request_id,
+  user_id: user_id,
+  duration_ms: duration.total_milliseconds
+}.to_json }
 
-# All log entries will include the request ID for correlation
+# Avoid: Missing context
+Log.info { "Request processed" }
 ```
 
-### 3. Error Handling
+### 3. Use Appropriate Log Levels
 
 ```crystal
-# Good: Comprehensive error logging
-begin
-  risky_operation
-rescue ex : DatabaseError
-  logger.error("Database operation failed", {
-    "operation" => "user_create",
-    "retry_count" => retry_count.to_s
-  }, ex)
+# Good: Appropriate log levels
+Log.debug { "Debug information" }
+Log.info { "User action" }
+Log.warn { "Potential issue" }
+Log.error { "Error occurred" }
 
-  # Also report to error service
-  AsyncLogging::ErrorReporter.report_error(ex)
-rescue ex : ValidationError
-  logger.warn("Validation failed", {
-    "field" => ex.field,
-    "value" => ex.value
-  })
-end
+# Avoid: Wrong log levels
+Log.error { "User logged in" }  # Should be info
+Log.info { "Critical error" }   # Should be error
 ```
 
-### 4. Performance Monitoring
+### 4. Handle Log Failures Gracefully
 
 ```crystal
-# Log performance metrics
-start_time = Time.monotonic
-
-# ... operation ...
-
-elapsed = Time.monotonic - start_time
-logger.info("Operation completed", {
-  "operation" => "database_query",
-  "duration_ms" => elapsed.total_milliseconds.to_s,
-  "rows_returned" => result.size.to_s
-})
-```
-
-## Migration from Synchronous Logging
-
-### Before (Synchronous)
-
-```crystal
-class OldLogger
-  def call(context)
-    Log.info { "Request started" }
-
-    call_next(context)
-
-    Log.info { "Request completed" }
+# Good: Handle log failures
+def log_with_fallback(message : String)
+  begin
+    Log.info { message }
+  rescue e
+    # Fallback to console
+    puts "Log failed: #{e.message}"
   end
 end
+
+# Avoid: Ignoring log failures
+# No error handling - can cause application crashes
 ```
 
-### After (Asynchronous)
+### 5. Monitor Log Performance
 
 ```crystal
-class NewLogger
-  def call(context)
-    logger = AsyncLogging::AsyncLogger.new("http")
-      .with_request_id(generate_request_id(context))
-
-    logger.info("Request started")
-
-    call_next(context)
-
-    logger.info("Request completed")
+# Good: Monitor log performance
+class LogPerformanceMonitor
+  def self.record_log_performance(level : Log::Severity, duration : Time::Span)
+    Azu.cache.increment("metrics:log_performance:#{level}")
+    Azu.cache.set("metrics:log_performance:#{level}:last", duration.total_milliseconds)
   end
 end
+
+# Avoid: No log performance monitoring
+# No monitoring - can't identify log performance issues
 ```
 
-## Troubleshooting
+## Next Steps
 
-### Common Issues
+Now that you understand async logging:
 
-1. **Queue Overflow**: If the log queue fills up, the system falls back to synchronous logging
-2. **Worker Failures**: Failed workers are automatically restarted
-3. **External Service Failures**: External service failures don't affect local logging
+1. **[Performance](performance.md)** - Optimize logging performance
+2. **[Monitoring](monitoring.md)** - Monitor log performance
+3. **[Testing](../testing.md)** - Test logging functionality
+4. **[Deployment](../deployment/production.md)** - Deploy with logging
+5. **[Security](../advanced/security.md)** - Implement secure logging
 
-### Debug Mode
+---
 
-```crystal
-# Enable debug logging for the async system
-Log.setup(:debug, Log::IOBackend.new(formatter: LogFormat))
-
-# Monitor the async logging system
-AsyncLogging::BatchProcessor.debug_mode = true
-```
-
-This async logging system provides enterprise-grade logging capabilities while maintaining high performance and reliability for your Azu applications.
+_Async logging in Azu provides high-performance, non-blocking log processing that ensures your application remains responsive. With structured logging, multiple outputs, and performance optimization, it's essential for production applications._

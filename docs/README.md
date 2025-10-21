@@ -288,7 +288,76 @@ Azu excels in scenarios requiring:
 
 **Next Steps:**
 
-- [Installation Guide](getting-started/installation.md)
-- [Your First Application](getting-started/first-app.md)
-- [Core Concepts](core-concepts.md)
-- [API Reference](api-reference.md)
+- [Introduction](guide/introduction.md) - What is Azu and why use it?
+- [Quickstart](guide/quickstart.md) - Get up and running in 5 minutes
+- [Installation](guide/installation.md) - Install Azu and set up your development environment
+- [Tutorial](guide/tutorial.md) - Build a complete user management API
+
+## Documentation Structure
+
+### Getting Started
+
+- [Introduction](guide/introduction.md) - What is Azu and why use it?
+- [Quickstart](guide/quickstart.md) - Get up and running in 5 minutes
+- [Installation](guide/installation.md) - Install Azu and set up your development environment
+- [Tutorial](guide/tutorial.md) - Build a complete user management API
+
+### Fundamentals
+
+- [Architecture](fundamentals/architecture.md) - Understanding Azu's architecture
+- [Endpoints](fundamentals/endpoints.md) - Type-safe HTTP endpoints
+- [Requests](fundamentals/requests.md) - Structured request handling
+- [Responses](fundamentals/responses.md) - Structured response handling
+- [Routing](fundamentals/routing.md) - URL routing and path parameters
+- [Middleware](fundamentals/middleware.md) - Middleware and request processing
+
+### Features
+
+- [Templates](features/templates.md) - Template rendering and hot reloading
+- [WebSockets](features/websockets.md) - Real-time communication
+- [Components](features/components.md) - Interactive UI components
+- [Caching](features/caching.md) - Application caching
+- [File Uploads](features/file-uploads.md) - File upload handling
+- [Validation](features/validation.md) - Request validation
+
+### Advanced
+
+- [Performance](advanced/performance.md) - Performance optimization
+- [Monitoring](advanced/monitoring.md) - Application monitoring
+- [Async Logging](advanced/async-logging.md) - Asynchronous logging
+- [Content Negotiation](advanced/content-negotiation.md) - Content type handling
+- [Environments](advanced/environments.md) - Environment configuration
+
+### API Reference
+
+- [Core](api/core.md) - Core Azu modules and classes
+- [Handlers](api/handlers.md) - Middleware handlers
+- [Configuration](api/configuration.md) - Configuration options
+- [Errors](api/errors.md) - Error handling and types
+
+### Deployment
+
+- [Production](deployment/production.md) - Production deployment guide
+- [Docker](deployment/docker.md) - Containerized deployment
+- [Scaling](deployment/scaling.md) - Scaling strategies
+
+### Testing
+
+- [Unit Testing](testing/unit.md) - Unit testing strategies
+- [Integration Testing](testing/integration.md) - Integration testing
+- [WebSocket Testing](testing/websockets.md) - WebSocket testing
+
+### Migration & Compatibility
+
+- [Version Upgrades](migration/upgrades.md) - Upgrading Azu versions
+- [Breaking Changes](migration/breaking-changes.md) - Breaking change documentation
+
+### FAQ & Troubleshooting
+
+- [Frequently Asked Questions](faq.md) - Common questions and answers
+
+### Contributing
+
+- [Development Setup](contributing/setup.md) - Setting up development environment
+- [Code Standards](contributing/standards.md) - Coding standards and guidelines
+- [Roadmap](contributing/roadmap.md) - Development roadmap
