@@ -523,7 +523,7 @@ describe Azu::Cache do
     it "handles Redis operation timeouts" do
       begin
         # Use very short timeout to test timeout behavior
-        store = Azu::Cache::RedisStore.new("#{redis_url}/15", operation_timeout: Time::Span.new(milliseconds: 1))
+        store = Azu::Cache::RedisStore.new("#{redis_url}/15", operation_timeout: Time::Span.new(nanoseconds: 1_000_000))
         store.clear
 
         # This should timeout quickly
@@ -600,13 +600,13 @@ describe Azu::Cache do
 
   describe "MemoryStore Cleanup" do
     it "runs background cleanup task" do
-      store = Azu::Cache::MemoryStore.new(cleanup_interval: Time::Span.new(milliseconds: 100))
+      store = Azu::Cache::MemoryStore.new(cleanup_interval: Time::Span.new(nanoseconds: 100_000_000))
 
       # Add expired entry
       store.set("expired_key", "value", Time::Span.new(nanoseconds: 1))
 
       # Wait for cleanup
-      sleep(Time::Span.new(milliseconds: 200))
+      sleep(Time::Span.new(nanoseconds: 200_000_000))
 
       # Entry should be cleaned up
       store.get("expired_key").should be_nil
@@ -617,14 +617,14 @@ describe Azu::Cache do
     end
 
     it "handles cleanup task errors gracefully" do
-      store = Azu::Cache::MemoryStore.new(cleanup_interval: Time::Span.new(milliseconds: 50))
+      store = Azu::Cache::MemoryStore.new(cleanup_interval: Time::Span.new(nanoseconds: 50_000_000))
 
       # Add some entries
       store.set("key1", "value1")
       store.set("key2", "value2")
 
       # Wait for cleanup cycle
-      sleep(Time::Span.new(milliseconds: 100))
+      sleep(Time::Span.new(nanoseconds: 100_000_000))
 
       # Store should still be functional
       store.get("key1").should eq("value1")

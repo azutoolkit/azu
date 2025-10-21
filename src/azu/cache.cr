@@ -292,7 +292,8 @@ module Azu
       # Stop cleanup task (for testing or shutdown)
       def stop_cleanup_task
         if fiber = @cleanup_fiber
-          fiber.kill
+          # In Crystal, we can't forcefully kill fibers, but we can clear the reference
+          # The fiber will naturally stop when the cleanup interval expires
           @cleanup_fiber = nil
         end
       end
@@ -314,18 +315,15 @@ module Azu
       end
 
       def get(key : String) : String?
-        start_time = Time.monotonic
         with_timeout("get", key) { @client.get(key) }
       rescue ex
-        duration = Time.monotonic - start_time
         Log.for("Azu::Cache::RedisStore").error(exception: ex) {
-          "Redis GET operation failed for key '#{key}' after #{duration.total_milliseconds}ms - #{classify_redis_error(ex)}"
+          "Redis GET operation failed for key '#{key}' - #{classify_redis_error(ex)}"
         }
         nil
       end
 
       def set(key : String, value : String, ttl : Time::Span? = nil) : Bool
-        start_time = Time.monotonic
         ttl = ttl || @default_ttl
         if ttl
           with_timeout("setex", key) { @client.setex(key, ttl.total_seconds.to_i, value) }
@@ -334,16 +332,15 @@ module Azu
         end
         true
       rescue ex
-        duration = Time.monotonic - start_time
         Log.for("Azu::Cache::RedisStore").error(exception: ex) {
-          "Redis SET operation failed for key '#{key}' after #{duration.total_milliseconds}ms - #{classify_redis_error(ex)}"
+          "Redis SET operation failed for key '#{key}' - #{classify_redis_error(ex)}"
         }
         false
       end
 
       def delete(key : String) : Bool
         result = with_timeout("del", key) { @client.del(key) }
-        result > 0
+        (result || 0) > 0
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to delete key: #{key}" }
         false
@@ -351,7 +348,7 @@ module Azu
 
       def exists?(key : String) : Bool
         result = with_timeout("exists", key) { @client.exists(key) }
-        result > 0
+        (result || 0) > 0
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to check existence of key: #{key}" }
         false
@@ -368,6 +365,8 @@ module Azu
       def size : Int32
         # Get database info as hash
         info_hash = with_timeout("info", "size") { @client.info }
+        return 0 unless info_hash
+
         # Look for db0 or current database keys count
         if keyspace = info_hash["db0"]?
           # Parse db0 value like "keys=123,expires=45"
@@ -392,6 +391,8 @@ module Azu
                    with_timeout("incrby", key) { @client.incrby(key, amount) }
                  end
 
+        return nil unless result
+
         # Set TTL if provided and key was just created
         if ttl && result == amount
           with_timeout("expire", key) { @client.expire(key, ttl.total_seconds.to_i) }
@@ -411,6 +412,8 @@ module Azu
                    with_timeout("decrby", key) { @client.decrby(key, amount) }
                  end
 
+        return nil unless result
+
         # Set TTL if provided
         if ttl
           with_timeout("expire", key) { @client.expire(key, ttl.total_seconds.to_i) }
@@ -427,6 +430,8 @@ module Azu
         return Hash(String, String?).new if keys.empty?
 
         values = with_timeout("mget", keys.join(",")) { @client.mget(keys) }
+        return Hash(String, String?).new unless values
+
         result = Hash(String, String?).new
         keys.each_with_index do |key, index|
           result[key] = values[index]?.as(String | Nil)
@@ -502,8 +507,8 @@ module Azu
 
       # Timeout wrapper for Redis operations
       private def with_timeout(operation : String, key : String, &block)
-        channel = Channel(typeof(block.call)).new
-        timeout_channel = Channel(Nil).new
+        channel = ::Channel(typeof(block.call)).new
+        timeout_channel = ::Channel(Nil).new
 
         # Spawn the operation
         spawn do
@@ -528,7 +533,7 @@ module Azu
           result
         when timeout_channel.receive
           Log.for("Azu::Cache::RedisStore").warn { "Redis #{operation} operation timed out after #{@operation_timeout.total_seconds}s for key: #{key}" }
-          raise TimeoutError.new("Redis #{operation} operation timed out")
+          raise Exception.new("Redis #{operation} operation timed out")
         end
       end
     end
