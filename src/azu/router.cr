@@ -45,44 +45,65 @@ module Azu
     private struct PathCache
       DEFAULT_MAX_SIZE = 1000
 
+      # Node for doubly-linked list implementation
+      private class Node
+        property key : String
+        property value : String
+        property prev : Node?
+        property next : Node?
+
+        def initialize(@key : String, @value : String)
+          @prev = nil
+          @next = nil
+        end
+      end
+
       def initialize(@max_size : Int32 = DEFAULT_MAX_SIZE)
-        @cache = Hash(String, String).new
-        @access_order = Array(String).new
+        @cache = Hash(String, Node).new
+        @head = Node.new("", "") # Dummy head
+        @tail = Node.new("", "") # Dummy tail
+        @head.next = @tail
+        @tail.prev = @head
         @mutex = Mutex.new
       end
 
       def get(key : String) : String?
         @mutex.synchronize do
-          if cached_path = @cache[key]?
-            # Move to end (most recently used)
-            @access_order.delete(key)
-            @access_order << key
-            cached_path
+          if node = @cache[key]?
+            # Move to head (most recently used)
+            move_to_head(node)
+            node.value
           end
         end
       end
 
       def set(key : String, value : String) : Nil
         @mutex.synchronize do
-          # Remove if already exists to update position
-          if @cache.has_key?(key)
-            @access_order.delete(key)
-          elsif @cache.size >= @max_size
-            # Remove least recently used
-            if oldest = @access_order.shift?
-              @cache.delete(oldest)
-            end
-          end
+          if existing_node = @cache[key]?
+            # Update existing node and move to head
+            existing_node.value = value
+            move_to_head(existing_node)
+          else
+            # Create new node
+            new_node = Node.new(key, value)
 
-          @cache[key] = value
-          @access_order << key
+            # Evict if at capacity
+            if @cache.size >= @max_size
+              evict_lru
+            end
+
+            # Add to head
+            add_to_head(new_node)
+            @cache[key] = new_node
+          end
         end
       end
 
       def clear : Nil
         @mutex.synchronize do
           @cache.clear
-          @access_order.clear
+          @head.next = @tail
+          @tail.prev = @head
         end
       end
 
@@ -97,6 +118,40 @@ module Azu
         end
       end
 
+      private def move_to_head(node : Node) : Nil
+        # Remove from current position
+        remove_node(node)
+        # Add to head
+        add_to_head(node)
+      end
+
+      private def add_to_head(node : Node) : Nil
+        node.prev = @head
+        node.next = @head.next
+
+        if next_node = @head.next
+          next_node.prev = node
+        end
+        @head.next = node
+      end
+
+      private def remove_node(node : Node) : Nil
+        if prev_node = node.prev
+          prev_node.next = node.next
+        end
+        if next_node = node.next
+          next_node.prev = node.prev
+        end
+      end
+
+      private def evict_lru : Nil
+        # Remove the last node (least recently used)
+        if last_node = @tail.prev
+          remove_node(last_node)
+          @cache.delete(last_node.key)
+        end
+      end
+
       private def calculate_hit_rate : Float64
         # This is a simplified version - in production you'd track hits/misses
         @cache.size.to_f / @max_size.to_f * 100.0
@@ -104,7 +159,7 @@ module Azu
     end
 
     getter radix : Radix::Tree(Route)
-    private getter path_cache : PathCache
+    getter path_cache : PathCache
     private getter method_cache : Hash(String, String)
     # Routes registry for development tools and introspection
     private getter routes_registry : Array(Route)

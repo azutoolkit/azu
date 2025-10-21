@@ -377,17 +377,22 @@ describe Azu::Router do
     end
 
     it "handles LRU cache eviction properly" do
-      # This test would need access to internal cache size to be fully effective
-      # For now, we'll test that the router continues to work with many requests
+      # Test LRU cache eviction with performance verification
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new
 
-      # Add many routes
+      # Add many routes to exceed cache capacity
       (1..1200).each do |i|
         router.get("/test#{i}", endpoint)
       end
 
-      # Make requests to exceed cache size (default 1000)
+      # Verify cache stats before requests
+      initial_stats = router.path_cache.stats
+      initial_stats[:size].should eq(0)
+      initial_stats[:max_size].should eq(1000)
+
+      # Make requests to populate and exceed cache size
+      start_time = Time.monotonic
       (1..1200).each do |i|
         request = HTTP::Request.new("GET", "/test#{i}")
         io = IO::Memory.new
@@ -397,6 +402,32 @@ describe Azu::Router do
         result = router.process(context)
         result.should be_a(String)
       end
+      end_time = Time.monotonic
+
+      # Verify cache is at max capacity after requests
+      final_stats = router.path_cache.stats
+      final_stats[:size].should eq(1000) # Should be at max capacity
+      final_stats[:max_size].should eq(1000)
+
+      # Performance check: should complete quickly (under 1 second for 1200 requests)
+      elapsed_time = end_time - start_time
+      elapsed_time.total_milliseconds.should be < 1000
+
+      # Test that cache eviction is working by making requests for the first 200 routes
+      # These should have been evicted from the cache
+      (1..200).each do |i|
+        request = HTTP::Request.new("GET", "/test#{i}")
+        io = IO::Memory.new
+        response = HTTP::Server::Response.new(io)
+        context = HTTP::Server::Context.new(request, response)
+
+        result = router.process(context)
+        result.should be_a(String)
+      end
+
+      # Cache should still be at max capacity
+      final_stats_after_eviction = router.path_cache.stats
+      final_stats_after_eviction[:size].should eq(1000)
     end
   end
 
