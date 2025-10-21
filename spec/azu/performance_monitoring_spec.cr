@@ -162,79 +162,78 @@ end
 
 # Skip Benchmark specs in CI pipeline
 {% unless env("CRYSTAL_ENV") == "pipeline" %}
-describe Azu::DevelopmentTools::Benchmark do
-  describe ".run" do
-    it "benchmarks code execution" do
-      result = Azu::DevelopmentTools::Benchmark.run("test_benchmark", 10, 5) do
-        # Simple operation
-        (1..100).sum
-      end
+  describe Azu::DevelopmentTools::Benchmark do
+    describe ".run" do
+      it "benchmarks code execution" do
+        result = Azu::DevelopmentTools::Benchmark.run("test_benchmark", 10, 5) do
+          # Simple operation
+          (1..100).sum
+        end
 
-      result.name.should eq("test_benchmark")
-      result.iterations.should eq(10)
-      result.avg_time.total_nanoseconds.should be > 0
-      result.ops_per_second.should be > 0
-    end
-  end
-
-  describe ".compare" do
-    it "compares multiple benchmark operations" do
-      benchmarks = {
-        "addition"       => -> { 1 + 1; nil },
-        "multiplication" => -> { 2 * 2; nil },
-      }
-
-      results = Azu::DevelopmentTools::Benchmark.compare(benchmarks, 100)
-
-      results.size.should eq(2)
-      results.each do |result|
-        result.should be_a(Azu::DevelopmentTools::Benchmark::BenchmarkResult)
-        result.iterations.should eq(100)
+        result.name.should eq("test_benchmark")
+        result.iterations.should eq(10)
+        result.avg_time.total_nanoseconds.should be > 0
+        result.ops_per_second.should be > 0
       end
     end
-  end
-end
 
-describe Azu::Handler::PerformanceMonitor do
-  describe "#call" do
-    it "tracks request performance" do
-      monitor = Azu::Handler::PerformanceMonitor.new
+    describe ".compare" do
+      it "compares multiple benchmark operations" do
+        benchmarks = {
+          "addition"       => -> { 1 + 1; nil },
+          "multiplication" => -> { 2 * 2; nil },
+        }
 
-      # Create mock context
-      request = HTTP::Request.new("GET", "/test")
-      response = HTTP::Server::Response.new(IO::Memory.new)
-      context = HTTP::Server::Context.new(request, response)
+        results = Azu::DevelopmentTools::Benchmark.compare(benchmarks, 100)
 
-      # Mock the call_next behavior
-      monitor.call(context)
-
-      # Should have recorded the request
-      monitor.enabled?.should be_true
-      _ = monitor.recent_requests(1)
-
-      # Note: In a real scenario, this would be called through the handler chain
-      # For testing, we verify the monitor is properly initialized
+        results.size.should eq(2)
+        results.each do |result|
+          result.should be_a(Azu::DevelopmentTools::Benchmark::BenchmarkResult)
+          result.iterations.should eq(100)
+        end
+      end
     end
   end
 
-  describe "#stats" do
-    it "provides access to performance statistics" do
-      monitor = Azu::Handler::PerformanceMonitor.new
+  describe Azu::Handler::PerformanceMonitor do
+    describe "#call" do
+      it "tracks request performance" do
+        monitor = Azu::Handler::PerformanceMonitor.new
 
-      stats = monitor.stats
-      stats.should be_a(Azu::PerformanceMetrics::AggregatedStats)
+        # Create mock context
+        request = HTTP::Request.new("GET", "/test")
+        response = HTTP::Server::Response.new(IO::Memory.new)
+        context = HTTP::Server::Context.new(request, response)
+
+        # Mock the call_next behavior
+        monitor.call(context)
+
+        # Should have recorded the request
+        monitor.enabled?.should be_true
+        _ = monitor.recent_requests(1)
+
+        # Note: In a real scenario, this would be called through the handler chain
+        # For testing, we verify the monitor is properly initialized
+      end
+    end
+
+    describe "#stats" do
+      it "provides access to performance statistics" do
+        monitor = Azu::Handler::PerformanceMonitor.new
+
+        stats = monitor.stats
+        stats.should be_a(Azu::PerformanceMetrics::AggregatedStats)
+      end
+    end
+
+    describe "#generate_report" do
+      it "generates performance report" do
+        monitor = Azu::Handler::PerformanceMonitor.new
+
+        report = monitor.generate_report
+        report.should contain("Performance Report")
+        report.should contain("Total Requests")
+      end
     end
   end
-
-  describe "#generate_report" do
-    it "generates performance report" do
-      monitor = Azu::Handler::PerformanceMonitor.new
-
-      report = monitor.generate_report
-      report.should contain("Performance Report")
-      report.should contain("Total Requests")
-    end
-  end
-end
-
 {% end %}
