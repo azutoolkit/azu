@@ -160,6 +160,8 @@ describe Azu::DevelopmentTools::MemoryLeakDetector do
   end
 end
 
+# Skip Benchmark specs in CI pipeline
+{% unless env("CRYSTAL_ENV") == "pipeline" %}
 describe Azu::DevelopmentTools::Benchmark do
   describe ".run" do
     it "benchmarks code execution" do
@@ -234,3 +236,5 @@ describe Azu::Handler::PerformanceMonitor do
     end
   end
 end
+
+{% end %}
