@@ -376,13 +376,13 @@ describe Azu::Router do
       result.should contain("Hello, World!")
     end
 
-    it "handles LRU cache eviction properly" do
-      # Test LRU cache eviction with performance verification
+    it "handles cache functionality properly" do
+      # Test basic cache functionality without complex LRU operations
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new
 
-      # Add routes to exceed cache capacity (reduced from 1200 to 150 for CI performance)
-      (1..150).each do |i|
+      # Add a few routes
+      (1..5).each do |i|
         router.get("/test#{i}", endpoint)
       end
 
@@ -391,9 +391,8 @@ describe Azu::Router do
       initial_stats[:size].should eq(0)
       initial_stats[:max_size].should eq(1000)
 
-      # Make requests to populate and exceed cache size (reduced iterations)
-      start_time = Time.monotonic
-      (1..150).each do |i|
+      # Make requests to populate cache
+      (1..5).each do |i|
         request = HTTP::Request.new("GET", "/test#{i}")
         io = IO::Memory.new
         response = HTTP::Server::Response.new(io)
@@ -402,19 +401,14 @@ describe Azu::Router do
         result = router.process(context)
         result.should be_a(String)
       end
-      end_time = Time.monotonic
 
-      # Verify cache is populated after requests
+      # Verify cache is populated
       final_stats = router.path_cache.stats
-      final_stats[:size].should eq(150) # Should have 150 entries
+      final_stats[:size].should eq(5) # Should have 5 entries
       final_stats[:max_size].should eq(1000)
 
-      # Performance check: should complete quickly (under 500ms for 150 requests)
-      elapsed_time = end_time - start_time
-      elapsed_time.total_milliseconds.should be < 500
-
-      # Test that cache eviction is working by making requests for routes that should be cached
-      (1..50).each do |i|
+      # Test cache hits by making the same requests again
+      (1..5).each do |i|
         request = HTTP::Request.new("GET", "/test#{i}")
         io = IO::Memory.new
         response = HTTP::Server::Response.new(io)
@@ -425,8 +419,41 @@ describe Azu::Router do
       end
 
       # Cache should still be populated
-      final_stats_after_eviction = router.path_cache.stats
-      final_stats_after_eviction[:size].should eq(150)
+      final_stats_after_hits = router.path_cache.stats
+      final_stats_after_hits[:size].should eq(5)
+    end
+
+    it "handles cache with many requests without hanging" do
+      # Test that cache doesn't cause hanging with many requests
+      router = Azu::Router.new
+      endpoint = SimpleEndpoint.new
+
+      # Add many routes
+      (1..100).each do |i|
+        router.get("/test#{i}", endpoint)
+      end
+
+      # Make many requests to test performance
+      start_time = Time.monotonic
+      (1..100).each do |i|
+        request = HTTP::Request.new("GET", "/test#{i}")
+        io = IO::Memory.new
+        response = HTTP::Server::Response.new(io)
+        context = HTTP::Server::Context.new(request, response)
+
+        result = router.process(context)
+        result.should be_a(String)
+      end
+      end_time = Time.monotonic
+
+      # Performance check: should complete quickly (under 200ms for 100 requests)
+      elapsed_time = end_time - start_time
+      elapsed_time.total_milliseconds.should be < 200
+
+      # Verify cache is working
+      final_stats = router.path_cache.stats
+      final_stats[:size].should eq(100)
+      final_stats[:max_size].should eq(1000)
     end
   end
 
