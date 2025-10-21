@@ -7,8 +7,9 @@ on:
     branches: [master]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     container:
       image: crystallang/crystal:1.17.1
     services:
@@ -25,6 +26,34 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
+      - name: Cache shards dependencies
+        uses: actions/cache@v3
+        with:
+          path: lib
+          key: ${{ runner.os }}-shards-${{ hashFiles('**/shard.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-shards-
+
+      - name: Cache Crystal build artifacts
+        uses: actions/cache@v3
+        with:
+          path: |
+            bin/
+            .crystal/
+          key: ${{ runner.os }}-crystal-build-${{ hashFiles('**/*.cr', '**/shard.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-crystal-build-
+
+      - name: Cache test results
+        uses: actions/cache@v3
+        with:
+          path: |
+            .crystal/
+            spec/
+          key: ${{ runner.os }}-test-cache-${{ hashFiles('**/*.cr', '**/shard.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-test-cache-
+
       - name: Install dependencies
         run: shards install
 
@@ -34,8 +63,44 @@ jobs:
       - name: Check code style
         run: crystal tool format --check
 
-      - name: Run tests
-        run: timeout 300 crystal spec -v --fail-fast
+      - name: Run cache tests
+        run: crystal spec spec/azu/cache_spec.cr --fail-fast
+        env:
+          CRYSTAL_ENV: pipeline
+          CRYSTAL_LOG_SOURCES: "*"
+          CRYSTAL_LOG_LEVEL: DEBUG
+          PORT: 4000
+          PORT_REUSE: false
+          HOST: 0.0.0.0
+          REDIS_HOST: redis
+          REDIS_PORT: 6379
+
+      - name: Run handler tests
+        run: crystal spec spec/azu/handler/ --fail-fast
+        env:
+          CRYSTAL_ENV: pipeline
+          CRYSTAL_LOG_SOURCES: "*"
+          CRYSTAL_LOG_LEVEL: DEBUG
+          PORT: 4000
+          PORT_REUSE: false
+          HOST: 0.0.0.0
+          REDIS_HOST: redis
+          REDIS_PORT: 6379
+
+      - name: Run integration tests
+        run: crystal spec spec/integration/ --fail-fast
+        env:
+          CRYSTAL_ENV: pipeline
+          CRYSTAL_LOG_SOURCES: "*"
+          CRYSTAL_LOG_LEVEL: DEBUG
+          PORT: 4000
+          PORT_REUSE: false
+          HOST: 0.0.0.0
+          REDIS_HOST: redis
+          REDIS_PORT: 6379
+
+      - name: Run core tests
+        run: crystal spec spec/azu/ --fail-fast
         env:
           CRYSTAL_ENV: pipeline
           CRYSTAL_LOG_SOURCES: "*"
@@ -48,13 +113,24 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs:
-      - build
+      - test
     if: ${{ success() }}
     steps:
       - name: Checkout
         uses: actions/checkout@v2
         with:
           fetch-depth: 0
+
+      - name: Cache shards dependencies
+        uses: actions/cache@v3
+        with:
+          path: lib
+          key: ${{ runner.os }}-shards-${{ hashFiles('**/shard.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-shards-
+
+      - name: Install dependencies
+        run: shards install
 
       - name: Compute Release Version
         id: semver

@@ -551,7 +551,7 @@ describe Azu::Cache do
         spawn do
           result = manager.fetch("stampede_test") do
             call_count += 1
-            sleep(0.1) # Simulate expensive operation
+            sleep(Time::Span.new(nanoseconds: 100_000_000)) # Simulate expensive operation
             "expensive_result"
           end
           ch.send(result)
@@ -582,7 +582,7 @@ describe Azu::Cache do
         spawn do
           result = manager.fetch("different_key_#{i}") do
             call_count += 1
-            sleep(0.1) # Simulate expensive operation
+            sleep(Time::Span.new(nanoseconds: 100_000_000)) # Simulate expensive operation
             "result_#{i}"
           end
           ch.send(result)
