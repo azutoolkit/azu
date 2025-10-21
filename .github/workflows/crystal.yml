@@ -35,7 +35,7 @@ jobs:
         run: crystal tool format --check
 
       - name: Run tests
-        run: crystal spec -v --fail-fast
+        run: timeout 300 crystal spec -v --fail-fast
         env:
           CRYSTAL_ENV: pipeline
           CRYSTAL_LOG_SOURCES: "*"
