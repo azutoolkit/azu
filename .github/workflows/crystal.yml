@@ -156,18 +156,6 @@ jobs:
         uses: actions/checkout@v2
         with:
           fetch-depth: 0
-
-      - name: Cache shards dependencies
-        uses: actions/cache@v3
-        with:
-          path: lib
-          key: ${{ runner.os }}-shards-${{ hashFiles('**/shard.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-shards-
-
-      - name: Install dependencies
-        run: shards install
-
       - name: Compute Release Version
         id: semver
         uses: paulhatch/semantic-version@v4.0.2
