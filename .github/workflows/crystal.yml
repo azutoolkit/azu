@@ -168,6 +168,11 @@ jobs:
           # If this is set to true, *every* commit will be treated as a new version.
           bump_each_commit: false
 
+      - name: Configure git identity
+        run: |
+          git config user.name "eliasjpr"
+          git config user.email "eliasjpr@gmail.com"
+
       - name: Bump Shard Version
         id: bump-shard
         uses: fjogeleit/yaml-update-action@master
