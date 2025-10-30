@@ -473,7 +473,7 @@ describe Azu::Router do
       completion_mutex = Mutex.new
 
       # Spawn 20 concurrent fibers making requests
-      20.times do |fiber_id|
+      20.times do |_|
         spawn do
           (1..10).each do |i|
             request = HTTP::Request.new("GET", "/concurrent#{i}")
@@ -504,7 +504,7 @@ describe Azu::Router do
 
       # Verify all requests completed successfully
       results.size.should eq(200) # 20 fibers * 10 requests each
-      results.all? { |r| r.includes?("Hello, World!") }.should be_true
+      results.all?(&.includes?("Hello, World!")).should be_true
 
       # Verify cache is working correctly
       final_stats = router.path_cache.stats
@@ -562,7 +562,7 @@ describe Azu::Router do
 
       # Verify all requests completed successfully
       results.size.should eq(50) # 10 fibers * 5 requests each
-      results.all? { |r| r.includes?("Hello, World!") }.should be_true
+      results.all?(&.includes?("Hello, World!")).should be_true
 
       # Verify cache is working correctly
       final_stats = router.path_cache.stats
@@ -586,7 +586,7 @@ describe Azu::Router do
       start_time = Time.monotonic
 
       # Spawn 50 concurrent fibers
-      50.times do |fiber_id|
+      50.times do |_|
         spawn do
           (1..20).each do |i|
             request = HTTP::Request.new("GET", "/perf#{i}")
