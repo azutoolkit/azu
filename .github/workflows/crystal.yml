@@ -184,9 +184,9 @@ jobs:
           targetBranch: master
           masterBranchName: master
           createPR: false
-          updateFile: true
           branch: master
           message: Set shard version ${{ steps.semver.outputs.version }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           commitUserName: eliasjpr
           commitUserEmail: eliasjpr@gmail.com
 
