@@ -177,17 +177,27 @@ jobs:
         run: |
           VERSION="${{ steps.semver.outputs.version }}"
           sed -i "s/^version: .*/version: $VERSION/" shard.yml
+          echo "Updated shard.yml to version $VERSION:"
           cat shard.yml
 
       - name: Commit and push version bump
+        id: commit
         run: |
           git config user.name "eliasjpr"
           git config user.email "eliasjpr@gmail.com"
           git add shard.yml
-          git diff --staged --quiet || git commit -m "chore: bump version to ${{ steps.semver.outputs.version }}"
-          git push origin HEAD:master || echo "Nothing to push"
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "committed=false" >> $GITHUB_OUTPUT
+          else
+            git commit -m "chore: bump version to ${{ steps.semver.outputs.version }}"
+            git push origin HEAD:master
+            echo "committed=true" >> $GITHUB_OUTPUT
+            echo "New commit SHA: $(git rev-parse HEAD)"
+          fi
 
       - name: Create Release
+        if: steps.commit.outputs.committed == 'true'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.semver.outputs.version }}
@@ -195,5 +205,6 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+          target_commitish: master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
