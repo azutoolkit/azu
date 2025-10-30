@@ -345,8 +345,8 @@ module Azu
         end
       end
 
-      private def calculate_performance_score(query_metrics) : Float64
-        {% if @top_level.has_constant?("CQL") %}
+      {% if @top_level.has_constant?("CQL") %}
+        private def calculate_performance_score(query_metrics) : Float64
           return 0.0 if query_metrics.total_queries == 0
 
           # Calculate score based on various metrics
@@ -363,14 +363,9 @@ module Azu
 
           score = base_score - slow_query_penalty - error_penalty - avg_time_penalty
           [score, 0.0].max
-        {% else %}
-          # CQL not available - return default score
-          0.0
-        {% end %}
-      end
+        end
 
-      private def calculate_query_performance_score(pattern) : Float64
-        {% if @top_level.has_constant?("CQL") %}
+        private def calculate_query_performance_score(pattern : NamedTuple(sql: String, count: Int64, avg_time: Time::Span)) : Float64
           # Base score starts at 100
           score = 100.0
 
@@ -382,21 +377,13 @@ module Azu
 
           score = score - count_penalty - time_penalty
           [score, 0.0].max
-        {% else %}
-          # CQL not available - return default score
-          0.0
-        {% end %}
-      end
+        end
 
-      private def calculate_database_health_score(metrics) : Int32
-        {% if @top_level.has_constant?("CQL") %}
+        private def calculate_database_health_score(metrics) : Int32
           # Placeholder implementation
           100
-        {% else %}
-          # CQL not available - return default score
-          100
-        {% end %}
-      end
+        end
+      {% end %}
 
       def collect_routes_data
         routes = Azu::CONFIG.router.route_info
