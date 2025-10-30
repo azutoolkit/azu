@@ -186,6 +186,8 @@ jobs:
           createPR: false
           branch: master
           message: Set shard version ${{ steps.semver.outputs.version }}
+          commitUserName: eliasjpr
+          commitUserEmail: eliasjpr@gmail.com
 
       - name: Create Release
         id: create_release
