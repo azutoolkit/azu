@@ -465,7 +465,7 @@ module Azu
         begin
           token_time = Time.unix(timestamp.to_i64)
           return false if (Time.utc - token_time).total_seconds > @cookie_max_age
-        rescue
+        rescue ex : ArgumentError | OverflowError
           return false
         end
 
@@ -495,7 +495,7 @@ module Azu
             referer_origin = "#{referer_uri.scheme}://#{referer_uri.host}"
             referer_origin += ":#{referer_uri.port}" if referer_uri.port != 80 && referer_uri.port != 443
             return referer_origin == expected_origin
-          rescue
+          rescue ex : URI::Error
             return false
           end
         end

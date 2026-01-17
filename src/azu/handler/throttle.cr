@@ -117,7 +117,9 @@ module Azu
 
       # All methods below must be called within @mutex.synchronize block
       private def watch(remote : String) : Bool
-        current_time = Time.utc.to_unix
+        # Use monotonic time to prevent clock skew vulnerabilities
+        # (e.g., NTP adjustments causing indefinite blocks)
+        current_time = Time.monotonic.total_seconds.to_i64
         tracker = get_or_create_tracker(remote, current_time)
 
         # Increment requests

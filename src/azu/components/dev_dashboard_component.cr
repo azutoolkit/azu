@@ -181,7 +181,7 @@ module Azu
         {% else %}
           0 # CQL not available
         {% end %}
-      rescue
+      rescue ex : Exception
         0
       end
 

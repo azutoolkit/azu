@@ -176,13 +176,13 @@ module Azu
 
     private def log : ::Log
       CONFIG.log
-    rescue
+    rescue ex : Exception
       ::Log.for("Azu::ErrorReporter")
     end
 
     private def env : Environment
       CONFIG.env
-    rescue
+    rescue ex : Exception
       Environment::Development
     end
 
@@ -243,13 +243,13 @@ module Azu
       @message = begin
         msg = error.message
         msg.nil? ? "Unknown error" : msg
-      rescue
+      rescue ex : Exception
         "Unknown error"
       end
       @backtrace = begin
         bt = error.backtrace
         bt.nil? ? [] of String : bt
-      rescue
+      rescue ex : Exception
         [] of String
       end
       @fingerprint = generate_fingerprint(error)
@@ -280,7 +280,7 @@ module Azu
             first_backtrace = first_trace
           end
         end
-      rescue
+      rescue ex : Exception
         first_backtrace = "no_trace"
       end
 

@@ -506,32 +506,34 @@ module Azu
       end
 
       # Timeout wrapper for Redis operations
+      # Uses a done channel to prevent resource leaks from orphaned fibers
       private def with_timeout(operation : String, key : String, &block)
         channel = ::Channel(typeof(block.call)).new
-        timeout_channel = ::Channel(Nil).new
+        done = ::Channel(Nil).new(1) # Buffered to prevent blocking
 
         # Spawn the operation
         spawn do
           begin
             result = block.call
-            channel.send(result)
-          rescue ex
+            select
+            when done.receive?
+              # Operation completed after timeout - discard result
+            else
+              channel.send(result)
+            end
+          rescue ex : Exception
             channel.close
             Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Redis #{operation} operation failed for key: #{key}" }
           end
         end
 
-        # Spawn timeout
-        spawn do
-          sleep(@operation_timeout)
-          timeout_channel.send(nil)
-        end
-
-        # Wait for either result or timeout
+        # Wait for result with timeout using select with receive_select_action
         select
         when result = channel.receive
+          done.close # Signal operation fiber to stop if it hasn't already
           result
-        when timeout_channel.receive
+        when timeout(@operation_timeout)
+          done.send(nil) # Signal operation fiber that we timed out
           Log.for("Azu::Cache::RedisStore").warn { "Redis #{operation} operation timed out after #{@operation_timeout.total_seconds}s for key: #{key}" }
           raise Exception.new("Redis #{operation} operation timed out")
         end

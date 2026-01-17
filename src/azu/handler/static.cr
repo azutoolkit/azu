@@ -12,7 +12,7 @@ module Azu
       MIME.register(".woff", "font/woff")
       MIME.register(".woff2", "font/woff2")
       MIME.register(".js", "text/javascript")
-      MIME.register(".png", "text/javascript")
+      MIME.register(".png", "image/png")
       MIME.register(".map", "application/json")
 
       def initialize(public_dir : String = "public", fallthrough = false, directory_listing = false)

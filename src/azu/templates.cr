@@ -20,6 +20,7 @@ module Azu
     @crinja : Crinja
     @loader : Crinja::Loader::FileSystemLoader?
     @template_mtimes : Hash(String, Time) = Hash(String, Time).new
+    @template_mtimes_mutex : Mutex = Mutex.new
     @last_check : Time = Time.utc
     @check_interval : Time::Span = 1.second
     @hot_reload_enabled : Bool = false
@@ -97,43 +98,47 @@ module Azu
     end
 
     private def has_template_changes? : Bool
-      all_paths = ([error_path] + path).uniq
+      @template_mtimes_mutex.synchronize do
+        all_paths = ([error_path] + path).uniq
 
-      all_paths.any? do |template_path|
-        next false unless Dir.exists?(template_path)
+        all_paths.any? do |template_path|
+          next false unless Dir.exists?(template_path)
 
-        Dir.glob(File.join(template_path, "**", "*.{html,jinja,j2}")).any? do |file_path|
-          begin
-            current_mtime = File.info(file_path).modification_time
-            cached_mtime = @template_mtimes[file_path]?
+          Dir.glob(File.join(template_path, "**", "*.{html,jinja,j2}")).any? do |file_path|
+            begin
+              current_mtime = File.info(file_path).modification_time
+              cached_mtime = @template_mtimes[file_path]?
 
-            if cached_mtime.nil? || current_mtime > cached_mtime
-              @template_mtimes[file_path] = current_mtime
-              return true
+              if cached_mtime.nil? || current_mtime > cached_mtime
+                @template_mtimes[file_path] = current_mtime
+                return true
+              end
+
+              false
+            rescue File::NotFoundError
+              # File was deleted, consider it a change
+              @template_mtimes.delete(file_path)
+              true
             end
-
-            false
-          rescue File::NotFoundError
-            # File was deleted, consider it a change
-            @template_mtimes.delete(file_path)
-            true
           end
         end
       end
     end
 
     private def update_template_mtimes
-      @template_mtimes.clear
-      all_paths = ([error_path] + path).uniq
+      @template_mtimes_mutex.synchronize do
+        @template_mtimes.clear
+        all_paths = ([error_path] + path).uniq
 
-      all_paths.each do |template_path|
-        next unless Dir.exists?(template_path)
+        all_paths.each do |template_path|
+          next unless Dir.exists?(template_path)
 
-        Dir.glob(File.join(template_path, "**", "*.{html,jinja,j2}")).each do |file_path|
-          begin
-            @template_mtimes[file_path] = File.info(file_path).modification_time
-          rescue File::NotFoundError
-            # Skip files that don't exist
+          Dir.glob(File.join(template_path, "**", "*.{html,jinja,j2}")).each do |file_path|
+            begin
+              @template_mtimes[file_path] = File.info(file_path).modification_time
+            rescue File::NotFoundError
+              # Skip files that don't exist
+            end
           end
         end
       end

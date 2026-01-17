@@ -200,7 +200,8 @@ describe "Error Handling Integration" do
     it "allows graceful degradation" do
       request_id = Azu::Handler::RequestId.new
       rescuer = Azu::Handler::Rescuer.new
-      cors = Azu::Handler::CORS.new
+      # Explicitly configure allowed origins (required after security hardening)
+      cors = Azu::Handler::CORS.new(origins: ["https://example.com"])
 
       error_handler = ->(_ctx : HTTP::Server::Context) {
         raise Exception.new("Service error")

@@ -104,13 +104,23 @@ module Azu
     end
 
     # Gets requests parameters
+    # Raises if called before the endpoint is invoked via call(context)
     private def params : Params
-      @params.as(Params)
+      if p = @params
+        p
+      else
+        raise "Endpoint params accessed before initialization. Ensure call(context) was invoked."
+      end
     end
 
     # Gets the request `raw` context
+    # Raises if called before the endpoint is invoked via call(context)
     private def context : HTTP::Server::Context
-      @context.as(HTTP::Server::Context)
+      if ctx = @context
+        ctx
+      else
+        raise "Endpoint context accessed before initialization. Ensure call(context) was invoked."
+      end
     end
 
     # Gets the request http method
