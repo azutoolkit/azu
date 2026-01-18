@@ -4,9 +4,6 @@ authors:
   - Elias J. Perez <eliasjpr@gmail.com>
 crystal: ">= 0.35.0"
 license: MIT
-targets:
-  example_app:
-    main: playground/example_app.cr
 dependencies:
   radix:
     github: luislavena/radix
@@ -19,5 +16,3 @@ dependencies:
   redis:
     github: stefanwille/crystal-redis
     version: ~> 2.9.0
-  sqlite3:
-    github: crystal-lang/crystal-sqlite3

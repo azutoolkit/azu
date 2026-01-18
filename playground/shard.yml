@@ -1,0 +1,13 @@
+name: example_app
+version: 0.1.0
+crystal: ">= 0.35.0"
+
+dependencies:
+  azu:
+    path: ..
+  sqlite3:
+    github: crystal-lang/crystal-sqlite3
+
+targets:
+  example_app:
+    main: example_app.cr

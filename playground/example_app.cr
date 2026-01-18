@@ -1,6 +1,6 @@
 require "../src/azu"
-require "cql"
 require "sqlite3"
+require "db"
 
 module ExampleApp
   include Azu

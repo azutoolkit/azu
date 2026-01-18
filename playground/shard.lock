@@ -1,0 +1,42 @@
+version: 2.0
+shards:
+  azu:
+    path: ..
+    version: 0.5.26
+
+  backtracer:
+    git: https://github.com/sija/backtracer.cr.git
+    version: 1.2.4
+
+  crinja:
+    git: https://github.com/straight-shoota/crinja.git
+    version: 0.8.1
+
+  db:
+    git: https://github.com/crystal-lang/crystal-db.git
+    version: 0.14.0
+
+  exception_page:
+    git: https://github.com/crystal-loot/exception_page.git
+    version: 0.5.0
+
+  pool:
+    git: https://github.com/ysbaddaden/pool.git
+    version: 0.2.4
+
+  radix:
+    git: https://github.com/luislavena/radix.git
+    version: 0.4.1
+
+  redis:
+    git: https://github.com/stefanwille/crystal-redis.git
+    version: 2.9.1
+
+  schema:
+    git: https://github.com/azutoolkit/schema.git
+    version: 0.2.7
+
+  sqlite3:
+    git: https://github.com/crystal-lang/crystal-sqlite3.git
+    version: 0.22.0
+
