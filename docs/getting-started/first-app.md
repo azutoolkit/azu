@@ -125,6 +125,8 @@ class User
 end
 ```
 
+> **Production Note**: This tutorial uses in-memory storage for simplicity. For production applications, use [CQL for database persistence](../database/cql-overview.md).
+
 ### Step 2: Create Request Contracts
 
 Create `src/requests/create_user_request.cr`:

@@ -26,6 +26,18 @@
 - [File Uploads](features/file-uploads.md)
 - [Validation](features/validation.md)
 
+## Database
+
+- [CQL Overview](database/cql-overview.md)
+- [Schema Definition](database/schema-definition.md)
+- [Models](database/models.md)
+- [Relationships](database/relationships.md)
+- [Queries](database/queries.md)
+- [Validations](database/validations.md)
+- [Migrations](database/migrations.md)
+- [Transactions](database/transactions.md)
+- [Performance](database/performance.md)
+
 ## Real-Time
 
 - [Channels](real-time/channels.md)

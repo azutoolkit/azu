@@ -90,6 +90,12 @@ HTTP Request → Router → Middleware Chain → Endpoint → Response
 - [Validation](features/validation.md)
 - [File Uploads](features/file-uploads.md)
 
+### Database
+
+- [CQL Overview](database/cql-overview.md)
+- [Models & Queries](database/models.md)
+- [Migrations](database/migrations.md)
+
 ### Real-Time
 
 - [WebSocket Channels](real-time/channels.md)

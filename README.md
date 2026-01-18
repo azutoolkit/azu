@@ -446,221 +446,50 @@ end
 
 ### 5. Data Models
 
-Define your data models (example with CQL ORM):
+Define your data models using [CQL ORM](https://github.com/azutoolkit/cql):
 
 ```crystal
-# src/models/user.cr
 require "cql"
 
 struct User
-  include CQL::Model(Int64)
-  db_context ExampleDB, :users
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AppDB, :users
 
-  property id : Int64
-  property name : String
-  property email : String
-  property age : Int32?
-  property profile_image_url : String?
-  property created_at : Time
-  property updated_at : Time
+  getter id : Int64?
+  getter name : String
+  getter email : String
 
-  # Associations
   has_many :posts, Post, foreign_key: :user_id
-  has_one :profile, UserProfile, foreign_key: :user_id
+  validates :name, presence: true, size: 2..50
+  validates :email, presence: true
 
-  # Validations at model level
-  validates :name, presence: true, length: {min: 2}
-  validates :email, presence: true, uniqueness: true, format: EmailValidator::EMAIL_REGEX
-
-  # Callbacks
-  before_save :update_timestamps
-  before_create :set_defaults
-
-  # Scopes
-  scope :active, ->{ where(active: true) }
-  scope :recent, ->{ order(:created_at, :desc) }
-
-  def full_profile
-    "#{name} <#{email}>"
-  end
-end
-
-# src/models/post.cr
-class Post
-  include CQL::Model(Int64)
-
-  property id : Int64
-  property title : String
-  property content : String
-  property user_id : Int64
-  property published : Bool
-  property created_at : Time
-  property updated_at : Time
-
-  belongs_to :user, User, foreign_key: :user_id
-
-  validates :title, presence: true, length: {min: 5}
-  validates :content, presence: true
-  validates :user_id, presence: true
-
-  scope :published, ->{ where(published: true) }
-  scope :by_user, ->(user_id : Int64){ where(user_id: user_id) }
+  scope :active, -> { where(active: true) }
 end
 ```
+
+See the [Database documentation](docs/database/cql-overview.md) for complete CQL integration details including schemas, migrations, and queries.
 
 ### 6. Services (Business Logic)
 
 Organize business logic in service classes:
 
 ```crystal
-# src/services/user_service.cr
 module UserService
   extend self
 
   def create_user(request : UserRequest) : User
-    # Validate request
     raise Azu::Response::ValidationError.new(request.errors) unless request.valid?
 
-    # Handle file upload if present
-    profile_image_url = nil
-    if file = request.profile_image
-      profile_image_url = FileUploadService.upload_image(file)
-    end
-
-    # Create user
-    user = User.new(
+    user = User.create!(
       name: request.name,
-      email: request.email,
-      age: request.age,
-      profile_image_url: profile_image_url
+      email: request.email
     )
-
-    unless user.save
-      raise Azu::Response::ValidationError.new(user.errors)
-    end
-
-    # Send welcome email
-    EmailService.send_welcome_email(user)
 
     user
   end
 
   def find_user(id : Int64) : User?
-    User.find(id)
-  rescue CQL::RecordNotFound
-    nil
-  end
-
-  def search_users(request : SearchRequest) : Array(User)
-    query = User.query
-
-    # Apply search filter
-    unless request.query.empty?
-      query = query.where {
-        users.name.like(request.query) ||
-        users.email.like(request.query)
-      }
-    end
-
-    # Apply sorting
-    case request.sort
-    when "name"
-      query = query.order(:name)
-    when "email"
-      query = query.order(:email)
-    when "created_at"
-      query = query.order(:created_at, :desc)
-    end
-
-    # Apply pagination
-    offset = (request.page - 1) * request.per_page
-    query.limit(request.per_page).offset(offset).to_a
-  end
-
-  def email_exists?(email : String) : Bool
-    User.where(email: email).exists?
-  end
-
-  def update_user(id : Int64, request : UserRequest) : User
-    user = find_user(id)
-    raise Azu::Response::NotFoundError.new("User not found") unless user
-
-    user.name = request.name unless request.name.empty?
-    user.email = request.email unless request.email.empty?
-    user.age = request.age if request.age
-
-    # Handle profile image update
-    if file = request.profile_image
-      # Delete old image if exists
-      FileUploadService.delete_file(user.profile_image_url) if user.profile_image_url
-
-      # Upload new image
-      user.profile_image_url = FileUploadService.upload_image(file)
-    end
-
-    unless user.save
-      raise Azu::Response::ValidationError.new(user.errors)
-    end
-
-    user
-  end
-end
-
-# src/services/file_upload_service.cr
-module FileUploadService
-  extend self
-
-  UPLOAD_DIR = "public/uploads"
-  ALLOWED_EXTENSIONS = %w(.jpg .jpeg .png .gif .pdf .doc .docx)
-
-    def upload_image(file : Azu::Params::Multipart::File) : String
-    # Validate file manually since this is a service-level validation
-    # Model-level validation would use the FileValidator class
-    validate_file_size!(file, 5.megabytes)
-
-    unless valid_image?(file)
-      raise Azu::Response::ValidationError.new("file", "Invalid image format")
-    end
-
-    # Generate secure filename
-    extension = File.extname(file.filename || "")
-    filename = "#{Random::Secure.hex(16)}#{extension}"
-    upload_path = Path[UPLOAD_DIR, "images", filename].to_s
-
-    # Ensure directory exists
-    Dir.mkdir_p(Path[UPLOAD_DIR, "images"].to_s)
-
-    # Copy file from temp location
-    File.copy(file.temp_path, upload_path)
-
-    # Clean up temp file
-    file.cleanup
-
-        # Return relative URL
-    "/uploads/images/#{filename}"
-  end
-
-  def delete_file(url : String?)
-    return unless url && !url.empty?
-
-    # Convert URL to file path
-    file_path = Path["public", url.lstrip('/')].to_s
-    File.delete(file_path) if File.exists?(file_path)
-  end
-
-  private def validate_file_size!(file : Azu::Params::Multipart::File, max_size : UInt64)
-    if file.size > max_size
-      raise Azu::Response::ValidationError.new(
-        "file",
-        "File size (#{file.size} bytes) exceeds maximum allowed size (#{max_size} bytes)"
-      )
-    end
-  end
-
-  private def valid_image?(file : Azu::Params::Multipart::File) : Bool
-    return false unless file.filename
-    extension = File.extname(file.filename.not_nil!).downcase
-    %w(.jpg .jpeg .png .gif .webp).includes?(extension)
+    User.find?(id)
   end
 end
 ```

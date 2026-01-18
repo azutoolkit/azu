@@ -98,6 +98,11 @@ class User
   def self.find(id : Int64) : User?
     @@users.find { |u| u.id == id }
   end
+```
+
+> **Production Note**: This tutorial uses in-memory storage for simplicity. For production applications, use [CQL for database persistence](../database/cql-overview.md).
+
+```crystal
 
   def self.find_by_email(email : String) : User?
     @@users.find { |u| u.email == email }

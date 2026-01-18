@@ -67,8 +67,32 @@ _The Azu Development Dashboard featuring sidebar navigation, Golden Signals moni
 - **Insights Panel**: Smart recommendations based on detected patterns
 - **Comprehensive Metrics**: Application status, performance data, cache statistics
 - **Error Tracking**: Recent error logs with detailed debugging information
-- **Database Monitoring**: N+1 query detection, slow query analysis
+- **Database Monitoring**: N+1 query detection, slow query analysis (requires CQL)
 - **Route Discovery**: Complete listing of all registered application routes
+
+### CQL Database Integration
+
+When CQL (Crystal Query Language) is installed, the dashboard automatically enables database performance monitoring:
+
+```crystal
+# CQL is detected at compile time
+{% if @top_level.has_constant?("CQL") %}
+  # Full database monitoring enabled
+{% end %}
+```
+
+**CQL Monitoring Features:**
+
+- **N+1 Query Detection**: Identifies repeated query patterns that indicate N+1 problems
+- **Slow Query Analysis**: Highlights queries exceeding configured thresholds
+- **Query Statistics**: Execution counts, average times, and patterns
+- **Database Health Score**: Contributes to overall application health score
+
+To enable CQL monitoring:
+
+1. Install CQL as a dependency (see [Database documentation](../database/cql-overview.md))
+2. The dashboard auto-detects CQL at compile time
+3. Visit the "Database" section in the sidebar
 - **Component Lifecycle**: Mount/unmount events with memory tracking
 - **Keyboard Shortcuts**: Navigate with `g o`, `g e`, `g d`, etc.
 - **Theme Support**: Light, dark, and system theme options

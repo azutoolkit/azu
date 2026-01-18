@@ -153,6 +153,41 @@ Install:
 shards install
 ```
 
+### Optional: Database Support with CQL
+
+For database-backed applications, add CQL:
+
+```yaml
+dependencies:
+  azu:
+    github: azutoolkit/azu
+    version: ~> 0.5.28
+  cql:
+    github: azutoolkit/cql
+    version: ~> 0.1.0
+```
+
+Add your database driver:
+
+```yaml
+# PostgreSQL (recommended for production)
+dependencies:
+  pg:
+    github: will/crystal-pg
+
+# MySQL
+dependencies:
+  mysql:
+    github: crystal-lang/crystal-mysql
+
+# SQLite (development/testing)
+dependencies:
+  sqlite3:
+    github: crystal-lang/crystal-sqlite3
+```
+
+See the [Database documentation](../database/cql-overview.md) for complete setup instructions.
+
 ### Method 3: Global Installation (Development)
 
 For development and testing:

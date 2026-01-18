@@ -26,26 +26,46 @@ A: Yes, basic Crystal knowledge is required. However, Crystal's syntax is simila
 
 **Q: How do I handle database connections in Azu?**
 
-A: Azu doesn't include a built-in ORM. You can use any Crystal database library like `crystal-db`, `granite`, or `jennifer.cr`:
+A: Azu recommends CQL (Crystal Query Language) as the primary ORM. CQL provides type-safe database operations with compile-time validation:
 
 ```crystal
-require "pg"
+require "cql"
 require "azu"
 
+# Define schema
+AppDB = CQL::Schema.define(:app, adapter: CQL::Adapter::Postgres, uri: ENV["DATABASE_URL"]) do
+  table :users do
+    primary :id, Int64
+    text :name
+    text :email
+    timestamps
+  end
+end
+
+# Define model
+struct User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AppDB, :users
+
+  getter id : Int64?
+  getter name : String
+  getter email : String
+end
+
+# Use in endpoint
 struct UserEndpoint
-  include Azu::Endpoint(UserRequest, UserResponse)
+  include Azu::Endpoint(EmptyRequest, UserResponse)
 
   get "/users/:id"
 
   def call : UserResponse
-    DB.open("postgres://localhost/mydb") do |db|
-      user = db.query_one("SELECT * FROM users WHERE id = $1",
-                         params["id"], as: User)
-      UserResponse.new(user)
-    end
+    user = User.find(params["id"].to_i64)
+    UserResponse.new(user)
   end
 end
 ```
+
+See the [Database documentation](database/cql-overview.md) for complete CQL integration details.
 
 **Q: Can I use Azu with existing Crystal libraries?**
 
