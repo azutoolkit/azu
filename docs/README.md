@@ -198,7 +198,7 @@ Azu is designed for high-performance applications:
 | Kemal     | 82,000       | 15MB         | 200ms        |
 | Lucky     | 78,000       | 18MB         | 300ms        |
 
-_Benchmarks run on: Intel i7-10700K, 32GB RAM, Crystal 1.16.0_
+_Benchmarks run on: Intel i7-10700K, 32GB RAM, Crystal 1.17.1_
 
 ## Framework Components
 
@@ -285,13 +285,6 @@ Azu excels in scenarios requiring:
 - **Plugins**: Growing ecosystem of extensions and integrations
 
 ---
-
-**Next Steps:**
-
-- [Introduction](guide/introduction.md) - What is Azu and why use it?
-- [Quickstart](guide/quickstart.md) - Get up and running in 5 minutes
-- [Installation](guide/installation.md) - Install Azu and set up your development environment
-- [Tutorial](guide/tutorial.md) - Build a complete user management API
 
 ## Documentation Structure
 

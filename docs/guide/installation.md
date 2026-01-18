@@ -108,7 +108,7 @@ authors:
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.4.14
+    version: ~> 0.5.26
 
 crystal: >= 0.35.0
 
@@ -140,7 +140,7 @@ Add to your `shard.yml`:
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.4.14
+    version: ~> 0.5.26
 ```
 
 Install:

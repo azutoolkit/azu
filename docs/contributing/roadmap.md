@@ -6,13 +6,13 @@ Comprehensive roadmap for the Azu web framework development, including current p
 
 This roadmap outlines the development priorities, planned features, and milestones for the Azu web framework. It serves as a guide for contributors and users to understand the direction of the project.
 
-## Current Version: v0.4.14
+## Current Version: v0.5.26
 
 ### Current Focus Areas
 
 ```mermaid
 gantt
-    title Azu v0.4.14 Development Timeline
+    title Azu v0.5.26 Development Timeline
     dateFormat  YYYY-MM-DD
     section Core Framework
     Performance Optimization    :active, perf, 2024-01-01, 2024-03-31

@@ -5,19 +5,24 @@ This document outlines how Claude should approach adding new features to the Azu
 ## Core Principles
 
 ### 1. Type Safety First
+
 Every new feature must leverage Crystal's type system:
+
 - Define explicit types for all public interfaces
 - Use generics for flexible, type-safe abstractions
 - Prefer compile-time errors over runtime errors
 
 ### 2. Performance by Design
+
 Azu follows "fast as C, slick as Ruby":
+
 - Minimize allocations in hot paths
 - Use structs for value objects
 - Consider compile-time conditionals for optional features
 - Benchmark critical paths before and after changes
 
 ### 3. Backward Compatibility
+
 - Existing APIs should not break
 - Deprecate before removing
 - Provide migration paths for breaking changes
@@ -29,6 +34,7 @@ Azu follows "fast as C, slick as Ruby":
 ### Phase 1: Discovery & Planning
 
 #### 1.1 Understand the Feature Request
+
 ```
 Questions to answer:
 - What problem does this solve?
@@ -38,26 +44,32 @@ Questions to answer:
 ```
 
 #### 1.2 Research Existing Patterns
+
 ```bash
 # Search for similar patterns in codebase
 grep -r "pattern_keyword" src/azu/
 ```
 
 Check these locations:
+
 - `src/azu/` - Core modules for architectural patterns
 - `playground/` - Example implementations
 - `docs/` - Existing documentation
 - `spec/` - Test patterns
 
 #### 1.3 Design the Interface
+
 Before writing code, design:
+
 1. **Public API** - Method signatures, types, return values
 2. **Configuration** - How is the feature configured?
 3. **Error Handling** - What can go wrong? How to report?
 4. **Integration Points** - How does it fit with existing modules?
 
 #### 1.4 Create Implementation Plan
+
 Document in a comment or issue:
+
 ```
 Feature: [Name]
 Files to create/modify:
@@ -76,6 +88,7 @@ Breaking changes: [None / List if any]
 ### Phase 2: Implementation
 
 #### 2.1 Start with Types
+
 Define the core types first:
 
 ```crystal
@@ -100,9 +113,11 @@ end
 ```
 
 #### 2.2 Implement Core Logic
+
 Follow these patterns:
 
 **For Request/Response handling:**
+
 ```crystal
 struct NewFeatureRequest
   include Azu::Request
@@ -122,6 +137,7 @@ end
 ```
 
 **For Middleware:**
+
 ```crystal
 class NewHandler < Azu::Handler::Base
   def call(context : HTTP::Server::Context)
@@ -140,6 +156,7 @@ end
 ```
 
 **For Components:**
+
 ```crystal
 class NewComponent
   include Azu::Component
@@ -157,6 +174,7 @@ end
 ```
 
 #### 2.3 Thread Safety Requirements
+
 If the feature involves shared state:
 
 ```crystal
@@ -175,6 +193,7 @@ end
 ```
 
 #### 2.4 Error Handling
+
 Create appropriate error types:
 
 ```crystal
@@ -192,6 +211,7 @@ end
 ### Phase 3: Testing
 
 #### 3.1 Unit Tests
+
 Test individual components in isolation:
 
 ```crystal
@@ -216,6 +236,7 @@ end
 ```
 
 #### 3.2 Integration Tests
+
 Test the feature in the full request cycle:
 
 ```crystal
@@ -239,6 +260,7 @@ end
 ```
 
 #### 3.3 Performance Tests
+
 For performance-critical features:
 
 ```crystal
@@ -261,9 +283,10 @@ end
 ### Phase 4: Documentation
 
 #### 4.1 Code Documentation
+
 Add doc comments to all public methods:
 
-```crystal
+````crystal
 # Processes the input and returns the transformed output.
 #
 # The processing applies [describe algorithm/transformation].
@@ -277,9 +300,10 @@ Add doc comments to all public methods:
 # Raises `NewFeatureError` if the input is malformed.
 def process(input : Input) : Output
 end
-```
+````
 
 #### 4.2 Guide Documentation
+
 Create or update docs:
 
 ```markdown
@@ -288,18 +312,23 @@ Create or update docs:
 # New Feature Guide
 
 ## Overview
+
 [Explain what the feature does and why]
 
 ## Quick Start
+
 [Show minimal working example]
 
 ## Configuration
+
 [Document all options]
 
 ## Examples
+
 [Provide common use cases]
 
 ## API Reference
+
 [Link to generated docs]
 ```
 
@@ -308,6 +337,7 @@ Create or update docs:
 ### Phase 5: Integration
 
 #### 5.1 Update Configuration
+
 If the feature is configurable:
 
 ```crystal
@@ -321,6 +351,7 @@ end
 ```
 
 #### 5.2 Register with Router (if endpoint)
+
 ```crystal
 # Endpoint auto-registers via macro
 struct NewFeatureEndpoint
@@ -335,6 +366,7 @@ end
 ```
 
 #### 5.3 Add to Handler Chain (if middleware)
+
 ```crystal
 # In application startup
 Azu.configure do |config|
@@ -349,35 +381,41 @@ end
 Before submitting changes, verify:
 
 ### Type Safety
+
 - [ ] All public methods have explicit return types
 - [ ] Generic constraints are properly defined
 - [ ] Nil is handled explicitly (no implicit `.not_nil!`)
 - [ ] Union types are minimized
 
 ### Thread Safety
+
 - [ ] Shared mutable state uses Mutex or Atomic
 - [ ] No global variables modified at runtime
 - [ ] Fiber-safe data structures used
 
 ### Performance
+
 - [ ] No unnecessary allocations in hot paths
 - [ ] Structs used for value objects
 - [ ] Caching considered where appropriate
 - [ ] Benchmarks show acceptable performance
 
 ### Error Handling
+
 - [ ] Custom error types inherit from appropriate base
 - [ ] Error context is propagated
 - [ ] User-facing errors are clear
 - [ ] Errors are logged appropriately
 
 ### Testing
+
 - [ ] Unit tests cover main functionality
 - [ ] Edge cases are tested
 - [ ] Integration tests verify full cycle
 - [ ] Tests run in CI
 
 ### Documentation
+
 - [ ] Public APIs documented
 - [ ] Examples provided
 - [ ] Guide updated if needed
@@ -387,12 +425,14 @@ Before submitting changes, verify:
 ## Common Patterns Reference
 
 ### Adding a New Endpoint Type
+
 1. Create request struct with validations
 2. Create response struct with render method
 3. Create endpoint with HTTP method macro
 4. Add tests in unit and integration suites
 
 ### Adding Middleware
+
 1. Create handler in `src/azu/handler/`
 2. Implement `call(context)` with chain propagation
 3. Add error handling
@@ -400,12 +440,14 @@ Before submitting changes, verify:
 5. Add to handler registry
 
 ### Adding a Cache Strategy
+
 1. Implement `CacheStore` interface
 2. Add to store factory
 3. Add configuration option
 4. Document usage
 
 ### Adding a Component Type
+
 1. Include `Azu::Component`
 2. Implement `content` method
 3. Add event handlers with `on_event`
@@ -416,6 +458,7 @@ Before submitting changes, verify:
 ## Performance Optimization Guide
 
 ### Profiling
+
 ```crystal
 # Enable performance monitoring
 {% if env("PERFORMANCE_MONITORING") == "true" %}
@@ -424,12 +467,14 @@ Before submitting changes, verify:
 ```
 
 ### Common Optimizations
+
 1. **Path caching** - Router already implements this
 2. **Component pooling** - Max 50 per type by default
 3. **Template caching** - Enabled in production
 4. **Connection pooling** - For Redis cache
 
 ### Benchmarking
+
 ```bash
 # Run performance specs
 crystal spec spec/integration/performance_spec.cr
@@ -444,6 +489,7 @@ crystal build --release playground/benchmark.cr
 ## Debugging Tips
 
 ### Development Mode
+
 ```crystal
 Azu.configure do |config|
   config.env = Environment::Development
@@ -452,13 +498,16 @@ end
 ```
 
 ### Logging
+
 ```crystal
 Log.for("azu.new_feature").info { "Processing request" }
 Log.for("azu.new_feature").debug { "Details: #{data}" }
 ```
 
 ### Dev Dashboard
+
 Available at `/dev-dashboard` in development mode:
+
 - Route listing
 - Request metrics
 - Component status

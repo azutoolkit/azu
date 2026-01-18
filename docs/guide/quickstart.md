@@ -30,7 +30,7 @@ Add Azu to your `shard.yml`:
 dependencies:
   azu:
     github: your-org/azu
-    version: ~> 0.4.14
+    version: ~> 0.5.26
 ```
 
 Install dependencies:

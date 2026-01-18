@@ -80,23 +80,160 @@ Azu.start [
 
 ### Azu::Handler::CSRF
 
-Provides CSRF protection for state-changing operations.
+Provides CSRF protection for state-changing operations following OWASP recommendations.
 
 ```crystal
 Azu.start [
   Azu::Handler::CSRF.new(
-    secret: "your-secret-key",
-    token_header: "X-CSRF-Token"
+    skip_routes: ["/api/webhooks"],
+    strategy: Azu::Handler::CSRF::Strategy::SignedDoubleSubmit,
+    secret_key: ENV["CSRF_SECRET"]?,
+    cookie_name: "csrf_token",
+    header_name: "X-CSRF-TOKEN",
+    param_name: "_csrf",
+    cookie_max_age: 86400,
+    cookie_same_site: HTTP::Cookie::SameSite::Strict,
+    secure_cookies: true
   )
+]
+```
+
+**Protection Strategies:**
+
+| Strategy | Description | Recommendation |
+|----------|-------------|----------------|
+| `SignedDoubleSubmit` | HMAC-signed token with timestamp validation | Recommended (default) |
+| `SynchronizerToken` | Token stored in cookie, verified against form/header | Good |
+| `DoubleSubmit` | Simple double submit cookie | Not recommended |
+
+**Configuration Options:**
+
+- `skip_routes` - Array of paths to bypass CSRF protection
+- `strategy` - Protection strategy (default: `SignedDoubleSubmit`)
+- `secret_key` - HMAC secret key (auto-generated if not provided)
+- `cookie_name` - Cookie name (default: `csrf_token`)
+- `header_name` - Header name for AJAX (default: `X-CSRF-TOKEN`)
+- `param_name` - Form parameter name (default: `_csrf`)
+- `cookie_max_age` - Token expiry in seconds (default: 86400 / 24 hours)
+- `cookie_same_site` - SameSite policy (default: `Strict`)
+- `secure_cookies` - Use secure cookies (default: `true`)
+
+**Helper Methods:**
+
+```crystal
+# In your endpoint
+def call : MyResponse
+  # Generate token for forms
+  token = Azu::Handler::CSRF.token(context)
+
+  # Generate hidden input tag
+  hidden_field = Azu::Handler::CSRF.tag(context)
+  # => <input type="hidden" name="_csrf" value="..." />
+
+  # Generate meta tag for AJAX
+  meta_tag = Azu::Handler::CSRF.metatag(context)
+  # => <meta name="_csrf" content="..." />
+
+  # Validate origin header
+  origin_valid = Azu::Handler::CSRF.validate_origin(context)
+end
+```
+
+**Strategy Selection:**
+
+```crystal
+# Use recommended HMAC-signed strategy (default)
+Azu::Handler::CSRF.use_signed_double_submit!
+
+# Use synchronizer token pattern
+Azu::Handler::CSRF.use_synchronizer_token!
+
+# Configure via block
+Azu::Handler::CSRF.configure do |csrf|
+  csrf.strategy = Azu::Handler::CSRF::Strategy::SignedDoubleSubmit
+  csrf.secret_key = ENV["CSRF_SECRET"]
+end
+```
+
+### Azu::Handler::Throttle
+
+Provides rate limiting and DDoS protection.
+
+```crystal
+Azu.start [
+  Azu::Handler::Throttle.new(
+    interval: 5,          # Reset counter every 5 seconds
+    duration: 900,        # Block for 15 minutes
+    threshold: 100,       # Allow 100 requests per interval
+    blacklist: ["1.2.3.4"],  # Immediately block these IPs
+    whitelist: ["127.0.0.1"] # Always allow these IPs
+  )
+]
+```
+
+**Configuration Options:**
+
+- `interval` - Duration in seconds until request counter resets (default: 5)
+- `duration` - Duration in seconds to block an IP (default: 900 / 15 minutes)
+- `threshold` - Number of requests allowed per interval (default: 100)
+- `blacklist` - Array of IPs to immediately block
+- `whitelist` - Array of IPs to always allow
+
+**Response:**
+
+When rate limited, returns HTTP 429 with `Retry-After` header.
+
+**Monitoring:**
+
+```crystal
+throttle = Azu::Handler::Throttle.new(
+  interval: 5,
+  duration: 900,
+  threshold: 100,
+  blacklist: [] of String,
+  whitelist: [] of String
+)
+
+# Get current stats
+stats = throttle.stats
+# => {tracked_ips: 42, blocked_ips: 3}
+
+# Reset all tracking (useful for testing)
+throttle.reset
+```
+
+### Azu::Handler::RequestId
+
+Adds unique request IDs for distributed tracing.
+
+```crystal
+Azu.start [
+  Azu::Handler::RequestId.new
 ]
 ```
 
 **Features:**
 
-- Automatic token generation
-- Token validation
-- Configurable token header
-- Session-based token storage
+- Generates or uses existing `X-Request-ID` header
+- Enables request correlation across services
+- Useful for debugging and log aggregation
+
+### Azu::Handler::PerformanceMonitor
+
+Tracks request and component performance metrics (compile-time optional).
+
+```crystal
+Azu.start [
+  Azu::Handler::PerformanceMonitor.new
+]
+```
+
+**Features:**
+
+- Request processing time tracking
+- Component lifecycle metrics
+- Memory usage monitoring
+- Enable via `PERFORMANCE_MONITORING=true` compile flag
 
 ## Custom Handlers
 

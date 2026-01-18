@@ -23,7 +23,7 @@ echo "Available Disk Space: $(df -h . | tail -1 | awk '{print $4}')"
 - **OS**: Linux, macOS, or Windows (WSL)
 - **Memory**: 4GB RAM
 - **Disk Space**: 2GB free space
-- **Crystal**: 1.16.0 or higher
+- **Crystal**: 1.17.1 or higher
 
 ### Crystal Installation
 

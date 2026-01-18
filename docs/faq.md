@@ -480,7 +480,7 @@ When reporting issues, include:
 
 ````
 **Crystal Version**: 1.10.1
-**Azu Version**: 0.5.2
+**Azu Version**: 0.5.26
 **OS**: macOS 13.0
 
 **Issue**: WebSocket connection fails with "Connection refused"

@@ -42,7 +42,7 @@ authors:
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.4.14
+    version: ~> 0.5.26
 
 crystal: >= 0.35.0
 
