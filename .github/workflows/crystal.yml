@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [master]
 
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -24,7 +33,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Cache shards dependencies
         uses: actions/cache@v3
@@ -156,61 +165,41 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - test
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push' && success()
-    permissions:
-      contents: write
-      pull-requests: write
+    if: ${{ success() }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v2
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Compute Release Version
         id: semver
-        uses: paulhatch/semantic-version@v5.4.0
+        uses: paulhatch/semantic-version@v4.0.2
         with:
           tag_prefix: "v"
           major_pattern: "(MAJOR)"
           minor_pattern: "(MINOR)"
-          version_format: "${major}.${minor}.${patch}"
-          bump_each_commit: false
-          search_commit_body: true
-          user_format_type: "csv"
+          format: "${major}.${minor}.${patch}"
+          bump_each_commit: true
 
-      - name: Update shard.yml version
-        run: |
-          VERSION="${{ steps.semver.outputs.version }}"
-          sed -i "s/^version: .*/version: $VERSION/" shard.yml
-          echo "Updated shard.yml to version $VERSION:"
-          cat shard.yml
-
-      - name: Commit and push version bump
-        id: commit
-        run: |
-          git config user.name "eliasjpr"
-          git config user.email "eliasjpr@gmail.com"
-          git add shard.yml
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-            echo "committed=false" >> $GITHUB_OUTPUT
-          else
-            git commit -m "chore: bump version to ${{ steps.semver.outputs.version }}"
-            git push origin HEAD:master
-            echo "committed=true" >> $GITHUB_OUTPUT
-            echo "New commit SHA: $(git rev-parse HEAD)"
-          fi
+      - name: Bump Shard Version
+        id: bump-shard
+        uses: fjogeleit/yaml-update-action@master
+        with:
+          valueFile: shard.yml
+          propertyPath: version
+          value: ${{steps.semver.outputs.version}}
+          branch: master
+          updateFile: true
+          message: Set shard version ${{ steps.semver.outputs.version }}
 
       - name: Create Release
-        if: steps.commit.outputs.committed == 'true'
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ steps.semver.outputs.version }}
-          name: Release v${{ steps.semver.outputs.version }}
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-          target_commitish: master
+        id: create_release
+        uses: actions/create-release@latest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{steps.semver.outputs.version_tag}}
+          release_name: Release v${{steps.semver.outputs.version}}
+          draft: false
+          prerelease: false
