@@ -163,15 +163,15 @@ describe Azu::Cache do
       stats.has_key?("memory_usage_mb").should be_true
     end
 
-    it "supports get with block syntax" do
+    it "supports fetch with block syntax" do
       store = Azu::Cache::MemoryStore.new
 
       # First call should execute block
-      result = store.get("get_block_key", Time::Span.new(minutes: 5)) { "block_result" }
+      result = store.fetch("fetch_block_key", Time::Span.new(minutes: 5)) { "block_result" }
       result.should eq("block_result")
 
       # Second call should return cached value
-      result = store.get("get_block_key", Time::Span.new(minutes: 5)) { "new_block_result" }
+      result = store.fetch("fetch_block_key", Time::Span.new(minutes: 5)) { "new_block_result" }
       result.should eq("block_result")
     end
   end

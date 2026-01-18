@@ -61,7 +61,7 @@ describe Azu::DevelopmentTools do
 
       it "records entry with duration" do
         profiler = Azu::DevelopmentTools::Profiler.new(enabled: true)
-        profiler.profile("test") { sleep 0.01 }
+        profiler.profile("test") { sleep 0.01.seconds }
         profiler.entries.first.duration.total_milliseconds.should be >= 10
       end
 
@@ -152,7 +152,7 @@ describe Azu::DevelopmentTools do
 
       it "calculates total time" do
         profiler = Azu::DevelopmentTools::Profiler.new(enabled: true)
-        profiler.profile("test") { sleep 0.01 }
+        profiler.profile("test") { sleep 0.01.seconds }
 
         stats = profiler.stats["test"]
         stats["total_time_ms"].should be >= 10
@@ -160,7 +160,7 @@ describe Azu::DevelopmentTools do
 
       it "calculates average time" do
         profiler = Azu::DevelopmentTools::Profiler.new(enabled: true)
-        2.times { profiler.profile("test") { sleep 0.01 } }
+        2.times { profiler.profile("test") { sleep 0.01.seconds } }
 
         stats = profiler.stats["test"]
         stats["avg_time_ms"].should be >= 10
