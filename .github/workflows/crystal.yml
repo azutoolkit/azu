@@ -165,41 +165,59 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - test
-    if: ${{ success() }}
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Compute Release Version
         id: semver
-        uses: paulhatch/semantic-version@v4.0.2
+        uses: paulhatch/semantic-version@v5.4.0
         with:
           tag_prefix: "v"
           major_pattern: "(MAJOR)"
           minor_pattern: "(MINOR)"
-          format: "${major}.${minor}.${patch}"
-          bump_each_commit: true
+          version_format: "${major}.${minor}.${patch}"
+          bump_each_commit: false
+          search_commit_body: true
 
-      - name: Bump Shard Version
-        id: bump-shard
-        uses: fjogeleit/yaml-update-action@master
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          if git rev-parse "v${{ steps.semver.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.semver.outputs.version }}
+          name: Release v${{ steps.semver.outputs.version }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Version Bump PR
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: fjogeleit/yaml-update-action@main
         with:
           valueFile: shard.yml
           propertyPath: version
-          value: ${{steps.semver.outputs.version}}
-          branch: master
-          updateFile: true
-          message: Set shard version ${{ steps.semver.outputs.version }}
+          value: ${{ steps.semver.outputs.version }}
+          branch: version-bump/${{ steps.semver.outputs.version }}
+          targetBranch: master
+          createPR: true
+          message: "chore: bump version to ${{ steps.semver.outputs.version }}"
+          title: "chore: bump shard.yml version to ${{ steps.semver.outputs.version }}"
+          description: |
+            Automated version bump to ${{ steps.semver.outputs.version }}
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@latest
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{steps.semver.outputs.version_tag}}
-          release_name: Release v${{steps.semver.outputs.version}}
-          draft: false
-          prerelease: false
+            This PR updates `shard.yml` to match the latest release tag.
+          labels: version-bump,automated
