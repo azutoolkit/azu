@@ -43,7 +43,7 @@ end
 
 ```crystal
 class HealthCheckEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, Azu::Response::JSON)
+  include Azu::Endpoint(EmptyRequest, Azu::Response::JSON)
 
   get "/health"
 

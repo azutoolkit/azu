@@ -34,68 +34,101 @@ json = error.to_json
 
 ## Built-in Error Types
 
-### Azu::Response::BadRequest
+The following error classes are available in `Azu::Response`:
 
-400 Bad Request error.
+### Azu::Response::BadRequest (400)
+
+Bad Request error for invalid client requests.
 
 ```crystal
 raise Azu::Response::BadRequest.new("Invalid request parameters")
 ```
 
-### Azu::Response::Unauthorized
+### Azu::Response::AuthenticationError (401)
 
-401 Unauthorized error.
+Authentication required error.
 
 ```crystal
-raise Azu::Response::Unauthorized.new("Authentication required")
+raise Azu::Response::AuthenticationError.new("Authentication required")
 ```
 
-### Azu::Response::Forbidden
+### Azu::Response::AuthorizationError (403)
 
-403 Forbidden error.
+Authorization/permission error.
 
 ```crystal
-raise Azu::Response::Forbidden.new("Access denied")
+raise Azu::Response::AuthorizationError.new("Insufficient permissions")
 ```
 
-### Azu::Response::NotFound
+### Azu::Response::Forbidden (403)
 
-404 Not Found error.
+Legacy alias for AuthorizationError.
 
 ```crystal
-raise Azu::Response::NotFound.new("Resource not found")
+raise Azu::Response::Forbidden.new  # Uses default message
 ```
 
-### Azu::Response::MethodNotAllowed
+### Azu::Response::NotFound (404)
 
-405 Method Not Allowed error.
+Resource not found error.
 
 ```crystal
-raise Azu::Response::MethodNotAllowed.new("GET method not allowed")
+raise Azu::Response::NotFound.new("/users/123")  # Pass the path
 ```
 
-### Azu::Response::Conflict
+### Azu::Response::TimeoutError (408)
 
-409 Conflict error.
+Request timeout error.
 
 ```crystal
-raise Azu::Response::Conflict.new("Resource already exists")
+raise Azu::Response::TimeoutError.new("Request timeout")
 ```
 
-### Azu::Response::UnprocessableEntity
+### Azu::Response::ValidationError (422)
 
-422 Unprocessable Entity error.
+Validation error with field-specific error messages.
 
 ```crystal
-raise Azu::Response::UnprocessableEntity.new("Validation failed")
+# With field errors hash
+raise Azu::Response::ValidationError.new({
+  "email" => ["Email is invalid", "Email is required"],
+  "name" => ["Name is too short"]
+})
+
+# With single field error
+raise Azu::Response::ValidationError.new("email", "Email is invalid")
 ```
 
-### Azu::Response::InternalServerError
+### Azu::Response::RateLimitError (429)
 
-500 Internal Server Error.
+Rate limit exceeded error with optional retry-after.
 
 ```crystal
-raise Azu::Response::InternalServerError.new("Something went wrong")
+raise Azu::Response::RateLimitError.new(retry_after: 60)  # Retry after 60 seconds
+```
+
+### Azu::Response::Error (500)
+
+Base error class, defaults to 500 Internal Server Error.
+
+```crystal
+raise Azu::Response::Error.new("Something went wrong")
+```
+
+### Azu::Response::DatabaseError (500)
+
+Database-related error.
+
+```crystal
+raise Azu::Response::DatabaseError.new("Database connection failed")
+```
+
+### Azu::Response::ExternalServiceError (502)
+
+External service unavailable error.
+
+```crystal
+raise Azu::Response::ExternalServiceError.new(service_name: "PaymentAPI", message: "Service unavailable")
 ```
 
 ## Custom Error Classes
@@ -163,9 +196,8 @@ def call
     validate_input(request.body)
     process_request
   rescue ValidationError => e
-    raise Azu::Response::UnprocessableEntity.new(
-      "Validation failed",
-      {"errors" => e.errors.to_json}
+    raise Azu::Response::ValidationError.new(
+      e.errors.group_by(&.field).transform_values(&.map(&.message))
     )
   end
 end
@@ -333,9 +365,9 @@ end
 def validate_business_rules(user, action)
   case action
   when "delete"
-    raise Azu::Response::Forbidden.new("Cannot delete admin user") if user.admin?
+    raise Azu::Response::AuthorizationError.new("Cannot delete admin user") if user.admin?
   when "update"
-    raise Azu::Response::Conflict.new("Email already exists") if email_exists?(user.email)
+    raise Azu::Response::ValidationError.new("email", "Email already exists") if email_exists?(user.email)
   end
 end
 ```
@@ -444,7 +476,7 @@ def call_with_retry(max_attempts = 3)
       sleep(2 ** attempts)  # Exponential backoff
       retry
     else
-      raise Azu::Response::ServiceUnavailable.new("Service temporarily unavailable")
+      raise Azu::Response::ExternalServiceError.new(message: "Service temporarily unavailable")
     end
   end
 end

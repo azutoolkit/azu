@@ -123,6 +123,16 @@ struct CreateUserRequest
 end
 ```
 
+### Empty Requests
+
+For endpoints that don't require input validation (e.g., GET requests for listing or showing resources), define a simple empty request:
+
+```crystal
+struct EmptyRequest
+  include Azu::Request
+end
+```
+
 ### Accessing Request Data
 
 In your endpoint, access validated request data:
@@ -235,7 +245,7 @@ Access URL parameters in your endpoints:
 
 ```crystal
 struct ShowUserEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, UserResponse)
+  include Azu::Endpoint(EmptyRequest, UserResponse)
 
   get "/users/:id"
 
@@ -275,7 +285,7 @@ Access query string parameters:
 
 ```crystal
 struct ListUsersEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, UsersListResponse)
+  include Azu::Endpoint(EmptyRequest, UsersListResponse)
 
   get "/users"
 
@@ -337,7 +347,7 @@ struct UserEndpoint
       raise Azu::Response::ValidationError.new(e.errors)
     rescue e
       Log.error(exception: e) { "Unexpected error in UserEndpoint" }
-      raise Azu::Response::InternalServerError.new("Something went wrong")
+      raise Azu::Response::Error.new("Something went wrong")
     end
   end
 end
@@ -350,7 +360,7 @@ end
 raise Azu::Response::BadRequest.new("Invalid request format")
 
 # 401 Unauthorized
-raise Azu::Response::Unauthorized.new("Authentication required")
+raise Azu::Response::AuthenticationError.new("Authentication required")
 
 # 403 Forbidden
 raise Azu::Response::Forbidden.new("Access denied")
@@ -362,7 +372,7 @@ raise Azu::Response::NotFound.new("/users/999")
 raise Azu::Response::ValidationError.new({"name" => ["Name is required"]})
 
 # 500 Internal Server Error
-raise Azu::Response::InternalServerError.new("Server error")
+raise Azu::Response::Error.new("Server error")
 ```
 
 ## Status Codes
@@ -503,7 +513,7 @@ end
 
 # Avoid: Untyped
 struct UserEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, Azu::Response::Text)
+  include Azu::Endpoint(EmptyRequest, Azu::Response::Text)
 end
 ```
 
@@ -520,7 +530,7 @@ def call : UserResponse
     raise Azu::Response::NotFound.new("User not found")
   rescue e
     Log.error(exception: e) { "Error in UserEndpoint" }
-    raise Azu::Response::InternalServerError.new("Internal server error")
+    raise Azu::Response::Error.new("Internal server error")
   end
 end
 ```

@@ -119,7 +119,7 @@ Access parameters in your endpoints:
 
 ```crystal
 struct ShowUserEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, UserResponse)
+  include Azu::Endpoint(EmptyRequest, UserResponse)
 
   get "/users/:id"
 
@@ -160,7 +160,7 @@ Handle query string parameters:
 
 ```crystal
 struct ListUsersEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, UsersListResponse)
+  include Azu::Endpoint(EmptyRequest, UsersListResponse)
 
   get "/users"
 

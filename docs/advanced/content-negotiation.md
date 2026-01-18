@@ -18,7 +18,7 @@ Content negotiation in Azu provides:
 
 ```crystal
 class ContentNegotiationEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, Azu::Response::Text)
+  include Azu::Endpoint(EmptyRequest, Azu::Response::Text)
 
   get "/api/data"
 
@@ -390,7 +390,7 @@ FormatRegistry.register("text/custom", CustomFormatHandler.new)
 
 ```crystal
 class FlexibleEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, Azu::Response::Text)
+  include Azu::Endpoint(EmptyRequest, Azu::Response::Text)
 
   get "/api/flexible"
 
@@ -446,7 +446,7 @@ end
 
 ```crystal
 class MultiFormatEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, Azu::Response::Text)
+  include Azu::Endpoint(EmptyRequest, Azu::Response::Text)
 
   get "/api/multi"
 

@@ -194,7 +194,7 @@ end
 
 # Basic endpoint
 struct HelloEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, Azu::Response::Text)
+  include Azu::Endpoint(EmptyRequest, Azu::Response::Text)
 
   get "/"
 

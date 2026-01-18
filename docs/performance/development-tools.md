@@ -420,7 +420,7 @@ Create endpoints to access development tools data:
 ```crystal
 # Development tools status endpoint
 struct DevToolsStatusEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, JsonResponse)
+  include Azu::Endpoint(EmptyRequest, JsonResponse)
 
   get "/admin/dev-tools/status"
 
@@ -445,7 +445,7 @@ end
 
 # Performance report endpoint
 struct DevToolsReportEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, TextResponse)
+  include Azu::Endpoint(EmptyRequest, TextResponse)
 
   get "/admin/dev-tools/report"
 

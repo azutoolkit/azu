@@ -278,7 +278,7 @@ Create `src/endpoints/list_users_endpoint.cr`:
 
 ```crystal
 struct ListUsersEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, UsersListResponse)
+  include Azu::Endpoint(EmptyRequest, UsersListResponse)
 
   get "/users"
 
@@ -293,7 +293,7 @@ Create `src/endpoints/show_user_endpoint.cr`:
 
 ```crystal
 struct ShowUserEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, UserResponse)
+  include Azu::Endpoint(EmptyRequest, UserResponse)
 
   get "/users/:id"
 
@@ -361,7 +361,7 @@ Create `src/endpoints/delete_user_endpoint.cr`:
 
 ```crystal
 struct DeleteUserEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, Azu::Response::Empty)
+  include Azu::Endpoint(EmptyRequest, Azu::Response::Empty)
 
   delete "/users/:id"
 
@@ -759,7 +759,7 @@ end
 
 # HTML endpoint for the main page
 struct HomeEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, Azu::Response::Text)
+  include Azu::Endpoint(EmptyRequest, Azu::Response::Text)
   include Azu::Templates::Renderable
 
   get "/"

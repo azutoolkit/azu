@@ -51,35 +51,27 @@ graph TB
 
 ## Basic Channel Structure
 
+> **Note:** WebSocket channels use a message-based protocol for room identification. Clients should send a `join` message with the room ID after connecting, rather than using path parameters.
+
 ### Simple Chat Channel
 
 ```crystal
 class ChatChannel < Azu::Channel
   # Define the WebSocket route
-  ws "/chat/:room_id"
+  ws "/chat"
 
-  # Connection tracking
+  # Connection tracking - maps room_id to set of sockets
   @@connections = Hash(String, Set(HTTP::WebSocket)).new { |h, k| h[k] = Set(HTTP::WebSocket).new }
+  # Track which room each socket belongs to
+  @@socket_rooms = Hash(HTTP::WebSocket, String).new
 
   def on_connect
-    room_id = params["room_id"]
-    @@connections[room_id] << socket
-
-    # Send welcome message
+    # Send welcome message - client must send a "join" message with room_id
     send_message({
       type: "system",
-      message: "Welcome to room #{room_id}",
+      message: "Connected. Send a 'join' message with room_id to join a room.",
       timestamp: Time.utc.to_rfc3339
     })
-
-    # Notify others in the room
-    broadcast_to_room(room_id, {
-      type: "user_joined",
-      message: "A user joined the room",
-      count: @@connections[room_id].size
-    }, exclude: socket)
-
-    Log.info { "User connected to room #{room_id}. Total: #{@@connections[room_id].size}" }
   end
 
   def on_message(message : String)
@@ -95,31 +87,34 @@ class ChatChannel < Azu::Channel
   end
 
   def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
-    room_id = params["room_id"]
-    @@connections[room_id].delete(socket)
+    # Find and remove from room
+    if room_id = @@socket_rooms[socket]?
+      @@connections[room_id].delete(socket)
+      @@socket_rooms.delete(socket)
 
-    # Notify remaining users
-    if @@connections[room_id].any?
-      broadcast_to_room(room_id, {
-        type: "user_left",
-        message: "A user left the room",
-        count: @@connections[room_id].size
-      })
+      # Notify remaining users
+      if @@connections[room_id].any?
+        broadcast_to_room(room_id, {
+          type: "user_left",
+          message: "A user left the room",
+          count: @@connections[room_id].size
+        })
+      end
+
+      Log.info { "User disconnected from room #{room_id}. Remaining: #{@@connections[room_id].size}" }
     end
-
-    Log.info { "User disconnected from room #{room_id}. Remaining: #{@@connections[room_id].size}" }
   end
 
   private def handle_message_type(data)
-    room_id = params["room_id"]
-
     case data["type"]?.try(&.as_s)
+    when "join"
+      handle_join(data)
     when "chat_message"
-      handle_chat_message(room_id, data)
+      handle_chat_message(data)
     when "typing_start"
-      handle_typing_indicator(room_id, data, true)
+      handle_typing_indicator(data, true)
     when "typing_stop"
-      handle_typing_indicator(room_id, data, false)
+      handle_typing_indicator(data, false)
     when "ping"
       send_message({type: "pong", timestamp: Time.utc.to_rfc3339})
     else
@@ -127,7 +122,36 @@ class ChatChannel < Azu::Channel
     end
   end
 
-  private def handle_chat_message(room_id : String, data)
+  private def handle_join(data)
+    room_id = data["room_id"]?.try(&.as_s)
+    return send_error("room_id is required") unless room_id
+
+    # Track socket's room
+    @@socket_rooms[socket] = room_id
+    @@connections[room_id] << socket
+
+    # Send confirmation
+    send_message({
+      type: "joined",
+      room_id: room_id,
+      message: "Welcome to room #{room_id}",
+      timestamp: Time.utc.to_rfc3339
+    })
+
+    # Notify others
+    broadcast_to_room(room_id, {
+      type: "user_joined",
+      message: "A user joined the room",
+      count: @@connections[room_id].size
+    }, exclude: socket)
+
+    Log.info { "User joined room #{room_id}. Total: #{@@connections[room_id].size}" }
+  end
+
+  private def handle_chat_message(data)
+    room_id = @@socket_rooms[socket]?
+    return send_error("Not in a room. Send a 'join' message first.") unless room_id
+
     message = data["message"]?.try(&.as_s)
     return send_error("Message is required") unless message
 
@@ -144,7 +168,10 @@ class ChatChannel < Azu::Channel
     })
   end
 
-  private def handle_typing_indicator(room_id : String, data, is_typing : Bool)
+  private def handle_typing_indicator(data, is_typing : Bool)
+    room_id = @@socket_rooms[socket]?
+    return send_error("Not in a room") unless room_id
+
     broadcast_to_room(room_id, {
       type: is_typing ? "user_typing" : "user_stopped_typing",
       user_id: current_user_id,
@@ -288,11 +315,15 @@ class GameChannel < Azu::Channel
   end
 
   private def handle_join_game(data : JoinGameMessage)
-    game_id = params["game_id"]
+    # Game ID is provided in the message payload
+    game_id = data.game_id
 
     # Validate game exists and has space
     return send_error("Game not found") unless game_exists?(game_id)
     return send_error("Game is full") unless game_has_space?(game_id)
+
+    # Track this socket's game
+    @@socket_games[socket] = game_id
 
     # Add player to game
     add_player_to_game(game_id, data.player_name, data.color)
@@ -306,7 +337,9 @@ class GameChannel < Azu::Channel
   end
 
   private def handle_move(data : MoveMessage)
-    game_id = params["game_id"]
+    game_id = @@socket_games[socket]?
+    return send_error("Not in a game") unless game_id
+
     player_id = get_player_id(socket)
 
     # Validate move
@@ -326,7 +359,8 @@ class GameChannel < Azu::Channel
   end
 
   private def handle_chat(data : ChatMessage)
-    game_id = params["game_id"]
+    game_id = @@socket_games[socket]?
+    return send_error("Not in a game") unless game_id
 
     # Validate message
     return send_error("Message too long") if data.message.size > 200
@@ -348,28 +382,47 @@ end
 
 ```crystal
 class RoomChannel < Azu::Channel
-  ws "/room/:room_id"
+  ws "/room"
 
   @@rooms = Hash(String, Set(HTTP::WebSocket)).new { |h, k| h[k] = Set(HTTP::WebSocket).new }
+  @@socket_rooms = Hash(HTTP::WebSocket, String).new
 
   def on_connect
-    room_id = params["room_id"]
-    @@rooms[room_id] << socket
-
-    # Send room info
+    # Wait for client to send a "join" message with room_id
     send_message({
-      type: "room_info",
-      room_id: room_id,
-      user_count: @@rooms[room_id].size
+      type: "connected",
+      message: "Send a 'join' message with room_id to enter a room"
     })
   end
 
-  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
-    room_id = params["room_id"]
-    @@rooms[room_id].delete(socket)
+  def on_message(message : String)
+    data = JSON.parse(message)
+    case data["type"]?.try(&.as_s)
+    when "join"
+      room_id = data["room_id"]?.try(&.as_s)
+      return send_error("room_id required") unless room_id
 
-    # Clean up empty rooms
-    @@rooms.delete(room_id) if @@rooms[room_id].empty?
+      @@socket_rooms[socket] = room_id
+      @@rooms[room_id] << socket
+
+      send_message({
+        type: "room_info",
+        room_id: room_id,
+        user_count: @@rooms[room_id].size
+      })
+    end
+  rescue
+    send_error("Invalid message format")
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
+    if room_id = @@socket_rooms[socket]?
+      @@rooms[room_id].delete(socket)
+      @@socket_rooms.delete(socket)
+
+      # Clean up empty rooms
+      @@rooms.delete(room_id) if @@rooms[room_id].empty?
+    end
   end
 
   # Broadcast to specific room
@@ -460,49 +513,56 @@ end
 
 ### Token-Based Authentication
 
+> **Note:** For authentication, pass the token as a query parameter in the WebSocket URL (e.g., `ws://host/secure?token=xxx`). Resource access is managed via messages after connection.
+
 ```crystal
 class AuthenticatedChannel < Azu::Channel
-  ws "/secure/:resource_id"
+  ws "/secure"
+
+  @@user_contexts = Hash(HTTP::WebSocket, User).new
+  @@user_resources = Hash(HTTP::WebSocket, String).new
 
   def on_connect
-    # Extract token from query parameters or headers
-    token = extract_token
+    # Extract token from query parameters in the WebSocket URL
+    # Client connects with: ws://host/secure?token=xxx
+    token = extract_token_from_query
     return reject_connection("No token provided") unless token
 
     # Validate token
     user = validate_token(token)
     return reject_connection("Invalid token") unless user
 
-    # Check resource access
-    resource_id = params["resource_id"]
-    return reject_connection("Access denied") unless can_access?(user, resource_id)
-
     # Store user context
-    set_user_context(user)
+    @@user_contexts[socket] = user
 
     Log.info { "User #{user.id} connected to secure channel" }
+
+    # Prompt client to specify which resource to access
+    send_message({type: "authenticated", message: "Send 'access' message with resource_id"})
   end
 
   def on_message(message : String)
     # Ensure user is authenticated for each message
-    user = get_user_context
+    user = @@user_contexts[socket]?
     return send_error("Not authenticated") unless user
 
-    handle_authenticated_message(user, message)
+    data = JSON.parse(message)
+    case data["type"]?.try(&.as_s)
+    when "access"
+      resource_id = data["resource_id"]?.try(&.as_s)
+      return send_error("resource_id required") unless resource_id
+      return send_error("Access denied") unless can_access?(user, resource_id)
+      @@user_resources[socket] = resource_id
+      send_message({type: "access_granted", resource_id: resource_id})
+    else
+      handle_authenticated_message(user, data)
   end
 
-  private def extract_token : String?
-    # Extract from query parameters
-    token = params["token"]?
-    return token if token
-
-    # Extract from headers
-    auth_header = request.headers["Authorization"]?
-    return nil unless auth_header
-
-    if auth_header.starts_with?("Bearer ")
-      auth_header[7..]
-    end
+  private def extract_token_from_query : String?
+    # Note: In a real implementation, you would need to parse the query string
+    # from the WebSocket upgrade request. This is a conceptual example.
+    # The actual implementation depends on how you capture the upgrade request.
+    nil # Placeholder - implement based on your WebSocket upgrade handling
   end
 
   private def validate_token(token : String) : User?

@@ -219,7 +219,7 @@ Access performance data via HTTP:
 
 ```crystal
 struct PerformanceEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, JsonResponse)
+  include Azu::Endpoint(EmptyRequest, JsonResponse)
 
   get "/admin/performance"
 
@@ -240,7 +240,7 @@ end
 
 ```crystal
 struct DevToolsEndpoint
-  include Azu::Endpoint(Azu::Request::Empty, JsonResponse)
+  include Azu::Endpoint(EmptyRequest, JsonResponse)
 
   get "/admin/dev-tools"
 
