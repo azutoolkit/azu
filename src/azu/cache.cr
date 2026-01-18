@@ -32,18 +32,17 @@ module Azu
       abstract def clear : Bool
       abstract def size : Int32
 
-      # Overloaded get method with block and TTL support (Rails-like)
+      # Overloaded get method with block and TTL support
+      # @deprecated Use `fetch` instead for Rails-like cache-aside pattern.
+      #   The `get` method with a block is deprecated and will be removed in a future version.
+      #   Replace: cache.get("key", ttl: 1.hour) { compute_value }
+      #   With:    cache.fetch("key", ttl: 1.hour) { compute_value }
+      @[Deprecated("Use `fetch` instead for cache-aside pattern with block")]
       def get(key : String, ttl : Time::Span? = nil, & : -> String) : String
-        if cached = get(key)
-          cached
-        else
-          value = yield
-          set(key, value, ttl)
-          value
-        end
+        fetch(key, ttl) { yield }
       end
 
-      # Rails-like fetch method with block support
+      # Rails-like fetch method with block support (preferred method)
       def fetch(key : String, ttl : Time::Span? = nil, & : -> String) : String
         if cached = get(key)
           cached

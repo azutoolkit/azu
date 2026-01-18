@@ -1,4 +1,6 @@
 require "../src/azu"
+require "cql"
+require "sqlite3"
 
 module ExampleApp
   include Azu
@@ -27,6 +29,10 @@ require "./requests/*"
 require "./responses/*"
 require "./endpoints/*"
 require "./channels/*"
+
+# Initialize in-memory SQLite database for real database query testing
+ExampleApp.init_database
+puts "Database initialized with test data"
 
 # Build handler chain with explicit typing to avoid Crystal type inference issues
 {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}

@@ -11,6 +11,8 @@ module ExampleApp
     def call : DevelopmentToolsResponse
       action = development_tools_request.action
 
+      puts "DevelopmentToolsEndpoint received action: #{action}"
+
       case action
       when "generate_test_data"
         generate_test_data
@@ -27,8 +29,11 @@ module ExampleApp
       when "component_test"
         run_component_test
         DevelopmentToolsResponse.new("🧩 Component test completed!")
+      when "database_test"
+        run_database_test
+        DevelopmentToolsResponse.new("🗄️ Database test completed!")
       else
-        DevelopmentToolsResponse.new("🛠️ Development Tools Endpoint - Available actions: generate_test_data, clear_metrics, simulate_errors, cache_test, component_test")
+        DevelopmentToolsResponse.new("🛠️ Development Tools Endpoint - Available actions: generate_test_data, clear_metrics, simulate_errors, cache_test, component_test, database_test")
       end
     end
 
@@ -247,6 +252,112 @@ module ExampleApp
               event: "refresh",
               processing_time: Random.rand(0.5..2.5),
               age_at_event: Time::Span.new(seconds: i * 10 + Random.rand(10))
+            )
+          end
+        end
+      end
+    end
+
+    private def run_database_test
+      {% if @top_level.has_constant?("CQL") %}
+        # Simulate various query patterns using CQL's performance monitoring
+        simulate_query_patterns
+        simulate_n_plus_one_pattern
+        simulate_slow_queries
+      {% else %}
+        # Fallback: generate mock database metrics via Azu's metrics system
+        generate_mock_database_metrics
+      {% end %}
+    end
+
+    {% if @top_level.has_constant?("CQL") %}
+      private def simulate_query_patterns
+        queries = [
+          {sql: "SELECT * FROM users WHERE id = ?", params: ["1"] of DB::Any, time_ms: 5.0},
+          {sql: "SELECT * FROM posts WHERE user_id = ?", params: ["1"] of DB::Any, time_ms: 12.0},
+          {sql: "INSERT INTO logs (message, created_at) VALUES (?, ?)", params: ["test", Time.utc.to_s] of DB::Any, time_ms: 3.0},
+          {sql: "UPDATE users SET last_seen = ? WHERE id = ?", params: [Time.utc.to_s, "1"] of DB::Any, time_ms: 8.0},
+          {sql: "SELECT COUNT(*) FROM sessions WHERE active = ?", params: ["true"] of DB::Any, time_ms: 2.0},
+          {sql: "DELETE FROM expired_tokens WHERE expires_at < ?", params: [Time.utc.to_s] of DB::Any, time_ms: 4.0},
+          {sql: "SELECT u.*, p.title FROM users u JOIN posts p ON u.id = p.user_id WHERE u.active = ?", params: ["true"] of DB::Any, time_ms: 25.0},
+        ]
+
+        queries.each do |q|
+          CQL::Performance.after_query(q[:sql], q[:params], Time::Span.new(nanoseconds: (q[:time_ms] * 1_000_000).to_i64), Random.rand(1_i64..10_i64))
+        end
+      end
+
+      private def simulate_n_plus_one_pattern
+        # Set context for N+1 detection
+        CQL::Performance.monitor.set_context(endpoint: "UserEndpoint#index")
+
+        # First query fetches all users
+        CQL::Performance.after_query(
+          "SELECT * FROM users LIMIT 10",
+          [] of DB::Any,
+          15.milliseconds,
+          10_i64
+        )
+
+        # Then individual queries for each user's posts (N+1 pattern!)
+        10.times do |i|
+          CQL::Performance.after_query(
+            "SELECT * FROM posts WHERE user_id = ?",
+            [(i + 1).to_s] of DB::Any,
+            Time::Span.new(nanoseconds: (Random.rand(2.0..8.0) * 1_000_000).to_i64),
+            Random.rand(0_i64..5_i64)
+          )
+        end
+
+        # Clear context
+        CQL::Performance.monitor.set_context(endpoint: nil)
+      end
+
+      private def simulate_slow_queries
+        slow_queries = [
+          {sql: "SELECT * FROM large_table WHERE unindexed_column LIKE ?", time_ms: 250.0},
+          {sql: "SELECT o.*, p.*, c.* FROM orders o JOIN products p ON o.product_id = p.id JOIN categories c ON p.category_id = c.id WHERE o.status = ?", time_ms: 450.0},
+          {sql: "SELECT DATE(created_at), COUNT(*) FROM analytics GROUP BY DATE(created_at) ORDER BY 1 DESC", time_ms: 1200.0},
+          {sql: "SELECT * FROM audit_logs WHERE action IN (?, ?, ?) AND created_at > ?", time_ms: 350.0},
+        ]
+
+        slow_queries.each do |q|
+          params : Array(DB::Any) = case q[:sql]
+          when /LIKE/      then ["%search_term%"] of DB::Any
+          when /status =/  then ["pending"] of DB::Any
+          when /action IN/ then ["create", "update", "delete", (Time.utc - 7.days).to_s] of DB::Any
+          else                  [] of DB::Any
+          end
+          CQL::Performance.after_query(q[:sql], params, Time::Span.new(nanoseconds: (q[:time_ms] * 1_000_000).to_i64), Random.rand(100_i64..1000_i64))
+        end
+      end
+    {% end %}
+
+    private def generate_mock_database_metrics
+      # Fallback when CQL is not available - use Azu's performance metrics
+      if monitor = ExampleApp::CONFIG.performance_monitor
+        metrics = monitor.metrics
+
+        # Generate mock database-like request patterns
+        db_endpoints = ["QueryEndpoint", "ReportEndpoint", "AnalyticsEndpoint"]
+
+        db_endpoints.each do |endpoint|
+          5.times do |i|
+            processing_time = case i % 3
+                              when 0 then Random.rand(5..50).to_f    # Fast queries
+                              when 1 then Random.rand(50..200).to_f  # Normal queries
+                              else        Random.rand(200..500).to_f # Slow queries
+                              end
+
+            metrics.record_request(
+              endpoint: endpoint,
+              method: "GET",
+              path: "/api/data/#{endpoint.downcase}",
+              processing_time: processing_time,
+              memory_before: Random.rand(100_000_000..150_000_000).to_i64,
+              memory_after: Random.rand(150_000_000..200_000_000).to_i64,
+              status_code: 200,
+              request_id: "db_req_#{Random::Secure.hex(8)}"
             )
           end
         end

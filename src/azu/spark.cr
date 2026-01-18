@@ -26,6 +26,21 @@ module Azu
       end
     end
 
+    # Type-safe component retrieval with compile-time type checking
+    # Returns nil if component doesn't exist or is not of the expected type
+    #
+    # Example:
+    # ```
+    # if counter = registry.get_typed("counter_1", CounterComponent)
+    #   counter.increment # No cast needed, type is CounterComponent
+    # end
+    # ```
+    def get_typed(id : String, type : T.class) : T? forall T
+      if component = get(id)
+        component.as?(T)
+      end
+    end
+
     # Thread-safe component removal
     def delete(id : String) : Component?
       @mutex.synchronize do

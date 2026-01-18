@@ -17,9 +17,69 @@ module Azu
   alias Validator = Schema::Validator
   CONFIG = Configuration.new
 
+  # Fiber-local configuration storage for testing and isolation
+  @@fiber_configs = {} of Fiber => Configuration
+  @@config_mutex = Mutex.new
+
+  # Get the current configuration
+  #
+  # Returns fiber-local configuration if set, otherwise returns the global CONFIG.
+  # This allows tests to run with isolated configurations without affecting
+  # other fibers or the global state.
+  #
+  # Example:
+  # ```
+  # # Get current config
+  # current = Azu.current_config
+  # puts current.env # => "development"
+  # ```
+  def self.current_config : Configuration
+    @@config_mutex.synchronize do
+      @@fiber_configs[Fiber.current]? || CONFIG
+    end
+  end
+
+  # Execute a block with a custom configuration
+  #
+  # This is primarily useful for testing, allowing tests to run with
+  # isolated configuration without affecting other tests or the global state.
+  #
+  # Example:
+  # ```
+  # test_config = Azu::Configuration.new
+  # test_config.env = Azu::Environment::Test
+  #
+  # Azu.with_config(test_config) do
+  #   # Code here uses test_config
+  #   Azu.current_config.env # => Environment::Test
+  # end
+  # # Outside the block, global CONFIG is used again
+  # ```
+  def self.with_config(config : Configuration, &)
+    @@config_mutex.synchronize do
+      @@fiber_configs[Fiber.current] = config
+    end
+    begin
+      yield
+    ensure
+      @@config_mutex.synchronize do
+        @@fiber_configs.delete(Fiber.current)
+      end
+    end
+  end
+
+  # Clear all fiber-local configurations
+  #
+  # Useful for cleanup in test suites.
+  def self.clear_fiber_configs : Nil
+    @@config_mutex.synchronize do
+      @@fiber_configs.clear
+    end
+  end
+
   # Rails-like cache API
   def self.cache
-    CONFIG.cache
+    current_config.cache
   end
 
   macro included
