@@ -18,9 +18,9 @@ module Azu
       include HTTP::Handler
 
       alias OriginType = Array(String | Regex)
-      FORBIDDEN       = "Forbidden for invalid origins, methods or headers"
-      ALLOW_METHODS   = %w(POST PUT PATCH DELETE)
-      ALLOW_HEADERS   = %w(Accept Content-Type)
+      FORBIDDEN     = "Forbidden for invalid origins, methods or headers"
+      ALLOW_METHODS = %w(POST PUT PATCH DELETE)
+      ALLOW_HEADERS = %w(Accept Content-Type)
       # SECURITY: Empty by default - origins must be explicitly configured
       # Previously was ["*", /./] which allowed all origins
       DEFAULT_ORIGINS = [] of (String | Regex)
