@@ -67,7 +67,7 @@ jobs:
           shards build example_app
 
       - name: Check code style
-        run: crystal tool format --check
+        run: crystal tool format --check --exclude lib --exclude playground/lib
 
       - name: Run cache tests
         run: crystal spec spec/azu/cache_spec.cr --fail-fast
