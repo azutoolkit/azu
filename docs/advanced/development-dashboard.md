@@ -54,18 +54,26 @@ The Development Dashboard is a built-in HTTP handler that displays:
 
 ## Dashboard Preview
 
-![Azu Development Dashboard](../performance/dev-dashboard.png)
+![Azu Development Dashboard](../.gitbook/assets/dev-dashboard-full-dark.png)
 
-_The Azu Development Dashboard in action, showing comprehensive metrics, error logs, route listings, and system information with a modern, professional interface._
+_The Azu Development Dashboard featuring sidebar navigation, Golden Signals monitoring, health score visualization, and comprehensive metrics._
 
 ### Key Visual Features:
 
-- **📊 Comprehensive Metrics**: Application status, performance data, cache statistics
-- **🚨 Error Tracking**: Recent error logs with detailed debugging information
-- **🗺️ Route Discovery**: Complete listing of all registered application routes
-- **🔧 System Insights**: Crystal version, GC stats, and process information
-- **⚡ Live Data**: Real-time updates with auto-refresh functionality
-- **🎨 Professional Design**: Clean, modern interface with color-coded indicators
+- **Sidebar Navigation**: Quick access to Overview, Errors, Requests, Database, Cache, Routes, and Components
+- **Health Score Ring**: At-a-glance application health indicator (0-100 score)
+- **Golden Signals Panel**: SRE-standard monitoring (Latency, Traffic, Errors, Saturation)
+- **Alert Banner**: Critical and warning issues requiring attention
+- **Insights Panel**: Smart recommendations based on detected patterns
+- **Comprehensive Metrics**: Application status, performance data, cache statistics
+- **Error Tracking**: Recent error logs with detailed debugging information
+- **Database Monitoring**: N+1 query detection, slow query analysis
+- **Route Discovery**: Complete listing of all registered application routes
+- **Component Lifecycle**: Mount/unmount events with memory tracking
+- **Keyboard Shortcuts**: Navigate with `g o`, `g e`, `g d`, etc.
+- **Theme Support**: Light, dark, and system theme options
+
+> **Visual Guide**: For a detailed visual walkthrough with screenshots of each section, see the [Development Dashboard Visual Guide](development-dashboard-visual-guide.md).
 
 ## Quick Start
 
@@ -274,6 +282,121 @@ MyApp.start [
 - ✅ Crystal version and environment
 - ✅ Process ID and GC statistics
 - ✅ Heap size information
+
+## Golden Signals Monitoring
+
+The dashboard implements Google SRE's Four Golden Signals for comprehensive monitoring:
+
+### Latency
+
+Tracks request response times with percentile breakdowns:
+
+- **Average Response Time** - Mean duration across all requests
+- **P50/P95/P99** - Percentile distribution for understanding tail latency
+- **Sparkline Visualization** - Visual trend over recent requests
+
+| Status | Threshold |
+|--------|-----------|
+| Healthy | < 100ms average |
+| Warning | 100-500ms average |
+| Critical | > 500ms average |
+
+### Traffic
+
+Monitors request volume and throughput:
+
+- **Requests/Second** - Current throughput rate
+- **Total Requests** - Cumulative count since startup
+- **Sparkline Visualization** - Request volume trends
+
+### Errors
+
+Tracks error rates and counts:
+
+- **Error Rate** - Percentage of failed requests (4xx/5xx)
+- **Error Count** - Absolute count in recent window
+
+| Status | Threshold |
+|--------|-----------|
+| Healthy | < 1% error rate |
+| Warning | 1-5% error rate |
+| Critical | > 5% error rate |
+
+### Saturation
+
+Monitors resource utilization:
+
+- **Memory %** - Current memory utilization
+- **GC Heap** - Garbage collector heap size
+- **Progress Bar** - Visual utilization indicator
+
+| Status | Threshold |
+|--------|-----------|
+| Healthy | < 70% memory |
+| Warning | 70-85% memory |
+| Critical | > 85% memory |
+
+## Health Score System
+
+The Health Score Ring provides an at-a-glance indicator of application health on a 0-100 scale:
+
+### Score Calculation
+
+The score starts at 100 and deductions are applied based on:
+
+| Factor | Maximum Deduction |
+|--------|-------------------|
+| Error rate | -30 points |
+| Average response time | -20 points |
+| Cache hit rate | -15 points |
+| N+1 query patterns | -15 points |
+| Slow queries | -10 points |
+
+### Score Ranges
+
+| Score | Status | Color | Meaning |
+|-------|--------|-------|---------|
+| 90-100 | Healthy | Green | All systems operating normally |
+| 70-89 | Warning | Yellow | Some issues need attention |
+| 0-69 | Critical | Red | Significant problems detected |
+
+## Keyboard Shortcuts
+
+Navigate the dashboard efficiently with keyboard shortcuts. Press `?` to view all shortcuts.
+
+### Navigation
+
+| Keys | Action |
+|------|--------|
+| `g` then `o` | Go to Overview |
+| `g` then `e` | Go to Errors |
+| `g` then `q` | Go to Requests |
+| `g` then `d` | Go to Database |
+| `g` then `c` | Go to Cache |
+| `g` then `r` | Go to Routes |
+| `g` then `p` | Go to Components |
+
+### Actions
+
+| Key | Action |
+|-----|--------|
+| `r` | Refresh data |
+| `/` | Focus search |
+| `e` | Export metrics |
+| `?` | Show shortcuts modal |
+| `Esc` | Close modal |
+
+## Theme Support
+
+The dashboard supports three theme options, accessible via the sidebar footer:
+
+| Theme | Icon | Description |
+|-------|------|-------------|
+| Light | Sun | Clean light background for bright environments |
+| Dark | Moon | Rich dark theme with blue undertones (default) |
+| System | Monitor | Automatically follows OS preference |
+
+Theme preference is persisted in localStorage and restored on page load.
 
 ## API Integration
 

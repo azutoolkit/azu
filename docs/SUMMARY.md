@@ -58,6 +58,7 @@
   - [Cache Metrics](performance/cache-metrics.md)
   - [Terminal Logging](performance/beautiful-terminal-logging.md)
   - [Development Dashboard](performance/development-dashboard.md)
+  - [Dashboard Visual Guide](advanced/development-dashboard-visual-guide.md)
 
 ## API Reference
 
