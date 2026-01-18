@@ -54,6 +54,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-test-cache-
 
+      - name: Install system dependencies
+        run: apt-get update && apt-get install -y libsqlite3-dev
+
       - name: Install dependencies
         run: shards install
 
