@@ -69,67 +69,54 @@ HTTP Request → Router → Middleware Chain → Endpoint → Response
 
 ## Documentation
 
-### Getting Started
+| New to Azu? | Need to do something? | Looking for API? | Want to understand? |
+|-------------|----------------------|------------------|---------------------|
+| [Tutorials](tutorials/) | [How-To Guides](how-to/) | [Reference](reference/) | [Explanation](explanation/) |
 
-- [Installation](getting-started/installation.md)
-- [First App](getting-started/first-app.md)
+### Tutorials
 
-### Core Concepts
+Step-by-step lessons to learn Azu:
 
-- [Architecture](fundamentals/architecture.md)
-- [Endpoints](fundamentals/endpoints.md)
-- [Requests](fundamentals/requests.md)
-- [Responses](fundamentals/responses.md)
-- [Routing](fundamentals/routing.md)
-- [Middleware](fundamentals/middleware.md)
+- [Getting Started](tutorials/getting-started.md) - Install and create your first app
+- [Building a User API](tutorials/building-a-user-api.md) - Complete CRUD API tutorial
+- [Adding WebSockets](tutorials/adding-websockets.md) - Real-time features
+- [Working with Databases](tutorials/working-with-databases.md) - CQL integration
+- [Testing Your App](tutorials/testing-your-app.md) - Write comprehensive tests
+- [Deploying to Production](tutorials/deploying-to-production.md) - Production deployment
 
-### Features
+### How-To Guides
 
-- [Caching](features/caching.md)
-- [Templates](features/templates.md)
-- [Validation](features/validation.md)
-- [File Uploads](features/file-uploads.md)
+Task-oriented guides for specific goals:
 
-### Database
+- [Endpoints](how-to/endpoints/) - Create endpoints, handle parameters, return formats
+- [Validation](how-to/validation/) - Validate requests and models
+- [Real-Time](how-to/real-time/) - WebSocket channels and live components
+- [Database](how-to/database/) - Schema, models, queries, transactions
+- [Caching](how-to/caching/) - Memory and Redis caching
+- [Middleware](how-to/middleware/) - Custom handlers and logging
+- [Deployment](how-to/deployment/) - Production, Docker, scaling
+- [Performance](how-to/performance/) - Optimize endpoints and queries
 
-- [CQL Overview](database/cql-overview.md)
-- [Models & Queries](database/models.md)
-- [Migrations](database/migrations.md)
+### Reference
 
-### Real-Time
+Technical specifications and API documentation:
 
-- [WebSocket Channels](real-time/channels.md)
-- [Live Components](real-time/components.md)
-- [Spark System](real-time/spark.md)
+- [Core API](reference/api/) - Endpoint, Request, Response, Channel, Component
+- [Handlers](reference/handlers/built-in.md) - Built-in middleware handlers
+- [Configuration](reference/configuration/options.md) - All configuration options
+- [Database](reference/database/) - CQL API, validations, query methods
+- [Error Types](reference/errors/error-types.md) - HTTP error classes
 
-### Advanced
+### Explanation
 
-- [Performance Tuning](advanced/performance-tuning.md)
-- [Content Negotiation](advanced/content-negotiation.md)
-- [Environments](advanced/environments.md)
-- [Development Dashboard](advanced/development-dashboard.md)
+Conceptual understanding of Azu:
 
-### API Reference
+- [Architecture](explanation/architecture/overview.md) - How Azu works
+- [Request Lifecycle](explanation/architecture/request-lifecycle.md) - Request flow
+- [Type Safety](explanation/architecture/type-safety.md) - Compile-time guarantees
+- [Design Decisions](explanation/design-decisions/) - Why Azu is built this way
 
-- [Core API](api/core.md)
-- [Handlers](api/handlers.md)
-- [Configuration](api/configuration.md)
-- [Errors](api/errors.md)
+### Resources
 
-### Deployment
-
-- [Production](deployment/production.md)
-- [Docker](deployment/docker.md)
-- [Scaling](deployment/scaling.md)
-
-### Testing
-
-- [Unit Testing](testing/unit.md)
-- [Integration Testing](testing/integration.md)
-- [WebSocket Testing](testing/websockets.md)
-
-### More
-
-- [FAQ](faq.md)
-- [Version Upgrades](migration/upgrades.md)
-- [Contributing](contributing/setup.md)
+- [FAQ](faq.md) - Common questions and troubleshooting
+- [Contributing](contributing/setup.md) - Development setup and guidelines

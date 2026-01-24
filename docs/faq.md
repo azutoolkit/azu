@@ -65,7 +65,7 @@ struct UserEndpoint
 end
 ```
 
-See the [Database documentation](database/cql-overview.md) for complete CQL integration details.
+See the [Database documentation](reference/database/cql-api.md) for complete CQL integration details.
 
 **Q: Can I use Azu with existing Crystal libraries?**
 
@@ -523,5 +523,5 @@ end
 
 ---
 
-**Still need help?** Check the [Contributing Guide](contributing.md) for information on getting support from the community.
+**Still need help?** Check the [Contributing Guide](contributing/setup.md) for information on getting support from the community.
 ```
