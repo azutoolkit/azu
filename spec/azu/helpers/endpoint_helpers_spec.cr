@@ -271,6 +271,88 @@ describe "Type-Safe Endpoint Helpers" do
       result.should contain "&lt;b&gt;Delete&lt;/b&gt;"
       result.should_not contain "<b>Delete</b>"
     end
+
+    it "supports custom params as hidden fields" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string("{{ button_to_delete_endpoint_helpers_spec_delete_user(id='123', params={'redirect': '/users', 'source': 'list'}) }}")
+      result = template.render
+
+      result.should contain %(<input type="hidden" name="redirect" value="/users">)
+      result.should contain %(<input type="hidden" name="source" value="list">)
+    end
+  end
+
+  describe "link_to_* with params" do
+    it "adds query parameters to URL" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string("{{ link_to_get_endpoint_helpers_spec_users('Users', params={'page': '2', 'per_page': '10'}) }}")
+      result = template.render
+
+      result.should contain "href=\"/users?"
+      result.should contain "page=2"
+      result.should contain "per_page=10"
+    end
+
+    it "adds query parameters to URL with id" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string("{{ link_to_get_endpoint_helpers_spec_user('View', id='123', params={'tab': 'profile'}) }}")
+      result = template.render
+
+      result.should contain "href=\"/users/123?"
+      result.should contain "tab=profile"
+    end
+
+    it "URL-encodes parameter values" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string("{{ link_to_get_endpoint_helpers_spec_users('Users', params={'query': 'hello world'}) }}")
+      result = template.render
+
+      # URI.encode_www_form uses + for spaces (standard form encoding)
+      result.should contain "query=hello+world"
+    end
+  end
+
+  describe "form_for_* with params" do
+    it "adds hidden fields for params" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string("{{ form_for_post_endpoint_helpers_spec_create_user(params={'redirect_to': '/dashboard', 'source': 'signup'}) }}")
+      result = template.render
+
+      result.should contain %(<input type="hidden" name="redirect_to" value="/dashboard">)
+      result.should contain %(<input type="hidden" name="source" value="signup">)
+    end
+
+    it "adds hidden fields for params with PUT method" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string("{{ form_for_put_endpoint_helpers_spec_update_user(id='123', params={'return_url': '/users'}) }}")
+      result = template.render
+
+      result.should contain %(<input type="hidden" name="_method" value="put">)
+      result.should contain %(<input type="hidden" name="return_url" value="/users">)
+    end
+
+    it "escapes HTML in param values" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string("{{ form_for_post_endpoint_helpers_spec_create_user(params={'msg': '<script>alert(1)</script>'}) }}")
+      result = template.render
+
+      result.should contain "&lt;script&gt;"
+      result.should_not contain "<script>alert"
+    end
   end
 
   describe "helper availability" do

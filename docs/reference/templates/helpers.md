@@ -417,6 +417,17 @@ Generates anchor tags for any endpoint:
 | `class` | string | `nil` | CSS class |
 | `target` | string | `nil` | Target (_blank, _self, etc.) |
 | `data` | hash | `nil` | Data attributes |
+| `params` | hash | `nil` | Custom URL query parameters |
+
+**With custom query parameters:**
+
+```jinja
+{{ link_to_get_users("Users", params={'page': '2', 'per_page': '10'}) }}
+{# Output: <a href="/users?page=2&per_page=10">Users</a> #}
+
+{{ link_to_get_user("View User", id="123", params={'tab': 'profile'}) }}
+{# Output: <a href="/users/123?tab=profile">View User</a> #}
+```
 
 ### form_for_{method}_{resource}
 
@@ -455,6 +466,19 @@ Generates form opening tags for non-GET endpoints. PUT, PATCH, and DELETE method
 | `class` | string | `nil` | CSS class |
 | `enctype` | string | `nil` | Form encoding type |
 | `data` | hash | `nil` | Data attributes |
+| `params` | hash | `nil` | Custom params as hidden fields |
+
+**With custom hidden fields:**
+
+```jinja
+{{ form_for_post_create_user(params={'redirect_to': '/dashboard', 'source': 'signup'}) }}
+  {{ csrf_field() }}
+  {# generates: <input type="hidden" name="redirect_to" value="/dashboard">
+               <input type="hidden" name="source" value="signup"> #}
+  {{ text_field("user", "name") }}
+  {{ submit_button("Create") }}
+{{ end_form() }}
+```
 
 ### button_to_delete_{resource}
 
@@ -488,6 +512,17 @@ Generates a complete delete form with a submit button (only for DELETE endpoints
 | `class` | string | `nil` | CSS class for the button |
 | `confirm` | string | `nil` | JavaScript confirmation message |
 | `data` | hash | `nil` | Data attributes |
+| `params` | hash | `nil` | Custom params as hidden fields |
+
+**With custom hidden fields:**
+
+```jinja
+{{ button_to_delete_delete_user(id="123", params={'redirect': '/users', 'source': 'list'}) }}
+{# Generates form with additional hidden fields:
+   <input type="hidden" name="redirect" value="/users">
+   <input type="hidden" name="source" value="list">
+#}
+```
 
 ### Helper Naming Convention
 

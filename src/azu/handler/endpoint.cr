@@ -94,6 +94,7 @@ module Azu
           class:  nil,
           target: nil,
           data:   nil,
+          params: nil,
         }, :link_to_{{method.id}}_{{helper_resource_name}}) do
           id_param = arguments["id"]
           path = if id_param.none?
@@ -102,11 +103,26 @@ module Azu
                    endpoint_class.path(id: id_param.to_s)
                  end
 
+          # Handle custom URL query parameters
+          params_arg = arguments["params"]
+          unless params_arg.none?
+            query_parts = [] of String
+            if params_arg.raw.is_a?(Hash)
+              params_arg.raw.as(Hash).each do |k, v|
+                query_parts << "#{URI.encode_www_form(k.to_s)}=#{URI.encode_www_form(v.to_s)}"
+              end
+            end
+            unless query_parts.empty?
+              separator = path.includes?("?") ? "&" : "?"
+              path = "#{path}#{separator}#{query_parts.join("&")}"
+            end
+          end
+
           text = arguments["text"].to_s
           text = path if text.empty?
 
-          attrs = Azu::Helpers::Util.build_html_attributes_from_crinja(arguments, ["text", "id"])
-          Crinja::SafeString.new(%(<a href="#{path}"#{attrs}>#{HTML.escape(text)}</a>))
+          attrs = Azu::Helpers::Util.build_html_attributes_from_crinja(arguments, ["text", "id", "params"])
+          Crinja::SafeString.new(%(<a href="#{HTML.escape(path)}"#{attrs}>#{HTML.escape(text)}</a>))
         end
         Azu::Helpers::Registry.register_function(:link_to_{{method.id}}_{{helper_resource_name}}, func)
       end
@@ -120,6 +136,7 @@ module Azu
           class:   nil,
           enctype: nil,
           data:    nil,
+          params:  nil,
         }, :form_for_{{method.id}}_{{helper_resource_name}}) do
           id_param = arguments["id"]
           path = if id_param.none?
@@ -135,8 +152,19 @@ module Azu
             method_field = %(<input type="hidden" name="_method" value="#{http_method}">)
           end
 
-          attrs = Azu::Helpers::Util.build_html_attributes_from_crinja(arguments, ["id"])
-          Crinja::SafeString.new(%(<form action="#{path}" method="post"#{attrs}>#{method_field}))
+          # Handle custom params as hidden fields
+          params_arg = arguments["params"]
+          hidden_fields = ""
+          unless params_arg.none?
+            if params_arg.raw.is_a?(Hash)
+              params_arg.raw.as(Hash).each do |k, v|
+                hidden_fields += %(<input type="hidden" name="#{HTML.escape(k.to_s)}" value="#{HTML.escape(v.to_s)}">)
+              end
+            end
+          end
+
+          attrs = Azu::Helpers::Util.build_html_attributes_from_crinja(arguments, ["id", "params"])
+          Crinja::SafeString.new(%(<form action="#{HTML.escape(path)}" method="post"#{attrs}>#{method_field}#{hidden_fields}))
         end
         Azu::Helpers::Registry.register_function(:form_for_{{method.id}}_{{helper_resource_name}}, func)
       end
@@ -152,6 +180,7 @@ module Azu
           class:   nil,
           confirm: nil,
           data:    nil,
+          params:  nil,
         }, :button_to_delete_{{helper_resource_name}}) do
           id_param = arguments["id"]
           path = if id_param.none?
@@ -169,8 +198,19 @@ module Azu
           css_class = arguments["class"]
           class_attr = css_class.none? ? "" : %( class="#{HTML.escape(css_class.to_s)}")
 
+          # Handle custom params as hidden fields
+          params_arg = arguments["params"]
+          hidden_fields = ""
+          unless params_arg.none?
+            if params_arg.raw.is_a?(Hash)
+              params_arg.raw.as(Hash).each do |k, v|
+                hidden_fields += %(<input type="hidden" name="#{HTML.escape(k.to_s)}" value="#{HTML.escape(v.to_s)}">)
+              end
+            end
+          end
+
           Crinja::SafeString.new(<<-HTML
-          <form action="#{path}" method="post" style="display:inline"><input type="hidden" name="_method" value="delete"><button type="submit"#{class_attr}#{confirm_attr}>#{HTML.escape(text)}</button></form>
+          <form action="#{HTML.escape(path)}" method="post" style="display:inline"><input type="hidden" name="_method" value="delete">#{hidden_fields}<button type="submit"#{class_attr}#{confirm_attr}>#{HTML.escape(text)}</button></form>
           HTML
           )
         end
