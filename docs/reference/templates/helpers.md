@@ -344,6 +344,172 @@ Returns the referer URL or a fallback:
 
 ---
 
+## Type-Safe Endpoint Helpers
+
+Azu automatically generates type-safe URL and form helpers from your endpoint definitions. The HTTP method is part of the helper name, making it impossible to confuse which action will be performed.
+
+### How They're Generated
+
+When you define an endpoint with an HTTP method, Azu auto-generates helpers:
+
+```crystal
+# Endpoint definition
+class UsersEndpoint
+  include Azu::Endpoint(UsersRequest, UsersResponse)
+  get "/users"
+end
+
+class UserEndpoint
+  include Azu::Endpoint(UserRequest, UserResponse)
+  get "/users/:id"
+end
+
+class CreateUserEndpoint
+  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  post "/users"
+end
+
+class UpdateUserEndpoint
+  include Azu::Endpoint(UpdateUserRequest, UserResponse)
+  put "/users/:id"
+end
+
+class DeleteUserEndpoint
+  include Azu::Endpoint(DeleteUserRequest, EmptyResponse)
+  delete "/users/:id"
+end
+```
+
+This generates the following helpers:
+
+| Endpoint | Generated Helpers |
+|----------|-------------------|
+| `UsersEndpoint.get "/users"` | `link_to_get_users()` |
+| `UserEndpoint.get "/users/:id"` | `link_to_get_user(id=...)` |
+| `CreateUserEndpoint.post "/users"` | `link_to_post_create_user()`, `form_for_post_create_user()` |
+| `UpdateUserEndpoint.put "/users/:id"` | `link_to_put_update_user(id=...)`, `form_for_put_update_user(id=...)` |
+| `DeleteUserEndpoint.delete "/users/:id"` | `link_to_delete_delete_user(id=...)`, `form_for_delete_delete_user(id=...)`, `button_to_delete_delete_user(id=...)` |
+
+### link_to_{method}_{resource}
+
+Generates anchor tags for any endpoint:
+
+```jinja
+{# Collection endpoint (no id parameter) #}
+{{ link_to_get_users("View All Users") }}
+{# Output: <a href="/users">View All Users</a> #}
+
+{# Member endpoint (with id parameter) #}
+{{ link_to_get_user("View User", id="123") }}
+{# Output: <a href="/users/123">View User</a> #}
+
+{# Uses path as text when no text provided #}
+{{ link_to_get_users() }}
+{# Output: <a href="/users">/users</a> #}
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `text` | string | path | Link text |
+| `id` | string | `nil` | Path parameter value (for `:id` routes) |
+| `class` | string | `nil` | CSS class |
+| `target` | string | `nil` | Target (_blank, _self, etc.) |
+| `data` | hash | `nil` | Data attributes |
+
+### form_for_{method}_{resource}
+
+Generates form opening tags for non-GET endpoints. PUT, PATCH, and DELETE methods automatically include a hidden `_method` field:
+
+```jinja
+{# POST form #}
+{{ form_for_post_create_user(class="user-form") }}
+  {{ csrf_field() }}
+  {{ text_field("user", "name") }}
+  {{ submit_button("Create") }}
+{{ end_form() }}
+{# Output: <form action="/users" method="post" class="user-form">... #}
+
+{# PUT form (auto-includes _method hidden field) #}
+{{ form_for_put_update_user(id="123", class="edit-form") }}
+  {{ csrf_field() }}
+  {{ text_field("user", "name", value=user.name) }}
+  {{ submit_button("Update") }}
+{{ end_form() }}
+{# Output: <form action="/users/123" method="post" class="edit-form">
+     <input type="hidden" name="_method" value="put">... #}
+
+{# DELETE form #}
+{{ form_for_delete_delete_user(id="123") }}
+  {{ csrf_field() }}
+  {{ submit_button("Confirm Delete") }}
+{{ end_form() }}
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `id` | string | `nil` | Path parameter value (for `:id` routes) |
+| `class` | string | `nil` | CSS class |
+| `enctype` | string | `nil` | Form encoding type |
+| `data` | hash | `nil` | Data attributes |
+
+### button_to_delete_{resource}
+
+Generates a complete delete form with a submit button (only for DELETE endpoints):
+
+```jinja
+{{ button_to_delete_delete_user(id="123") }}
+{# Output:
+<form action="/users/123" method="post" style="display:inline">
+  <input type="hidden" name="_method" value="delete">
+  <button type="submit">Delete</button>
+</form>
+#}
+
+{# With custom text and confirmation #}
+{{ button_to_delete_delete_user(text="Remove User", id="123", confirm="Are you sure?") }}
+{# Output:
+<form action="/users/123" method="post" style="display:inline">
+  <input type="hidden" name="_method" value="delete">
+  <button type="submit" onclick="return confirm('Are you sure?')">Remove User</button>
+</form>
+#}
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `text` | string | `"Delete"` | Button text |
+| `id` | string | `nil` | Path parameter value (for `:id` routes) |
+| `class` | string | `nil` | CSS class for the button |
+| `confirm` | string | `nil` | JavaScript confirmation message |
+| `data` | hash | `nil` | Data attributes |
+
+### Helper Naming Convention
+
+The helper name is derived from the endpoint class name:
+
+| Class Name | Helper Resource Name |
+|------------|---------------------|
+| `UsersEndpoint` | `users` |
+| `UserEndpoint` | `user` |
+| `CreateUserEndpoint` | `create_user` |
+| `Admin::UsersEndpoint` | `admin_users` |
+| `Api::V1::UserEndpoint` | `api_v1_user` |
+
+### Benefits
+
+1. **Intuitive**: `link_to_get_users` clearly indicates a GET request
+2. **Hard to confuse**: The HTTP method is in the name, not a parameter
+3. **Type-safe**: Helpers are generated at compile-time from your endpoints
+4. **Consistent**: Same pattern works for all endpoints
+
+---
+
 ## Asset Helpers
 
 ### asset_path

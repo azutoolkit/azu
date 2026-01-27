@@ -1,6 +1,9 @@
 require "http"
+require "html"
 require "../params"
 require "./csrf"
+require "../helpers/registry"
+require "../helpers/util"
 
 module Azu
   # An Endpoint is an endpoint that handles incoming HTTP requests for a specific route.
@@ -58,11 +61,122 @@ module Azu
         url
       end
 
+      # Calculate resource name for helper generation
+      {%
+        helper_resource_name = @type.stringify.split("::")
+        helper_resource_name = helper_resource_name.size > 1 ? helper_resource_name[-2..-1].join("_") : helper_resource_name.last
+        helper_resource_name = helper_resource_name.underscore.gsub(/\_endpoint/, "").id
+      %}
+
       {% for method in Azu::Router::RESOURCES %}
       def self.{{method.id}}(path : Azu::Router::Path)
         @@resource = path
         Azu::CONFIG.router.{{method.id}} path, self.new
+
+        # Register type-safe link helper: link_to_{method}_{resource}
+        _register_link_helper_{{method.id}}
+        {% if method != "get" %}
+        # Register type-safe form helper: form_for_{method}_{resource}
+        _register_form_helper_{{method.id}}
+        {% end %}
+        {% if method == "delete" %}
+        # Register button_to_delete helper
+        _register_button_to_delete_helper
+        {% end %}
       end
+
+      # Link helper registration for {{method.id}}
+      private def self._register_link_helper_{{method.id}}
+        endpoint_class = self
+        func = Crinja.function({
+          text:   "",
+          id:     nil,
+          class:  nil,
+          target: nil,
+          data:   nil,
+        }, :link_to_{{method.id}}_{{helper_resource_name}}) do
+          id_param = arguments["id"]
+          path = if id_param.none?
+                   endpoint_class.path
+                 else
+                   endpoint_class.path(id: id_param.to_s)
+                 end
+
+          text = arguments["text"].to_s
+          text = path if text.empty?
+
+          attrs = Azu::Helpers::Util.build_html_attributes_from_crinja(arguments, ["text", "id"])
+          Crinja::SafeString.new(%(<a href="#{path}"#{attrs}>#{HTML.escape(text)}</a>))
+        end
+        Azu::Helpers::Registry.register_function(:link_to_{{method.id}}_{{helper_resource_name}}, func)
+      end
+
+      {% if method != "get" %}
+      # Form helper registration for {{method.id}}
+      private def self._register_form_helper_{{method.id}}
+        endpoint_class = self
+        func = Crinja.function({
+          id:      nil,
+          class:   nil,
+          enctype: nil,
+          data:    nil,
+        }, :form_for_{{method.id}}_{{helper_resource_name}}) do
+          id_param = arguments["id"]
+          path = if id_param.none?
+                   endpoint_class.path
+                 else
+                   endpoint_class.path(id: id_param.to_s)
+                 end
+
+          # Always use POST for form method, add _method hidden field for PUT/PATCH/DELETE
+          http_method = "{{method.id}}"
+          method_field = ""
+          if http_method.in?("put", "patch", "delete")
+            method_field = %(<input type="hidden" name="_method" value="#{http_method}">)
+          end
+
+          attrs = Azu::Helpers::Util.build_html_attributes_from_crinja(arguments, ["id"])
+          Crinja::SafeString.new(%(<form action="#{path}" method="post"#{attrs}>#{method_field}))
+        end
+        Azu::Helpers::Registry.register_function(:form_for_{{method.id}}_{{helper_resource_name}}, func)
+      end
+      {% end %}
+
+      {% if method == "delete" %}
+      # Button to delete helper registration
+      private def self._register_button_to_delete_helper
+        endpoint_class = self
+        func = Crinja.function({
+          text:    "Delete",
+          id:      nil,
+          class:   nil,
+          confirm: nil,
+          data:    nil,
+        }, :button_to_delete_{{helper_resource_name}}) do
+          id_param = arguments["id"]
+          path = if id_param.none?
+                   endpoint_class.path
+                 else
+                   endpoint_class.path(id: id_param.to_s)
+                 end
+
+          text = arguments["text"].to_s
+          text = "Delete" if text.empty?
+
+          confirm_val = arguments["confirm"]
+          confirm_attr = confirm_val.none? ? "" : %( onclick="return confirm('#{HTML.escape(confirm_val.to_s)}')")
+
+          css_class = arguments["class"]
+          class_attr = css_class.none? ? "" : %( class="#{HTML.escape(css_class.to_s)}")
+
+          Crinja::SafeString.new(<<-HTML
+          <form action="#{path}" method="post" style="display:inline"><input type="hidden" name="_method" value="delete"><button type="submit"#{class_attr}#{confirm_attr}>#{HTML.escape(text)}</button></form>
+          HTML
+          )
+        end
+        Azu::Helpers::Registry.register_function(:button_to_delete_{{helper_resource_name}}, func)
+      end
+      {% end %}
       {% end %}
 
       # Registers crinja path helper filters

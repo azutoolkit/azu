@@ -1,3 +1,4 @@
+require "crinja"
 require "html"
 require "uri"
 
@@ -312,6 +313,40 @@ module Azu
       # ```
       def url_encode(text : String) : String
         URI.encode_www_form(text)
+      end
+
+      # Builds HTML attributes string from Crinja arguments.
+      #
+      # This method extracts attribute values from Crinja function arguments
+      # and builds an HTML attribute string, excluding specified keys.
+      #
+      # ```
+      # # In a Crinja function:
+      # attrs = Util.build_html_attributes_from_crinja(arguments, ["text", "id"])
+      # # => " class=\"btn\" target=\"_blank\""
+      # ```
+      def build_html_attributes_from_crinja(
+        args : Crinja::Arguments,
+        exclude : Array(String) = [] of String,
+      ) : String
+        result = String::Builder.new
+
+        args.defaults.each_key do |key|
+          key_str = key.to_s
+          next if exclude.includes?(key_str)
+
+          value = args[key_str]
+          next if value.none? || value.undefined?
+
+          # Handle boolean attributes
+          if value.truthy? && (value.raw.is_a?(Bool) || value.to_s == "true")
+            result << %( #{key_str})
+          elsif !value.to_s.empty? && value.to_s != "false"
+            result << %( #{key_str}="#{escape_html(value.to_s)}")
+          end
+        end
+
+        result.to_s
       end
 
       # Parses a time value from various formats.

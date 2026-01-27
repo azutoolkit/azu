@@ -125,10 +125,98 @@ This generates proper `name` attributes like `user[name]` and `user[email]`, whi
 {{ button_to("Delete", "/posts/" ~ post.id, method="delete") }}
 
 {# With confirmation #}
-{{ button_to("Delete", "/posts/" ~ post.id, 
-   method="delete", 
+{{ button_to("Delete", "/posts/" ~ post.id,
+   method="delete",
    confirm="Are you sure you want to delete this post?",
    class="btn btn-danger") }}
+```
+
+## Using Type-Safe Endpoint Helpers
+
+When you define endpoints in Crystal, Azu automatically generates type-safe helpers with the HTTP method in the name. This makes it clear what action each helper performs.
+
+### Link Helpers for Endpoints
+
+```jinja
+{# Link to collection (GET /users) #}
+{{ link_to_get_users("View All Users", class="btn") }}
+
+{# Link to member (GET /users/:id) #}
+{{ link_to_get_user("View Profile", id=user.id) }}
+
+{# Link to edit page #}
+{{ link_to_get_edit_user("Edit", id=user.id, class="btn btn-secondary") }}
+```
+
+### Form Helpers for Endpoints
+
+```jinja
+{# Create form (POST /users) - method is clear from the name #}
+{{ form_for_post_create_user(class="user-form") }}
+  {{ csrf_field() }}
+
+  {{ label_tag("user_name", "Name") }}
+  {{ text_field("user", "name", required=true) }}
+
+  {{ label_tag("user_email", "Email") }}
+  {{ email_field("user", "email", required=true) }}
+
+  {{ submit_button("Create User") }}
+{{ end_form() }}
+
+{# Edit form (PUT /users/:id) - _method field added automatically #}
+{{ form_for_put_update_user(id=user.id, class="edit-form") }}
+  {{ csrf_field() }}
+
+  {{ label_tag("user_name", "Name") }}
+  {{ text_field("user", "name", value=user.name) }}
+
+  {{ submit_button("Update User") }}
+{{ end_form() }}
+```
+
+### Delete Buttons with Endpoint Helpers
+
+```jinja
+{# Simple delete button #}
+{{ button_to_delete_delete_user(id=user.id) }}
+
+{# With custom text and confirmation #}
+{{ button_to_delete_delete_user(
+   text="Remove User",
+   id=user.id,
+   confirm="Are you sure you want to delete this user?",
+   class="btn btn-danger") }}
+```
+
+### Complete CRUD Example
+
+```jinja
+{# User listing with all actions #}
+<table class="table">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Email</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for user in users %}
+    <tr>
+      <td>{{ link_to_get_user(user.name, id=user.id) }}</td>
+      <td>{{ user.email }}</td>
+      <td>
+        {{ link_to_get_edit_user("Edit", id=user.id, class="btn btn-sm") }}
+        {{ button_to_delete_delete_user(id=user.id, class="btn btn-sm btn-danger", confirm="Delete this user?") }}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{# Link to create new user #}
+{{ link_to_get_new_user("Add New User", class="btn btn-primary") }}
 ```
 
 ## Working with Assets
