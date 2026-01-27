@@ -62,6 +62,7 @@
 ### Templates
 
 - [Render HTML Templates](how-to/templates/render-html-templates.md)
+- [Use Template Helpers](how-to/templates/use-template-helpers.md)
 - [Enable Hot Reload](how-to/templates/enable-hot-reload.md)
 
 ### Testing
@@ -122,6 +123,7 @@
 ### Templates
 
 - [Template Engine](reference/templates/engine.md)
+- [Template Helpers](reference/templates/helpers.md)
 
 ### Migration
 

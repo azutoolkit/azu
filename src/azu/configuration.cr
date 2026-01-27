@@ -73,6 +73,12 @@ module Azu
 
     getter upload : UploadConfiguration = UploadConfiguration.new
 
+    # i18n configuration
+    getter i18n : I18nConfiguration = I18nConfiguration.new
+
+    # Asset pipeline configuration
+    getter assets : AssetConfiguration = AssetConfiguration.new
+
     # Cache configuration and manager
     getter cache : Cache::Manager do
       initialize_cache_with_retry
@@ -262,6 +268,135 @@ module Azu
       end
     rescue ex
       Log.for("Azu::UploadConfiguration").error(exception: ex) { "Upload cleanup failed" }
+    end
+  end
+
+  # Configuration for internationalization (i18n)
+  #
+  # ```
+  # Azu.configure do |c|
+  #   c.i18n.load_path = ["locales", "config/locales"]
+  #   c.i18n.default_locale = "en"
+  #   c.i18n.available_locales = ["en", "es", "fr"]
+  #   c.i18n.fallback_locale = "en"
+  # end
+  # ```
+  class I18nConfiguration
+    # Directories to load translation files from
+    property load_path : Array(String) = ENV.fetch("I18N_LOAD_PATH", "locales").split(",")
+
+    # Default locale for the application
+    property default_locale : String = ENV.fetch("I18N_DEFAULT_LOCALE", "en")
+
+    # Available locales (auto-detected if empty)
+    property available_locales : Array(String) = ENV.fetch("I18N_AVAILABLE_LOCALES", "").split(",").reject(&.empty?)
+
+    # Fallback locale when translation is missing
+    property fallback_locale : String? = begin
+      value = ENV.fetch("I18N_FALLBACK_LOCALE", "")
+      value.empty? ? nil : value
+    end
+
+    # Whether to raise on missing translations (useful for development)
+    property? raise_on_missing : Bool = ENV.fetch("I18N_RAISE_ON_MISSING", "false") == "true"
+
+    # Format for missing translation keys
+    property missing_key_format : String = ENV.fetch("I18N_MISSING_KEY_FORMAT", "[missing: %{key}]")
+
+    def initialize
+      # Initialize i18n system with this configuration
+      if load_path.any? { |path| Dir.exists?(path) }
+        Helpers::I18n.load_path = load_path
+        Helpers::I18n.default_locale = default_locale
+        Helpers::I18n.fallback_locale = fallback_locale
+        Helpers::I18n.raise_on_missing = raise_on_missing?
+        Helpers::I18n.missing_key_format = missing_key_format
+        Helpers::I18n.load_translations
+      end
+    end
+  end
+
+  # Configuration for asset pipeline
+  #
+  # ```
+  # Azu.configure do |c|
+  #   c.assets.prefix = "/assets"
+  #   c.assets.path = "public/assets"
+  #   c.assets.fingerprint = true
+  #   c.assets.manifest_path = "public/assets/manifest.json"
+  # end
+  # ```
+  class AssetConfiguration
+    # URL prefix for asset paths
+    property prefix : String = ENV.fetch("ASSETS_PREFIX", "/assets")
+
+    # File system path to assets directory
+    property path : String = ENV.fetch("ASSETS_PATH", "public/assets")
+
+    # Whether to append content hash fingerprints to asset URLs
+    property? fingerprint : Bool = ENV.fetch("ASSETS_FINGERPRINT", "true") == "true"
+
+    # Path to asset manifest file (for fingerprinted assets)
+    property manifest_path : String = ENV.fetch("ASSETS_MANIFEST_PATH", "public/assets/manifest.json")
+
+    # Cache-Control header max-age for assets (in seconds)
+    property cache_max_age : Int32 = ENV.fetch("ASSETS_CACHE_MAX_AGE", "31536000").to_i # 1 year
+
+    # Whether to include integrity hashes (SRI)
+    property? integrity : Bool = ENV.fetch("ASSETS_INTEGRITY", "false") == "true"
+
+    # Loaded manifest data (cached)
+    @manifest : Hash(String, String)? = nil
+    @manifest_mutex : Mutex = Mutex.new
+    @manifest_mtime : Time? = nil
+
+    def initialize
+    end
+
+    # Get the fingerprinted path for an asset
+    def fingerprinted_path(asset : String) : String
+      return "#{prefix}/#{asset}" unless fingerprint?
+
+      manifest_data = load_manifest
+      if fingerprinted = manifest_data[asset]?
+        "#{prefix}/#{fingerprinted}"
+      else
+        "#{prefix}/#{asset}"
+      end
+    end
+
+    # Load or reload the asset manifest
+    def load_manifest : Hash(String, String)
+      @manifest_mutex.synchronize do
+        if (cached = @manifest) && !manifest_changed?
+          return cached
+        end
+
+        if File.exists?(manifest_path)
+          begin
+            content = File.read(manifest_path)
+            @manifest = Hash(String, String).from_json(content)
+            @manifest_mtime = File.info(manifest_path).modification_time
+          rescue ex
+            Log.for("Azu::AssetConfiguration").warn(exception: ex) { "Failed to load asset manifest" }
+            @manifest = {} of String => String
+          end
+        else
+          @manifest = {} of String => String
+        end
+
+        @manifest || {} of String => String
+      end
+    end
+
+    private def manifest_changed? : Bool
+      mtime = @manifest_mtime
+      return true unless mtime
+      return false unless File.exists?(manifest_path)
+
+      File.info(manifest_path).modification_time > mtime
+    rescue
+      false
     end
   end
 end

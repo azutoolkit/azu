@@ -1,0 +1,5 @@
+es:
+  welcome:
+    title: "Bienvenido!"
+    greeting: "Hola, %{name}!"
+  simple_key: "Valor simple"

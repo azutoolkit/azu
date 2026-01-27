@@ -49,7 +49,21 @@ src/azu/
 ├── cache.cr            # Multi-store caching (Memory/Redis)
 ├── params.cr           # Parameter extraction & uploads
 ├── handler/            # Middleware handlers (12 files)
-└── templates.cr        # Crinja template engine
+├── templates.cr        # Crinja template engine
+└── helpers/            # Template helpers DSL
+    ├── helpers.cr      # Main require & DSL macros
+    ├── registry.cr     # Thread-safe helper registration
+    ├── context.cr      # HTTP context for templates
+    ├── i18n.cr         # Internationalization system
+    ├── util.cr         # Shared utility functions
+    └── builtin/        # Built-in helpers
+        ├── form_helpers.cr
+        ├── asset_helpers.cr
+        ├── url_helpers.cr
+        ├── component_helpers.cr
+        ├── date_helpers.cr
+        ├── number_helpers.cr
+        └── html_helpers.cr
 
 spec/
 ├── integration/        # Integration test suites
@@ -253,6 +267,63 @@ end
 2. Implement `content` method
 3. Register event handlers with `on_event`
 4. Add to Spark system for real-time updates
+
+## Template Helpers
+
+Azu provides built-in template helpers for common web development tasks.
+
+### Quick Reference
+
+```jinja
+{# Forms #}
+{{ form_tag("/users", method="post") }}
+  {{ csrf_field() }}
+  {{ text_field("user", "name", required=true) }}
+  {{ submit_button("Create") }}
+{{ end_form() }}
+
+{# Links #}
+{{ link_to("Home", "/", class="nav-link") }}
+{{ button_to("Delete", "/posts/1", method="delete") }}
+
+{# Assets #}
+{{ stylesheet_tag("app.css") }}
+{{ javascript_tag("app.js") }}
+{{ image_tag("logo.png", alt="Logo") }}
+
+{# i18n #}
+{{ t("welcome.title") }}
+{{ t("greeting", name=user.name) }}
+{{ date | l("date.short") }}
+
+{# Numbers #}
+{{ price | currency("$") }}
+{{ count | number_with_delimiter }}
+
+{# Dates #}
+{{ created_at | time_ago }}
+{{ date | date_format("%Y-%m-%d") }}
+
+{# HTML #}
+{{ content | safe_html }}
+{{ text | highlight("search") }}
+```
+
+### Custom Helpers
+
+```crystal
+# Register a custom filter
+Azu::Helpers.filter :shout do
+  target.to_s.upcase + "!"
+end
+
+# Register a custom function
+Azu::Helpers.function :greet do
+  "Hello, #{arguments["name"]}!"
+end
+```
+
+See `docs/reference/templates/helpers.md` for full documentation.
 
 ## Troubleshooting
 

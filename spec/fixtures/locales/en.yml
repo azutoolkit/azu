@@ -1,0 +1,14 @@
+en:
+  welcome:
+    title: "Welcome!"
+    greeting: "Hello, %{name}!"
+  users:
+    count:
+      zero: "No users"
+      one: "1 user"
+      other: "%{count} users"
+  date:
+    formats:
+      short: "%b %d"
+      long: "%B %d, %Y"
+  simple_key: "Simple value"

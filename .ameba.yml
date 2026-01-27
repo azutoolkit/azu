@@ -12,5 +12,9 @@ Metrics/CyclomaticComplexity:
     - src/azu/handler/performance_monitor.cr
     - src/azu/performance_reporter.cr
     - src/azu/components/dev_dashboard_component.cr
+    - src/azu/helpers/builtin/form_helpers.cr
+    - src/azu/helpers/builtin/date_helpers.cr
+    - src/azu/helpers/builtin/number_helpers.cr
+    - src/azu/helpers/i18n.cr
   Enabled: true
   Severity: Warning

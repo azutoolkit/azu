@@ -1,4 +1,5 @@
 require "crinja"
+require "./helpers"
 
 module Azu
   # Templates are used by Azu when rendering responses.
@@ -31,8 +32,52 @@ module Azu
     getter error_path : String
 
     module Renderable
-      private def view(template : String = page_path, data = Hash(String, String).new)
-        CONFIG.templates.load(template).render(data)
+      # Renders a template with optional data and HTTP context awareness.
+      #
+      # When called from an endpoint with access to HTTP context, this method
+      # automatically injects useful variables like csrf_token, current_path,
+      # flash messages, and more.
+      #
+      # ```
+      # def call : MyResponse
+      #   view("users/show.jinja", {"user" => user})
+      # end
+      # ```
+      private def view(template : String = page_path, data = Hash(String, Crinja::Value).new)
+        template_data = data.transform_keys(&.to_s)
+
+        # Inject HTTP context variables if context is available
+        if responds_to?(:context) && (ctx = context rescue nil)
+          template_context = Helpers::TemplateContext.new(ctx)
+          template_context.to_template_vars.each do |key, value|
+            template_data[key] = value unless template_data.has_key?(key)
+          end
+        end
+
+        CONFIG.templates.load(template).render(template_data)
+      end
+
+      # Renders a template with explicit context injection.
+      #
+      # Use this when you need to explicitly provide HTTP context,
+      # such as from a custom handler or middleware.
+      #
+      # ```
+      # view_with_context("email.jinja", context, {"subject" => "Hello"})
+      # ```
+      private def view_with_context(
+        template : String,
+        http_context : HTTP::Server::Context,
+        data = Hash(String, Crinja::Value).new,
+      )
+        template_data = data.transform_keys(&.to_s)
+        template_context = Helpers::TemplateContext.new(http_context)
+
+        template_context.to_template_vars.each do |key, value|
+          template_data[key] = value unless template_data.has_key?(key)
+        end
+
+        CONFIG.templates.load(template).render(template_data)
       end
 
       def page_path
@@ -76,6 +121,11 @@ module Azu
       all_paths = ([error_path] + path).uniq
       @loader = Crinja::Loader::FileSystemLoader.new(all_paths)
       crinja.loader = @loader.as(Crinja::Loader::FileSystemLoader)
+
+      # Register all built-in helpers and apply to Crinja environment
+      Helpers::Builtin.register_all
+      Helpers::Registry.apply_to(crinja)
+
       update_template_mtimes if @hot_reload_enabled
     end
 
