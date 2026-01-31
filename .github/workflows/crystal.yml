@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     container:
-      image: crystallang/crystal:1.17.1
+      image: crystallang/crystal:latest
     services:
       # Label used to access the service container
       redis:
@@ -166,7 +166,10 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - test
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    if: >-
+      github.ref == 'refs/heads/master' &&
+      github.event_name == 'push' &&
+      !contains(github.event.head_commit.message, 'chore: bump version')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
