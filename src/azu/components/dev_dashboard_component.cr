@@ -102,19 +102,26 @@ module Azu
         {% if @top_level.has_constant?("CQL") %}
           monitor = CQL::Performance.monitor
           metrics = monitor.metrics_summary
-          stats = monitor.query_profiler.statistics
-          slow_queries = monitor.query_profiler.slow_queries
-          n_plus_one_issues = monitor.n_plus_one_detector.issues
+          profiler = monitor.profiler.not_nil!
+          detector = monitor.detector.not_nil!
+          stats = profiler.statistics
+          slow_queries = profiler.slowest_queries(100)
+          n_plus_one_issues = detector.issues
 
           # Calculate aggregate stats from query statistics
-          total_queries = stats.values.sum(&.execution_count)
+          total_queries = stats.values.sum(&.[:count]).to_i64
           slow_query_count = slow_queries.size
-          avg_time = stats.empty? ? 0.0 : stats.values.sum(&.avg_time.total_milliseconds) / stats.size
-          min_time = stats.empty? ? 0.0 : stats.values.min_of(&.min_time.total_milliseconds)
-          max_time = stats.empty? ? 0.0 : stats.values.max_of(&.max_time.total_milliseconds)
+          avg_time = stats.empty? ? 0.0 : stats.values.sum(&.[:avg_ms]) / stats.size
+          min_time = stats.empty? ? 0.0 : stats.values.min_of(&.[:min_ms])
+          max_time = stats.empty? ? 0.0 : stats.values.max_of(&.[:max_ms])
+
+          slow_queries_count = (metrics["slow_queries"]?.try(&.as(Int64)) || 0_i64)
+          n_plus_one_count = (metrics["n_plus_one_patterns"]?.try(&.as(Int64)) || 0_i64)
+          avg_query_time_ms = (metrics["avg_query_time_ms"]?.try(&.as(Float64)) || 0.0)
+          uptime_seconds = (metrics["uptime_seconds"]?.try(&.as(Float64)) || 0.0)
 
           {
-            "total_queries"         => total_queries.to_i64,
+            "total_queries"         => total_queries,
             "slow_queries"          => slow_query_count.to_i64,
             "very_slow_queries"     => slow_queries.count { |q| q.execution_time.total_milliseconds > 500 }.to_i64,
             "error_queries"         => 0_i64,
@@ -125,18 +132,18 @@ module Azu
             "queries_per_second"    => 0.0,
             "slow_query_rate"       => total_queries > 0 ? (slow_query_count.to_f / total_queries * 100) : 0.0,
             "n_plus_one_patterns"   => n_plus_one_issues.size,
-            "critical_n_plus_one"   => n_plus_one_issues.count { |i| i.severity == CQL::Performance::PerformanceIssue::Severity::Critical },
-            "high_n_plus_one"       => n_plus_one_issues.count { |i| i.severity == CQL::Performance::PerformanceIssue::Severity::High },
+            "critical_n_plus_one"   => n_plus_one_issues.count { |i| i.severity == :critical },
+            "high_n_plus_one"       => n_plus_one_issues.count { |i| i.severity == :high },
             "database_health_score" => begin
               # Calculate health score inline
               health = 100
-              health -= [metrics.slow_queries * 2, 30].min
-              health -= [metrics.n_plus_one_patterns * 5, 25].min
-              health -= metrics.avg_query_time > 100 ? [((metrics.avg_query_time - 100) / 50).to_i, 20].min : 0
+              health -= [slow_queries_count * 2, 30].min
+              health -= [n_plus_one_count * 5, 25].min
+              health -= avg_query_time_ms > 100 ? [((avg_query_time_ms - 100) / 50).to_i, 20].min : 0
               health.clamp(0, 100)
             end,
             "monitoring_enabled" => monitor.enabled?,
-            "uptime"             => metrics.uptime,
+            "uptime"             => Time::Span.new(seconds: uptime_seconds.to_i64),
           }
         {% else %}
           # CQL not available - return default values
@@ -185,7 +192,10 @@ module Azu
         {% if @top_level.has_constant?("CQL") %}
           monitor = CQL::Performance.monitor
           metrics = monitor.metrics_summary
-          metrics.total_queries + metrics.slow_queries + metrics.n_plus_one_patterns
+          total = (metrics["total_queries"]?.try(&.as(Int64)) || 0_i64)
+          slow = (metrics["slow_queries"]?.try(&.as(Int64)) || 0_i64)
+          npo = (metrics["n_plus_one_patterns"]?.try(&.as(Int64)) || 0_i64)
+          (total + slow + npo).to_i32
         {% else %}
           0 # CQL not available
         {% end %}
@@ -196,16 +206,17 @@ module Azu
       def collect_query_profiler_data
         {% if @top_level.has_constant?("CQL") %}
           monitor = CQL::Performance.monitor
-          stats = monitor.query_profiler.statistics
-          slowest = monitor.query_profiler.slowest_queries(10)
+          profiler = monitor.profiler.not_nil!
+          stats = profiler.statistics
+          slowest = profiler.slowest_queries(10)
 
-          total_executions = stats.values.sum(&.execution_count)
-          max_time = stats.empty? ? 0.0 : stats.values.max_of(&.max_time.total_milliseconds)
-          most_frequent = stats.values.max_by?(&.execution_count)
+          total_executions = stats.values.sum(&.[:count]).to_i64
+          max_time = stats.empty? ? 0.0 : stats.values.max_of(&.[:max_ms])
+          most_frequent = stats.values.max_by?(&.[:count])
 
           {
             "unique_patterns"       => stats.size,
-            "total_executions"      => total_executions.to_i64,
+            "total_executions"      => total_executions,
             "avg_performance_score" => begin
               # Calculate average performance score across all query patterns
               if stats.empty?
@@ -213,15 +224,15 @@ module Azu
               else
                 total_score = stats.values.sum do |stat|
                   score = 100.0
-                  score -= [(stat.execution_count - 100) / 50.0, 30.0].min if stat.execution_count > 100
-                  score -= [(stat.avg_time.total_milliseconds - 50) / 25.0, 40.0].min if stat.avg_time.total_milliseconds > 50
+                  score -= [(stat[:count] - 100) / 50.0, 30.0].min if stat[:count] > 100
+                  score -= [(stat[:avg_ms] - 50) / 25.0, 40.0].min if stat[:avg_ms] > 50
                   score.clamp(0.0, 100.0)
                 end
                 total_score / stats.size
               end
             end,
             "slowest_pattern_time" => max_time,
-            "most_frequent_count"  => (most_frequent.try(&.execution_count) || 0).to_i64,
+            "most_frequent_count"  => (most_frequent.try(&.[:count]) || 0).to_i64,
           }
         {% else %}
           # CQL not available - return default values
@@ -247,15 +258,15 @@ module Azu
       def collect_n_plus_one_data
         {% if @top_level.has_constant?("CQL") %}
           monitor = CQL::Performance.monitor
-          issues = monitor.n_plus_one_detector.issues
+          issues = monitor.detector.not_nil!.issues
 
           {
             "issues"         => issues.map { |i| {message: i.message, severity: i.severity.to_s, type: i.type}.to_json },
             "total_issues"   => issues.size,
-            "critical_count" => issues.count { |i| i.severity == CQL::Performance::PerformanceIssue::Severity::Critical },
-            "high_count"     => issues.count { |i| i.severity == CQL::Performance::PerformanceIssue::Severity::High },
-            "medium_count"   => issues.count { |i| i.severity == CQL::Performance::PerformanceIssue::Severity::Medium },
-            "low_count"      => issues.count { |i| i.severity == CQL::Performance::PerformanceIssue::Severity::Low },
+            "critical_count" => issues.count { |i| i.severity == :critical },
+            "high_count"     => issues.count { |i| i.severity == :high },
+            "medium_count"   => issues.count { |i| i.severity == :medium },
+            "low_count"      => issues.count { |i| i.severity == :low },
           }
         {% else %}
           # CQL not available - return default values
@@ -283,13 +294,13 @@ module Azu
       def collect_slow_queries_data
         {% if @top_level.has_constant?("CQL") %}
           monitor = CQL::Performance.monitor
-          slow_queries = monitor.query_profiler.slow_queries(20)
+          slow_queries = monitor.profiler.not_nil!.slowest_queries(20)
 
           slow_queries.map do |query|
             {
               "sql"               => query.sql,
               "normalized_sql"    => query.sql.gsub(/\?/, "?").gsub(/\d+/, "?").gsub(/'[^']*'/, "?").gsub(/"[^"]*"/, "?").gsub(/\s+/, " ").strip,
-              "context"           => query.context || "N/A",
+              "context"           => "N/A",
               "timestamp"         => query.timestamp.to_rfc3339,
               "rows_affected"     => query.rows_affected || 0_i64,
               "error"             => "None",
@@ -308,22 +319,23 @@ module Azu
       def collect_query_patterns_data
         {% if @top_level.has_constant?("CQL") %}
           monitor = CQL::Performance.monitor
-          stats = monitor.query_profiler.statistics
+          profiler = monitor.profiler.not_nil!
+          stats = profiler.statistics
 
           # Sort by execution count descending and take top 15
-          sorted_patterns = stats.values.sort_by(&.execution_count).reverse[0..15]
+          sorted_patterns = stats.to_a.sort_by { |_, v| v[:count] }.reverse.first(15)
 
-          sorted_patterns.map do |stat|
+          sorted_patterns.map do |sql, stat|
             {
-              "normalized_sql"    => stat.normalized_sql,
-              "execution_count"   => stat.execution_count.to_i64,
-              "avg_time_ms"       => stat.avg_time.total_milliseconds,
+              "normalized_sql"    => sql,
+              "execution_count"   => stat[:count].to_i64,
+              "avg_time_ms"       => stat[:avg_ms],
               "performance_score" => begin
                 # Calculate performance score for single query pattern
                 score = 100.0
-                score -= [(stat.execution_count - 100) / 50.0, 30.0].min if stat.execution_count > 100
-                score -= [(stat.avg_time.total_milliseconds - 50) / 25.0, 40.0].min if stat.avg_time.total_milliseconds > 50
-                score -= [(stat.max_time.total_milliseconds - 200) / 100.0, 20.0].min if stat.max_time.total_milliseconds > 200
+                score -= [(stat[:count] - 100) / 50.0, 30.0].min if stat[:count] > 100
+                score -= [(stat[:avg_ms] - 50) / 25.0, 40.0].min if stat[:avg_ms] > 50
+                score -= [(stat[:max_ms] - 200) / 100.0, 20.0].min if stat[:max_ms] > 200
                 score.clamp(0.0, 100.0)
               end,
             }
