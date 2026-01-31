@@ -37,13 +37,13 @@ Create a structured logger:
 ```crystal
 class StructuredLogger < Azu::Handler::Base
   def call(context)
-    start = Time.monotonic
+    start = Time.instant
     request_id = context.request.headers["X-Request-ID"]?
 
     begin
       call_next(context)
     ensure
-      duration = Time.monotonic - start
+      duration = Time.instant - start
       log_request(context, duration, request_id)
     end
   end
@@ -263,9 +263,9 @@ class SlowRequestLogger < Azu::Handler::Base
   THRESHOLD = 1.second
 
   def call(context)
-    start = Time.monotonic
+    start = Time.instant
     call_next(context)
-    duration = Time.monotonic - start
+    duration = Time.instant - start
 
     if duration > THRESHOLD
       Log.warn { "Slow request: #{context.request.method} #{context.request.path} took #{duration.total_seconds.round(2)}s" }

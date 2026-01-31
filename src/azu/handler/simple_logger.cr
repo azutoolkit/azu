@@ -15,7 +15,7 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context)
-        start_time = Time.monotonic
+        start_time = Time.instant
         request_id = generate_request_id(context)
 
         # Add request ID to context for tracing
@@ -33,7 +33,7 @@ module Azu
           # Log error with context
           request_logger.error(
             "Request failed",
-            build_request_context(context, Time.monotonic - start_time),
+            build_request_context(context, Time.instant - start_time),
             ex
           )
           raise ex
@@ -47,8 +47,8 @@ module Azu
         context
       end
 
-      private def log_request_completion(context : HTTP::Server::Context, logger : AsyncLogging::AsyncLogger, start_time : Time::Span)
-        elapsed = Time.monotonic - start_time
+      private def log_request_completion(context : HTTP::Server::Context, logger : AsyncLogging::AsyncLogger, start_time : Time::Instant)
+        elapsed = Time.instant - start_time
         context_data = build_request_context(context, elapsed)
 
         case context.response.status_code
@@ -111,13 +111,13 @@ module Azu
 
       # Legacy method for backward compatibility
       private def message(context)
-        time = Time.monotonic
+        time = Time.instant
         String.build do |str|
           str << "HTTP Request".colorize(:green).underline
           str << entry(:Method, context.request.method, :green)
           str << entry(:Path, context.request.resource, :light_blue)
           str << status_entry(:Status, http_status(context.response.status_code))
-          str << entry(:Latency, elapsed(Time.monotonic - time), :green)
+          str << entry(:Latency, elapsed(Time.instant - time), :green)
         end
       end
 

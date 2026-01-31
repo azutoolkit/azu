@@ -656,11 +656,11 @@ class LoggingHandler
   include Handler
 
   def call(request : HttpRequest, response : Response) : Response
-    start_time = Time.monotonic
+    start_time = Time.instant
 
     result = @next.call(request, response)
 
-    duration = Time.monotonic - start_time
+    duration = Time.instant - start_time
 
     # Structured logging
     Log.info {

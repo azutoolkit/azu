@@ -86,7 +86,7 @@ module Azu
 
       private def self.worker_loop(worker_id : Int32)
         batch = [] of LogEntry
-        last_flush = Time.monotonic
+        last_flush = Time.instant
 
         loop do
           select
@@ -94,17 +94,17 @@ module Azu
             batch << entry
 
             # Flush if batch is full or enough time has passed
-            if batch.size >= @@batch_size || (Time.monotonic - last_flush) >= @@flush_interval
+            if batch.size >= @@batch_size || (Time.instant - last_flush) >= @@flush_interval
               process_batch(batch, worker_id)
               batch.clear
-              last_flush = Time.monotonic
+              last_flush = Time.instant
             end
           when timeout(1.second)
             # Periodic flush of partial batches
             if !batch.empty?
               process_batch(batch, worker_id)
               batch.clear
-              last_flush = Time.monotonic
+              last_flush = Time.instant
             end
           end
         rescue ex

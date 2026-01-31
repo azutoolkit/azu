@@ -249,10 +249,10 @@ describe "Performance Integration" do
       rescuer.next = logger
       request_id.next = rescuer
 
-      start_time = Time.monotonic
+      start_time = Time.instant
       context, _ = create_context("GET", "/test")
       request_id.call(context)
-      elapsed = Time.monotonic - start_time
+      elapsed = Time.instant - start_time
 
       # Full chain should still be fast
       elapsed.total_milliseconds.should be < 100

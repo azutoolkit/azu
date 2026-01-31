@@ -134,7 +134,7 @@ module Azu
       end
     end
 
-    private def self.server_info(time = Time.monotonic)
+    private def self.server_info(time = Time.instant)
       String.build do |s|
         s << "Server started at #{Time.local.to_s("%a %m/%d/%Y %I:%M:%S")}.".colorize(:white).underline
         s << "\n   ⤑  Environment: ".colorize(:white)
@@ -144,7 +144,7 @@ module Azu
         s << "\n   ⤑  Port: ".colorize(:white)
         s << config.port.colorize(:light_blue)
         s << "\n   ⤑  Startup Time: ".colorize(:white)
-        s << (Time.monotonic - time).total_milliseconds
+        s << (Time.instant - time).total_milliseconds
         s << " millis".colorize(:white)
       end
     end

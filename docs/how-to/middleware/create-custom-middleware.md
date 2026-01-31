@@ -9,11 +9,11 @@ Create a handler by extending `Azu::Handler::Base`:
 ```crystal
 class TimingHandler < Azu::Handler::Base
   def call(context)
-    start = Time.monotonic
+    start = Time.instant
 
     call_next(context)
 
-    duration = Time.monotonic - start
+    duration = Time.instant - start
     context.response.headers["X-Response-Time"] = "#{duration.total_milliseconds.round(2)}ms"
   end
 end

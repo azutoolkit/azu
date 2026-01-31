@@ -277,12 +277,12 @@ Measure endpoint performance:
 ```crystal
 class BenchmarkHandler < Azu::Handler::Base
   def call(context)
-    start = Time.monotonic
+    start = Time.instant
     start_gc = GC.stats
 
     call_next(context)
 
-    duration = Time.monotonic - start
+    duration = Time.instant - start
     end_gc = GC.stats
     allocated = end_gc.heap_size - start_gc.heap_size
 

@@ -572,7 +572,7 @@ module Azu
                                   operation : String, store_type : String,
                                   key_size : Int32 = 0, value_size : Int32? = nil,
                                   ttl : Time::Span? = nil, &)
-      start_time = Time.monotonic
+      start_time = Time.instant
       error_message : String? = nil
       hit : Bool? = nil
       result = nil
@@ -587,7 +587,7 @@ module Azu
         error_message = ex.message || ex.class.name
         raise ex
       ensure
-        processing_time = (Time.monotonic - start_time).total_milliseconds
+        processing_time = (Time.instant - start_time).total_milliseconds
         metrics.record_cache(
           key: key,
           operation: operation,

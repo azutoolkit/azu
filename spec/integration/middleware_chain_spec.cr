@@ -358,10 +358,10 @@ describe "Middleware Chain Integration" do
       logger.next = cors
       request_id.next = logger
 
-      start_time = Time.monotonic
+      start_time = Time.instant
       context, _ = create_context("GET", "/test")
       request_id.call(context)
-      elapsed = Time.monotonic - start_time
+      elapsed = Time.instant - start_time
 
       elapsed.total_milliseconds.should be < 100 # Should be fast
       verify.call

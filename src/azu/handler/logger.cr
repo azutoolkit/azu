@@ -12,12 +12,12 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context)
-        start = Time.monotonic
+        start = Time.instant
 
         begin
           call_next(context)
         ensure
-          elapsed = Time.monotonic - start
+          elapsed = Time.instant - start
           elapsed_text = elapsed(elapsed)
 
           req = context.request

@@ -50,13 +50,13 @@ module Azu
         return yield unless @enabled
 
         memory_before = PerformanceMetrics.current_memory_usage
-        start_time = Time.monotonic
+        start_time = Time.instant
         call_stack = capture_stack ? capture_call_stack : nil
 
         begin
           result = yield
         ensure
-          end_time = Time.monotonic
+          end_time = Time.instant
           memory_after = PerformanceMetrics.current_memory_usage
           duration = end_time - start_time
 
@@ -343,9 +343,9 @@ module Azu
 
         # Actual benchmark
         iterations.times do
-          start_time = Time.monotonic
+          start_time = Time.instant
           yield
-          end_time = Time.monotonic
+          end_time = Time.instant
           times << (end_time - start_time)
         end
 
@@ -373,7 +373,7 @@ module Azu
         channel = Channel(Time::Span).new
         errors = Channel(String).new
 
-        start_time = Time.monotonic
+        start_time = Time.instant
 
         # Spawn concurrent workers
         concurrent.times do
@@ -381,9 +381,9 @@ module Azu
             requests_per_worker = requests // concurrent
             requests_per_worker.times do
               begin
-                request_start = Time.monotonic
+                request_start = Time.instant
                 response = HTTP::Client.get(url, tls: false) # Disable TLS for testing
-                request_end = Time.monotonic
+                request_end = Time.instant
 
                 if response.success?
                   channel.send(request_end - request_start)
@@ -413,7 +413,7 @@ module Azu
           end
         end
 
-        end_time = Time.monotonic
+        end_time = Time.instant
         total_time = end_time - start_time
 
         # Calculate statistics

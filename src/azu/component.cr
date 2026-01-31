@@ -25,7 +25,7 @@ module Azu
         component = new **args
         {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
           # Performance tracking only when enabled
-          start_time = Time.monotonic
+          start_time = Time.instant
           memory_before = nil
           if component.@performance_tracking_enabled
             memory_before = Azu::PerformanceMetrics.current_memory_usage
@@ -38,7 +38,7 @@ module Azu
         {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
           # Track component mount performance only when enabled
           if component.@performance_tracking_enabled && Azu::CONFIG.performance_enabled?
-            end_time = Time.monotonic
+            end_time = Time.instant
             memory_after = Azu::PerformanceMetrics.current_memory_usage
             processing_time = (end_time - start_time).total_milliseconds
 
@@ -70,7 +70,7 @@ module Azu
 
     def mount
       {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-        start_time = Time.monotonic
+        start_time = Time.instant
         memory_before = nil
         if @performance_tracking_enabled
           memory_before = Azu::PerformanceMetrics.current_memory_usage
@@ -82,7 +82,7 @@ module Azu
       {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
         # Track mount performance only when enabled
         if @performance_tracking_enabled && Azu::CONFIG.performance_enabled?
-          end_time = Time.monotonic
+          end_time = Time.instant
           memory_after = Azu::PerformanceMetrics.current_memory_usage
           processing_time = (end_time - start_time).total_milliseconds
 
@@ -103,7 +103,7 @@ module Azu
 
     def unmount
       {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-        start_time = Time.monotonic
+        start_time = Time.instant
         memory_before = nil
         if @performance_tracking_enabled
           memory_before = Azu::PerformanceMetrics.current_memory_usage
@@ -115,7 +115,7 @@ module Azu
       {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
         # Track unmount performance only when enabled
         if @performance_tracking_enabled && Azu::CONFIG.performance_enabled?
-          end_time = Time.monotonic
+          end_time = Time.instant
           memory_after = Azu::PerformanceMetrics.current_memory_usage
           processing_time = (end_time - start_time).total_milliseconds
 
@@ -136,7 +136,7 @@ module Azu
 
     def on_event(name, data)
       {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-        start_time = Time.monotonic
+        start_time = Time.instant
         memory_before = nil
         if @performance_tracking_enabled
           memory_before = Azu::PerformanceMetrics.current_memory_usage
@@ -148,7 +148,7 @@ module Azu
       {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
         # Track event handling performance only when enabled
         if @performance_tracking_enabled && Azu::CONFIG.performance_enabled?
-          end_time = Time.monotonic
+          end_time = Time.instant
           memory_after = Azu::PerformanceMetrics.current_memory_usage
           processing_time = (end_time - start_time).total_milliseconds
 
@@ -172,7 +172,7 @@ module Azu
 
     def refresh
       {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-        start_time = Time.monotonic
+        start_time = Time.instant
         memory_before = nil
         if @performance_tracking_enabled
           memory_before = Azu::PerformanceMetrics.current_memory_usage
@@ -191,7 +191,7 @@ module Azu
       {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
         # Track refresh performance only when enabled
         if @performance_tracking_enabled && Azu::CONFIG.performance_enabled?
-          end_time = Time.monotonic
+          end_time = Time.instant
           memory_after = Azu::PerformanceMetrics.current_memory_usage
           processing_time = (end_time - start_time).total_milliseconds
 

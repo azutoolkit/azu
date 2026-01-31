@@ -6,6 +6,7 @@
 ## Endpoint Patterns
 
 ### Basic CRUD Endpoint
+
 ```crystal
 # Request contracts
 struct CreateUserRequest
@@ -75,6 +76,7 @@ end
 ```
 
 ### Authenticated Endpoint
+
 ```crystal
 module AuthenticatedEndpoint(Request, Response)
   include Azu::Endpoint(Request, Response)
@@ -104,6 +106,7 @@ end
 ```
 
 ### Paginated Response
+
 ```crystal
 struct PaginatedResponse(T)
   include Azu::Response
@@ -145,6 +148,7 @@ end
 ## WebSocket Patterns
 
 ### Chat Channel
+
 ```crystal
 class ChatChannel < Azu::Channel
   @@connections = {} of String => HTTP::WebSocket
@@ -189,6 +193,7 @@ end
 ```
 
 ### Real-Time Component
+
 ```crystal
 class CounterComponent
   include Azu::Component
@@ -218,6 +223,7 @@ end
 ## Middleware Patterns
 
 ### Rate Limiting by User
+
 ```crystal
 class UserRateLimiter < Azu::Handler::Base
   LIMITS = {
@@ -254,11 +260,12 @@ end
 ```
 
 ### Request Logging with Context
+
 ```crystal
 class ContextualLogger < Azu::Handler::Base
   def call(context : HTTP::Server::Context)
     request_id = context.response.headers["X-Request-ID"]
-    start_time = Time.monotonic
+    start_time = Time.instant
 
     Log.context.set(
       request_id: request_id,
@@ -270,7 +277,7 @@ class ContextualLogger < Azu::Handler::Base
 
     call_next(context)
 
-    duration = Time.monotonic - start_time
+    duration = Time.instant - start_time
     Log.info { "Completed #{context.response.status_code} in #{duration.total_milliseconds.round(2)}ms" }
   end
 end
@@ -279,6 +286,7 @@ end
 ## Caching Patterns
 
 ### Cache-Aside Pattern
+
 ```crystal
 def get_user(id : Int64) : User?
   cache_key = "user:#{id}"
@@ -299,6 +307,7 @@ end
 ```
 
 ### Cache Invalidation
+
 ```crystal
 class User
   after_save :invalidate_cache
@@ -312,6 +321,7 @@ end
 ```
 
 ### Memoization with Cache
+
 ```crystal
 def expensive_computation(key : String) : Result
   cache.fetch("computation:#{key}", ttl: 1.hour) do
@@ -324,6 +334,7 @@ end
 ## Error Handling Patterns
 
 ### Domain-Specific Errors
+
 ```crystal
 module Errors
   class NotFound < Azu::Response::Error
@@ -365,6 +376,7 @@ end
 ```
 
 ### Global Error Handler
+
 ```crystal
 class ErrorHandler < Azu::Handler::Rescuer
   def handle_error(context : HTTP::Server::Context, ex : Exception)
@@ -400,6 +412,7 @@ end
 ## Testing Patterns
 
 ### Endpoint Testing
+
 ```crystal
 describe CreateUserEndpoint do
   describe "#call" do
@@ -434,6 +447,7 @@ end
 ```
 
 ### Integration Testing
+
 ```crystal
 describe "User API" do
   before_all do
@@ -472,6 +486,7 @@ end
 ```
 
 ### WebSocket Testing
+
 ```crystal
 describe ChatChannel do
   it "broadcasts messages to all connected clients" do
@@ -505,6 +520,7 @@ end
 ## Configuration Patterns
 
 ### Environment-Specific Configuration
+
 ```crystal
 Azu.configure do |config|
   case config.env
@@ -524,6 +540,7 @@ end
 ```
 
 ### Feature Flags
+
 ```crystal
 module Features
   class_getter cache = {} of String => Bool

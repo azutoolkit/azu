@@ -465,11 +465,11 @@ crystal run --stats src/my_app.cr
 ```crystal
 # Log slow queries
 def call : UserResponse
-  start_time = Time.monotonic
+  start_time = Time.instant
 
   users = database.query("SELECT * FROM users WHERE active = true")
 
-  duration = Time.monotonic - start_time
+  duration = Time.instant - start_time
   if duration > 100.milliseconds
     Log.warn { "Slow query detected: #{duration.total_milliseconds}ms" }
   end

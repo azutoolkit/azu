@@ -434,7 +434,7 @@ describe Azu::Router do
       end
 
       # Make many requests to test performance
-      start_time = Time.monotonic
+      start_time = Time.instant
       (1..100).each do |i|
         request = HTTP::Request.new("GET", "/test#{i}")
         io = IO::Memory.new
@@ -444,7 +444,7 @@ describe Azu::Router do
         result = router.process(context)
         result.should be_a(String)
       end
-      end_time = Time.monotonic
+      end_time = Time.instant
 
       # Performance check: should complete quickly (under 200ms for 100 requests)
       elapsed_time = end_time - start_time
@@ -583,7 +583,7 @@ describe Azu::Router do
       # Create concurrent load
       completed_fibers = 0
       completion_mutex = Mutex.new
-      start_time = Time.monotonic
+      start_time = Time.instant
 
       # Spawn 50 concurrent fibers
       50.times do |_|
@@ -608,7 +608,7 @@ describe Azu::Router do
       while completion_mutex.synchronize { completed_fibers < 50 }
         sleep(0.001.seconds)
       end
-      end_time = Time.monotonic
+      end_time = Time.instant
 
       # Performance check: should complete quickly (under 500ms for 1000 concurrent requests)
       elapsed_time = end_time - start_time

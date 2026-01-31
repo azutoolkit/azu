@@ -38,6 +38,7 @@ The request enters the handler pipeline:
 ```
 
 Each handler:
+
 1. Receives the context
 2. Optionally processes the request
 3. Calls `call_next(context)`
@@ -46,9 +47,9 @@ Each handler:
 ```crystal
 class TimingHandler < Azu::Handler::Base
   def call(context)
-    start = Time.monotonic
+    start = Time.instant
     call_next(context)        # ← Request goes down
-    duration = Time.monotonic - start  # ← Response comes back
+    duration = Time.instant - start  # ← Response comes back
     context.response.headers["X-Response-Time"] = "#{duration}ms"
   end
 end
@@ -85,6 +86,7 @@ end
 ```
 
 Binding process:
+
 1. Detect content type (JSON, form, multipart)
 2. Parse body according to type
 3. Map parsed data to request properties
@@ -119,6 +121,7 @@ end
 ```
 
 The call method has full access to:
+
 - `params` - Route parameters
 - `headers` - Request headers
 - `context` - Full HTTP context
@@ -139,6 +142,7 @@ end
 ```
 
 Response handling:
+
 1. Call `render` method
 2. Set Content-Type header
 3. Write body to output
@@ -173,11 +177,11 @@ Error response returned
 
 The Rescuer handler converts exceptions to HTTP responses:
 
-| Exception | Status | Behavior |
-|-----------|--------|----------|
-| `NotFound` | 404 | Resource not found |
-| `ValidationError` | 422 | Validation details |
-| Other | 500 | Internal error |
+| Exception         | Status | Behavior           |
+| ----------------- | ------ | ------------------ |
+| `NotFound`        | 404    | Resource not found |
+| `ValidationError` | 422    | Validation details |
+| Other             | 500    | Internal error     |
 
 ## WebSocket Lifecycle
 
@@ -206,6 +210,7 @@ HTTP Upgrade Request
 ### Hot Path Optimization
 
 The request hot path is optimized:
+
 - Minimal allocations
 - Cached route lookups
 - Pre-compiled templates
@@ -217,6 +222,7 @@ HTTP contexts may be pooled for reuse, avoiding allocation overhead.
 ### Async I/O
 
 Crystal's event loop handles I/O efficiently:
+
 - Non-blocking sockets
 - Fiber-based concurrency
 - No thread pool overhead
@@ -225,14 +231,14 @@ Crystal's event loop handles I/O efficiently:
 
 Typical request timing:
 
-| Stage | Time |
-|-------|------|
-| Parse | ~10μs |
-| Route | ~200ns |
-| Request binding | ~50μs |
-| Database query | ~1-10ms |
-| Response render | ~20μs |
-| Total framework overhead | <1ms |
+| Stage                    | Time    |
+| ------------------------ | ------- |
+| Parse                    | ~10μs   |
+| Route                    | ~200ns  |
+| Request binding          | ~50μs   |
+| Database query           | ~1-10ms |
+| Response render          | ~20μs   |
+| Total framework overhead | <1ms    |
 
 ## See Also
 

@@ -267,13 +267,13 @@ For performance-critical features:
 # spec/integration/performance_spec.cr
 
 it "handles 1000 requests efficiently" do
-  start = Time.monotonic
+  start = Time.instant
 
   1000.times do
     HTTP::Client.get("http://localhost:4000/new-feature")
   end
 
-  duration = Time.monotonic - start
+  duration = Time.instant - start
   duration.should be < 1.second  # Adjust threshold as needed
 end
 ```

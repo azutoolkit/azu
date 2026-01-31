@@ -110,7 +110,7 @@ class CacheMetricsDemo
   private def self.time_and_record_operation(metrics : Azu::PerformanceMetrics, key : String,
                                              operation : String, store_type : String,
                                              key_size : Int32, &)
-    start_time = Time.monotonic
+    start_time = Time.instant
     error = nil
     hit = nil
 

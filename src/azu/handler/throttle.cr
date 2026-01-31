@@ -33,18 +33,18 @@ module Azu
 
       # Thread-safe request tracker structure
       private struct RequestTracker
-        property expires : Int64
+        property expires : Time::Instant
         property requests : Int32
-        property block_expires : Int64?
+        property block_expires : Time::Instant?
 
-        def initialize(@expires : Int64, @requests : Int32 = 0, @block_expires : Int64? = nil)
+        def initialize(@expires : Time::Instant, @requests : Int32 = 0, @block_expires : Time::Instant? = nil)
         end
 
         def blocked? : Bool
           !@block_expires.nil?
         end
 
-        def block_expired?(current_time : Int64) : Bool
+        def block_expired?(current_time : Time::Instant) : Bool
           if block_time = @block_expires
             block_time < current_time
           else
@@ -52,7 +52,7 @@ module Azu
           end
         end
 
-        def watch_expired?(current_time : Int64) : Bool
+        def watch_expired?(current_time : Time::Instant) : Bool
           @expires <= current_time
         end
 
@@ -60,8 +60,8 @@ module Azu
           RequestTracker.new(@expires, @requests + 1, @block_expires)
         end
 
-        def block(duration : Int32, current_time : Int64) : RequestTracker
-          RequestTracker.new(@expires, @requests, current_time + duration)
+        def block(duration : Int32, current_time : Time::Instant) : RequestTracker
+          RequestTracker.new(@expires, @requests, current_time + duration.seconds)
         end
       end
 
@@ -102,9 +102,14 @@ module Azu
       private def too_many_requests(context, remote : String)
         retry_after = @mutex.synchronize do
           if tracker = @tracker[remote]?
-            tracker.block_expires || 0
+            if block_exp = tracker.block_expires
+              remaining = block_exp - Time.instant
+              remaining.total_seconds.to_i64
+            else
+              0_i64
+            end
           else
-            0
+            0_i64
           end
         end
 
@@ -119,7 +124,7 @@ module Azu
       private def watch(remote : String) : Bool
         # Use monotonic time to prevent clock skew vulnerabilities
         # (e.g., NTP adjustments causing indefinite blocks)
-        current_time = Time.monotonic.total_seconds.to_i64
+        current_time = Time.instant
         tracker = get_or_create_tracker(remote, current_time)
 
         # Increment requests
@@ -149,8 +154,8 @@ module Azu
         tracker.blocked?
       end
 
-      private def get_or_create_tracker(remote : String, current_time : Int64) : RequestTracker
-        @tracker[remote]? || RequestTracker.new(current_time + interval, 0)
+      private def get_or_create_tracker(remote : String, current_time : Time::Instant) : RequestTracker
+        @tracker[remote]? || RequestTracker.new(current_time + interval.seconds, 0)
       end
 
       private def blacklisted?(remote : String) : Bool

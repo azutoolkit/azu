@@ -18,7 +18,7 @@ module Azu
       def call(context : HTTP::Server::Context)
         return call_next(context) unless @metrics.enabled
 
-        start_time = Time.monotonic
+        start_time = Time.instant
         memory_before = PerformanceMetrics.current_memory_usage
         request_id = context.request.headers["X-Request-ID"]? || generate_request_id
 
@@ -28,7 +28,7 @@ module Azu
         begin
           call_next(context)
         ensure
-          end_time = Time.monotonic
+          end_time = Time.instant
           memory_after = PerformanceMetrics.current_memory_usage
           processing_time = (end_time - start_time).total_milliseconds
 

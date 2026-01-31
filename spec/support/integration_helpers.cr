@@ -116,8 +116,8 @@ module IntegrationHelpers
 
   # Wait for async operations to complete
   def wait_for_async(timeout = 1.second, &)
-    start = Time.monotonic
-    while Time.monotonic - start < timeout
+    start = Time.instant
+    while Time.instant - start < timeout
       begin
         return if yield
       rescue

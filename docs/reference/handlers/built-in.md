@@ -51,19 +51,20 @@ MyApp.start [
 
 ### Behavior
 
-| Exception | Status | Response |
-|-----------|--------|----------|
-| `Response::NotFound` | 404 | Not Found |
-| `Response::BadRequest` | 400 | Bad Request |
-| `Response::Unauthorized` | 401 | Unauthorized |
-| `Response::Forbidden` | 403 | Forbidden |
-| `Response::ValidationError` | 422 | Validation errors |
-| `Response::Error` | varies | Error message |
-| Other exceptions | 500 | Internal Server Error |
+| Exception                   | Status | Response              |
+| --------------------------- | ------ | --------------------- |
+| `Response::NotFound`        | 404    | Not Found             |
+| `Response::BadRequest`      | 400    | Bad Request           |
+| `Response::Unauthorized`    | 401    | Unauthorized          |
+| `Response::Forbidden`       | 403    | Forbidden             |
+| `Response::ValidationError` | 422    | Validation errors     |
+| `Response::Error`           | varies | Error message         |
+| Other exceptions            | 500    | Internal Server Error |
 
 ### Development Mode
 
 In development, shows detailed error page with:
+
 - Exception message
 - Backtrace
 - Request details
@@ -105,6 +106,7 @@ Azu::Handler::Logger.new(
 ```
 
 **Options:**
+
 - `log : Log` - Logger instance
 - `skip_paths : Array(String)` - Paths to skip logging
 
@@ -123,6 +125,7 @@ MyApp.start [
 ```
 
 **Options:**
+
 - `public_dir : String` - Directory to serve from
 - `fallthrough : Bool` - Pass to next handler if not found
 - `directory_listing : Bool` - Show directory listings
@@ -130,6 +133,7 @@ MyApp.start [
 ### File Types
 
 Automatically sets Content-Type based on extension:
+
 - `.html` → `text/html`
 - `.css` → `text/css`
 - `.js` → `application/javascript`
@@ -154,6 +158,7 @@ MyApp.start [
 ```
 
 **Options:**
+
 - `allowed_origins : Array(String)` - Allowed origins (`["*"]` for all)
 - `allowed_methods : Array(String)` - Allowed HTTP methods
 - `allowed_headers : Array(String)` - Allowed request headers
@@ -203,11 +208,11 @@ MyApp.start [
 ```crystal
 class TimingHandler < Azu::Handler::Base
   def call(context)
-    start = Time.monotonic
+    start = Time.instant
 
     call_next(context)
 
-    duration = Time.monotonic - start
+    duration = Time.instant - start
     context.response.headers["X-Response-Time"] = "#{duration.total_milliseconds}ms"
   end
 end
