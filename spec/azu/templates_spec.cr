@@ -18,6 +18,37 @@ module Admin
   end
 end
 
+# Test struct without context method - exercises the {% if @type.has_method?(:context) %} false branch
+struct RenderableWithoutContext
+  include Azu::Templates::Renderable
+
+  def render_view(template : String, data = Hash(String, Crinja::Value).new)
+    view(template, data)
+  end
+
+  def render_view_with_context(template : String, http_context : HTTP::Server::Context, data = Hash(String, Crinja::Value).new)
+    view_with_context(template, http_context, data)
+  end
+end
+
+# Test struct with context method - exercises the {% if @type.has_method?(:context) %} true branch
+struct RenderableWithContext
+  include Azu::Templates::Renderable
+
+  @context : HTTP::Server::Context?
+
+  def initialize(@context : HTTP::Server::Context? = nil)
+  end
+
+  def context : HTTP::Server::Context
+    @context.not_nil!
+  end
+
+  def render_view(template : String, data = Hash(String, Crinja::Value).new)
+    view(template, data)
+  end
+end
+
 describe Azu::Templates do
   describe "initialization" do
     it "creates templates instance with path and error path" do
@@ -391,6 +422,107 @@ describe Azu::Templates do
       # Immediately loading again should not check for changes
       # (this is more of a behavioral test that the system doesn't check constantly)
       templates.load("test_template.jinja")
+    end
+  end
+
+  describe "Renderable view with data types" do
+    before_each do
+      Azu::CONFIG.templates.path = "spec/test_templates"
+    end
+
+    describe "without context" do
+      it "renders template with NamedTuple data" do
+        renderable = RenderableWithoutContext.new
+        result = renderable.render_view("test_template.jinja", {title: "NT Title", heading: "NT Heading"})
+
+        result.should contain("NT Title")
+        result.should contain("NT Heading")
+      end
+
+      it "renders template with Hash data using string keys" do
+        renderable = RenderableWithoutContext.new
+        result = renderable.render_view("test_template.jinja", {"title" => "Hash Title", "heading" => "Hash Heading"})
+
+        result.should contain("Hash Title")
+        result.should contain("Hash Heading")
+      end
+
+      it "renders template with Hash data using symbol keys" do
+        renderable = RenderableWithoutContext.new
+        result = renderable.render_view("test_template.jinja", {:title => "Sym Title", :heading => "Sym Heading"})
+
+        result.should contain("Sym Title")
+        result.should contain("Sym Heading")
+      end
+
+      it "renders template with empty data" do
+        renderable = RenderableWithoutContext.new
+        result = renderable.render_view("test_template.jinja")
+
+        result.should contain("Test Template")
+        result.should contain("Hello World")
+      end
+
+      it "does not inject context variables when context is unavailable" do
+        renderable = RenderableWithoutContext.new
+        result = renderable.render_view("test_template.jinja", {title: "No Context"})
+
+        result.should contain("No Context")
+      end
+    end
+
+    describe "with context" do
+      it "renders template and injects context variables" do
+        request = HTTP::Request.new("GET", "/test?q=search")
+        io = IO::Memory.new
+        response = HTTP::Server::Response.new(io)
+        ctx = HTTP::Server::Context.new(request, response)
+
+        renderable = RenderableWithContext.new(ctx)
+        result = renderable.render_view("test_template.jinja", {title: "With Context"})
+
+        result.should contain("With Context")
+      end
+
+      it "renders template with NamedTuple data and context" do
+        request = HTTP::Request.new("GET", "/users")
+        io = IO::Memory.new
+        response = HTTP::Server::Response.new(io)
+        ctx = HTTP::Server::Context.new(request, response)
+
+        renderable = RenderableWithContext.new(ctx)
+        result = renderable.render_view("test_template.jinja", {title: "Users", user: "Alice"})
+
+        result.should contain("Users")
+        result.should contain("Welcome, Alice!")
+      end
+    end
+
+    describe "view_with_context" do
+      it "renders template with explicit context and NamedTuple data" do
+        request = HTTP::Request.new("GET", "/explicit")
+        io = IO::Memory.new
+        response = HTTP::Server::Response.new(io)
+        ctx = HTTP::Server::Context.new(request, response)
+
+        renderable = RenderableWithoutContext.new
+        result = renderable.render_view_with_context("test_template.jinja", ctx, {title: "Explicit", heading: "Context"})
+
+        result.should contain("Explicit")
+        result.should contain("Context")
+      end
+
+      it "renders template with explicit context and Hash data" do
+        request = HTTP::Request.new("GET", "/explicit")
+        io = IO::Memory.new
+        response = HTTP::Server::Response.new(io)
+        ctx = HTTP::Server::Context.new(request, response)
+
+        renderable = RenderableWithoutContext.new
+        result = renderable.render_view_with_context("test_template.jinja", ctx, {"title" => "Hash Explicit"})
+
+        result.should contain("Hash Explicit")
+      end
     end
   end
 end

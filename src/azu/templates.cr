@@ -44,15 +44,18 @@ module Azu
       # end
       # ```
       private def view(template : String = page_path, data = Hash(String, Crinja::Value).new)
-        template_data = data.transform_keys(&.to_s)
+        template_data = Hash(String, Crinja::Value).new
+        data.to_h.each { |k, v| template_data[k.to_s] = Crinja::Value.new(v) }
 
         # Inject HTTP context variables if context is available
-        if responds_to?(:context) && (ctx = context rescue nil)
-          template_context = Helpers::TemplateContext.new(ctx)
-          template_context.to_template_vars.each do |key, value|
-            template_data[key] = value unless template_data.has_key?(key)
+        {% if @type.has_method?(:context) %}
+          if ctx = (context rescue nil)
+            template_context = Helpers::TemplateContext.new(ctx)
+            template_context.to_template_vars.each do |key, value|
+              template_data[key] = value unless template_data.has_key?(key)
+            end
           end
-        end
+        {% end %}
 
         CONFIG.templates.load(template).render(template_data)
       end
@@ -70,7 +73,8 @@ module Azu
         http_context : HTTP::Server::Context,
         data = Hash(String, Crinja::Value).new,
       )
-        template_data = data.transform_keys(&.to_s)
+        template_data = Hash(String, Crinja::Value).new
+        data.to_h.each { |k, v| template_data[k.to_s] = Crinja::Value.new(v) }
         template_context = Helpers::TemplateContext.new(http_context)
 
         template_context.to_template_vars.each do |key, value|
