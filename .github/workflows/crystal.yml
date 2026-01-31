@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     container:
-      image: crystallang/crystal:latest
+      image: crystallang/crystal:1.19.1
     services:
       # Label used to access the service container
       redis:
