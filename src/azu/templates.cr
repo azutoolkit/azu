@@ -107,6 +107,7 @@ module Azu
 
     def load(template : String)
       check_for_changes if should_check_for_changes?
+      Helpers::Registry.apply_to(crinja)
       crinja.get_template template
     end
 

@@ -87,10 +87,6 @@ module Azu
       # ```
       def self.apply_to(crinja : Crinja) : Nil
         @@mutex.synchronize do
-          # Track which Crinja instances we've already applied to
-          crinja_id = crinja.object_id
-          return if @@applied_to.includes?(crinja_id)
-
           # Apply filters
           @@filters.each do |name, filter|
             crinja.filters[name] = filter
@@ -111,7 +107,7 @@ module Azu
             crinja.context[name.to_s] = value
           end
 
-          @@applied_to.add(crinja_id)
+          @@applied_to.add(crinja.object_id)
         end
       end
 
