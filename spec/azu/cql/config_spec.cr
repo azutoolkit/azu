@@ -208,20 +208,21 @@ describe "Azu::CQL configuration" do
     it "is the only way queries and transactions reach the dashboard" do
       with_cql_config do
         Azu::CQL.configure { |c| c.db = "sqlite3://#{DB_FILE}" } # no schema, no query: nothing but events can feed the store
-        ::CQL::Events.subscribed?(::CQL::Events::QUERY).should be_true
-        ::CQL::Events.subscribed?(::CQL::Events::TRANSACTION).should be_true
-        ::CQL::Events.subscribed?(::CQL::Events::CONNECT).should be_true
+        Azu::CQL::Instrumentor.installed?.should be_true
+        ::CQL::Telemetry.subscribed?(Azu::CQL::Instrumentor::NAME).should be_true
 
+        adapter = ::CQL::Adapter::SQLite
         Azu::RequestContext.with("req-events", "GET", "/events", "EventsEndpoint") do
-          ::CQL::Events.emit(::CQL::Events::TRANSACTION, ::CQL::Events::TransactionEvent.new(::CQL::Events::TransactionState::Begin, 9001_i64))
-          ::CQL::Events.emit(::CQL::Events::QUERY, ::CQL::Events::QueryEvent.new("SELECT * FROM emitted_by_event WHERE id = $1", [1_i64.as(DB::Any)], 2.5, 1_i64))
-          ::CQL::Events.emit(::CQL::Events::TRANSACTION, ::CQL::Events::TransactionEvent.new(::CQL::Events::TransactionState::Rollback, 9001_i64, 3.0))
+          tx_id = ::CQL::Telemetry.next_transaction_id
+          ::CQL::Telemetry.emit_transaction(::CQL::Telemetry::TransactionEvent.new(::CQL::Telemetry::TransactionState::Begin, tx_id, Time::Span.zero, false, nil, adapter))
+          ::CQL::Telemetry.observe(adapter, :select, "SELECT * FROM emitted_by_event WHERE id = $1", [1_i64.as(DB::Any)]) { 1 }
+          ::CQL::Telemetry.emit_transaction(::CQL::Telemetry::TransactionEvent.new(::CQL::Telemetry::TransactionState::Rollback, tx_id, 3.milliseconds, false, nil, adapter))
         end
 
         metric = store.queries.find! { |query| query.table == "emitted_by_event" }
         metric.request_id.should eq "req-events"
         metric.endpoint.should eq "EventsEndpoint"
-        metric.rows.should eq 1
+        metric.params.should eq ["?"]
         store.transactions.map(&.state).should eq ["rolled_back"]
 
         with_azu_env(Azu::Environment::Development) do
@@ -232,7 +233,7 @@ describe "Azu::CQL configuration" do
 
         Azu::CQL::Instrumentor.uninstall
         count = store.queries.size
-        ::CQL::Events.emit(::CQL::Events::QUERY, ::CQL::Events::QueryEvent.new("SELECT 1 FROM after_uninstall", [] of DB::Any, 1.0))
+        ::CQL::Telemetry.observe(adapter, :select, "SELECT 1 FROM after_uninstall", [] of DB::Any) { 1 }
         store.queries.size.should eq count
       end
     end

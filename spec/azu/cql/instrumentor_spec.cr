@@ -46,7 +46,8 @@ describe Azu::CQL do
     insert.table.should eq "authors"
     insert.caller.to_s.should contain "instrumentor_spec.cr"
     select_q = queries.find! { |q| q.operation == "SELECT" }
-    select_q.rows.should eq 1
+    insert.rows.should eq 1 # CQL::Telemetry reports rows_affected for DML only
+    select_q.rows.should be_nil
     select_q.duration_ms.should be >= 0
     Azu::CQL::Instrumentor.installed?.should be_true
   end
@@ -127,6 +128,20 @@ describe Azu::CQL do
   it "picks the adapter from the uri" do
     Azu::CQL.adapter_for("postgres://localhost/x").should eq CQL::Adapter::Postgres
     Azu::CQL.adapter_for("sqlite3://./x.db").should eq CQL::Adapter::SQLite
+    Azu::CQL.adapter_for("cockroachdb://root@localhost:26257/x").should eq CQL::Adapter::CockroachDB
+  end
+
+  it "reports CockroachDB as a postgres dialect for EXPLAIN" do
+    schema = ::CQL::Schema.new(:crdb_spec, "cockroachdb://root@127.0.0.1:1/x?initial_pool_size=0", ::CQL::Adapter::CockroachDB)
+    Azu::CQL::SchemaAdapter.new(schema).dialect.should eq "postgres"
+  end
+
+  it "survives CQL::Telemetry.reset! by reinstalling" do
+    Azu::CQL::Instrumentor.install
+    ::CQL::Telemetry.reset!
+    Azu::CQL::Instrumentor.installed?.should be_false
+    Azu::CQL::Instrumentor.install
+    Azu::CQL::Instrumentor.installed?.should be_true
   end
   it "defines a schema from a uri and attaches it" do
     File.delete?(DB_FILE)
