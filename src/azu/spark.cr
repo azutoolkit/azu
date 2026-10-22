@@ -1,6 +1,7 @@
 require "random/secure"
 require "./channel"
 require "./router"
+require "./spark/client"
 require "./spark/configuration"
 require "./spark/connection"
 
@@ -14,7 +15,7 @@ module Azu
   # Azu::Spark.install
   #
   # # in a page
-  # Azu::Spark.script_tag
+  # Azu::Spark.script_tag # <script> tag for the layout
   # Azu::Spark.render(CounterView, label: "Clicks", session: {"user_id" => "42"})
   # ```
   #
@@ -32,9 +33,16 @@ module Azu
       yield config
     end
 
-    # Registers the WebSocket endpoint on *router*. Call once while booting.
+    # Registers the WebSocket endpoint and the client script on *router*. Call once while booting.
     def self.install(router : Router = Azu.current_config.router) : Nil
       router.ws(config.path, Connection)
+      router.get(config.assets_path, Client::Asset.new)
+    end
+
+    # The `<script>` tag that loads the client from this application (no inline code, so it
+    # works under a strict Content-Security-Policy).
+    def self.script_tag : String
+      %(<script src="#{config.assets_path}?v=#{Client::VERSION}" data-spark-path="#{config.path}" defer></script>)
     end
 
     # Renders the mountable component *type* for an HTML page: the full initial markup plus a
