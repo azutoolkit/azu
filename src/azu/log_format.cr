@@ -58,10 +58,13 @@ module Azu
       @@flush_interval = 5.seconds
       @@workers = 4
       @@started = false
+      @@start_lock = Mutex.new
 
       def self.start
-        return if @@started
-        @@started = true
+        @@start_lock.synchronize do
+          return if @@started
+          @@started = true
+        end
 
         # Start batch processing workers
         @@workers.times do |i|
@@ -250,10 +253,13 @@ module Azu
     class ErrorReporter
       @@error_queue = ::Channel(Exception).new(100)
       @@started = false
+      @@start_lock = Mutex.new
 
       def self.start
-        return if @@started
-        @@started = true
+        @@start_lock.synchronize do
+          return if @@started
+          @@started = true
+        end
 
         spawn(name: "error-reporter") do
           error_processing_loop

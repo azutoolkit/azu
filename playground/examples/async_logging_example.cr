@@ -1,5 +1,8 @@
 require "../../src/azu"
 
+# Opt in to Azu's log format; requiring azu no longer configures Log
+Azu.setup_logging
+
 # Example demonstrating the enhanced async logging system
 class AsyncLoggingExample
   def self.run

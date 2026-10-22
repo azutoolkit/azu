@@ -4,6 +4,20 @@ This document lists breaking changes between Azu versions and migration guides.
 
 ## Version 0.5.x
 
+### Unreleased (0.6 work)
+
+**Requiring `azu` no longer starts anything.** Before, `require "azu"` set the root `Log` level to `Debug`
+with Azu's formatter, created the upload temp directory and started seven background fibers.
+
+- Logging: neither `require "azu"` nor `start` configures `Log` any more, so an app that sets up `Log`
+  itself keeps its backend and level. To get the previous Azu format at `Debug`, call
+  `Azu.setup_logging` once at boot (before `start`).
+- The async log pipeline starts on the first log entry or reported error, or in `start`.
+- The upload temp directory and its cleanup task are created by `start` (or by the first upload for
+  apps that never call `start`).
+- The profiler and memory monitor that development mode turns on by default now start in `start`
+  instead of when the configuration is built.
+
 ### 0.5.28
 
 **No breaking changes.** This version includes documentation improvements.

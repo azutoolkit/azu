@@ -1,4 +1,7 @@
 require "../../src/azu"
+
+# Opt in to Azu's log format; requiring azu no longer configures Log
+Azu.setup_logging
 require "http/client"
 
 # Test exception logging in server context

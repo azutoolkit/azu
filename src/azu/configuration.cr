@@ -152,15 +152,15 @@ module Azu
       if ENV.fetch("PERFORMANCE_MEMORY_MONITORING", "").empty?
         @performance_memory_monitoring = env.development?
       end
+    end
 
-      # Only initialize development tools if performance features are enabled
-      if performance_profiling_enabled?
-        development_tools.profiler.enabled = true
-      end
-
-      if performance_memory_monitoring?
-        development_tools.memory_detector.start_monitoring
-      end
+    # Starts what needs a running app: the profiler and memory monitor (development by default),
+    # the upload temp directory and its cleanup task. `Azu.start` calls this; building a
+    # configuration, and so requiring azu, starts nothing.
+    def prepare : Nil
+      development_tools.profiler.enabled = true if performance_profiling_enabled?
+      development_tools.memory_detector.start_monitoring if performance_memory_monitoring?
+      upload.prepare
     end
 
     def tls
@@ -260,21 +260,21 @@ module Azu
     property max_temp_age : Time::Span = ENV.fetch("UPLOAD_MAX_TEMP_AGE", "86400").to_i.seconds        # 24 hours
 
     @cleanup_started = false
+    @cleanup_lock = Mutex.new
 
-    # Creates the temp directory and starts the cleanup task. `Azu.start` calls this; nothing
-    # happens when the configuration is built, so requiring azu leaves no directory or fiber behind.
+    # Creates the temp directory and starts the cleanup task, once. `Azu.start` calls this, and so
+    # does the first upload for apps that never call `start`; nothing happens when the configuration
+    # is built, so requiring azu leaves no directory or fiber behind.
     def prepare : Nil
-      ensure_temp_dir
+      Dir.mkdir_p(temp_dir) unless Dir.exists?(temp_dir)
       start_cleanup_task
     end
 
-    def ensure_temp_dir : Nil
-      Dir.mkdir_p(temp_dir) unless Dir.exists?(temp_dir)
-    end
-
     private def start_cleanup_task
-      return if @cleanup_started
-      @cleanup_started = true
+      @cleanup_lock.synchronize do
+        return if @cleanup_started
+        @cleanup_started = true
+      end
       spawn(name: "upload-cleanup") do
         loop do
           sleep cleanup_interval

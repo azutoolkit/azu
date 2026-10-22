@@ -95,17 +95,18 @@ module Azu
     current_config.cache
   end
 
-  # Installs Azu's log format and a Debug level for the whole process. Requiring azu does not do
-  # this: it is the application's choice, and `start` makes it.
+  # Installs Azu's log format and a Debug level for the whole process. Opt in by calling it once at
+  # boot; neither requiring azu nor `start` does it, so an app that sets up `Log` itself keeps its
+  # own backend and level.
   def self.setup_logging : Nil
     Log.setup(:debug, Log::IOBackend.new(formatter: LogFormat))
   end
 
-  # Starts the parts that need a running app: logging, the async log pipeline and upload cleanup.
+  # Starts the parts that need a running app: the async log pipeline, the development tools and
+  # upload cleanup. `start` calls this. It never touches `Log`.
   def self.prepare : Nil
-    setup_logging
     AsyncLogging.initialize
-    current_config.upload.prepare
+    CONFIG.prepare
   end
 
   # Stops the long lived parts of the framework: closes Spark connections and the PubSub backend.
