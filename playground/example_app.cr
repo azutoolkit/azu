@@ -6,10 +6,8 @@ module ExampleApp
   include Azu
 
   configure do
-    templates.path = "playground/templates"
-    # Enable hot reload for development and specs/pipeline testing
-    # This allows template changes to be picked up automatically during testing
-    _ = true
+    # Relative to this file, so the app runs from the repository root or from playground/
+    templates.path = File.join(__DIR__, "templates")
     cache_config.enabled = true
     cache_config.store = "memory"
     cache_config.max_size = 1000
@@ -25,9 +23,9 @@ module ExampleApp
   end
 end
 
-# Copy for the layout and pages lives in playground/locales/en.yml and is used through t().
+# Copy for the layout and pages lives in locales/en.yml and is used through t().
 Azu::Helpers::I18n.configure do |config|
-  config.load_path = ["playground/locales"]
+  config.load_path = [File.join(__DIR__, "locales")]
   config.default_locale = "en"
 end
 
@@ -56,7 +54,7 @@ csrf = Azu::Handler::CSRF.new(
     Azu::Handler::RequestId.new,                                      # Enhanced request ID tracking
     Azu::Handler::DevDashboard.new,                                   # Development Dashboard at /dev-dashboard
     ExampleApp::CONFIG.performance_monitor.not_nil!,                  # Performance metrics collection (shared instance)
-    Azu::Handler::Static.new("playground/public", fallthrough: true), # CSS and JS for the pages
+    Azu::Handler::Static.new(File.join(__DIR__, "public"), fallthrough: true), # CSS and JS for the pages
     Azu::Handler::Rescuer.new,                                        # Enhanced error handling
     Azu::Handler::Logger.new,                                         # Request logging
     ExampleApp::CsrfSeed.new,                                         # One CSRF token per first-time visitor
@@ -66,7 +64,7 @@ csrf = Azu::Handler::CSRF.new(
 {% else %}
   ExampleApp.start [
     Azu::Handler::RequestId.new,                                      # Enhanced request ID tracking
-    Azu::Handler::Static.new("playground/public", fallthrough: true), # CSS and JS for the pages
+    Azu::Handler::Static.new(File.join(__DIR__, "public"), fallthrough: true), # CSS and JS for the pages
     Azu::Handler::Rescuer.new,                                        # Enhanced error handling
     Azu::Handler::Logger.new,                                         # Request logging
     ExampleApp::CsrfSeed.new,                                         # One CSRF token per first-time visitor

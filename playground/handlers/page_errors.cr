@@ -19,17 +19,22 @@ module ExampleApp
       504 => "That took too long",
     }
 
+    GENERIC_DETAIL = "An unexpected error occurred. It has been logged."
+
     def call(context : HTTP::Server::Context)
       call_next(context)
       friendly_not_found(context)
     rescue ex : Azu::Response::Error
       raise ex unless wants_html?(context)
-      render(context, ex.status_code, ex.detail, ex.errors)
+      # What went wrong inside the server is for the log, not for the visitor.
+      Log.error(exception: ex) { "#{ex.status_code} #{ex.title}" } if ex.status_code >= 500
+      render(context, ex.status_code, ex.status_code >= 500 ? GENERIC_DETAIL : ex.detail, ex.errors)
     rescue ex : HTTP::Server::ClientError
       raise ex
     rescue ex : Exception
       raise ex if Azu::CONFIG.env.development? || !wants_html?(context)
-      render(context, 500, "An unexpected error occurred. It has been logged.", [] of String)
+      Log.error(exception: ex) { "Unhandled error serving #{context.request.method} #{context.request.path}" }
+      render(context, 500, GENERIC_DETAIL, [] of String)
     end
 
     # The router answers an unknown path by writing its own error instead of raising one.
