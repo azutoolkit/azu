@@ -144,8 +144,8 @@ module Azu
     # Instance-level registry for dependency injection
     @components : ComponentRegistry
 
-    def initialize(@socket : HTTP::WebSocket, @components : ComponentRegistry = Spark.components)
-      super(@socket)
+    def initialize(socket : HTTP::WebSocket, @components : ComponentRegistry = Spark.components)
+      super(socket)
     end
 
     def self.javascript_tag
