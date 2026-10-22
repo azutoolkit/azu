@@ -60,7 +60,7 @@ module Azu
       @@resource : String = ""
 
       def self.path(**params)
-        url = @@resource
+        url = Azu.mounted_path(self, @@resource)
         params.each { |k, v| url = url.gsub(/\:#{k}/, v) }
         url
       end

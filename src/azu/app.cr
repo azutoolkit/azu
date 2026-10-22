@@ -38,6 +38,11 @@ module Azu
       @config.router
     end
 
+    # Declares this app's routes: verbs, `ws`, `scope` and `mount`. See `Router::Builder`.
+    def routes(&) : Nil
+      with Router::Builder.new(router) yield
+    end
+
     # Makes this app the current one while the rest of the handler chain runs, so
     # `Azu.current_config` answers with this app's configuration for that request.
     class Scope

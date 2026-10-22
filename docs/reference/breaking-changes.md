@@ -18,6 +18,26 @@ with Azu's formatter, created the upload temp directory and started seven backgr
 - The profiler and memory monitor that development mode turns on by default now start in `start`
   instead of when the configuration is built.
 
+**Routes can belong to an app** (additive; the endpoint macros keep registering on `Azu::App.default`).
+
+<!-- skip -->
+```crystal
+app = Azu::App.new
+app.routes do
+  get "/users/:id", UserEndpoint
+  scope "/api" do
+    post "/users", CreateUserEndpoint
+  end
+  mount admin_app, at: "/admin"
+end
+```
+
+- `scope` really prefixes now (`Router::Builder` used to ignore its scope).
+- `mount` serves another app below a prefix with that app's own router and configuration. An app can be
+  mounted once; build one app per mount.
+- `Endpoint.path` includes the prefix the app is mounted at and the scope the route was declared in,
+  so links stay right wherever the endpoint is mounted.
+
 ### 0.5.28
 
 **No breaking changes.** This version includes documentation improvements.
