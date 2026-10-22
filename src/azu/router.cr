@@ -37,8 +37,10 @@ module Azu
   # ```
   class Router
     alias Path = String
-    RESOURCES       = %w(connect delete get head options patch post put trace)
-    METHOD_OVERRIDE = "_method"
+    RESOURCES           = %w(connect delete get head options patch post put trace)
+    METHOD_OVERRIDE     = "_method"
+    OVERRIDE_HEADER     = "X-HTTP-Method-Override"
+    OVERRIDABLE_METHODS = %w(PUT PATCH DELETE)
 
     # Thread-safe path cache for frequently requested paths
     # Simplified cache implementation to avoid CI hanging issues
@@ -263,10 +265,29 @@ module Azu
       built_path
     end
 
+    # HTML forms can only GET or POST, so a POST may ask to be handled as PUT, PATCH or DELETE
+    # through a `_method` field (form body or query string) or the X-HTTP-Method-Override header.
+    #
+    # Only POST is overridable and only to those three verbs. A GET carrying `_method=delete`
+    # would otherwise become a DELETE after the CSRF handler waved it through as a safe method.
     private def method_override(context)
-      if value = context.request.query_params[METHOD_OVERRIDE]?
-        context.request.method = value.upcase
-      end
+      request = context.request
+      return unless request.method == "POST"
+
+      verb = (request.headers[OVERRIDE_HEADER]? || request.query_params[METHOD_OVERRIDE]? || form_override(request)).try(&.upcase)
+      request.method = verb if verb && OVERRIDABLE_METHODS.includes?(verb)
+    end
+
+    # Reads `_method` from a urlencoded form body and leaves the body readable for the endpoint.
+    private def form_override(request : HTTP::Request) : String?
+      return unless request.content_type.sub_type == "x-www-form-urlencoded"
+      return unless body = request.body
+
+      content = Params::Body.read(body)
+      request.body = IO::Memory.new(content)
+      HTTP::Params.parse(content)[METHOD_OVERRIDE]?
+    rescue ex : Params::TooLarge
+      raise Response::PayloadTooLarge.new(ex.message.to_s)
     end
 
     private def upgrade?(context)

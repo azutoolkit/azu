@@ -689,4 +689,134 @@ describe Azu::Router do
       response.status_code.should eq(404)
     end
   end
+
+  describe "method override" do
+    router = Azu::Router.new
+    {% for verb in %w(get post put patch delete) %}
+      router.{{verb.id}}("/posts/:id", VerbEndpoint.new("{{verb.id}}"))
+    {% end %}
+
+    # Dispatches the request and returns what the handling endpoint rendered
+    dispatch = ->(request : HTTP::Request) do
+      io = IO::Memory.new
+      response = HTTP::Server::Response.new(io)
+      router.process(HTTP::Server::Context.new(request, response))
+      response.close
+      io.rewind
+      io.gets_to_end
+    end
+
+    form = HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"}
+
+    it "never lets a GET change its method" do
+      dispatch.call(HTTP::Request.new("GET", "/posts/1?_method=delete")).should contain("handled by get")
+    end
+
+    it "only overrides a POST" do
+      dispatch.call(HTTP::Request.new("PUT", "/posts/1?_method=delete")).should contain("handled by put")
+    end
+
+    it "reads the _method form field and leaves the body for the endpoint" do
+      request = HTTP::Request.new("POST", "/posts/1", form, "_method=delete&title=hello")
+
+      dispatch.call(request).should contain("handled by delete (title=hello)")
+    end
+
+    it "accepts the lowercase verbs the form helpers emit" do
+      dispatch.call(HTTP::Request.new("POST", "/posts/1", form, "_method=patch")).should contain("handled by patch")
+    end
+
+    it "reads the X-HTTP-Method-Override header" do
+      headers = HTTP::Headers{"X-HTTP-Method-Override" => "PUT"}
+
+      dispatch.call(HTTP::Request.new("POST", "/posts/1", headers)).should contain("handled by put")
+    end
+
+    it "keeps reading _method from the query string of a POST" do
+      dispatch.call(HTTP::Request.new("POST", "/posts/1?_method=put")).should contain("handled by put")
+    end
+
+    {% for verb in %w(get head options connect trace bogus) %}
+      it "ignores the unsupported override {{verb.id}}" do
+        dispatch.call(HTTP::Request.new("POST", "/posts/1?_method={{verb.id}}")).should contain("handled by post")
+      end
+    {% end %}
+
+    it "does not read _method from a JSON body" do
+      headers = HTTP::Headers{"Content-Type" => "application/json"}
+
+      dispatch.call(HTTP::Request.new("POST", "/posts/1", headers, %({"_method":"delete"}))).should contain("handled by post")
+    end
+
+    describe "behind the CSRF handler, which also reads the form body" do
+      post = ->(token : String?) do
+        Azu::Handler::CSRF.secret_key = "router_spec_secret_key_for_testing_only"
+        Azu::Handler::CSRF.use_signed_double_submit!
+        csrf = Azu::Handler::CSRF.new
+        csrf.next = ->(context : HTTP::Server::Context) { router.process(context); nil }
+        issuer = HTTP::Server::Context.new(HTTP::Request.new("GET", "/"), HTTP::Server::Response.new(IO::Memory.new))
+        issued = Azu::Handler::CSRF.token(issuer)
+
+        body = "_method=delete&title=hello"
+        body += "&_csrf=#{URI.encode_www_form(issued)}" if token == "valid"
+        headers = form.dup
+        headers["Cookie"] = "csrf_token=#{issued}"
+
+        io = IO::Memory.new
+        response = HTTP::Server::Response.new(io)
+        csrf.call(HTTP::Server::Context.new(HTTP::Request.new("POST", "/posts/1", headers, body), response))
+        response.close
+        io.rewind
+        io.gets_to_end
+      end
+
+      it "overrides the method once the token is valid and the endpoint still reads the body" do
+        post.call("valid").should contain("handled by delete (title=hello)")
+      end
+
+      it "rejects the request without a token before anything is routed" do
+        result = post.call(nil)
+
+        result.should contain("403")
+        result.should_not contain("handled by")
+      end
+    end
+
+    it "refuses an oversized form body while looking for _method" do
+      original = Azu::CONFIG.upload.max_file_size
+      Azu::CONFIG.upload.max_file_size = 16_u64
+      begin
+        # No route matches, so only the router itself reads this body
+        request = HTTP::Request.new("POST", "/nowhere", form, "title=#{"x" * 100}")
+
+        expect_raises(Azu::Response::PayloadTooLarge) { dispatch.call(request) }
+      ensure
+        Azu::CONFIG.upload.max_file_size = original
+      end
+    end
+  end
+end
+
+# Renders the verb it was registered for, plus the title the form body carried
+struct VerbResponse
+  include Azu::Response
+
+  def initialize(@text : String)
+  end
+
+  def render
+    @text
+  end
+end
+
+class VerbEndpoint
+  include Azu::Endpoint(Azu::Request, VerbResponse)
+
+  def initialize(@verb : String)
+  end
+
+  def call : VerbResponse
+    title = params["title"]?
+    VerbResponse.new(title ? "handled by #{@verb} (title=#{title})" : "handled by #{@verb}")
+  end
 end
