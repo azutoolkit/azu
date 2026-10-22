@@ -185,6 +185,24 @@ module Azu
       return false if code.matches?(/\b(?:insert|update|delete|drop|alter|create|truncate|grant|revoke|attach|detach|pragma|vacuum|copy|call|do|replace|merge|lock)\b/i)
       code.matches?(/\A(?:select|with|explain)\b/i)
     end
+
+    # The statement the dashboard playground executes for `mode` ("run", "explain",
+    # "explain_analyze"), or nil when `sql` is not allowed. EXPLAIN only wraps SELECT / WITH
+    # (EXPLAIN ANALYZE would execute it); SQLite has no ANALYZE, so it explains the plan.
+    def playground_sql(sql : String, mode : String, dialect : String) : String?
+      statement = sql.strip.rchop(';').strip
+      return unless read_only?(statement)
+      case mode
+      when "run" then statement
+      when "explain", "explain_analyze"
+        return unless statement.matches?(/\A(?:select|with)\b/i)
+        case dialect
+        when "sqlite"   then "EXPLAIN QUERY PLAN #{statement}"
+        when "postgres" then mode == "explain_analyze" ? "EXPLAIN (ANALYZE, BUFFERS) #{statement}" : "EXPLAIN #{statement}"
+        else                 "EXPLAIN #{statement}"
+        end
+      end
+    end
   end
 
   # Thread-safe, bounded store of recent queries/transactions for the dashboard.
@@ -206,6 +224,12 @@ module Azu
     @pool_provider : Proc(PoolSnapshot?)? = nil
     property adapter : DatabaseAdapter? = nil
     property? enabled : Bool = false
+
+    # The SQL playground needs a database, the development environment and the config switch
+    # (the handler additionally requires a loopback client).
+    def playground_available?(config : DatabaseConfiguration = Azu::CONFIG.database) : Bool
+      config.playground? && Azu::CONFIG.env.development? && !@adapter.nil?
+    end
 
     def pool_provider=(provider : Proc(PoolSnapshot?)?)
       @pool_provider = provider

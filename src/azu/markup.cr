@@ -1,7 +1,7 @@
 module Azu
   # Allows you to write HTML markup in plain crystal code
   module Markup
-    private VOID_TAGS = %i(
+    VOID_TAGS = %i(
       area
       base
       br
@@ -19,7 +19,7 @@ module Azu
       wbr
     )
 
-    private NON_VOID_TAGS = %i(
+    NON_VOID_TAGS = %i(
       a
       abbr
       acronym
@@ -128,6 +128,15 @@ module Azu
       var
       video
     )
+
+    # HTML attributes that are either present or absent: `true` renders the bare
+    # attribute and `false` omits it.
+    BOOLEAN_ATTRIBUTES = %w(
+      allowfullscreen async autofocus autoplay checked controls default defer
+      disabled formnovalidate hidden inert ismap itemscope loop multiple muted
+      nomodule novalidate open playsinline readonly required reversed selected
+    )
+
     @view = IO::Memory.new
 
     # :nodoc:
@@ -214,16 +223,24 @@ module Azu
 
     private def build_attrs(attrs = NamedTuple.new) : String
       attr_str = attrs.map do |key, val|
-        k = key.to_s.downcase.gsub /[^a-z0-9\-]/, '-'
-
-        if val.nil?
-          xhtml? ? "#{k}='#{esc(k)}'" : k
-        else
-          "#{k}='#{esc(val)}'"
-        end
-      end
+        build_attr(key.to_s.downcase.gsub(/[^a-z0-9\-]/, '-'), val)
+      end.compact
 
       attr_str.empty? ? "" : " #{attr_str.join(' ')}"
+    end
+
+    private def build_attr(name : String, val) : String?
+      if BOOLEAN_ATTRIBUTES.includes?(name) && (val == true || val == false)
+        val ? bare_attr(name) : nil
+      elsif val.nil?
+        bare_attr(name)
+      else
+        "#{name}='#{esc(val)}'"
+      end
+    end
+
+    private def bare_attr(name : String) : String
+      xhtml? ? "#{name}='#{esc(name)}'" : name
     end
 
     private def esc(text) : String

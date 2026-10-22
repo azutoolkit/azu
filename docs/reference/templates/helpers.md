@@ -924,33 +924,14 @@ Function for simple pluralization:
 
 ## Component Helpers
 
-For use with Azu's Spark real-time component system.
+Spark live views are not driven by template helpers: install the client with
+`Azu::Spark.script_tag` and build reactive elements with the `spark_click` / `spark_change` /
+`spark_submit` bindings inside `Azu::Spark::Component#render`. See
+[Spark Live Views](../../explanation/spark-live-views.md).
 
-### spark_tag
+### component_id
 
-Generates the Spark JavaScript bootstrap:
-
-```jinja
-{{ spark_tag() }}
-```
-
-### render_component
-
-Renders a Spark live component:
-
-```jinja
-{{ render_component("counter", initial_count=0) }}
-```
-
-### Live Attribute Filters
-
-Add Spark live attributes to elements:
-
-```jinja
-<button {{ "increment" | live_click }}>+</button>
-<input type="text" {{ "search" | live_input }}>
-<select {{ "update" | live_change }}>...</select>
-```
+Returns the `id` of a component object (or its string form).
 
 ---
 

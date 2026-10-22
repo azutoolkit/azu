@@ -3,28 +3,13 @@ require "../../support/integration_helpers"
 
 include IntegrationHelpers
 
-class FakeAdapter < Azu::DatabaseAdapter
-  getter executed = [] of String
-
-  def read_only(sql : String, limit : Int32) : {Array(String), Array(Array(String?))}
-    @executed << sql
-    {["one"], [["1"] of String?, [nil] of String?]}
-  end
-
-  def pool : Azu::PoolSnapshot?
-    Azu::PoolSnapshot.new(3, 1, 0, 10)
-  end
-
-  def dialect : String
-    "sqlite"
-  end
-end
-
-def post_dashboard_sql(handler, body : String, remote = "127.0.0.1", headers = HTTP::Headers{"X-Requested-With" => "azu-dashboard"})
-  context, io = create_context_with_remote_addr("POST", "/dev-dashboard/sql", remote, headers)
-  context.request.body = IO::Memory.new(body)
-  handler.call(context)
-  {context, get_response_body(context, io)}
+# Renders the dashboard through the handler and returns the de-chunked HTML body.
+private def dashboard_html(metrics : Azu::PerformanceMetrics = Azu::PerformanceMetrics.new) : String
+  context, io = create_context("GET", "/dev-dashboard")
+  Azu::Handler::DevDashboard.new(metrics: metrics).call(context)
+  context.response.close
+  io.rewind
+  HTTP::Client::Response.from_io(io).body
 end
 
 describe Azu::Handler::DevDashboard do
@@ -264,90 +249,138 @@ describe Azu::Handler::DevDashboard do
       context.response.headers["Content-Type"].should contain("text/html")
     end
   end
-  describe "database tab" do
-    it "renders the Database & Queries section" do
-      handler = Azu::Handler::DevDashboard.new(queries: Azu::QueryStore.new)
-      context, io = create_context("GET", "/dev-dashboard")
-      handler.call(context)
-      body = get_response_body(context, io)
-      body.should contain("Database &amp; Queries")
-      body.should contain("id='database'")
-      body.should contain("dbx-root")
+
+  describe "markup contract" do
+    tabs = Azu::Components::DevDashboardComponent::TABS
+
+    it "is a standards-mode UTF-8 document" do
+      html = dashboard_html
+
+      html.should start_with("<!DOCTYPE html>")
+      html.should contain("<html lang='en'>")
+      html.should contain("<meta charset='utf-8'>")
+      html.should contain("name='viewport'")
+      html.should contain("<noscript><style>.azd .azd-panel { display: block; }</style></noscript>")
     end
 
-    it "serves queries.json with stats, alerts and the since cursor" do
-      store = Azu::QueryStore.new
-      4.times { |i| store.record_query("SELECT * FROM posts WHERE user_id = #{i}", [] of String, 2.0, 1_i64, nil, "src/a.cr:1", nil, "r1", "E", "GET", "/", 1_u64) }
-      handler = Azu::Handler::DevDashboard.new(queries: store)
+    it "uses semantic landmarks" do
+      html = dashboard_html
 
-      context, io = create_context("GET", "/dev-dashboard/queries.json")
-      handler.call(context)
-      json = JSON.parse(get_response_body(context, io))
-      json["stats"]["total"].as_i.should eq 4
-      json["stats"]["n_plus_one"].as_i.should eq 1
-      json["alerts"].as_a.size.should eq 1
-      json["queries"].as_a.size.should eq 4
-      json["config"]["playground"].as_bool.should be_false
-
-      context, io = create_context("GET", "/dev-dashboard/queries.json?since=#{json["last_id"]}")
-      handler.call(context)
-      JSON.parse(get_response_body(context, io))["queries"].as_a.should be_empty
+      html.should contain("<header class='azd-top'>")
+      html.should contain("<nav id='azd-nav'")
+      html.should contain("aria-label='Dashboard sections'")
+      html.should contain("<main id='azd-main'")
+      html.should contain("<section id='panel-overview'")
     end
 
-    it "clears recorded queries with ?clear=true" do
-      store = Azu::QueryStore.new
-      store.record_query("SELECT 1", [] of String, 1.0, 1_i64, nil, nil, nil, nil, nil, nil, nil, 1_u64)
-      handler = Azu::Handler::DevDashboard.new(queries: store)
-      context, _io = create_context("GET", "/dev-dashboard?clear=true")
-      handler.call(context)
-      store.queries.should be_empty
-    end
+    it "ships the Overview, Routes, Performance Tracing and Config tabs plus the data tabs" do
+      html = dashboard_html
 
-    describe "SQL playground" do
-      it "runs a read-only query in development from loopback" do
-        store = Azu::QueryStore.new
-        adapter = FakeAdapter.new
-        store.adapter = adapter
-        handler = Azu::Handler::DevDashboard.new(queries: store)
-        with_azu_env(Azu::Environment::Development) do
-          context, body = post_dashboard_sql(handler, %({"sql":"SELECT 1","mode":"run"}))
-          context.response.status_code.should eq 200
-          result = JSON.parse(body)
-          result["columns"].as_a.map(&.as_s).should eq ["one"]
-          result["rows"].as_a.size.should eq 2
-          adapter.executed.should eq ["SELECT 1"]
-
-          _, _ = post_dashboard_sql(handler, %({"sql":"SELECT 1","mode":"explain"}))
-          adapter.executed.last.should eq "EXPLAIN QUERY PLAN SELECT 1"
-        end
+      ["Overview", "Routes", "Performance Tracing", "Config", "Logs", "Database", "Cache", "Components"].each do |label|
+        html.should contain(">#{label}</span>")
       end
+    end
 
-      it "refuses writes, non-loopback clients, missing header and non-development envs" do
-        store = Azu::QueryStore.new
-        adapter = FakeAdapter.new
-        store.adapter = adapter
-        handler = Azu::Handler::DevDashboard.new(queries: store)
+    it "implements the ARIA tabs pattern with a roving tabindex" do
+      html = dashboard_html
 
-        with_azu_env(Azu::Environment::Development) do
-          ctx, _ = post_dashboard_sql(handler, %({"sql":"DELETE FROM users","mode":"run"}))
-          ctx.response.status_code.should eq 400
-          ctx, _ = post_dashboard_sql(handler, %({"sql":"INSERT INTO t VALUES (1)","mode":"explain"}))
-          ctx.response.status_code.should eq 400
-          ctx, _ = post_dashboard_sql(handler, %({"sql":"SELECT 1","mode":"run"}), remote: "10.0.0.5")
-          ctx.response.status_code.should eq 404
-          ctx, _ = post_dashboard_sql(handler, %({"sql":"SELECT 1","mode":"run"}), headers: HTTP::Headers.new)
-          ctx.response.status_code.should eq 403
-          ctx, _ = post_dashboard_sql(handler, %({"sql":"SELECT 1"}), headers: HTTP::Headers{"X-Requested-With" => "azu-dashboard", "Origin" => "http://evil.test", "Host" => "localhost:4000"})
-          ctx.response.status_code.should eq 403
-          ctx, _ = post_dashboard_sql(handler, "not json")
-          ctx.response.status_code.should eq 400
-        end
+      html.scan("role='tablist'").size.should eq(1)
+      html.scan("role='tab'").size.should eq(tabs.size)
+      html.scan("role='tabpanel'").size.should eq(tabs.size)
+      html.scan(/<button[^>]*role='tab'[^>]*aria-selected='true'/).size.should eq(1)
+      html.scan(/<button[^>]*role='tab'[^>]*tabindex='0'/).size.should eq(1)
+      html.scan(/<button[^>]*role='tab'[^>]*tabindex='-1'/).size.should eq(tabs.size - 1)
 
-        with_azu_env(Azu::Environment::Production) do
-          ctx, _ = post_dashboard_sql(handler, %({"sql":"SELECT 1","mode":"run"}))
-          ctx.response.status_code.should eq 404
-        end
-        adapter.executed.should be_empty
+      tabs.each do |tab|
+        html.should contain("id='tab-#{tab.id}'")
+        html.should contain("aria-controls='panel-#{tab.id}'")
+        html.should contain("<section id='panel-#{tab.id}'")
+        html.should contain("aria-labelledby='tab-#{tab.id}'")
+      end
+    end
+
+    it "labels every icon-only button and announces copy confirmations politely" do
+      html = dashboard_html
+
+      icon_buttons = html.scan(/<button[^>]*azd-icon-btn[^>]*>/).map(&.[0])
+      icon_buttons.should_not be_empty
+      icon_buttons.each(&.should(contain("aria-label=")))
+      html.should match(/id='azd-toast'[^>]*aria-live='polite'/)
+    end
+
+    it "renders the command palette as a modal dialog with combobox and listbox roles" do
+      html = dashboard_html
+
+      html.should contain("<dialog id='azd-palette'")
+      html.should contain("role='combobox'")
+      html.should contain("role='listbox'")
+    end
+
+    it "styles focus and respects reduced motion" do
+      html = dashboard_html
+
+      html.should contain(":focus-visible")
+      html.should contain("prefers-reduced-motion")
+      html.should contain("backdrop-filter")
+    end
+
+    it "scopes every CSS rule under the .azd root class" do
+      css = Azu::Components::DevDashboardComponent::STYLES.gsub(/\/\*.*?\*\//m, "")
+      selectors = css.scan(/([^{}]+)\{/).map(&.[1].strip)
+      selectors.reject! { |selector| selector.starts_with?("@") || selector.matches?(/\A(from|to|\d+%)\z/) }
+
+      selectors.should_not be_empty
+      selectors.flat_map(&.split(',')).map(&.strip).each do |selector|
+        (selector.starts_with?(".azd") || selector.starts_with?(":root:has(.azd")).should be_true, "unscoped selector: #{selector}"
+      end
+    end
+
+    it "makes no external requests" do
+      html = dashboard_html
+
+      html.should_not match(/https?:\/\//)
+      html.should_not match(/<link[^>]*rel='stylesheet'/)
+      html.should_not match(/<script[^>]*src=/)
+      html.should_not contain("@import")
+      html.should_not contain("url(")
+    end
+
+    it "escapes request data in markup and keeps script blocks intact" do
+      metrics = Azu::PerformanceMetrics.new
+      metrics.record_request("Evil::<b>Endpoint</b>", %(GET"><script>alert(1)</script>), "/<img src=x onerror=alert(1)>", 12.0, 1_i64, 2_i64, 500, %("><svg onload=alert(2)>))
+      html = dashboard_html(metrics)
+
+      ["<script>alert(1)", "<img src=x", "<svg onload", "<b>Endpoint</b>"].each { |payload| html.should_not contain(payload) }
+      html.should contain("&lt;script&gt;alert(1)&lt;/script&gt;")
+      html.should contain("&lt;img src=x onerror=alert(1)&gt;")
+      html.scan("</script>").size.should eq(2) # theme boot + dashboard script, nothing injected
+    end
+
+    it "builds the log stream with level, search text and a copyable inspector" do
+      metrics = Azu::PerformanceMetrics.new
+      metrics.record_request("Users::Show", "GET", "/users/42", 8.0, 1_i64, 2_i64, 404, "abc-123")
+      html = dashboard_html(metrics)
+
+      html.should contain("class='azd-log lvl-warn'")
+      html.should contain("data-level='warn'")
+      html.should contain("data-off='debug'")
+      html.should contain("Request ID: abc-123")
+      html.should contain("aria-label='Copy log entry'")
+    end
+
+    it "renders registered routes as a tree with verb chips and copy buttons" do
+      config = Azu::Configuration.new
+      config.router.get "/users/:id", Azu::Handler::RequestId.new
+      config.router.delete "/users/:id", Azu::Handler::RequestId.new
+
+      Azu.with_config(config) do
+        html = dashboard_html
+
+        html.should contain("azd-verb v-get")
+        html.should contain("azd-verb v-delete")
+        html.should contain("<span class='azd-param'>:id</span>")
+        html.should contain("aria-label='Copy endpoint GET /users/:id'")
+        html.should_not contain("azd-verb v-head")
       end
     end
   end

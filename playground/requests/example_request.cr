@@ -6,10 +6,14 @@ module ExampleApp
 
     BAD_REQUEST = "Error validating request"
 
-    @name : String
-    getter name
+    # Defaults to "" so a missing name is a validation message, not a 400 from the parser.
+    @name : String = ""
 
     def initialize(@name : String = "")
+    end
+
+    def name : String
+      @name.strip
     end
 
     validate name, presence: true, message: "Name param must be present!"

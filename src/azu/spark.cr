@@ -1,305 +1,85 @@
-require "uuid"
+require "random/secure"
+require "./channel"
+require "./router"
+require "./spark/client"
+require "./spark/configuration"
+require "./spark/connection"
 
 module Azu
-  # Thread-safe component registry with pooling support
-  class ComponentRegistry
-    @components = {} of String => Component
-    @mutex = Mutex.new
-    @pool = {} of String => Array(Component)
-    @pool_mutex = Mutex.new
-    @max_pool_size : Int32 = 50
+  # Spark keeps server rendered components in sync with the browser over a WebSocket, in the
+  # spirit of Phoenix LiveView: state lives on the server, the browser sends events, the server
+  # renders again and sends only the HTML of the components that changed.
+  #
+  # ```
+  # # once, at boot
+  # Azu::Spark.install
+  #
+  # # in a page
+  # Azu::Spark.script_tag # <script> tag for the layout
+  # Azu::Spark.render(CounterView, label: "Clicks", session: {"user_id" => "42"})
+  # ```
+  #
+  # See `Azu::Spark::Component` for the component DSL and `docs/explanation/spark-live-views.md`
+  # for the architecture and wire protocol.
+  module Spark
+    @@connections = Set(Connection).new
+    @@mutex = Mutex.new
 
-    def initialize(@max_pool_size : Int32 = 50)
+    def self.config : Configuration
+      Azu.current_config.spark
     end
 
-    # Thread-safe component registration
-    def register(id : String, component : Component) : Nil
-      @mutex.synchronize do
-        @components[id] = component
-      end
+    def self.configure(& : Configuration ->) : Nil
+      yield config
     end
 
-    # Thread-safe component retrieval
-    def get(id : String) : Component?
-      @mutex.synchronize do
-        @components[id]?
-      end
+    # Registers the WebSocket endpoint and the client script on *router*. Call once while booting.
+    def self.install(router : Router = Azu.current_config.router) : Nil
+      router.ws(config.path, Connection)
+      router.get(config.assets_path, Client::Asset.new)
     end
 
-    # Type-safe component retrieval with compile-time type checking
-    # Returns nil if component doesn't exist or is not of the expected type
-    #
-    # Example:
-    # ```
-    # if counter = registry.get_typed("counter_1", CounterComponent)
-    #   counter.increment # No cast needed, type is CounterComponent
-    # end
-    # ```
-    def get_typed(id : String, type : T.class) : T? forall T
-      if component = get(id)
-        component.as?(T)
-      end
+    # The `<script>` tag that loads the client from this application (no inline code, so it
+    # works under a strict Content-Security-Policy).
+    def self.script_tag : String
+      %(<script src="#{config.assets_path}?v=#{Client::VERSION}" data-spark-path="#{config.path}" defer></script>)
     end
 
-    # Thread-safe component removal
-    def delete(id : String) : Component?
-      @mutex.synchronize do
-        @components.delete(id)
-      end
+    # Renders the mountable component *type* for an HTML page: the full initial markup plus a
+    # signed token the browser uses to join the live connection. *session* claims are readable
+    # in `mount` as `socket.session`; *params* arrive as the `params` argument of `mount`.
+    # Props are checked against the component's `prop` declarations at compile time.
+    def self.render(type : T.class, *, session : Hash(String, String) = {} of String => String,
+                    params : Hash(String, String) = {} of String => String, **props) : String forall T
+      {% raise "#{T} must declare `mountable` to be rendered from a page" unless T.constant("SPARK_OPTIONS")[:mountable] %}
+
+      component = T.new(**props)
+      id = "spark-#{Random::Secure.hex(8)}"
+      claims = {id: id, view: T.name, props: JSON.parse(component.__spark_props_json), session: session}
+      token = Token.sign("join", JSON.parse(claims.to_json), config.token_ttl)
+      Session.new(ConnectionInfo.detached, false) { |_| }.render_page(
+        component, id, session, Params.from_strings(params), "data-spark-root": nil, "data-spark-token": token)
     end
 
-    # Thread-safe iteration with cleanup
-    def cleanup_disconnected(gc_interval : Time::Span) : Nil
-      to_remove = [] of String
-
-      @mutex.synchronize do
-        @components.each do |id, component|
-          if component.disconnected? && (component.mounted? || component.age > gc_interval)
-            to_remove << id
-          end
-        end
-
-        to_remove.each do |id|
-          if component = @components.delete(id)
-            return_to_pool(component)
-          end
-        end
-      end
+    # Closes every connection with a "service restart" so clients reconnect to the next process.
+    def self.shutdown : Nil
+      connections = @@mutex.synchronize { @@connections.to_a }
+      connections.each(&.close(HTTP::WebSocket::CloseCode::ServiceRestart, "server stopping"))
     end
 
-    # Thread-safe component cleanup on close
-    def cleanup_all : Nil
-      components_to_cleanup = [] of Component
-
-      @mutex.synchronize do
-        components_to_cleanup = @components.values
-        @components.clear
-      end
-
-      # Unmount outside of mutex to avoid holding lock too long
-      components_to_cleanup.each do |component|
-        component.unmount
-        return_to_pool(component)
-      end
+    # Number of open Spark connections.
+    def self.connection_count : Int32
+      @@mutex.synchronize { @@connections.size }
     end
 
-    # Get component from pool or create new one
-    def get_from_pool(type : String, & : -> Component) : Component
-      @pool_mutex.synchronize do
-        if (pool = @pool[type]?) && !pool.empty?
-          component = pool.pop
-          component.reset_for_reuse
-          return component
-        end
-      end
-
-      # Create new component if pool is empty
-      yield
+    # :nodoc:
+    def self.track(connection : Connection) : Nil
+      @@mutex.synchronize { @@connections << connection }
     end
 
-    # Return component to pool for reuse
-    private def return_to_pool(component : Component) : Nil
-      type = component.class.name
-
-      @pool_mutex.synchronize do
-        pool = (@pool[type] ||= [] of Component)
-        if pool.size < @max_pool_size
-          component.prepare_for_pool
-          pool << component
-        end
-      end
-    end
-
-    # Get current component count (for monitoring)
-    def size : Int32
-      @mutex.synchronize do
-        @components.size
-      end
-    end
-  end
-
-  class Spark < Channel
-    # Use thread-safe component registry instead of global hash
-    # Support both class-level (backward compatibility) and instance-level registries
-    @@default_registry : ComponentRegistry? = nil
-    @@registry_mutex = Mutex.new
-    GC_INTERVAL = 10.seconds
-
-    gc_sweep
-
-    # Get the default class-level registry (backward compatibility)
-    def self.components
-      @@registry_mutex.synchronize do
-        @@default_registry ||= ComponentRegistry.new
-      end
-    end
-
-    # Reset the default registry (useful for testing)
-    def self.reset_registry!
-      @@registry_mutex.synchronize do
-        @@default_registry = nil
-      end
-    end
-
-    # Instance-level registry for dependency injection
-    @components : ComponentRegistry
-
-    def initialize(socket : HTTP::WebSocket, @components : ComponentRegistry = Spark.components)
-      super(socket)
-    end
-
-    def self.javascript_tag
-      <<-JS
-      <script type="module">
-      import { h, render, hydrate } from 'https://unpkg.com/preact?module';
-      import htm from 'https://unpkg.com/htm?module';
-
-      const html = htm.bind(h);
-
-      var url = new URL(location.href);
-      url.protocol = url.protocol.replace('http', 'ws');
-      url.pathname = '/spark';
-      var live_view = new WebSocket(url);
-
-      const sparkRenderEvent = new CustomEvent('spark-render');
-
-      live_view.addEventListener('open', (event) => {
-        // Hydrate client-side rendering
-        document.querySelectorAll('[data-spark-view]')
-          .forEach((view) => {
-            var node = html(view.innerHTML)[0];
-            hydrate(node, view.children[0]);
-
-            live_view.send(JSON.stringify({
-              subscribe: view.getAttribute('data-spark-view'),
-            }))
-          });
-      });
-
-      live_view.addEventListener('message', (event) => {
-        var html = htm.bind(h);
-        var data = event.data;
-        var { id, content } = JSON.parse(data);
-
-        document.querySelectorAll(`[data-spark-view="${id}"]`)
-          .forEach((view) => {
-            var div = window.$('<div>' + content + '</div>');
-            view.children[0].innerHTML = div[0].innerHTML
-            render(div[0], view, view.children[0]);
-
-            document.dispatchEvent(sparkRenderEvent);
-          });
-      });
-
-      live_view.addEventListener('close', (event) => {
-        // Do we need to do anything here?
-      });
-
-      [
-        'click',
-        'change',
-        'input',
-      ].forEach((event_type) => {
-        document.addEventListener(event_type, (event) => {
-          var element = event.target;
-          var event_name = element.getAttribute('live-' + event_type);
-
-          if (typeof event_name === 'string') {
-            var channel = event
-              .target
-              .closest('[data-spark-view]')
-              .getAttribute('data-spark-view')
-
-            var data = {};
-            switch (element.type) {
-              case "checkbox": data = { value: element.checked }; break;
-              // Are there others?
-              default: data = { value: element.getAttribute('live-value') || element.value }; break;
-            }
-
-            live_view.send(JSON.stringify({
-              event: event_name,
-              data: JSON.stringify(data),
-              channel: channel,
-            }));
-          }
-        });
-      });
-      </script>
-      JS
-    end
-
-    private def self.gc_sweep
-      spawn do
-        loop do
-          sleep GC_INTERVAL
-          if registry = @@default_registry
-            registry.cleanup_disconnected(GC_INTERVAL)
-          end
-        end
-      end
-    end
-
-    def on_binary(binary); end
-
-    def on_ping(message); end
-
-    def on_pong(message); end
-
-    def on_connect
-    end
-
-    def on_close(code : HTTP::WebSocket::CloseCode? = nil, message : String? = nil)
-      @components.cleanup_all
-    end
-
-    def on_message(message)
-      json = JSON.parse(message)
-      handle_message(json)
-    rescue ex : IO::Error
-      log_error("WebSocket IO error", ex, severity: :debug)
-    rescue ex : JSON::ParseException
-      log_error("Invalid JSON from client", ex, severity: :warn)
-    rescue ex : KeyError
-      log_error("Incomplete event message", ex, severity: :warn)
-    rescue ex
-      log_error("Unexpected error in message handler", ex, severity: :error)
-    end
-
-    private def handle_message(json : JSON::Any)
-      if channel = json["subscribe"]?
-        handle_subscribe_message(channel.to_s)
-      elsif event_name = json["event"]?
-        handle_event_message(json, event_name.as_s)
-      end
-    end
-
-    private def handle_subscribe_message(spark : String)
-      if component = @components.get(spark)
-        component.connected = true
-        component.socket = socket
-        component.mount
-      end
-    end
-
-    private def handle_event_message(json : JSON::Any, event_name : String)
-      if channel = json["channel"]?
-        spark = channel.to_s
-        data = json["data"]?.try(&.as_s) || ""
-        if component = @components.get(spark)
-          component.on_event(event_name, data)
-        end
-      end
-    end
-
-    private def log_error(description : String, ex : Exception,
-                          severity : Symbol = :error)
-      log = Log.for("Azu::Spark")
-      case severity
-      when :debug then log.debug(exception: ex) { description }
-      when :warn  then log.warn(exception: ex) { description }
-      when :error then log.error(exception: ex) { description }
-      end
+    # :nodoc:
+    def self.untrack(connection : Connection) : Nil
+      @@mutex.synchronize { @@connections.delete(connection) }
     end
   end
 end

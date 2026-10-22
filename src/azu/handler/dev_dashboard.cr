@@ -36,9 +36,8 @@ module Azu
 
       def call(context : HTTP::Server::Context)
         case context.request.path
-        when @path                   then render_dashboard(context)
-        when "#{@path}/queries.json" then render_queries(context)
-        when "#{@path}/sql"          then run_playground(context)
+        when @path          then render_dashboard(context)
+        when "#{@path}/sql" then run_playground(context)
         else
           call_next(context)
         end
@@ -61,19 +60,11 @@ module Azu
         end
 
         # Render dashboard using the component
-        dashboard_component = Azu::Components::DevDashboardComponent.new(@metrics, @log)
+        dashboard_component = Azu::Components::DevDashboardComponent.new(@metrics, @log, @start_time)
         html_content = dashboard_component.render
 
         context.response.content_type = "text/html; charset=utf-8"
         context.response.print(html_content)
-      end
-
-      # Live data for the "Database & Queries" tab. `since` is the last query id the browser has.
-      private def render_queries(context : HTTP::Server::Context)
-        since = context.request.query_params["since"]?.try(&.to_i64?) || 0_i64
-        context.response.content_type = "application/json"
-        context.response.headers["Cache-Control"] = "no-store"
-        context.response.print(Azu::Components::DevDashboard::DatabaseTab.payload(@queries, since))
       end
 
       PLAYGROUND_ROW_LIMIT =        200
@@ -97,7 +88,7 @@ module Azu
         input = JSON.parse(body)
         sql = input["sql"]?.try(&.as_s?) || ""
         mode = input["mode"]?.try(&.as_s?) || "run"
-        statement = Azu::Components::DevDashboard::DatabaseTab.playground_sql(sql, mode, adapter.dialect)
+        statement = QueryAnalysis.playground_sql(sql, mode, adapter.dialect)
         unless statement
           return respond_json(context, 400, {error: "Only a single read-only SELECT / WITH / EXPLAIN statement is allowed (EXPLAIN works on SELECT / WITH)."})
         end

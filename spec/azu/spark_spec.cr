@@ -1,326 +1,63 @@
 require "../spec_helper"
+require "../support/spark_helpers"
 
-# Mock WebSocket for testing that doesn't make real network connections
-class MockWebSocket < HTTP::WebSocket
-  def initialize
-    # Create a mock socket without establishing a connection
-    # Use a dummy IO that doesn't actually connect
-    dummy_io = IO::Memory.new
-    super(dummy_io, sync_close: false)
-  end
+module SparkModuleSpec
+  class Hello < Azu::Spark::Component
+    mountable
 
-  # Override methods to prevent actual network operations during tests
-  def send(message : String)
-    # Mock implementation - don't actually send
-  end
+    prop name : String = "world"
 
-  def send(binary : Bytes)
-    # Mock implementation - don't actually send
-  end
-
-  def ping(message = "")
-    # Mock implementation - don't actually ping
-  end
-
-  def pong(message = "")
-    # Mock implementation - don't actually pong
-  end
-
-  def close(code : CloseCode? = nil, message = "")
-    # Mock implementation - don't actually close
-  end
-end
-
-class TestSparkComponent
-  include Azu::Component
-
-  property? event_received = false
-  property event_name = ""
-  property event_data = ""
-
-  def content
-    div { text "Test Spark Component" }
-  end
-
-  def on_event(name, data)
-    @event_received = true
-    @event_name = name
-    @event_data = data
+    def render
+      span "hello #{name}"
+    end
   end
 end
 
 describe Azu::Spark do
-  describe "component management" do
-    it "stores components in COMPONENTS hash" do
-      component = TestSparkComponent.new
-      component_id = component.id
+  describe ".install" do
+    it "registers the WebSocket endpoint at the configured path" do
+      router = Azu::Router.new
+      Azu::Spark.install(router)
 
-      Azu::Spark.components.register(component_id, component)
-
-      Azu::Spark.components.get(component_id).should eq(component)
-    end
-
-    it "provides javascript tag" do
-      js_tag = Azu::Spark.javascript_tag
-
-      js_tag.should be_a(String)
-      js_tag.should_not be_empty
+      routes = router.route_info
+      socket = routes.select { |route| route["method"] == "WEBSOCKET" }
+      socket.size.should eq 1
+      socket.first["path"].should eq "/spark"
+      socket.first["handler"].should eq "Azu::Spark::Connection"
+      routes.select { |route| route["path"] == Azu::Spark.config.assets_path }.map { |route| route["handler"] }.uniq!.should eq ["Azu::Spark::Client::Asset"]
     end
   end
 
-  describe "WebSocket lifecycle" do
-    it "inherits from Channel" do
-      spark = Azu::Spark.new(MockWebSocket.new)
-      spark.should be_a(Azu::Channel)
+  describe ".render" do
+    it "renders the view with its identity, a join token and escaped props" do
+      html = Azu::Spark.render(SparkModuleSpec::Hello, name: "<b>Ada</b>")
+
+      html.should contain "data-spark-view='SparkModuleSpec::Hello'"
+      html.should contain "data-spark-root"
+      html.should contain "hello &lt;b&gt;Ada&lt;/b&gt;"
+      html.should_not contain "<b>Ada</b>"
     end
 
-    it "handles binary messages" do
-      spark = Azu::Spark.new(MockWebSocket.new)
+    it "gives every render its own id and token" do
+      first = Azu::Spark.render(SparkModuleSpec::Hello)
+      second = Azu::Spark.render(SparkModuleSpec::Hello)
 
-      # Should not raise an exception
-      spark.on_binary(Bytes[1, 2, 3])
+      first.match!(/data-spark-id='([^']+)'/)[1].should_not eq second.match!(/data-spark-id='([^']+)'/)[1]
+      first.match!(/data-spark-token='([^']+)'/)[1].should_not eq second.match!(/data-spark-token='([^']+)'/)[1]
     end
 
-    it "handles ping messages" do
-      spark = Azu::Spark.new(MockWebSocket.new)
+    it "does not open a connection" do
+      before = Azu::Spark.connection_count
 
-      # Should not raise an exception
-      spark.on_ping("ping")
-    end
+      Azu::Spark.render(SparkModuleSpec::Hello)
 
-    it "handles pong messages" do
-      spark = Azu::Spark.new(MockWebSocket.new)
-
-      # Should not raise an exception
-      spark.on_pong("pong")
-    end
-
-    it "handles connect events" do
-      spark = Azu::Spark.new(MockWebSocket.new)
-
-      # Should not raise an exception
-      spark.on_connect
+      Azu::Spark.connection_count.should eq before
     end
   end
 
-  describe "message handling" do
-    it "handles subscribe messages" do
-      component = TestSparkComponent.new
-      component_id = component.id
-      Azu::Spark.components.register(component_id, component)
-
-      spark = Azu::Spark.new(MockWebSocket.new)
-      message = {"subscribe" => component_id}.to_json
-
-      spark.on_message(message)
-
-      component.connected?.should be_true
-    end
-
-    it "handles event messages" do
-      component = TestSparkComponent.new
-      component_id = component.id
-      Azu::Spark.components.register(component_id, component)
-
-      spark = Azu::Spark.new(MockWebSocket.new)
-      message = {
-        "event"   => "test_event",
-        "channel" => component_id,
-        "data"    => "test_data",
-      }.to_json
-
-      spark.on_message(message)
-
-      component.event_received?.should be_true
-      component.event_name.should eq("test_event")
-      component.event_data.should eq("test_data")
-    end
-
-    it "handles invalid JSON gracefully" do
-      spark = Azu::Spark.new(MockWebSocket.new)
-
-      # Should not raise an exception
-      spark.on_message("invalid json")
-    end
-
-    it "handles missing channel in event message" do
-      spark = Azu::Spark.new(MockWebSocket.new)
-      message = {
-        "event" => "test_event",
-        "data"  => "test_data",
-      }.to_json
-
-      # Should not raise an exception
-      spark.on_message(message)
-    end
-
-    it "handles missing data in event message" do
-      component = TestSparkComponent.new
-      component_id = component.id
-      Azu::Spark.components.register(component_id, component)
-
-      spark = Azu::Spark.new(MockWebSocket.new)
-      message = {
-        "event"   => "test_event",
-        "channel" => component_id,
-      }.to_json
-
-      # Should not raise an exception
-      spark.on_message(message)
-    end
-
-    it "handles non-existent component gracefully" do
-      spark = Azu::Spark.new(MockWebSocket.new)
-      message = {
-        "event"   => "test_event",
-        "channel" => "non_existent_id",
-        "data"    => "test_data",
-      }.to_json
-
-      # Should not raise an exception
-      spark.on_message(message)
-    end
-  end
-
-  describe "connection close handling" do
-    it "unmounts all components on close" do
-      component1 = TestSparkComponent.new
-      component2 = TestSparkComponent.new
-      component1_id = component1.id
-      component2_id = component2.id
-
-      Azu::Spark.components.register(component1_id, component1)
-      Azu::Spark.components.register(component2_id, component2)
-
-      spark = Azu::Spark.new(MockWebSocket.new)
-
-      spark.on_close
-
-      # Components should be removed from the registry
-      Azu::Spark.components.get(component1_id).should be_nil
-      Azu::Spark.components.get(component2_id).should be_nil
-    end
-
-    it "handles close with code and message" do
-      spark = Azu::Spark.new(MockWebSocket.new)
-
-      # Should not raise an exception
-      spark.on_close(HTTP::WebSocket::CloseCode::NormalClosure, "Normal closure")
-    end
-
-    it "handles close without parameters" do
-      spark = Azu::Spark.new(MockWebSocket.new)
-
-      # Should not raise an exception
-      spark.on_close
-    end
-  end
-
-  describe "garbage collection" do
-    it "has GC interval constant" do
-      Azu::Spark::GC_INTERVAL.should eq(10.seconds)
-    end
-
-    it "runs garbage collection in background" do
-      # The gc_sweep method is called during class initialization
-      # We can verify that the constant is set correctly
-      Azu::Spark::GC_INTERVAL.should be_a(Time::Span)
-    end
-  end
-
-  describe "error handling" do
-    it "handles IO errors gracefully" do
-      spark = Azu::Spark.new(MockWebSocket.new)
-
-      # Should not raise an exception for IO errors
-      # This is tested by the rescue IO::Error in the on_message method
-      spark.should be_a(Azu::Spark)
-    end
-
-    it "handles general exceptions gracefully" do
-      spark = Azu::Spark.new(MockWebSocket.new)
-
-      # Should not raise an exception for general errors
-      # This is tested by the rescue ex in the on_message method
-      spark.should be_a(Azu::Spark)
-    end
-  end
-
-  describe "component lifecycle integration" do
-    it "integrates with component mounting" do
-      component = TestSparkComponent.new
-      component_id = component.id
-      Azu::Spark.components.register(component_id, component)
-
-      spark = Azu::Spark.new(MockWebSocket.new)
-      message = {"subscribe" => component_id}.to_json
-
-      spark.on_message(message)
-
-      component.mounted?.should be_true
-    end
-
-    it "integrates with component event handling" do
-      component = TestSparkComponent.new
-      component_id = component.id
-      Azu::Spark.components.register(component_id, component)
-
-      spark = Azu::Spark.new(MockWebSocket.new)
-
-      # Subscribe first
-      subscribe_message = {"subscribe" => component_id}.to_json
-      spark.on_message(subscribe_message)
-
-      # Then send event
-      event_message = {
-        "event"   => "custom_event",
-        "channel" => component_id,
-        "data"    => "custom_data",
-      }.to_json
-      spark.on_message(event_message)
-
-      component.event_received?.should be_true
-      component.event_name.should eq("custom_event")
-      component.event_data.should eq("custom_data")
-    end
-  end
-
-  describe "multiple components" do
-    it "handles multiple components independently" do
-      component1 = TestSparkComponent.new
-      component2 = TestSparkComponent.new
-      component1_id = component1.id
-      component2_id = component2.id
-
-      Azu::Spark.components.register(component1_id, component1)
-      Azu::Spark.components.register(component2_id, component2)
-
-      spark = Azu::Spark.new(MockWebSocket.new)
-
-      # Subscribe both components
-      spark.on_message({"subscribe" => component1_id}.to_json)
-      spark.on_message({"subscribe" => component2_id}.to_json)
-
-      component1.connected?.should be_true
-      component2.connected?.should be_true
-
-      # Send events to different components
-      spark.on_message({
-        "event"   => "event1",
-        "channel" => component1_id,
-        "data"    => "data1",
-      }.to_json)
-
-      spark.on_message({
-        "event"   => "event2",
-        "channel" => component2_id,
-        "data"    => "data2",
-      }.to_json)
-
-      component1.event_name.should eq("event1")
-      component1.event_data.should eq("data1")
-      component2.event_name.should eq("event2")
-      component2.event_data.should eq("data2")
+  describe ".configure" do
+    it "yields the configuration shared with Azu::CONFIG" do
+      Azu::Spark.configure { |config| config.should be(Azu::CONFIG.spark) }
     end
   end
 end

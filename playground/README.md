@@ -33,16 +33,17 @@ curl localhost:4000/slow                           # slow query (red badge)
 
 ### What to look at in the dashboard
 
-Open <http://localhost:4000/__dev>, choose **Database** in the sidebar (or press `g` then `d`). The tab updates every 2 seconds without reloading.
+Open <http://localhost:4000/__dev> and choose **Database** in the sidebar. The page refreshes itself every 15 seconds (or press the refresh button); the filter box at the top (press `/`) narrows the query rows.
 
 | Area | What you see |
 | --- | --- |
-| KPI cards | total queries, total DB time, N+1 alerts, connection pool usage |
-| N+1 banner | the repeated query shape, how many times it ran in one request, the call site (`file:line`) and an eager-loading hint |
-| Queries | highlighted SQL, time badge (green < 5 ms, yellow < 50 ms, red slower), rows, endpoint, **Copy** button; click a row for bindings, call site and the request waterfall |
-| Filters | minimum duration, table, errors only |
+| KPI cards | total queries, slow queries, N+1 patterns, health score |
+| N+1 analysis | the repeated query shape, how many times it ran in one request, the call site (`file:line`) and an eager-loading hint |
+| Recent queries | SQL with a time badge (green < 5 ms, yellow < 50 ms, red slower), rows, the request and endpoint that ran it, call site, and a **Copy** button |
+| Slow queries / patterns | slowest statements and the most executed statement shapes |
 | Transactions | open / committed / rolled back, number of queries, duration |
-| SQL Playground | run a read-only `SELECT`, `EXPLAIN` or `EXPLAIN ANALYZE` against the app database |
+| Connection pool | connections in use, open, idle and the limit |
+| SQL playground | run a read-only `SELECT`, `EXPLAIN` or `EXPLAIN ANALYZE` against the app database |
 
 The SQL playground is only available when `Azu::CONFIG.env` is `Development` and the request comes from localhost.
 It accepts one `SELECT`/`WITH`/`EXPLAIN` statement and always rolls back.
