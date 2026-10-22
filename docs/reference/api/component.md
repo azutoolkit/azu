@@ -1,5 +1,10 @@
 # Component Reference
 
+> **Outdated:** this page describes the previous `Azu::Component` live API (`on_event`, `mount`,
+> `refresh`, `live-*`), which has been removed. See
+> [Spark Live Views](../../explanation/spark-live-views.md) for the current API and the list of breaking changes.
+
+
 Components provide real-time, stateful UI elements that update automatically via WebSocket.
 
 ## Including Component

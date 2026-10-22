@@ -860,115 +860,32 @@ My App{% endblock %} {% block content %}
 Create interactive components with real-time updates:
 
 ```crystal
-# src/components/user_counter_component.cr
-class UserCounterComponent
-  include Azu::Component
+# src/components/counter_view.cr
+class CounterView < Azu::Spark::Component
+  mountable
 
-  property count : Int32 = 0
-  property user_id : Int64
+  prop label : String = "Clicks"
+  state count : Int32 = 0
 
-  def initialize(@user_id : Int64)
-    @count = User.count.to_i
+  event def increment(by : Int32 = 1) : Nil
+    self.count += by
   end
 
-  def content
-    div(class: "bg-white p-4 rounded-lg shadow-md") do
-      h3(class: "text-lg font-semibold mb-2") { text "Total Users" }
-      div(class: "flex items-center justify-between") do
-        span(class: "text-3xl font-bold text-blue-600") { text @count.to_s }
-        button(
-          class: "bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded",
-          onclick: "refresh_count"
-        ) { text "Refresh" }
-      end
-    end
-  end
-
-  def on_event(name, data)
-    case name
-    when "refresh_count"
-      @count = User.count.to_i
-      refresh # Automatically updates the client
+  def render
+    div do
+      h2 "#{label}: #{count}"
+      button "+1", **spark_click(:increment)
     end
   end
 end
 
-# src/components/chat_component.cr
-class ChatComponent
-  include Azu::Component
-
-  property messages : Array(Hash(String, String)) = [] of Hash(String, String)
-  property current_user : String = "Anonymous"
-
-  def initialize(@current_user : String)
-  end
-
-  def content
-    div(class: "bg-white rounded-lg shadow-md") do
-      div(class: "p-4 border-b") do
-        h3(class: "text-lg font-semibold") { text "Live Chat" }
-      end
-
-      div(class: "h-64 overflow-y-auto p-4 space-y-2") do
-        @messages.each do |message|
-          div(class: "flex space-x-2") do
-            span(class: "font-semibold text-blue-600") { text "#{message["user"]}:" }
-            span { text message["text"] }
-          end
-        end
-      end
-
-      div(class: "p-4 border-t") do
-        form(onsubmit: "send_message", class: "flex space-x-2") do
-          input(
-            type: "text",
-            name: "message",
-            placeholder: "Type a message...",
-            class: "flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-          )
-          button(
-            type: "submit",
-            class: "bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
-          ) { text "Send" }
-        end
-      end
-    end
-  end
-
-  def on_event(name, data)
-    case name
-    when "send_message"
-      if message_text = data["message"]?.try(&.as_s)
-        unless message_text.empty?
-          @messages << {
-            "user" => @current_user,
-            "text" => message_text,
-            "timestamp" => Time.utc.to_s
-          }
-          refresh
-
-          # Broadcast to other connected clients
-          broadcast("new_message", {
-            "user" => @current_user,
-            "text" => message_text
-          })
-        end
-      end
-    when "receive_message"
-      if user = data["user"]?.try(&.as_s)
-        if text = data["text"]?.try(&.as_s)
-          @messages << {
-            "user" => user,
-            "text" => text,
-            "timestamp" => Time.utc.to_s
-          }
-          refresh
-        end
-      end
-    end
-  end
-end
+# once at boot: Azu::Spark.install
+# in a layout:  Azu::Spark.script_tag
+# in a page:    Azu::Spark.render(CounterView, label: "Clicks")
 ```
+
+See [Spark Live Views](docs/explanation/spark-live-views.md) for the component DSL, PubSub, the
+JavaScript client, the security model and the list of breaking changes.
 
 ### 11. WebSocket Channels
 
@@ -1834,34 +1751,31 @@ end
 ### Live Components
 
 ```crystal
-class CounterComponent
-  include Azu::Component
+class CounterView < Azu::Spark::Component
+  mountable
 
-  property count = 0
+  state count : Int32 = 0
 
-  def content
-    div do
-      h2 { text "Count: #{@count}" }
-      button(onclick: "increment") { text "+" }
-      button(onclick: "decrement") { text "-" }
-    end
+  event def increment : Nil
+    self.count += 1
   end
 
-  def on_event(name, data)
-    case name
-    when "increment"
-      @count += 1
-      refresh # Automatically updates the client
-    when "decrement"
-      @count -= 1
-      refresh
+  event def decrement : Nil
+    self.count -= 1
+  end
+
+  def render
+    div do
+      h2 "Count: #{count}"
+      button "+", **spark_click(:increment)
+      button "-", **spark_click(:decrement)
     end
   end
 end
 
-# In your template
-<%= CounterComponent.mount.render %>
-<%= Azu::Spark.javascript_tag %>
+# In your layout and page
+Azu::Spark.script_tag
+Azu::Spark.render(CounterView)
 ```
 
 ## 🛡️ Error Handling
