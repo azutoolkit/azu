@@ -236,48 +236,18 @@ module Azu
   end
 
   # Configuration for file upload handling
-  # Settings for the database layer (`azu/database`) and the dev dashboard's database tab.
-  #
-  # Only `url` is ever needed; everything else has a sensible default. The URL is
-  # resolved from, in order: `url`, `DATABASE_URL`, `AZU_DB_*`/`PG*` variables, and
-  # finally the convention `postgres://localhost/<app>_<env>`.
+  # Settings for database instrumentation and the dev dashboard's database tab.
   class DatabaseConfiguration
-    # What to do when an association is read without having been preloaded.
-    enum NPlusOne
-      Off
-      Warn
-      Raise
-    end
-
-    # Connection URL, e.g. "postgres://user:pass@localhost:5432/app_development".
-    property url : String? = nil
-    # Maximum connections in the pool (appended to the URL as `max_pool_size`).
-    property pool_size : Int32? = ENV["AZU_DB_POOL"]?.try(&.to_i?)
-    # Seconds to wait for a free connection (appended to the URL as `checkout_timeout`).
-    property checkout_timeout : Float64? = ENV["AZU_DB_CHECKOUT_TIMEOUT"]?.try(&.to_f?)
+    # Connection URI used by `Azu::CQL.setup` when no schema is passed.
+    property uri : String? = ENV["DATABASE_URL"]?
     # Record queries/transactions into `Azu::QueryStore`.
     property? instrument : Bool = ENV.fetch("AZU_DB_INSTRUMENT", "true") == "true"
     # Same query shape this many times in one request raises an N+1 alert.
     property n_plus_one_threshold : Int32 = ENV.fetch("AZU_DB_N_PLUS_ONE_THRESHOLD", "3").to_i
-    # Queries slower than this (ms) are flagged in the dashboard and logged as warnings.
+    # Queries slower than this (ms) are flagged as slow.
     property slow_query_ms : Float64 = ENV.fetch("AZU_DB_SLOW_QUERY_MS", "50").to_f
     # Enables the dashboard SQL playground (still limited to Development + loopback clients).
     property? playground : Bool = ENV.fetch("AZU_DB_PLAYGROUND", "true") == "true"
-    # Association access without preload: :off, :warn (log) or :raise.
-    property n_plus_one : NPlusOne = NPlusOne.parse?(ENV.fetch("AZU_DB_N_PLUS_ONE", "off")) || NPlusOne::Off
-    property migrations_path : String = ENV.fetch("AZU_DB_MIGRATIONS_PATH", "db/migrations")
-    property seeds_path : String = ENV.fetch("AZU_DB_SEEDS_PATH", "db/seeds.cr")
-    # Run pending migrations on boot (development convenience; never enable in production).
-    property? auto_migrate : Bool = ENV.fetch("AZU_DB_AUTO_MIGRATE", "false") == "true"
-
-    # Backwards compatible name for `url`.
-    def uri : String?
-      @url
-    end
-
-    def uri=(value : String?)
-      @url = value
-    end
   end
 
   class UploadConfiguration

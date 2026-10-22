@@ -7,6 +7,9 @@ dependencies:
     path: ..
   sqlite3:
     github: crystal-lang/crystal-sqlite3
+  pg:
+    github: will/crystal-pg
+    version: ~> 0.29.0
   cql:
     github: azutoolkit/cql
     branch: claude/elegant-euler-3m1kyy
@@ -16,3 +19,5 @@ targets:
     main: example_app.cr
   azu_cql_demo:
     main: azu_cql_demo.cr
+  azu_cql_postgres:
+    main: azu_cql_postgres/app.cr

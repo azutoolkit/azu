@@ -90,32 +90,6 @@ module Azu
     end
   end
 
-  @@boot_hooks = [] of Proc(Nil)
-  @@shutdown_hooks = [] of Proc(Nil)
-
-  # Registers work to run once when the server starts (before it binds a port).
-  # Integrations such as `azu/database` use it to connect and verify resources.
-  def self.on_boot(&block : ->) : Nil
-    @@boot_hooks << block
-  end
-
-  # Registers work to run when the server stops (`Azu.shutdown`).
-  def self.on_shutdown(&block : ->) : Nil
-    @@shutdown_hooks << block
-  end
-
-  def self.run_boot_hooks : Nil
-    @@boot_hooks.each(&.call)
-  end
-
-  def self.run_shutdown_hooks : Nil
-    @@shutdown_hooks.each do |hook|
-      hook.call
-    rescue ex
-      CONFIG.log.error(exception: ex) { "Shutdown hook failed" }
-    end
-  end
-
   # Rails-like cache API
   def self.cache
     current_config.cache
@@ -124,7 +98,6 @@ module Azu
   # Stops the long lived parts of the framework: closes Spark connections and the PubSub backend.
   # Called by `start` once the server stops; safe to call again.
   def self.shutdown : Nil
-    run_shutdown_hooks
     Spark.shutdown
     PubSub.shutdown
   end
@@ -147,8 +120,6 @@ module Azu
     end
 
     def self.start(handlers : Array(HTTP::Handler))
-      Azu.run_boot_hooks
-
       config.handlers = handlers.map(&.as(HTTP::Handler))
       server = if handlers.empty?
                  HTTP::Server.new { |context| config.router.process(context) }

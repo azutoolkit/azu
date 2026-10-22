@@ -71,6 +71,21 @@ Each query is tagged with the request id, endpoint, path and fiber of the HTTP r
 > CQL models that reference each other must use fully qualified names inside a namespace
 > (`has_many :posts, CqlDemo::Post`) because CQL resolves association targets at compile time.
 
+## Azu + CQL on PostgreSQL
+
+`azu_cql_postgres/` is the same demo on PostgreSQL, laid out the way an app would be: the only Azu/CQL wiring
+is `initializers/cql_config.cr` (one `Azu::CQL.schema` block), `models.cr` holds plain CQL models and
+`app.cr` the endpoints.
+
+```bash
+createdb azu_cql_demo                                  # or point DATABASE_URL at any database
+export DATABASE_URL=postgres://postgres@localhost:5432/azu_cql_demo
+crystal run azu_cql_postgres/app.cr                    # http://localhost:4000, dashboard at /__dev#database
+```
+
+Run `shards install` first (it also installs `pg`). Same curl scenario as above;
+`/slow` also logs `Slow query (...ms, limit 50.0ms) in SlowEndpoint: SELECT pg_sleep(0.2)`.
+
 ## Example app
 
 `example_app.cr` is the general-purpose example (endpoints, components, caching, channels).
