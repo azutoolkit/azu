@@ -195,6 +195,7 @@
     if (!element) return;
     var template = document.createElement("template");
     template.innerHTML = html;
+    sanitize(template.content);
     // Child components that did not change are not part of this patch: keep their live elements.
     var live = new Map();
     Array.prototype.forEach.call(element.querySelectorAll("[data-spark-id]"), function (child) {
@@ -202,6 +203,31 @@
     });
     morphChildren(element, template.content, live);
     element.removeAttribute("data-spark-slot");
+  }
+
+  // Defence in depth for the HTML the server sends. The server escapes what it renders, and
+  // components bind events with data-spark-* attributes that this client delegates, so
+  // nothing legitimate needs a script element, an inline handler or a script URL: drop them,
+  // so that a hole on the server side (or a hostile frame) cannot become script execution here.
+  var BLOCKED_ELEMENTS = "script,iframe,frame,frameset,object,embed,applet,base,meta,link";
+  var URL_ATTRIBUTES = ["href", "src", "xlink:href", "action", "formaction", "data", "poster", "background"];
+
+  function scriptUrl(value, name) {
+    // Browsers ignore ASCII whitespace and control characters inside a scheme.
+    var scheme = String(value).replace(/[\u0000-\u0020]/g, "").toLowerCase();
+    if (/^(javascript|vbscript):/.test(scheme)) return true;
+    return /^data:/.test(scheme) && !(name === "src" && /^data:image\/(png|gif|jpe?g|webp|avif);/.test(scheme));
+  }
+
+  function sanitize(root) {
+    Array.prototype.forEach.call(root.querySelectorAll(BLOCKED_ELEMENTS), function (node) { node.remove(); });
+    Array.prototype.forEach.call(root.querySelectorAll("*"), function (node) {
+      Array.prototype.slice.call(node.attributes).forEach(function (attr) {
+        var name = attr.name.toLowerCase();
+        if (name.indexOf("on") === 0 || name === "srcdoc" ||
+            (URL_ATTRIBUTES.indexOf(name) >= 0 && scriptUrl(attr.value, name))) node.removeAttribute(attr.name);
+      });
+    });
   }
 
   function keyOf(node) {
