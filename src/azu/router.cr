@@ -186,11 +186,8 @@ module Azu
     # ws "/hi", ExampleApp::ExampleChannel
     # ```
     def ws(path : String, channel : Channel.class)
-      handler = HTTP::WebSocketHandler.new do |socket, context|
-        channel.new(socket).call(context)
-      end
       resource = "/ws#{path}"
-      route = Route.new(handler, resource, Azu::Method::WebSocket)
+      route = Route.new(Channel::Upgrader.new(channel), resource, Azu::Method::WebSocket)
       @routes_registry << route
       @radix.add resource, route
     end
@@ -314,7 +311,8 @@ module Azu
                         end
 
         # Get handler class name
-        handler_name = route.endpoint.class.name
+        endpoint = route.endpoint
+        handler_name = endpoint.is_a?(Channel::Upgrader) ? endpoint.channel.name : endpoint.class.name
 
         {
           "method"      => route.method.to_s.upcase,
