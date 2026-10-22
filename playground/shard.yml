@@ -12,7 +12,7 @@ dependencies:
     version: ~> 0.29.0
   cql:
     github: azutoolkit/cql
-    branch: claude/elegant-euler-3m1kyy
+    branch: claude/telemetry-transactions-pool
 
 targets:
   example_app:

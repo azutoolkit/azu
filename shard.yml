@@ -19,7 +19,7 @@ dependencies:
 development_dependencies:
   cql:
     github: azutoolkit/cql
-    branch: claude/elegant-euler-3m1kyy
+    branch: claude/telemetry-transactions-pool
   sqlite3:
     github: crystal-lang/crystal-sqlite3
   pg:
