@@ -444,6 +444,19 @@ module Azu
       end
     end
 
+    class PayloadTooLarge < Error
+      def initialize(message = "The request body is larger than the server is willing to process.", context : ErrorContext? = nil)
+        super(
+          title: "Payload Too Large",
+          status: HTTP::Status::PAYLOAD_TOO_LARGE,
+          errors: [] of String,
+          context: context
+        )
+        @detail = message
+        @source = ""
+      end
+    end
+
     class NotFound < Error
       def initialize(path : String, context : ErrorContext? = nil)
         super(

@@ -210,12 +210,36 @@ describe Azu::Params do
       request.path_params = {"id" => "123"}
       params = Azu::Params(TestRequest).new(request)
 
-      query = params.to_query
+      HTTP::Params.parse(params.to_query).to_h.should eq({
+        "type"  => "user",
+        "id"    => "123",
+        "name"  => "john",
+        "email" => "john@example.com",
+      })
+    end
 
-      query.should contain("name=john")
-      query.should contain("email=john@example.com")
-      query.should contain("id=123")
-      query.should contain("type=user")
+    it "keeps a value that contains & and = from smuggling extra parameters" do
+      request = HTTP::Request.new("GET", "/test?name=x%26role%3Dadmin")
+      params = Azu::Params(TestRequest).new(request)
+
+      HTTP::Params.parse(params.to_query).to_h.should eq({"name" => "x&role=admin"})
+    end
+
+    it "round-trips special characters in keys and values" do
+      request = HTTP::Request.new("GET", "/test?q=a%20b%2Bc%25d%C3%A9&a%26b%3Dc=1")
+      params = Azu::Params(TestRequest).new(request)
+
+      HTTP::Params.parse(params.to_query).to_h.should eq({"q" => "a b+c%dé", "a&b=c" => "1"})
+    end
+
+    it "builds the typed request without letting a value set other fields" do
+      request = HTTP::Request.new("GET", "/test?name=x%26email%3Devil%40example.com")
+      params = Azu::Params(TestRequest).new(request)
+
+      typed = TestRequest.from_query(params.to_query)
+
+      typed.name.should eq("x&email=evil@example.com")
+      typed.email.should eq("")
     end
   end
 
@@ -267,5 +291,126 @@ describe Azu::Params do
       # Should not raise an exception
       params.to_h.should be_a(Hash(String, String))
     end
+  end
+
+  describe "request body limit" do
+    around_each do |example|
+      original = Azu::CONFIG.upload.max_file_size
+      Azu::CONFIG.upload.max_file_size = 1024_u64
+      begin
+        example.run
+      ensure
+        Azu::CONFIG.upload.max_file_size = original
+      end
+    end
+
+    it "refuses an oversized JSON body without reading all of it" do
+      body = CountingIO.new(IO::Memory.new(%({"name":"#{"x" * 100_000}"})))
+      request = HTTP::Request.new("POST", "/test", HTTP::Headers{"Content-Type" => "application/json"}, body)
+
+      expect_raises(Azu::Response::PayloadTooLarge) { Azu::Params(TestRequest).new(request) }
+      body.bytes_read.should be <= 1025
+    end
+
+    it "refuses an oversized form body" do
+      headers = HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"}
+      request = HTTP::Request.new("POST", "/test", headers, "name=#{"x" * 5000}")
+
+      expect_raises(Azu::Response::PayloadTooLarge) { Azu::Params(TestRequest).new(request) }
+    end
+
+    it "accepts a body within the limit" do
+      headers = HTTP::Headers{"Content-Type" => "application/json"}
+      request = HTTP::Request.new("POST", "/test", headers, %({"name":"john"}))
+
+      Azu::Params(TestRequest).new(request).typed_request.name.should eq("john")
+    end
+  end
+
+  describe "typed_request" do
+    it "answers 400 for malformed JSON" do
+      headers = HTTP::Headers{"Content-Type" => "application/json"}
+      request = HTTP::Request.new("POST", "/test", headers, %({"name": ))
+
+      error = expect_raises(Azu::Response::BadRequest) { Azu::Params(TestRequest).new(request).typed_request }
+      error.status_code.should eq(400)
+    end
+
+    it "answers 400 for a missing required field" do
+      request = HTTP::Request.new("GET", "/test?age=3")
+
+      error = expect_raises(Azu::Response::BadRequest) { Azu::Params(StrictRequest).new(request).typed_request }
+      error.detail.should contain("name")
+    end
+
+    it "answers 400 for a value of the wrong type" do
+      request = HTTP::Request.new("GET", "/test?name=a&age=abc")
+
+      expect_raises(Azu::Response::BadRequest) { Azu::Params(StrictRequest).new(request).typed_request }
+    end
+
+    it "answers 400 for a multipart body without a boundary" do
+      request = HTTP::Request.new("POST", "/test", HTTP::Headers{"Content-Type" => "multipart/form-data"}, "x")
+
+      expect_raises(Azu::Response::BadRequest) { Azu::Params(TestRequest).new(request) }
+    end
+
+    it "builds the typed request from valid input" do
+      request = HTTP::Request.new("GET", "/test?name=a&age=3")
+
+      typed = Azu::Params(StrictRequest).new(request).typed_request
+
+      {typed.name, typed.age}.should eq({"a", 3})
+    end
+
+    it "reaches the client as 400 and 413, not 500" do
+      handler = Azu::Handler::Rescuer.new
+      handler.next = ->(context : HTTP::Server::Context) { Azu::Params(TestRequest).new(context.request).typed_request; nil }
+
+      malformed = HTTP::Request.new("POST", "/test", HTTP::Headers{"Content-Type" => "application/json"}, %({"name": ))
+      malformed_context = HTTP::Server::Context.new(malformed, HTTP::Server::Response.new(IO::Memory.new))
+      handler.call(malformed_context)
+      malformed_context.response.status_code.should eq(400)
+
+      original = Azu::CONFIG.upload.max_file_size
+      Azu::CONFIG.upload.max_file_size = 16_u64
+      begin
+        large = HTTP::Request.new("POST", "/test", HTTP::Headers{"Content-Type" => "application/json"}, %({"name":"#{"x" * 100}"}))
+        large_context = HTTP::Server::Context.new(large, HTTP::Server::Response.new(IO::Memory.new))
+        handler.call(large_context)
+        large_context.response.status_code.should eq(413)
+      ensure
+        Azu::CONFIG.upload.max_file_size = original
+      end
+    end
+  end
+end
+
+# A request type with required, typed fields
+struct StrictRequest
+  include Azu::Request
+
+  getter name : String
+  getter age : Int32
+
+  def initialize(@name, @age)
+  end
+end
+
+# An IO that records how many bytes were read from it
+class CountingIO < IO
+  getter bytes_read = 0
+
+  def initialize(@io : IO)
+  end
+
+  def read(slice : Bytes) : Int32
+    count = @io.read(slice)
+    @bytes_read += count
+    count
+  end
+
+  def write(slice : Bytes) : Nil
+    raise "read-only"
   end
 end

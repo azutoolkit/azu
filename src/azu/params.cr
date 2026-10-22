@@ -17,18 +17,7 @@ module Azu
     def initialize(request : HTTP::Request)
       @query = request.query_params
       @path = request.path_params
-      @form = HTTP::Params.new
-
-      case request.content_type.sub_type
-      when "json"
-        @json = request.body.try(&.gets_to_end)
-      when "x-www-form-urlencoded"
-        @form = Form.parse(request)
-      when "form-data"
-        @form, @files = Multipart.parse(request)
-      else
-        @form = HTTP::Params.new
-      end
+      @form, @files, @json = Body.parse(request)
     end
 
     def [](key)
@@ -59,12 +48,22 @@ module Azu
       hash
     end
 
-    def to_query
-      String.build do |builder|
-        to_h.each do |key, value|
-          builder << key << "=" << value << "&"
-        end
+    # The merged parameters as a URL-encoded query string.
+    def to_query : String
+      HTTP::Params.encode(to_h)
+    end
+
+    # Builds the typed request with the standard library's `from_json` and
+    # `URI::Params::Serializable.from_www_form`. Input that cannot become a `Request`
+    # is the client's mistake, so it is answered with 400 rather than a server error.
+    def typed_request : Request
+      if body = json
+        Request.from_json body
+      else
+        Request.from_www_form to_query
       end
+    rescue ex : JSON::ParseException | URI::SerializableError | Time::Format::Error | ArgumentError
+      raise Response::BadRequest.new(ex.message.to_s)
     end
 
     # Custom exception for file upload errors
@@ -74,6 +73,43 @@ module Azu
 
       def initialize(message : String, @field_name : String? = nil, @filename : String? = nil)
         super(message)
+      end
+    end
+
+    # Raised when a request body or upload goes over the configured size limit
+    class TooLarge < FileUploadError
+    end
+
+    # Reads request bodies through the configured size limit.
+    module Body
+      # Parses the body by content type into its form, uploaded files and raw JSON.
+      # A body that is too large is answered with 413, any other unreadable one with 400.
+      def self.parse(request : HTTP::Request) : {HTTP::Params, Hash(String, Multipart::File), String?}
+        no_files = Hash(String, Multipart::File).new
+
+        case request.content_type.sub_type
+        when "json"
+          {HTTP::Params.new, no_files, request.body.try { |body| read(body) }}
+        when "x-www-form-urlencoded"
+          {Form.parse(request), no_files, nil}
+        when "form-data"
+          form, files = Multipart.parse(request)
+          {form, files, nil}
+        else
+          {HTTP::Params.new, no_files, nil}
+        end
+      rescue ex : TooLarge
+        raise Response::PayloadTooLarge.new(ex.message.to_s)
+      rescue ex : FileUploadError
+        raise Response::BadRequest.new(ex.message.to_s)
+      end
+
+      # An oversized body is refused after at most limit + 1 bytes, instead of buffering all of it first.
+      def self.read(io : IO) : String
+        limit = CONFIG.upload.max_file_size
+        content = IO::Sized.new(io, read_size: limit.to_i64 + 1).gets_to_end
+        raise TooLarge.new("Request body exceeds maximum allowed size") if content.bytesize > limit
+        content
       end
     end
 
@@ -119,7 +155,7 @@ module Azu
 
               # Check size limit
               if total_bytes > max_size
-                raise FileUploadError.new(
+                raise TooLarge.new(
                   "File size exceeds maximum allowed size of #{max_size} bytes",
                   filename: @filename
                 )
@@ -193,15 +229,7 @@ module Azu
                 raise ex
               end
             else
-              # Read non-file form data with size limit
-              body_content = upload.body.gets_to_end
-              if body_content.bytesize > CONFIG.upload.max_file_size
-                raise FileUploadError.new(
-                  "Form field '#{upload.name}' exceeds maximum size limit",
-                  field_name: upload.name
-                )
-              end
-              multipart_params[upload.name] = body_content
+              multipart_params[upload.name] = Body.read(upload.body)
             end
           end
         rescue ex : FileUploadError
@@ -224,18 +252,11 @@ module Azu
       end
 
       def self.parse_part(input : IO) : HTTP::Params
-        # Add size limit for form data
-        content = input.gets_to_end
-        if content.bytesize > CONFIG.upload.max_file_size
-          raise FileUploadError.new("Form data exceeds maximum allowed size")
-        end
-        HTTP::Params.parse(content)
+        HTTP::Params.parse(Body.read(input))
       end
 
       def self.parse_part(input : String) : HTTP::Params
-        if input.bytesize > CONFIG.upload.max_file_size
-          raise FileUploadError.new("Form data exceeds maximum allowed size")
-        end
+        raise TooLarge.new("Form data exceeds maximum allowed size") if input.bytesize > CONFIG.upload.max_file_size
         HTTP::Params.parse(input)
       end
 
