@@ -20,10 +20,11 @@ describe Azu::Spark do
       Azu::Spark.install(router)
 
       routes = router.route_info
-      routes.size.should eq 1
-      routes.first["path"].should eq "/spark"
-      routes.first["method"].should eq "WEBSOCKET"
-      routes.first["handler"].should eq "Azu::Spark::Connection"
+      socket = routes.select { |route| route["method"] == "WEBSOCKET" }
+      socket.size.should eq 1
+      socket.first["path"].should eq "/spark"
+      socket.first["handler"].should eq "Azu::Spark::Connection"
+      routes.select { |route| route["path"] == Azu::Spark.config.assets_path }.map { |route| route["handler"] }.uniq!.should eq ["Azu::Spark::Client::Asset"]
     end
   end
 
