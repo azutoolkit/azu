@@ -27,7 +27,14 @@ module Azu
       @@tests = {} of Symbol => Crinja::Callable
       @@globals = {} of Symbol => Crinja::Value
       @@applied_to = Set(UInt64).new
+      @@revision = 0_u64
       @@mutex = Mutex.new
+
+      # Changes whenever a helper is registered or the registry is reset, so a holder of an
+      # environment can tell whether it needs `apply_to` again.
+      def self.revision : UInt64
+        @@mutex.synchronize { @@revision }
+      end
 
       # Register a filter by name.
       #
@@ -38,6 +45,7 @@ module Azu
       def self.register_filter(name : Symbol, filter : Crinja::Callable) : Nil
         @@mutex.synchronize do
           @@filters[name] = filter
+          @@revision += 1
         end
       end
 
@@ -50,6 +58,7 @@ module Azu
       def self.register_function(name : Symbol, function : Crinja::Callable) : Nil
         @@mutex.synchronize do
           @@functions[name] = function
+          @@revision += 1
         end
       end
 
@@ -62,6 +71,7 @@ module Azu
       def self.register_test(name : Symbol, test : Crinja::Callable) : Nil
         @@mutex.synchronize do
           @@tests[name] = test
+          @@revision += 1
         end
       end
 
@@ -73,13 +83,14 @@ module Azu
       def self.register_global(name : Symbol, value) : Nil
         @@mutex.synchronize do
           @@globals[name] = Crinja::Value.new(value)
+          @@revision += 1
         end
       end
 
       # Apply all registered helpers to a Crinja environment.
       #
-      # This method is idempotent - calling it multiple times on the same
-      # Crinja instance will only apply helpers once.
+      # Applying is idempotent: the same registry always yields the same environment, so a
+      # repeated call is safe. Skip it while `revision` is unchanged.
       #
       # ```
       # crinja = Crinja.new
@@ -160,6 +171,7 @@ module Azu
           @@tests.clear
           @@globals.clear
           @@applied_to.clear
+          @@revision += 1
         end
       end
 

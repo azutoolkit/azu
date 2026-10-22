@@ -25,7 +25,7 @@ module Azu
     @last_check : Time = Time.utc
     @check_interval : Time::Span = 1.second
     @hot_reload_enabled : Bool = false
-    @file_watcher_started : Bool = false
+    @helpers_revision : UInt64? = nil
 
     getter crinja = Crinja.new
     getter path : Array(String)
@@ -92,7 +92,6 @@ module Azu
     def initialize(@path : Array(String), @error_path : String, hot_reload : Bool? = nil)
       @hot_reload_enabled = hot_reload.nil? ? development_environment? : hot_reload
       initialize_loader
-      start_file_watcher if @hot_reload_enabled
     end
 
     def path=(path : String)
@@ -107,14 +106,13 @@ module Azu
 
     def load(template : String)
       check_for_changes if should_check_for_changes?
-      Helpers::Registry.apply_to(crinja)
+      apply_helpers
       crinja.get_template template
     end
 
     # Enable or disable hot reloading manually
     def hot_reload=(enabled : Bool)
       @hot_reload_enabled = enabled
-      start_file_watcher if enabled
     end
 
     private def development_environment?
@@ -129,7 +127,7 @@ module Azu
 
       # Register all built-in helpers and apply to Crinja environment
       Helpers::Builtin.register_all
-      Helpers::Registry.apply_to(crinja)
+      apply_helpers
 
       update_template_mtimes if @hot_reload_enabled
     end
@@ -199,20 +197,12 @@ module Azu
       end
     end
 
-    private def start_file_watcher
-      return if @file_watcher_started
-      @file_watcher_started = true
+    private def apply_helpers
+      revision = Helpers::Registry.revision
+      return if revision == @helpers_revision
 
-      spawn(name: "template-watcher") do
-        loop do
-          sleep @check_interval
-          # File system watching is handled in check_for_changes method
-          # This keeps the background process lightweight
-        end
-      rescue ex
-        Log.for("Azu::Templates").error(exception: ex) { "Template file watcher failed" }
-        @file_watcher_started = false
-      end
+      Helpers::Registry.apply_to(crinja)
+      @helpers_revision = revision
     end
   end
 end
