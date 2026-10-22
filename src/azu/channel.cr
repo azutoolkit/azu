@@ -45,6 +45,7 @@ module Azu
       @subscriptions = {} of String => PubSub::Subscription
       @subscriptions_mutex = Mutex.new
       @closed = ::Channel(Nil).new
+      @torn_down = false
     end
 
     # Query string of the upgrade request.
@@ -156,11 +157,16 @@ module Azu
       # The peer is gone; the close callback releases the subscription.
     end
 
-    private def teardown : Nil
-      @closed.close unless @closed.closed?
+    # Stops the heartbeat and cancels every subscription. Idempotent: it runs from the close
+    # callback and, for connections that end abnormally (e.g. `on_message` raised), from the
+    # upgrader's `ensure`.
+    def teardown : Nil
       subscriptions = @subscriptions_mutex.synchronize do
+        return if @torn_down
+        @torn_down = true
         @subscriptions.values.tap { @subscriptions.clear }
       end
+      @closed.close
       subscriptions.each(&.cancel)
     end
 

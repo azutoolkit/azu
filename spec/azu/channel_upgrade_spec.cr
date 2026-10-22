@@ -33,6 +33,13 @@ class EchoChannel < Azu::Channel
   end
 end
 
+class RaisingChannel < EchoChannel
+  def on_message(message : String)
+    subscribe("doomed")
+    raise "boom"
+  end
+end
+
 # Round trip that proves the server handled everything sent before it.
 private def sync(client : WsProbe) : Nil
   client.send("sync")
@@ -143,6 +150,25 @@ describe Azu::Channel do
         Azu::PubSub.broadcast("room", "after close")
         bob.close
         EchoChannel.closed.receive
+      end
+    end
+  end
+
+  describe "teardown" do
+    after_each { Azu::PubSub.shutdown }
+
+    it "releases subscriptions when on_message raises and ends the connection" do
+      backend = Azu::PubSub::Memory.new
+      Azu::PubSub.backend = backend
+      with_ws_server(Azu::Channel::Upgrader.new(RaisingChannel)) do |port|
+        client = WsProbe.new(port)
+        client.send("go")
+        50.times do
+          break if client.closed?
+          sleep 20.milliseconds
+        end
+        sleep 100.milliseconds
+        backend.subscriber_count.should eq 0
       end
     end
   end
