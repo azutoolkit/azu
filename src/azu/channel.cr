@@ -129,6 +129,12 @@ module Azu
       @send_mutex.synchronize { socket.send(message) }
     end
 
+    # Sends a close frame. Safe to call from any fiber; a socket that is already gone is ignored.
+    def close(code : HTTP::WebSocket::CloseCode = HTTP::WebSocket::CloseCode::NormalClosure, message : String? = nil) : Nil
+      @send_mutex.synchronize { socket.close(code, message) }
+    rescue IO::Error
+    end
+
     def subscribe(topic : String) : Nil
       @subscriptions_mutex.synchronize do
         @subscriptions[topic] ||= PubSub.subscribe(topic) { |message| deliver(message) }

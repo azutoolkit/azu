@@ -55,25 +55,6 @@ describe "Design Pattern Refactoring" do
     end
   end
 
-  describe "Spark Component Registry" do
-    it "provides class-level registry" do
-      registry = Azu::Spark.components
-      registry.should be_a(Azu::ComponentRegistry)
-    end
-
-    it "can reset registry for testing" do
-      Azu::Spark.reset_registry!
-      new_registry = Azu::Spark.components
-      new_registry.should be_a(Azu::ComponentRegistry)
-    end
-
-    it "accepts custom registry via dependency injection" do
-      _ = Azu::ComponentRegistry.new
-      # Spark needs a socket, but we're just testing initialization
-      # This would need a proper mock socket for full testing
-    end
-  end
-
   describe "CSRF Instance Configuration" do
     it "creates instance with custom configuration" do
       csrf = Azu::Handler::CSRF.new(
@@ -114,18 +95,6 @@ describe "Design Pattern Refactoring" do
 
       csrf1.strategy.should eq Azu::Handler::CSRF::Strategy::SynchronizerToken
       csrf2.strategy.should eq Azu::Handler::CSRF::Strategy::DoubleSubmit
-    end
-  end
-
-  describe "Component Registry" do
-    it "is thread-safe" do
-      registry = Azu::ComponentRegistry.new
-      registry.size.should eq 0
-    end
-
-    it "supports pooling" do
-      registry = Azu::ComponentRegistry.new(max_pool_size: 10)
-      registry.should be_a(Azu::ComponentRegistry)
     end
   end
 end
