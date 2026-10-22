@@ -1,25 +1,15 @@
-# The only Azu <-> CQL wiring an app needs. One file, one block.
+# The only Azu <-> CQL wiring an app needs: configure CQL, attach the dashboard.
 #
-# Everything after this (models, queries, transactions, migrations) is plain CQL.
-# Every query, transaction and the pool then show up in the dev dashboard's Database tab,
-# tagged with the HTTP request that ran them.
+# Initializers load before db/schema.cr, so the schema is attached lazily: the dashboard
+# resolves AppDB the first time it needs it. Everything after this (schema, models, queries,
+# transactions, migrations) is plain CQL.
 require "pg"
 require "../../../src/azu/cql" # in an app: require "azu/cql"
 
-# DATABASE_URL, e.g. postgres://postgres@localhost:5432/azu_cql_demo
-AppDB = Azu::CQL.schema :app, ENV["DATABASE_URL"]? || "postgres://localhost/azu_cql_demo" do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String
-    timestamps
-  end
-
-  table :posts do
-    primary :id, Int64
-    column :user_id, Int64
-    column :title, String
-    column :body, String
-    timestamps
-  end
+Azu::CQL.configure do |c|
+  # DATABASE_URL, e.g. postgres://postgres@localhost:5432/azu_cql_demo
+  c.db = ENV["DATABASE_URL"]? || "postgres://localhost/azu_cql_demo"
+  c.pool.size = 10
 end
+
+Azu::CQL.attach { AppDB }

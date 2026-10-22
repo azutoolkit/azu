@@ -73,9 +73,10 @@ Each query is tagged with the request id, endpoint, path and fiber of the HTTP r
 
 ## Azu + CQL on PostgreSQL
 
-`azu_cql_postgres/` is the same demo on PostgreSQL, laid out the way an app would be: the only Azu/CQL wiring
-is `initializers/cql_config.cr` (one `Azu::CQL.schema` block), `models.cr` holds plain CQL models and
-`app.cr` the endpoints.
+`azu_cql_postgres/` is the same demo on PostgreSQL, laid out like an azu_cli project (initializers load first, then
+`db/`): the only Azu/CQL wiring is `initializers/cql_config.cr` (`Azu::CQL.configure` with CQL's own settings, then
+`Azu::CQL.attach { AppDB }`). `db/schema.cr` defines the schema with `Azu::CQL.schema`, `models.cr` holds plain CQL
+models and `app.cr` the endpoints.
 
 ```bash
 createdb azu_cql_demo                                  # or point DATABASE_URL at any database
@@ -85,6 +86,9 @@ crystal run azu_cql_postgres/app.cr                    # http://localhost:4000, 
 
 Run `shards install` first (it also installs `pg`). Same curl scenario as above;
 `/slow` also logs `Slow query (...ms, limit 50.0ms) in SlowEndpoint: SELECT pg_sleep(0.2)`.
+
+The connection is lazy: `SKIP_SEED=1 crystal run azu_cql_postgres/app.cr` boots without a database (the Database tab renders,
+the SQL playground reports the connection error) and the first request after PostgreSQL comes up connects.
 
 ## Example app
 

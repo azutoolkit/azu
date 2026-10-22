@@ -22,8 +22,7 @@ require "./azu/pub_sub/**"
 require "./azu/spark/**"
 require "./azu/templates/**"
 
-# Not globbed on purpose: `azu/cql` (and `azu/database`, `azu/model`, `azu/migrations`) are opt-in
-# and need the cql shard. Add every new core directory above; spec/azu/opt_in_integrations_spec.cr
+# Not globbed on purpose: `azu/cql` is opt-in and needs the cql shard. Add every new core directory above; spec/azu/opt_in_integrations_spec.cr
 # fails when one is missing.
 
 module Azu

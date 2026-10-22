@@ -1,5 +1,3 @@
-require "./initializers/cql_config"
-
 # Plain CQL models: nothing Azu-specific.
 class Post
   include ::CQL::ActiveRecord::Model(Int64)

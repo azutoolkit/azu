@@ -3,7 +3,7 @@ require "../spec_helper"
 # Azu core must stay usable without the cql shard: anything that needs it lives in
 # an opt-in directory that src/azu.cr does not glob.
 describe "opt-in database integrations" do
-  opt_in_dirs = %w(cql database model migrations)
+  opt_in_dirs = %w(cql)
 
   it "does not glob the whole azu directory" do
     File.read("src/azu.cr").should_not contain(%(require "./azu/**"))

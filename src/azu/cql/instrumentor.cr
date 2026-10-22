@@ -5,8 +5,13 @@ module Azu
     # Handlers run in the fiber that issued the SQL, so the request is known
     # and the call site can be captured.
     module Instrumentor
-      # Frames from these paths are framework/driver internals, not the offending line.
-      INTERNAL_FRAMES = %w(src/azu/ lib/azu/ /cql/src/ lib/cql/ lib/db/ lib/sqlite3/ lib/pg/ lib/mysql/ /crystal/src/ /crystal/)
+      # Frames from these paths are framework/driver internals, not the offending line. (No bare
+      # `/crystal/`: an app checked out under a `crystal` directory would lose every call site.)
+      INTERNAL_FRAMES = %w(src/azu/ lib/azu/ /cql/src/ lib/cql/ lib/db/ lib/sqlite3/ lib/pg/ lib/mysql/ /crystal/src/ /.cache/crystal/)
+
+      def self.internal_frame?(location : String) : Bool
+        location.starts_with?("??") || INTERNAL_FRAMES.any? { |internal| location.includes?(internal) }
+      end
 
       @@mutex = Mutex.new
       @@subscriptions = [] of ::CQL::Events::Subscription
@@ -75,7 +80,7 @@ module Azu
       private def self.call_site : String?
         caller.each do |frame|
           location = frame.split(" in ", 2).first
-          next if location.starts_with?("??") || INTERNAL_FRAMES.any? { |internal| location.includes?(internal) }
+          next if internal_frame?(location)
           return location.split(':').first(2).join(':')
         end
         nil

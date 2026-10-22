@@ -112,6 +112,18 @@ describe Azu::CQL do
     end
   end
 
+  it "treats framework and driver frames as internal but keeps app code, even under a `crystal` directory" do
+    internal = Azu::CQL::Instrumentor
+    internal.internal_frame?("lib/cql/src/schema.cr:259").should be_true
+    internal.internal_frame?("/usr/share/crystal/src/db/query_methods.cr:10").should be_true
+    internal.internal_frame?("lib/pg/src/pg/statement.cr:37").should be_true
+    internal.internal_frame?("/root/.cache/crystal/crystal-run-spec.tmp").should be_true
+    internal.internal_frame?("??").should be_true
+
+    internal.internal_frame?("/home/dev/crystal/blog/src/endpoints/users.cr:12").should be_false
+    internal.internal_frame?("src/endpoints/users.cr:12").should be_false
+  end
+
   it "picks the adapter from the uri" do
     Azu::CQL.adapter_for("postgres://localhost/x").should eq CQL::Adapter::Postgres
     Azu::CQL.adapter_for("sqlite3://./x.db").should eq CQL::Adapter::SQLite
