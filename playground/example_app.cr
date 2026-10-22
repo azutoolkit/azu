@@ -51,24 +51,24 @@ csrf = Azu::Handler::CSRF.new(
 # Build handler chain with explicit typing to avoid Crystal type inference issues
 {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
   ExampleApp.start [
-    Azu::Handler::RequestId.new,                                      # Enhanced request ID tracking
-    Azu::Handler::DevDashboard.new,                                   # Development Dashboard at /dev-dashboard
-    ExampleApp::CONFIG.performance_monitor.not_nil!,                  # Performance metrics collection (shared instance)
+    Azu::Handler::RequestId.new,                                               # Enhanced request ID tracking
+    Azu::Handler::DevDashboard.new,                                            # Development Dashboard at /dev-dashboard
+    ExampleApp::CONFIG.performance_monitor.not_nil!,                           # Performance metrics collection (shared instance)
     Azu::Handler::Static.new(File.join(__DIR__, "public"), fallthrough: true), # CSS and JS for the pages
-    Azu::Handler::Rescuer.new,                                        # Enhanced error handling
-    Azu::Handler::Logger.new,                                         # Request logging
-    ExampleApp::CsrfSeed.new,                                         # One CSRF token per first-time visitor
-    csrf,                                                             # CSRF protection for form posts
-    ExampleApp::PageErrors.new,                                       # Friendly HTML error pages
+    Azu::Handler::Rescuer.new,                                                 # Enhanced error handling
+    Azu::Handler::Logger.new,                                                  # Request logging
+    ExampleApp::CsrfSeed.new,                                                  # One CSRF token per first-time visitor
+    csrf,                                                                      # CSRF protection for form posts
+    ExampleApp::PageErrors.new,                                                # Friendly HTML error pages
   ]
 {% else %}
   ExampleApp.start [
-    Azu::Handler::RequestId.new,                                      # Enhanced request ID tracking
+    Azu::Handler::RequestId.new,                                               # Enhanced request ID tracking
     Azu::Handler::Static.new(File.join(__DIR__, "public"), fallthrough: true), # CSS and JS for the pages
-    Azu::Handler::Rescuer.new,                                        # Enhanced error handling
-    Azu::Handler::Logger.new,                                         # Request logging
-    ExampleApp::CsrfSeed.new,                                         # One CSRF token per first-time visitor
-    csrf,                                                             # CSRF protection for form posts
-    ExampleApp::PageErrors.new,                                       # Friendly HTML error pages
+    Azu::Handler::Rescuer.new,                                                 # Enhanced error handling
+    Azu::Handler::Logger.new,                                                  # Request logging
+    ExampleApp::CsrfSeed.new,                                                  # One CSRF token per first-time visitor
+    csrf,                                                                      # CSRF protection for form posts
+    ExampleApp::PageErrors.new,                                                # Friendly HTML error pages
   ]
 {% end %}
