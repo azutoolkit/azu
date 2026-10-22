@@ -1,10 +1,13 @@
 module Azu
   module CQL
-    # Subscribes to `cql.query`, `cql.transaction` and `cql.connect` and records
-    # them into `Azu::QueryStore`, tagged with the current `Azu::RequestContext`.
-    # Handlers run in the fiber that issued the SQL, so the request is known
-    # and the call site can be captured.
+    # Subscribes to CQL's event framework (`CQL::Telemetry`: one `QueryEvent` per statement,
+    # a `TransactionEvent` per transaction state change) and records the events in
+    # `Azu::QueryStore`, tagged with the current `Azu::RequestContext`. Subscribers run in the
+    # fiber that issued the SQL, so the request is known and the call site can be captured.
     module Instrumentor
+      # Subscriber name in `CQL::Telemetry` (subscribing again replaces, so installing twice is harmless).
+      NAME = "azu.dashboard"
+
       # Frames from these paths are framework/driver internals, not the offending line. (No bare
       # `/crystal/`: an app checked out under a `crystal` directory would lose every call site.)
       INTERNAL_FRAMES = %w(src/azu/ lib/azu/ /cql/src/ lib/cql/ lib/db/ lib/sqlite3/ lib/pg/ lib/mysql/ /crystal/src/ /.cache/crystal/)
@@ -14,46 +17,45 @@ module Azu
       end
 
       @@mutex = Mutex.new
-      @@subscriptions = [] of ::CQL::Events::Subscription
       @@transactions = {} of Fiber => Array(Int64)
 
+      # True while our subscribers are registered (false again after `CQL::Telemetry.reset!`).
       def self.installed? : Bool
-        @@mutex.synchronize { !@@subscriptions.empty? }
+        ::CQL::Telemetry.subscribed?(NAME)
       end
 
       def self.install(store : QueryStore = QueryStore.instance) : Nil
         @@mutex.synchronize do
-          return unless @@subscriptions.empty?
+          return if installed?
           store.enabled = true
-          @@subscriptions << ::CQL::Events.on_query { |event| record_query(store, event) }
-          @@subscriptions << ::CQL::Events.on_transaction { |event| record_transaction(store, event) }
-          @@subscriptions << ::CQL::Events.on_connect do |event|
-            Azu::CONFIG.log.debug { "cql.connect schema=#{event.schema} adapter=#{event.adapter} uri=#{event.uri}" }
-          end
+          ::CQL::Telemetry.subscribe(NAME) { |event| record_query(store, event) }
+          ::CQL::Telemetry.subscribe_transactions(NAME) { |event| record_transaction(store, event) }
         end
       end
 
       def self.uninstall(store : QueryStore = QueryStore.instance) : Nil
         @@mutex.synchronize do
-          @@subscriptions.each { |subscription| ::CQL::Events.unsubscribe(subscription) }
-          @@subscriptions.clear
+          ::CQL::Telemetry.unsubscribe(NAME)
+          ::CQL::Telemetry.unsubscribe_transactions(NAME)
           @@transactions.clear
           store.enabled = false
         end
       end
 
-      private def self.record_query(store : QueryStore, event : ::CQL::Events::QueryEvent) : Nil
+      private def self.record_query(store : QueryStore, event : ::CQL::Telemetry::QueryEvent) : Nil
         return unless Azu::CONFIG.database.instrument?
+        return if event.operation == :explain # plans are diagnostics, not application queries
         context = RequestContext.current?
+        params = event.params.try(&.map { |param| truncate(param.inspect) }) || Array.new(event.param_count) { "?" }
         store.record_query(
-          event.sql, event.params.map { |param| truncate(param.inspect) }, event.duration_ms, event.rows,
-          event.error, call_site, current_transaction,
+          event.sql, params, event.duration.total_milliseconds, event.rows_affected,
+          event.error.try { |error| error.message.presence || error.class.name }, call_site, current_transaction,
           context.try(&.request_id), context.try(&.endpoint), context.try(&.method), context.try(&.path),
           Fiber.current.object_id
         )
       end
 
-      private def self.record_transaction(store : QueryStore, event : ::CQL::Events::TransactionEvent) : Nil
+      private def self.record_transaction(store : QueryStore, event : ::CQL::Telemetry::TransactionEvent) : Nil
         return unless Azu::CONFIG.database.instrument?
         fiber = Fiber.current
         case event.state
@@ -68,7 +70,8 @@ module Azu
               @@transactions.delete(fiber) if stack.empty?
             end
           end
-          store.record_transaction_end(event.id, event.state.commit?, event.duration_ms, event.error)
+          error = event.error.try { |failure| failure.message.presence || failure.class.name }
+          store.record_transaction_end(event.id, event.state.commit?, event.duration.total_milliseconds, error)
         end
       end
 

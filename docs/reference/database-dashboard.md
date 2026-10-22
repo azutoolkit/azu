@@ -4,9 +4,12 @@ The dev dashboard's **Database** tab shows every SQL statement an Azu app runs: 
 recent queries tagged with the request that ran them, slow queries, query patterns, transactions,
 connection pool usage and a read-only SQL playground.
 
-The tab is fed through CQL's event framework only: `Azu::CQL::Instrumentor` subscribes to `cql.query`,
-`cql.transaction` and `cql.connect` (`CQL::Events`) and records them in `Azu::QueryStore`. Azu does not wrap or patch CQL, and
-anything that emits those events shows up. Without `azu/cql` the tab falls back to CQL's own performance monitor (when `cql`
+The tab is fed through CQL's event framework only: `Azu::CQL::Instrumentor` subscribes to `CQL::Telemetry`
+(one query event per statement, one transaction event per begin/commit/rollback) and records them in
+`Azu::QueryStore`. Azu does not wrap or patch CQL, and anything that emits those events shows up. It needs a CQL
+release newer than 0.0.533 (`CQL::Telemetry.subscribe_transactions` and `CQL::Schema#pool_stats`); older releases fail
+to compile with a message saying so. Telemetry reports affected rows for writes only, so SELECT row counts show "-",
+and parameter values only appear when you turn on `CQL::Telemetry.capture_params` (otherwise `?` placeholders). Without `azu/cql` the tab falls back to CQL's own performance monitor (when `cql`
 is required before `azu`), or shows an "n/a" card that explains how to install the event bridge. Once `azu/cql` is
 installed, the statements recorded in `Azu::QueryStore` take precedence.
 
@@ -81,8 +84,8 @@ CQL's types are also reachable under the Azu namespace (`Azu::CQL::Schema`,
 
 | Piece | Where | Role |
 | --- | --- | --- |
-| `CQL::Events` | cql `src/events.cr` | `cql.query`, `cql.transaction`, `cql.connect` events; zero cost without subscribers |
-| `Azu::CQL::Instrumentor` | `src/azu/cql/instrumentor.cr` | subscribes to the events and records them in `Azu::QueryStore` |
+| `CQL::Telemetry` | cql `src/telemetry.cr` | query and transaction events; zero cost without subscribers |
+| `Azu::CQL::Instrumentor` | `src/azu/cql/instrumentor.cr` | subscribes (as `azu.dashboard`) and records the events in `Azu::QueryStore` |
 | `Azu::RequestContext` | `src/azu/request_context.cr` | fiber-keyed current request (id, endpoint, method, path); set by `Handler::RequestId` and `Endpoint#call` |
 | `Azu::QueryStore` | `src/azu/query_store.cr` | bounded store (2000 queries), N+1 analysis, transactions, pool snapshot |
 | `Dashboard::DatabaseData` | `src/azu/components/dev_dashboard/database_data.cr` | numbers for the tab: from `QueryStore` when an integration is installed, else from CQL's monitor |

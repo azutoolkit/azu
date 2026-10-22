@@ -99,8 +99,8 @@ describe "Azu::CQL bridge on PostgreSQL" do
     select_query = queries.find! { |query| query.operation == "SELECT" }
     select_query.sql.should contain "$1"
     select_query.normalized_sql.should contain "= ?"
-    select_query.params.should eq [%("Ada")]
-    select_query.rows.should eq 1
+    select_query.params.should eq ["?"] # values only with CQL::Telemetry.capture_params
+    select_query.rows.should be_nil     # Telemetry reports rows_affected for DML only
     select_query.duration_ms.should be > 0
     select_query.caller.to_s.should contain "bridge_postgres_spec.cr"
   end
@@ -158,7 +158,7 @@ describe "Azu::CQL bridge on PostgreSQL" do
 
     store.transactions.map(&.state).should eq ["rolled_back", "rolled_back", "committed"]
     store.transactions.map(&.query_count).should eq [1, 1, 1]
-    schema.raw_readonly("SELECT name FROM bridge_authors ORDER BY id", 10)[1].should eq [["kept"]]
+    store.adapter.not_nil!.read_only("SELECT name FROM bridge_authors ORDER BY id", 10)[1].should eq [["kept"]]
   end
 
   it "runs playground statements read-only and rolls back even a data-modifying CTE" do
@@ -173,7 +173,7 @@ describe "Azu::CQL bridge on PostgreSQL" do
 
     # Bypasses the validator on purpose: the transaction itself must still be rolled back.
     adapter.read_only("WITH gone AS (DELETE FROM bridge_authors RETURNING *) SELECT count(*)::text FROM gone", 1)[1].should eq [["2"]]
-    schema.raw_readonly("SELECT count(*)::text FROM bridge_authors", 1)[1].should eq [["2"]]
+    adapter.read_only("SELECT count(*)::text FROM bridge_authors", 1)[1].should eq [["2"]]
   end
 
   it "explains and explain-analyzes through the dashboard endpoint" do
