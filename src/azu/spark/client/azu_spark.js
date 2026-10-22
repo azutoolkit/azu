@@ -111,7 +111,9 @@
   }
 
   function startHeartbeat() {
-    var interval = Math.max(1000, hello.heartbeat || 20000);
+    // The server proposes the interval; a missing, non-numeric or absurd value must not turn into
+    // a busy timer (NaN fires at once) or one that never fires.
+    var interval = Math.min(60000, Math.max(1000, Number(hello.heartbeat) || 20000));
     clearInterval(heartbeatTimer);
     clearInterval(watchdogTimer);
     heartbeatTimer = setInterval(function () { transmit({ v: PROTOCOL, type: "heartbeat", id: ++nextId }); }, interval);
@@ -165,9 +167,15 @@
   }
 
   function navigate(to, replace) {
-    // Only paths of this application, never another origin.
-    if (typeof to !== "string" || to.charAt(0) !== "/" || to.charAt(1) === "/" || to.indexOf("\\") >= 0) return;
-    if (replace) location.replace(to); else location.assign(to);
+    // Only addresses on this origin. Browsers drop tabs and newlines from a URL, so "/\t/host" is
+    // "//host": resolve the address the way the browser will and compare origins instead of
+    // looking at its first characters.
+    if (typeof to !== "string") return;
+    var target;
+    try { target = new URL(to, location.origin); } catch (e) { return; }
+    if (target.origin !== location.origin) return;
+    var path = target.pathname + target.search + target.hash;
+    if (replace) location.replace(path); else location.assign(path);
   }
 
   function failed(message) {
