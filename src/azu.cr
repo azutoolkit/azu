@@ -95,6 +95,19 @@ module Azu
     current_config.cache
   end
 
+  # Installs Azu's log format and a Debug level for the whole process. Requiring azu does not do
+  # this: it is the application's choice, and `start` makes it.
+  def self.setup_logging : Nil
+    Log.setup(:debug, Log::IOBackend.new(formatter: LogFormat))
+  end
+
+  # Starts the parts that need a running app: logging, the async log pipeline and upload cleanup.
+  def self.prepare : Nil
+    setup_logging
+    AsyncLogging.initialize
+    current_config.upload.prepare
+  end
+
   # Stops the long lived parts of the framework: closes Spark connections and the PubSub backend.
   # Called by `start` once the server stops; safe to call again.
   def self.shutdown : Nil
@@ -120,6 +133,7 @@ module Azu
     end
 
     def self.start(handlers : Array(HTTP::Handler))
+      Azu.prepare
       config.handlers = handlers.map(&.as(HTTP::Handler))
       server = if handlers.empty?
                  HTTP::Server.new { |context| config.router.process(context) }

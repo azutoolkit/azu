@@ -77,6 +77,7 @@ module Azu
       end
 
       def self.enqueue(entry : LogEntry)
+        start unless @@queue.closed?
         @@queue.send(entry)
       rescue ::Channel::ClosedError
         # Fallback to synchronous logging if queue is closed
@@ -260,6 +261,7 @@ module Azu
       end
 
       def self.report_error(exception : Exception)
+        start unless @@error_queue.closed?
         @@error_queue.send(exception)
       rescue ::Channel::ClosedError
         # Fallback to immediate reporting
@@ -370,7 +372,8 @@ module Azu
       end
     end
 
-    # Initialize async logging system
+    # Starts the workers now instead of on the first entry. Requiring azu starts nothing; the
+    # first log entry or reported error starts the pipeline, and `Azu.start` calls this.
     def self.initialize
       BatchProcessor.start
       ErrorReporter.start

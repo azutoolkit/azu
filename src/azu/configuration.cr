@@ -43,7 +43,6 @@ module Azu
     private TEMPLATES_PATH = "../../templates"
     private ERROR_TEMPLATE = "./src/azu/templates"
 
-    Log.setup(:debug, Log::IOBackend.new(formatter: LogFormat))
     property log : Log = Log.for("Azu")
 
     property port : Int32 = ENV.fetch("PORT", "4000").to_i
@@ -145,9 +144,6 @@ module Azu
     end
 
     def initialize
-      # Initialize async logging system
-      AsyncLogging.initialize
-
       # Set performance defaults based on environment (only if not explicitly set)
       if ENV.fetch("PERFORMANCE_PROFILING", "").empty?
         @performance_profiling_enabled = env.development?
@@ -263,15 +259,22 @@ module Azu
     property cleanup_interval : Time::Span = ENV.fetch("UPLOAD_CLEANUP_INTERVAL", "3600").to_i.seconds # 1 hour
     property max_temp_age : Time::Span = ENV.fetch("UPLOAD_MAX_TEMP_AGE", "86400").to_i.seconds        # 24 hours
 
-    def initialize
-      # Ensure temp directory exists and is writable
-      Dir.mkdir_p(temp_dir) unless Dir.exists?(temp_dir)
+    @cleanup_started = false
 
-      # Start cleanup background task
+    # Creates the temp directory and starts the cleanup task. `Azu.start` calls this; nothing
+    # happens when the configuration is built, so requiring azu leaves no directory or fiber behind.
+    def prepare : Nil
+      ensure_temp_dir
       start_cleanup_task
     end
 
+    def ensure_temp_dir : Nil
+      Dir.mkdir_p(temp_dir) unless Dir.exists?(temp_dir)
+    end
+
     private def start_cleanup_task
+      return if @cleanup_started
+      @cleanup_started = true
       spawn(name: "upload-cleanup") do
         loop do
           sleep cleanup_interval
