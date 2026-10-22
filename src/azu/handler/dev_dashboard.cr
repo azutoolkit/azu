@@ -49,7 +49,7 @@ module Azu
         end
 
         # Render dashboard using the component
-        dashboard_component = Azu::Components::DevDashboardComponent.new(@metrics, @log)
+        dashboard_component = Azu::Components::DevDashboardComponent.new(@metrics, @log, @start_time)
         html_content = dashboard_component.render
 
         context.response.content_type = "text/html; charset=utf-8"
