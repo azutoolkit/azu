@@ -88,15 +88,11 @@ describe "Static Files Integration" do
         static.next = ->(_ctx : HTTP::Server::Context) { }
         rescuer.next = static
 
-        # Crystal's HTTP::Request automatically strips null bytes from paths for security
-        # "/test\0.txt" becomes "/test", which won't match "test.txt"
-        context, _ = create_context("GET", "/test\0.txt")
+        # A client can only send a null byte percent-encoded; it must not reach "test.txt"
+        context, _ = create_context("GET", "/test%00.txt")
         rescuer.call(context)
 
-        # Static handler with fallthrough=false simply doesn't serve non-existent files
-        # The response will be empty (no content) but not an error
-        # This verifies that null byte injection doesn't allow accessing "test.txt"
-        context.response.status_code.should_not eq(200)
+        context.response.status_code.should eq(400)
       end
     end
   end
@@ -240,14 +236,11 @@ describe "Static Files Integration" do
         static = Azu::Handler::Static.new(dir, fallthrough: false)
         static.next = ->(_ctx : HTTP::Server::Context) { }
 
-        # Crystal's HTTP::Request automatically strips null bytes from paths
-        # "/file\0.txt" becomes "/file", which won't match "file.txt"
-        context, _ = create_context("GET", "/file\0.txt")
+        # A client can only send a null byte percent-encoded; it must be rejected, not reach "file.txt"
+        context, _ = create_context("GET", "/file%00.txt")
         static.call(context)
 
-        # Returns 404 because the path "/file" doesn't exist (only "file.txt" does)
-        # This effectively prevents null byte injection from accessing "file.txt"
-        context.response.status_code.should eq(404)
+        context.response.status_code.should eq(400)
       end
     end
   end
