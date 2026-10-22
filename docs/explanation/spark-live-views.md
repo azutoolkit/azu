@@ -89,6 +89,16 @@ last signed state snapshot.
   Reconnect snapshots are signed and size limited.
 - **Limits.** Frame size (`max_message_size`), event rate (`events_per_second` / `event_burst`)
   and idle timeout are enforced per connection.
+- **The client applies server HTML, on purpose.** A live view works by sending rendered HTML
+  that the client morphs into the page, so the client parses what the server sends (static
+  analysis tools report this as a DOM XSS sink: the value comes from a WebSocket message).
+  The layers around it are: the server escapes what it renders; the socket is only opened after
+  the origin check and a signed join token; the client parses the patch in an inert document
+  (`DOMParser`, so no script runs and no resource loads) and drops `script`, `iframe`, `object`,
+  `embed`, `base`, `meta` and `link` elements, every `on*` attribute and `srcdoc`, and script or
+  `data:` URLs before moving the nodes into the page; and the client script is served by the
+  app with no inline code, so a Content-Security-Policy of `script-src 'self'` works. Serve the
+  socket over `wss` in production: an unencrypted connection could be rewritten in transit.
 
 ## Breaking changes
 
