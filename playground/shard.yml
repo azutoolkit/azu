@@ -7,7 +7,12 @@ dependencies:
     path: ..
   sqlite3:
     github: crystal-lang/crystal-sqlite3
+  cql:
+    github: azutoolkit/cql
+    branch: claude/elegant-euler-3m1kyy
 
 targets:
   example_app:
     main: example_app.cr
+  azu_cql_demo:
+    main: azu_cql_demo.cr

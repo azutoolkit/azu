@@ -11,3 +11,6 @@
 
 # Shards installed for the playground app
 /playground/lib/
+
+# SQLite file created by playground/azu_cql_demo.cr
+/playground/*.db

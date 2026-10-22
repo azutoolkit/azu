@@ -31,6 +31,7 @@
     levelsOff: new Set(['debug']), // log levels currently hidden
     auto: store.get('auto') !== 'off',
     updatedAt: Date.now(),
+    sql: { text: 'SELECT 1', result: null, error: null, busy: false }, // Database tab playground
   };
 
   const filterInput = $('#azd-filter');
@@ -303,11 +304,68 @@
       selectTab(state.tab, { hash: false });
       syncToggles();
       applyFilters();
+      renderSql();
       state.updatedAt = Date.now();
     } catch {
       $('#azd-updated').textContent = 'Offline';
       $('#azd-age').textContent = '';
     }
+  }
+
+  // ---------- SQL playground (Database tab) ----------
+  const sqlNode = (tag, text, className) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    node.textContent = text;
+    return node;
+  };
+
+  // Rebuilds the editor and result from `state.sql`, so a soft refresh never loses them.
+  function renderSql() {
+    const area = $('#azd-sql');
+    const out = $('#azd-sql-result');
+    if (!area || !out) return;
+    if (area !== document.activeElement) area.value = state.sql.text;
+    $$('[data-action="sql-run"]').forEach((button) => { button.disabled = state.sql.busy; });
+    out.replaceChildren();
+    if (state.sql.error) out.append(sqlNode('p', state.sql.error, 'azd-sql-error'));
+    const result = state.sql.result;
+    if (!result) return;
+
+    out.append(sqlNode('p', `${result.rows.length} row(s) in ${result.duration_ms.toFixed(2)} ms${result.truncated ? ' (truncated)' : ''}`, 'azd-muted'));
+    const table = sqlNode('table', '', 'azd-table');
+    const head = table.createTHead().insertRow();
+    result.columns.forEach((column) => { const th = sqlNode('th', column); th.scope = 'col'; head.append(th); });
+    const body = table.createTBody();
+    result.rows.forEach((row) => {
+      const tr = body.insertRow();
+      row.forEach((value) => tr.append(sqlNode('td', value === null ? 'NULL' : value, 'azd-mono azd-wrap')));
+    });
+    const scroll = sqlNode('div', '', 'azd-scroll');
+    scroll.append(table);
+    out.append(scroll);
+  }
+
+  async function runSql(mode) {
+    const area = $('#azd-sql');
+    if (!area) return;
+    state.sql = { text: area.value, result: null, error: null, busy: true };
+    renderSql();
+    try {
+      const response = await fetch(`${location.pathname}/sql`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'azu-dashboard' },
+        body: JSON.stringify({ sql: state.sql.text, mode }),
+      });
+      const body = await response.json();
+      state.sql = response.ok
+        ? { ...state.sql, busy: false, result: body }
+        : { ...state.sql, busy: false, error: body.error || `HTTP ${response.status}` };
+    } catch (error) {
+      state.sql = { ...state.sql, busy: false, error: String(error) };
+    }
+    renderSql();
   }
 
   async function clearMetrics() {
@@ -326,6 +384,7 @@
     auto: toggleAuto,
     refresh: () => refresh(true),
     clear: clearMetrics,
+    'sql-run': (el) => runSql(el.dataset.mode),
     copy: copyFrom,
     level: (el) => { toggleSet(state.levelsOff, el.dataset.level); syncToggles(); },
     method: (el) => { toggleSet(state.methods, el.dataset.method); syncToggles(); applyFilters(); },
@@ -364,6 +423,8 @@
       applyFilters();
     } else if (event.target === palette.input) {
       renderPalette();
+    } else if (event.target.id === 'azd-sql') {
+      state.sql.text = event.target.value;
     }
   });
 
@@ -385,6 +446,7 @@
   syncToggles();
   selectTab(document.getElementById(`tab-${location.hash.slice(1)}`) ? location.hash.slice(1) : 'overview', { hash: false });
   renderStatus();
+  renderSql();
   setInterval(renderStatus, 1000);
   setInterval(() => { if (state.auto) refresh(); }, REFRESH_MS);
 })();

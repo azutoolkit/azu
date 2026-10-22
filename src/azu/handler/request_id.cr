@@ -17,7 +17,7 @@ module Azu
         context.request.headers[@header_name] = request_id
         context.response.headers[@header_name] = request_id
 
-        call_next(context)
+        RequestContext.scope(context) { |_| call_next(context) }
       end
 
       private def generate_request_id : String
