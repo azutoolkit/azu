@@ -85,7 +85,8 @@ describe Azu::Spark::Entry do
 
     topic_hits.should eq 0
     entry.retired.closed?.should be_true
-    entry.retire # idempotent
+    # retiring twice is harmless
+    entry.retire
   ensure
     Azu::PubSub.shutdown
   end
