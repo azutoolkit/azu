@@ -110,10 +110,21 @@
     reconnectTimer = setTimeout(connect, delay);
   }
 
+  // The server proposes the heartbeat interval. Only a supported one is ever used (the smallest
+  // that is not below the proposal), so a missing, non-numeric or absurd value cannot become a
+  // busy timer (NaN fires at once) or one that never fires.
+  var HEARTBEAT_INTERVALS = [1000, 2000, 5000, 10000, 20000, 30000, 60000];
+
+  function heartbeatInterval(proposed) {
+    var wanted = Number(proposed) || 20000;
+    for (var i = 0; i < HEARTBEAT_INTERVALS.length; i++) {
+      if (HEARTBEAT_INTERVALS[i] >= wanted) return HEARTBEAT_INTERVALS[i];
+    }
+    return HEARTBEAT_INTERVALS[HEARTBEAT_INTERVALS.length - 1];
+  }
+
   function startHeartbeat() {
-    // The server proposes the interval; a missing, non-numeric or absurd value must not turn into
-    // a busy timer (NaN fires at once) or one that never fires.
-    var interval = Math.min(60000, Math.max(1000, Number(hello.heartbeat) || 20000));
+    var interval = heartbeatInterval(hello.heartbeat);
     clearInterval(heartbeatTimer);
     clearInterval(watchdogTimer);
     heartbeatTimer = setInterval(function () { transmit({ v: PROTOCOL, type: "heartbeat", id: ++nextId }); }, interval);
@@ -193,16 +204,24 @@
   function applyPatch(id, html) {
     var element = byId(id);
     if (!element) return;
-    var template = document.createElement("template");
-    template.innerHTML = html;
-    sanitize(template.content);
+    var fragment = parsePatch(html);
+    sanitize(fragment);
     // Child components that did not change are not part of this patch: keep their live elements.
     var live = new Map();
     Array.prototype.forEach.call(element.querySelectorAll("[data-spark-id]"), function (child) {
       live.set(child.getAttribute("data-spark-id"), child);
     });
-    morphChildren(element, template.content, live);
+    morphChildren(element, fragment, live);
     element.removeAttribute("data-spark-slot");
+  }
+
+  // Parses a patch in an inert document: no script runs and no resource loads until the
+  // sanitised nodes are moved into the page. Wrapping it in <template> makes the parser
+  // accept fragments that only make sense in context (table rows, list items, options).
+  function parsePatch(html) {
+    var doc = new DOMParser().parseFromString("<template>" + html + "</template>", "text/html");
+    var template = doc.querySelector("template");
+    return template ? template.content : document.createDocumentFragment();
   }
 
   // Defence in depth for the HTML the server sends. The server escapes what it renders, and
