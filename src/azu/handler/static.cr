@@ -8,6 +8,10 @@ module Azu
       # A single byte range: `bytes=first-last`, `bytes=first-` or `bytes=-suffix`
       RANGE_HEADER = /\Abytes=(\d*)-(\d*)\z/
 
+      # A content hash in the file name (`app-3f2a9c1b.css`, `logo.8c1d0e5f.png`): the name
+      # changes whenever the content does, so the file may be cached for as long as wanted.
+      FINGERPRINTED = /[-.][0-9a-f]{8,}\.[^.\/]+\z/
+
       MIME.register(".collection", "font/collection")
       MIME.register(".otf", "font/otf")
       MIME.register(".sfnt", "font/sfnt")
@@ -18,8 +22,18 @@ module Azu
       MIME.register(".png", "image/png")
       MIME.register(".map", "application/json")
 
-      def initialize(public_dir : String = "public", fallthrough = false, directory_listing = false)
-        super
+      # Files with a fingerprint are cached for `cache_max_age` seconds and never revalidated;
+      # every other file is sent with `cache_control`, which by default makes caches revalidate
+      # it with the ETag on each use, so a deploy is never served stale.
+      def initialize(
+        public_dir : String = "public",
+        fallthrough = false,
+        directory_listing = false,
+        @cache_control : String = "public, no-cache",
+        cache_max_age : Int32 = CONFIG.assets.cache_max_age,
+      )
+        super(public_dir, fallthrough, directory_listing)
+        @fingerprinted_cache_control = "public, max-age=#{cache_max_age}, immutable"
       end
 
       def call(context : HTTP::Server::Context)
@@ -119,6 +133,7 @@ module Azu
             context.response.status_code = 404
           end
         elsif File.exists?(file_path)
+          context.response.headers["Cache-Control"] = cache_control_for(file_path)
           return if etag(context, file_path)
           serve_file(context, file_path)
         elsif @fallthrough
@@ -130,6 +145,10 @@ module Azu
 
       private def static_config
         {"dir_listing" => @directory_listing, "gzip" => true}
+      end
+
+      private def cache_control_for(file_path : String) : String
+        FINGERPRINTED.matches?(file_path) ? @fingerprinted_cache_control : @cache_control
       end
 
       private def etag(context, file_path)
@@ -153,7 +172,6 @@ module Azu
         env.response.content_type = mime_type
         env.response.headers["Accept-Ranges"] = "bytes"
         env.response.headers["X-Content-Type-Options"] = "nosniff"
-        env.response.headers["Cache-Control"] = "private, max-age=3600"
         minsize = 860 # http://webmasters.stackexchange.com/questions/31750/what-is-recommended-minimum-object-size-for-gzip-performance-benefits ??
         request_headers = env.request.headers
         filesize = File.size(file_path)

@@ -129,6 +129,17 @@ MyApp.start [
 - `public_dir : String` - Directory to serve from
 - `fallthrough : Bool` - Pass to next handler if not found
 - `directory_listing : Bool` - Show directory listings
+- `cache_control : String` - `Cache-Control` for files without a fingerprint (default `"public, no-cache"`: caches revalidate with the ETag, so a deploy is never served stale)
+- `cache_max_age : Int32` - Seconds that fingerprinted files are cached (default `Azu::CONFIG.assets.cache_max_age`, one year; env `ASSETS_CACHE_MAX_AGE`)
+
+### Caching
+
+A file whose name carries a content hash (`app-3f2a9c1b.css`, `logo.8c1d0e5f.png`) is sent with `public, max-age=<cache_max_age>, immutable`. Every other file is sent with `cache_control`, including on `304` responses.
+
+```crystal
+# Cache unfingerprinted files for an hour instead of revalidating them
+Azu::Handler::Static.new("public", cache_control: "public, max-age=3600")
+```
 
 ### File Types
 

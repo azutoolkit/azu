@@ -348,6 +348,62 @@ describe Azu::Handler::Static do
       end
     end
 
+    describe "Cache-Control policy" do
+      files = {"app.css" => "a { }", "app-3f2a9c1be4d7.css" => "a { }", "logo.8c1d0e5f.png" => "png"}
+
+      cache_control = ->(handler : Azu::Handler::Static, path : String, headers : HTTP::Headers) do
+        context, _ = create_context("GET", path, headers: headers)
+        handler.call(context)
+        context.response.headers["Cache-Control"]?
+      end
+
+      it "makes fingerprinted files immutable for the configured max-age" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir, cache_max_age: 600)
+
+          cache_control.call(handler, "/app-3f2a9c1be4d7.css", HTTP::Headers.new).should eq "public, max-age=600, immutable"
+          cache_control.call(handler, "/logo.8c1d0e5f.png", HTTP::Headers.new).should eq "public, max-age=600, immutable"
+        end
+      end
+
+      it "makes other files revalidate on every use" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir)
+
+          cache_control.call(handler, "/app.css", HTTP::Headers.new).should eq "public, no-cache"
+        end
+      end
+
+      it "takes the policy for other files from the handler" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir, cache_control: "private, max-age=3600")
+
+          cache_control.call(handler, "/app.css", HTTP::Headers.new).should eq "private, max-age=3600"
+        end
+      end
+
+      it "defaults the fingerprinted max-age to the assets configuration" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir)
+          max_age = Azu::CONFIG.assets.cache_max_age
+
+          cache_control.call(handler, "/app-3f2a9c1be4d7.css", HTTP::Headers.new).should eq "public, max-age=#{max_age}, immutable"
+        end
+      end
+
+      it "also sends the policy with a 304 so caches keep refreshing it" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir)
+          first, _ = create_context("GET", "/app.css")
+          handler.call(first)
+          etag = first.response.headers["ETag"]
+
+          headers = HTTP::Headers{"If-None-Match" => etag}
+          cache_control.call(handler, "/app.css", headers).should eq "public, no-cache"
+        end
+      end
+    end
+
     it "sets Accept-Ranges header" do
       with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir)
