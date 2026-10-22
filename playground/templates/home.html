@@ -1,0 +1,70 @@
+{% extends "layout.html" %}
+{% import "_ui.html" as ui %}
+
+{% block content %}
+<section class="hero" aria-labelledby="hero-title">
+  <p class="eyebrow">{{ t('home.eyebrow') }}</p>
+  <h1 id="hero-title">{{ t('home.title_before') }}<em>{{ t('home.title_em') }}</em></h1>
+  <p>{{ t('home.lead') }}</p>
+  <div class="row">
+    {{ link_to(t('home.start'), "/users", class="btn") }}
+    {{ link_to(t('home.try_live'), "/realtime", class="btn btn--secondary") }}
+  </div>
+</section>
+
+<section aria-label="Live numbers" class="grid" style="margin-bottom: var(--s-6)">
+  <div class="card stat"><span class="stat__value">{{ people }}</span><span class="stat__label">People in the database</span></div>
+  <div class="card stat"><span class="stat__value">{{ posts }}</span><span class="stat__label">Posts written</span></div>
+  <div class="card stat"><span class="stat__value">{{ online }}</span><span class="stat__label">Connected to the live channel</span></div>
+</section>
+
+<section aria-labelledby="explore-title">
+  <h2 id="explore-title" style="margin-bottom: var(--s-4)">Explore the playground</h2>
+  <div class="grid">
+    <a class="card" href="/html">
+      <span class="card__icon">{{ ui.icon("hello") }}</span>
+      <h3>Say hello</h3>
+      <p class="muted">A typed request and response in a single template.</p>
+      <span class="card__more">Open the greeting &rarr;</span>
+    </a>
+    <a class="card" href="/users">
+      <span class="card__icon">{{ ui.icon("users") }}</span>
+      <h3>People</h3>
+      <p class="muted">SQLite-backed list, validated form, flash messages and confirmations.</p>
+      <span class="card__more">Manage people &rarr;</span>
+    </a>
+    <a class="card" href="/realtime">
+      <span class="card__icon">{{ ui.icon("bolt") }}</span>
+      <h3>Live channel</h3>
+      <p class="muted">WebSocket presence and messages that update as they happen.</p>
+      <span class="card__more">Go live &rarr;</span>
+    </a>
+    <a class="card" href="/cache">
+      <span class="card__icon">{{ ui.icon("cache") }}</span>
+      <h3>Cache</h3>
+      <p class="muted">Counters, statistics and a slow report that only runs once.</p>
+      <span class="card__more">See the cache &rarr;</span>
+    </a>
+    <a class="card" href="/api">
+      <span class="card__icon">{{ ui.icon("code") }}</span>
+      <h3>JSON API</h3>
+      <p class="muted">Every endpoint in one place, with links you can try.</p>
+      <span class="card__more">Browse the API &rarr;</span>
+    </a>
+    <a class="card" href="/errors">
+      <span class="card__icon">{{ ui.icon("alert") }}</span>
+      <h3>Error handling</h3>
+      <p class="muted">See how Azu explains problems to people and to clients.</p>
+      <span class="card__more">Break things safely &rarr;</span>
+    </a>
+    {% if dev_dashboard %}
+    <a class="card" href="/dev-dashboard">
+      <span class="card__icon">{{ ui.icon("gauge") }}</span>
+      <h3>Dev dashboard</h3>
+      <p class="muted">Requests, cache, database and traces for this very app.</p>
+      <span class="card__more">Open the dashboard &rarr;</span>
+    </a>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

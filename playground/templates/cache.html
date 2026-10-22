@@ -1,0 +1,56 @@
+{% extends "layout.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}{{ t('cache.title') }} · {{ t('app.name') }}{% endblock %}
+
+{% block content %}
+{{ ui.page_head(t('cache.title'), lead=t('cache.lead'), eyebrow="Caching") }}
+
+<div class="grid grid--2">
+  <section class="card" aria-labelledby="counter-title">
+    <h2 id="counter-title">Shared counter</h2>
+    <p class="counter"><span class="counter__value" aria-live="polite">{{ count }}</span><span class="muted">stored in the cache for an hour</span></p>
+    {{ form_tag("/cache/counter", method="post", class="row") }}
+      {{ csrf_field() }}
+      <button class="btn" type="submit" name="action" value="increment">{{ ui.icon("plus") }}Add one</button>
+      <button class="btn btn--secondary" type="submit" name="action" value="decrement">Subtract one</button>
+      <button class="btn btn--ghost" type="submit" name="action" value="reset">Reset</button>
+    {{ end_form() }}
+  </section>
+
+  <section class="card" aria-labelledby="slow-title" data-slow-report="/cached/demo">
+    <h2 id="slow-title">Slow report</h2>
+    <p class="muted">Generating it takes about five seconds. The second time it comes straight from the cache.</p>
+    <div class="row">
+      <button class="btn" type="button" data-slow-run hidden>Generate report</button>
+      <a class="btn btn--secondary" href="/cached/demo" data-slow-fallback>Open the raw JSON</a>
+    </div>
+    <div class="skeleton" data-slow-skeleton hidden aria-hidden="true"><span></span><span></span><span></span></div>
+    <p class="muted" data-slow-note aria-live="polite"></p>
+    <pre class="code" data-slow-output hidden></pre>
+  </section>
+</div>
+
+<section class="stack" style="margin-top: var(--s-6)" aria-labelledby="stats-title">
+  <div class="row row--between">
+    <h2 id="stats-title">Cache statistics</h2>
+    {{ form_tag("/cache/empty", method="post", class="inline-form", data={"confirm": "Every cached value, including the counter, will be dropped.", "confirm-title": "Empty the cache?", "confirm-label": "Empty cache"}) }}
+      {{ csrf_field() }}
+      <button class="btn btn--danger btn--sm" type="submit">Empty cache</button>
+    {{ end_form() }}
+  </div>
+  {% if stats | length == 0 %}
+  <div class="card empty"><span class="card__icon">{{ ui.icon("inbox") }}</span><h3>No statistics yet</h3><p>Use the counter or run the report and the numbers will appear here.</p></div>
+  {% else %}
+  <div class="table-wrap">
+    <table class="table">
+      <caption class="sr-only">Cache statistics</caption>
+      <thead><tr><th scope="col">Metric</th><th scope="col" class="num">Value</th></tr></thead>
+      <tbody>
+        {% for row in stats %}<tr><th scope="row">{{ row.label }}</th><td class="num">{{ row.value }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

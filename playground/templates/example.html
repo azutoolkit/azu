@@ -1,10 +1,26 @@
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Example Page</title>
-</head>
-<body>
-  <h1>Welcome, {{name}}</h1>
-</body>
-</html>
+{% extends "layout.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}{% if name != "" %}Hello, {{ name }}{% else %}{{ t('hello.title') }}{% endif %} · {{ t('app.name') }}{% endblock %}
+
+{% block content %}
+{% if name != "" %}
+  <div class="empty" style="padding-block: var(--s-6)">
+    <span class="card__icon">{{ ui.icon("hello") }}</span>
+    <h1>Welcome, {{ name }}</h1>
+    <p>Nice to meet you. This page was rendered by <code>{{ served_by }}</code> from a typed request and a response object.</p>
+    <div class="row">
+      {{ link_to("Greet someone else", "/html", class="btn btn--secondary") }}
+      {{ link_to("Meet the people", "/users", class="btn") }}
+    </div>
+  </div>
+{% else %}
+  {{ ui.page_head(t('hello.title'), lead=t('hello.lead'), eyebrow="Typed requests") }}
+  <div class="card" style="max-width: 32rem">
+    {{ form_tag("/html", method="get", class="form") }}
+      {{ ui.field("name", "name", t('hello.label'), placeholder=t('hello.placeholder'), autocomplete="name", error=error) }}
+      <div class="row"><button class="btn" type="submit">{{ t('hello.submit') }}</button></div>
+    {{ end_form() }}
+  </div>
+{% endif %}
+{% endblock %}
