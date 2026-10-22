@@ -53,7 +53,43 @@ class SimpleEndpoint
   end
 end
 
+private class PlainHandler
+  include HTTP::Handler
+
+  def call(context : HTTP::Server::Context)
+    context.response << "plain"
+  end
+end
+
+private struct RoutableStruct
+  include Azu::Routable
+
+  def call(context : HTTP::Server::Context)
+    context.response << "routable"
+  end
+end
+
+private def dispatch(router : Azu::Router, path : String) : String
+  io = IO::Memory.new
+  context = HTTP::Server::Context.new(HTTP::Request.new("GET", path), HTTP::Server::Response.new(io))
+  router.process(context)
+  context.response.flush
+  io.to_s
+end
+
 describe Azu::Router do
+  describe "routable targets" do
+    it "dispatches to an HTTP::Handler class, a struct that is only Routable and the root" do
+      router = Azu::Router.new
+      router.get "/plain", PlainHandler.new
+      router.add "/struct", RoutableStruct.new, Azu::Method::Get
+      router.root RoutableStruct.new
+
+      dispatch(router, "/plain").should contain "plain"
+      dispatch(router, "/struct").should contain "routable"
+    end
+  end
+
   describe "route registration" do
     it "adds GET endpoint" do
       router = Azu::Router.new

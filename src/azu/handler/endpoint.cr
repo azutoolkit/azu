@@ -2,6 +2,7 @@ require "http"
 require "html"
 require "../params"
 require "./csrf"
+require "../routable"
 require "../helpers/registry"
 require "../helpers/util"
 

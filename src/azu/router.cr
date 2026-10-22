@@ -1,6 +1,7 @@
 require "http/web_socket"
 require "radix"
 require "./method"
+require "./routable"
 
 module Azu
   # Defines an Azu Router
@@ -105,6 +106,9 @@ module Azu
       precompute_method_cache
     end
 
+    # What a route points at is `Routable`: an endpoint (class or struct) or any `HTTP::Handler`.
+    # A struct that needs to be routed to should include `Azu::Routable`, not `HTTP::Handler`:
+    # the handler's `next` link makes a struct contain itself and the compiler rejects it.
     record Route,
       endpoint : Routable,
       resource : String,
