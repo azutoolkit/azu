@@ -29,15 +29,19 @@ module Azu
         response.headers["Upgrade"] = "websocket"
         response.headers["Connection"] = "Upgrade"
         response.headers["Sec-WebSocket-Accept"] = HTTP::WebSocket::Protocol.key_challenge(context.request.headers["Sec-WebSocket-Key"])
+        # The upgrade block runs after the handler chain has returned, outside the app's scope.
+        config = Azu.current_config
         response.upgrade do |io|
-          socket = HTTP::WebSocket.new(BoundedProtocol.new(io, @channel.max_message_size))
-          channel = @channel.new(socket)
-          channel.call(context)
-          begin
-            socket.run
-          ensure
-            # `on_close` never fires when a handler raises out of `run`.
-            channel.teardown
+          Azu.with_config(config) do
+            socket = HTTP::WebSocket.new(BoundedProtocol.new(io, @channel.max_message_size))
+            channel = @channel.new(socket)
+            channel.call(context)
+            begin
+              socket.run
+            ensure
+              # `on_close` never fires when a handler raises out of `run`.
+              channel.teardown
+            end
           end
         end
       end

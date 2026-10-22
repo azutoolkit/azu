@@ -172,7 +172,7 @@ module Azu
 
     private def start_heartbeat : Nil
       return unless interval = self.class.ping_interval
-      spawn(name: "azu-ws-heartbeat") { ping_until_closed(interval) }
+      Azu.spawn_scoped("azu-ws-heartbeat") { ping_until_closed(interval) }
     end
 
     private def ping_until_closed(interval : Time::Span) : Nil

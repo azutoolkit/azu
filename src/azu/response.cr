@@ -58,15 +58,15 @@ module Azu
       property fingerprint : String
 
       private def templates : Templates
-        CONFIG.templates
+        Azu.current_config.templates
       end
 
       private def env : Environment
-        CONFIG.env
+        Azu.current_config.env
       end
 
       private def log : ::Log
-        CONFIG.log
+        Azu.current_config.log
       end
 
       # Request context (headers, params, process environment) and backtraces are

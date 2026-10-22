@@ -57,7 +57,7 @@ module Azu
           end
         {% end %}
 
-        CONFIG.templates.load(template).render(template_data)
+        Azu.current_config.templates.load(template).render(template_data)
       end
 
       # Renders a template with explicit context injection.
@@ -81,7 +81,7 @@ module Azu
           template_data[key] = value unless template_data.has_key?(key)
         end
 
-        CONFIG.templates.load(template).render(template_data)
+        Azu.current_config.templates.load(template).render(template_data)
       end
 
       def page_path

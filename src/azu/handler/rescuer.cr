@@ -19,7 +19,7 @@ module Azu
         @log.warn(exception: ex) { "Error Processing Request #{ex.status_code}".colorize(:yellow) }
       rescue ex : Exception
         request_id = context.request.headers["X-Request-ID"]? || generate_request_id
-        error_context = ErrorContext.from_http_context(context, request_id, load_environment: CONFIG.env.development?)
+        error_context = ErrorContext.from_http_context(context, request_id, load_environment: Azu.current_config.env.development?)
 
         enhanced_error = Response::Error.from_exception(ex, 500, error_context)
         enhanced_error.to_s(context)

@@ -48,8 +48,8 @@ module Azu
           enqueue(info)
         end
         Spark.track(self)
-        spawn(name: "azu-spark-connection") { process }
-        spawn(name: "azu-spark-watchdog") { watch }
+        Azu.spawn_scoped("azu-spark-connection") { process }
+        Azu.spawn_scoped("azu-spark-watchdog") { watch }
         transmit(Protocol.hello(@config.heartbeat_interval, @config.max_message_size))
       end
 
