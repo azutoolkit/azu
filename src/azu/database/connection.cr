@@ -74,6 +74,28 @@ module Azu
       PoolSnapshot.new(stats.open, stats.idle, stats.in_flight, stats.max)
     end
 
+    @@seeds = [] of Proc(Nil)
+
+    # Registers seed data, run by `azu db:seed` (and `db:setup` / `db:reset`). Typically in db/seeds.cr:
+    #
+    # ```
+    # Azu::Database.seed do
+    #   User.create!(email: "admin@example.com", name: "Admin")
+    # end
+    # ```
+    def self.seed(&block : ->) : Nil
+      @@seeds << block
+    end
+
+    def self.run_seeds : Int32
+      @@seeds.each(&.call)
+      @@seeds.size
+    end
+
+    def self.clear_seeds : Nil
+      @@seeds.clear
+    end
+
     # Set by `Azu::Migrator`: returns how many migrations are pending.
     def self.pending_check=(check : Proc(Int32)?)
       @@pending_check = check
