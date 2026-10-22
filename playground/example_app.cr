@@ -25,8 +25,15 @@ module ExampleApp
   end
 end
 
+# Copy for the layout and pages lives in playground/locales/en.yml and is used through t().
+Azu::Helpers::I18n.configure do |config|
+  config.load_path = ["playground/locales"]
+  config.default_locale = "en"
+end
+
 require "./requests/*"
 require "./responses/*"
+require "./handlers/*"
 require "./endpoints/*"
 require "./channels/*"
 
@@ -34,19 +41,36 @@ require "./channels/*"
 ExampleApp.init_database
 puts "Database initialized with test data"
 
+# Forms are CSRF-protected. The synchronizer strategy keeps one token per browser, so several
+# open tabs keep working. The JSON API routes below are called by scripts and skip the check.
+Azu::Handler::CSRF.use_synchronizer_token!
+csrf = Azu::Handler::CSRF.new(
+  skip_routes: ["/json/", "/counter/", "/cache/clear", "/cache/delete", "/error-demo"],
+  strategy: Azu::Handler::CSRF::Strategy::SynchronizerToken,
+  secure_cookies: false
+)
+
 # Build handler chain with explicit typing to avoid Crystal type inference issues
 {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
   ExampleApp.start [
-    Azu::Handler::RequestId.new,                     # Enhanced request ID tracking
-    Azu::Handler::DevDashboard.new,                  # Development Dashboard at /dev-dashboard
-    ExampleApp::CONFIG.performance_monitor.not_nil!, # Performance metrics collection (shared instance)
-    Azu::Handler::Rescuer.new,                       # Enhanced error handling
-    Azu::Handler::Logger.new,                        # Request logging
+    Azu::Handler::RequestId.new,                                      # Enhanced request ID tracking
+    Azu::Handler::DevDashboard.new,                                   # Development Dashboard at /dev-dashboard
+    ExampleApp::CONFIG.performance_monitor.not_nil!,                  # Performance metrics collection (shared instance)
+    Azu::Handler::Static.new("playground/public", fallthrough: true), # CSS and JS for the pages
+    Azu::Handler::Rescuer.new,                                        # Enhanced error handling
+    Azu::Handler::Logger.new,                                         # Request logging
+    ExampleApp::CsrfSeed.new,                                         # One CSRF token per first-time visitor
+    csrf,                                                             # CSRF protection for form posts
+    ExampleApp::PageErrors.new,                                       # Friendly HTML error pages
   ]
 {% else %}
   ExampleApp.start [
-    Azu::Handler::RequestId.new, # Enhanced request ID tracking
-    Azu::Handler::Rescuer.new,   # Enhanced error handling
-    Azu::Handler::Logger.new,    # Request logging
+    Azu::Handler::RequestId.new,                                      # Enhanced request ID tracking
+    Azu::Handler::Static.new("playground/public", fallthrough: true), # CSS and JS for the pages
+    Azu::Handler::Rescuer.new,                                        # Enhanced error handling
+    Azu::Handler::Logger.new,                                         # Request logging
+    ExampleApp::CsrfSeed.new,                                         # One CSRF token per first-time visitor
+    csrf,                                                             # CSRF protection for form posts
+    ExampleApp::PageErrors.new,                                       # Friendly HTML error pages
   ]
 {% end %}
