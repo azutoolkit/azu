@@ -69,6 +69,16 @@ module Azu
         CONFIG.log
       end
 
+      # Request context (headers, params, process environment) and backtraces are
+      # only meant for developers; they must never reach a client elsewhere.
+      private def debug_context : ErrorContext?
+        context if env.development?
+      end
+
+      private def debug_backtrace : String?
+        inspect_with_backtrace if env.development?
+      end
+
       def initialize(@detail = "", @source = "", @errors = Array(String).new, @context = nil)
         @fingerprint = generate_fingerprint
       end
@@ -125,7 +135,8 @@ module Azu
 
       def xml
         messages = errors.map { |e| "<message>#{e}</message>" }.join("")
-        context_xml = context ? build_context_xml(context.as(ErrorContext)) : ""
+        context_xml = debug_context.try { |ctx| build_context_xml(ctx) } || ""
+        backtrace_xml = debug_backtrace.try { |trace| "<backtrace>#{trace}</backtrace>" } || ""
 
         <<-XML
       <?xml version="1.0" encoding="UTF-8"?>
@@ -135,14 +146,12 @@ module Azu
         <fingerprint>#{fingerprint}</fingerprint>
         <errors>#{messages}</errors>
         #{context_xml}
-        <backtrace>#{inspect_with_backtrace}</backtrace>
+        #{backtrace_xml}
       </error>
       XML
       end
 
       def json
-        context_data = context ? context.try(&.to_h) : nil
-
         {
           Status:      status,
           Link:        link,
@@ -152,14 +161,14 @@ module Azu
           Errors:      errors,
           ErrorId:     error_id,
           Fingerprint: fingerprint,
-          Context:     context_data,
-          Backtrace:   inspect_with_backtrace,
+          Context:     debug_context.try(&.to_h),
+          Backtrace:   debug_backtrace,
           Timestamp:   Time.utc.to_rfc3339,
         }.to_json
       end
 
       def text
-        context_info = context ? format_context_text(context.as(ErrorContext)) : "Context: None"
+        context_info = debug_context.try { |ctx| format_context_text(ctx) } || "Context: None"
 
         <<-TEXT
     Status: #{status_code}
@@ -171,7 +180,7 @@ module Azu
     Fingerprint: #{fingerprint}
     #{context_info}
     Errors: #{errors}
-    Backtrace: #{inspect_with_backtrace}
+    Backtrace: #{debug_backtrace || "hidden"}
     Timestamp: #{Time.utc.to_rfc3339}
     TEXT
       end

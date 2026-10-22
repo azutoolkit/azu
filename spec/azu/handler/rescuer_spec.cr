@@ -17,6 +17,29 @@ describe Azu::Handler::Rescuer do
     end
   end
 
+  describe "unexpected errors in production" do
+    it "does not echo request headers, process environment or a backtrace to the client" do
+      ENV["AZU_SPEC_SECRET"] = "s3cr3t-value"
+      Azu::CachedEnvironment.refresh
+
+      handler = Azu::Handler::Rescuer.new
+      handler.next = ->(_context : HTTP::Server::Context) { raise "boom" }
+
+      headers = HTTP::Headers{"Accept" => "application/json", "Authorization" => "Bearer top-secret-token"}
+      context, io = create_context("GET", "/boom", headers)
+      with_azu_env(Azu::Environment::Production) { handler.call(context) }
+
+      body = get_response_body(context, io)
+      context.response.status_code.should eq(500)
+      body.should_not contain("top-secret-token")
+      body.should_not contain("s3cr3t-value")
+      body.should_not contain("rescuer_spec.cr")
+    ensure
+      ENV.delete("AZU_SPEC_SECRET")
+      Azu::CachedEnvironment.refresh
+    end
+  end
+
   describe "normal request flow" do
     it "passes through successful requests" do
       handler = Azu::Handler::Rescuer.new
@@ -117,6 +140,9 @@ describe Azu::Handler::Rescuer do
   end
 
   describe "Generic Exception handling" do
+    # Request context in error bodies is development-only
+    around_each { |example| with_azu_env(Azu::Environment::Development) { example.run } }
+
     it "catches and handles generic exceptions" do
       handler = Azu::Handler::Rescuer.new
 
@@ -171,6 +197,8 @@ describe Azu::Handler::Rescuer do
   end
 
   describe "error context" do
+    around_each { |example| with_azu_env(Azu::Environment::Development) { example.run } }
+
     it "includes request method in error context" do
       handler = Azu::Handler::Rescuer.new
 

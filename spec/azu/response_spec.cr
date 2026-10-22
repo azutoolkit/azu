@@ -262,6 +262,8 @@ describe Azu::Response do
   end
 
   describe "Error context handling" do
+    around_each { |example| with_azu_env(Azu::Environment::Development) { example.run } }
+
     it "includes context in XML output" do
       context = Azu::ErrorContext.new(
         request_id: "req-123",
@@ -299,5 +301,45 @@ describe Azu::Response do
 
       text.should contain("Context: None")
     end
+  end
+
+  describe "Error bodies and the environment" do
+    leaky_error = -> do
+      headers = HTTP::Headers{"Authorization" => "Bearer top-secret-token"}
+      context = Azu::ErrorContext.new(request_id: "req-123", headers: headers, _load_environment: true)
+      begin
+        raise Azu::Response::Error.new("Boom", HTTP::Status::INTERNAL_SERVER_ERROR, [] of String, context)
+      rescue error : Azu::Response::Error
+        error
+      end
+    end
+
+    around_each do |example|
+      ENV["AZU_SPEC_SECRET"] = "s3cr3t-value"
+      Azu::CachedEnvironment.refresh
+      begin
+        example.run
+      ensure
+        ENV.delete("AZU_SPEC_SECRET")
+        Azu::CachedEnvironment.refresh
+      end
+    end
+
+    {% for format in %w(json xml text) %}
+      it "keeps headers, process environment and backtrace out of {{format.id}} in production" do
+        body = with_azu_env(Azu::Environment::Production) { leaky_error.call.{{format.id}} }
+
+        body.should_not contain("top-secret-token")
+        body.should_not contain("s3cr3t-value")
+        body.should_not contain("response_spec.cr")
+      end
+
+      it "keeps the request context and backtrace in {{format.id}} in development" do
+        body = with_azu_env(Azu::Environment::Development) { leaky_error.call.{{format.id}} }
+
+        body.should contain("req-123")
+        body.should contain("response_spec.cr")
+      end
+    {% end %}
   end
 end
