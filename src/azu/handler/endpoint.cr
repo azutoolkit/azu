@@ -236,19 +236,11 @@ module Azu
       {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
 
       def {{request_name}} : Request
-        if json = params.json
-          Request.from_json json
-        else
-          Request.from_query params.to_query
-        end
+        params.typed_request
       end
 
       def {{request_name}}_contract : Request
-        if json = params.json
-          Request.from_json json
-        else
-          Request.from_query params.to_query
-        end
+        params.typed_request
       end
     end
 
