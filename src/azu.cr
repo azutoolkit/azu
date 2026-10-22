@@ -85,6 +85,32 @@ module Azu
     end
   end
 
+  @@boot_hooks = [] of Proc(Nil)
+  @@shutdown_hooks = [] of Proc(Nil)
+
+  # Registers work to run once when the server starts (before it binds a port).
+  # Integrations such as `azu/database` use it to connect and verify resources.
+  def self.on_boot(&block : ->) : Nil
+    @@boot_hooks << block
+  end
+
+  # Registers work to run when the server receives SIGINT.
+  def self.on_shutdown(&block : ->) : Nil
+    @@shutdown_hooks << block
+  end
+
+  def self.run_boot_hooks : Nil
+    @@boot_hooks.each(&.call)
+  end
+
+  def self.run_shutdown_hooks : Nil
+    @@shutdown_hooks.each do |hook|
+      hook.call
+    rescue ex
+      CONFIG.log.error(exception: ex) { "Shutdown hook failed" }
+    end
+  end
+
   # Rails-like cache API
   def self.cache
     current_config.cache
@@ -108,6 +134,8 @@ module Azu
     end
 
     def self.start(handlers : Array(HTTP::Handler))
+      Azu.run_boot_hooks
+
       server = if handlers.empty?
                  HTTP::Server.new { |context| config.router.process(context) }
                else
@@ -123,6 +151,7 @@ module Azu
       Signal::INT.trap do
         Signal::INT.reset
         log.info { "Shutting down server" }
+        Azu.run_shutdown_hooks
         server.close
       end
 
