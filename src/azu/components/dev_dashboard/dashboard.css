@@ -364,6 +364,18 @@
 .azd .azd-queries { display: flex; flex-direction: column; gap: 14px; }
 .azd .azd-query-meta { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; font-size: 12.5px; }
 
+/* Database tab: recent-query rows keep their copy button beside the SQL, and the SQL playground. */
+.azd .azd-table td .azd-icon-btn { margin-left: 8px; vertical-align: middle; width: 24px; height: 24px; }
+.azd .azd-sql { display: flex; flex-direction: column; gap: 10px; }
+.azd .azd-sql-editor {
+  width: 100%; box-sizing: border-box; min-height: 110px; padding: 10px 12px; resize: vertical; font-size: 13px; line-height: 1.5;
+  color: var(--text); background: var(--glass-solid); border: 1px solid var(--border-strong); border-radius: 8px;
+}
+.azd .azd-sql-editor:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.azd .azd-sql-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.azd .azd-sql-actions .azd-btn:disabled { opacity: 0.55; cursor: progress; }
+.azd .azd-sql-error { margin: 0; color: var(--bad); font-family: var(--font-mono); font-size: 12.5px; white-space: pre-wrap; }
+
 /* ---------- 6. Overlays ---------- */
 .azd .azd-palette { width: min(640px, calc(100vw - 32px)); max-height: 72vh; margin: 12vh auto auto; padding: 0; border: 0; background: transparent; color: inherit; overflow: visible; }
 .azd .azd-palette::backdrop { background: rgb(5 8 14 / 0.55); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }

@@ -31,6 +31,7 @@ module Azu
         end
 
         def slow_queries(limit : Int32 = 20) : Array(SlowQuery)
+          return store_slow_queries(limit) if store_active?
           {% if @top_level.has_constant?("CQL") %}
             CQL::Performance.monitor.profiler.not_nil!.slowest_queries(limit).map do |query|
               SlowQuery.new(query.sql, query.execution_time.total_milliseconds, query.rows_affected || 0_i64, query.timestamp)
@@ -45,6 +46,7 @@ module Azu
 
         # Most executed statement shapes first.
         def query_patterns(limit : Int32 = 15) : Array(QueryPattern)
+          return store_query_patterns(limit) if store_active?
           {% if @top_level.has_constant?("CQL") %}
             patterns = CQL::Performance.monitor.profiler.not_nil!.statistics.map do |sql, stat|
               QueryPattern.new(sql, stat[:count], stat[:avg_ms], pattern_score(stat[:count], stat[:avg_ms], stat[:max_ms]))
@@ -59,6 +61,7 @@ module Azu
         end
 
         def n_plus_one_issues : Array(NPlusOneIssue)
+          return store_n_plus_one_issues if store_active?
           {% if @top_level.has_constant?("CQL") %}
             CQL::Performance.monitor.detector.not_nil!.issues.map { |issue| NPlusOneIssue.new(issue.severity.to_s, issue.message) }
           {% else %}
@@ -69,7 +72,87 @@ module Azu
           [] of NPlusOneIssue
         end
 
+        # Newest first: the statements an ORM integration (`azu/cql`) recorded, with their request.
+        def recent_queries(limit : Int32 = 40) : Array(QueryMetric)
+          QueryStore.instance.queries(0_i64, limit).reverse
+        end
+
+        def database_transactions(limit : Int32 = 15) : Array(TransactionMetric)
+          QueryStore.instance.transactions(limit)
+        end
+
+        def database_pool : PoolSnapshot?
+          QueryStore.instance.pool
+        end
+
+        # The SQL playground card is shown only in development with a database attached.
+        def sql_playground? : Bool
+          QueryStore.instance.playground_available?
+        end
+
+        # True when an ORM integration (`azu/cql`) feeds `Azu::QueryStore`; its statements
+        # take precedence over CQL's own monitor.
+        def store_backed? : Bool
+          QueryStore.instance.enabled?
+        end
+
+        private def store_active? : Bool
+          store_backed?
+        end
+
+        private def store_queries : Array(QueryMetric)
+          QueryStore.instance.queries(0_i64, QueryStore::MAX_QUERIES)
+        end
+
+        private def store_critical_threshold : Int32
+          Azu::CONFIG.database.n_plus_one_threshold * 3
+        end
+
+        private def store_database_stats : DatabaseStats
+          settings = Azu::CONFIG.database
+          queries = store_queries
+          alerts = QueryAnalysis.n_plus_one(queries, settings.n_plus_one_threshold)
+          durations = queries.map(&.duration_ms)
+          DatabaseStats.new(
+            active: true,
+            queries: queries.size.to_i64,
+            patterns: queries.map(&.normalized_sql).uniq!.size,
+            avg_ms: durations.empty? ? 0.0 : durations.sum / durations.size,
+            min_ms: durations.min? || 0.0,
+            max_ms: durations.max? || 0.0,
+            slow: queries.count { |query| query.duration_ms >= settings.slow_query_ms },
+            very_slow: queries.count { |query| query.duration_ms > 500 },
+            n_plus_one: alerts.size,
+            critical: alerts.count { |alert| alert.count >= store_critical_threshold },
+            high: alerts.count { |alert| alert.count < store_critical_threshold })
+        end
+
+        private def store_slow_queries(limit : Int32) : Array(SlowQuery)
+          threshold = Azu::CONFIG.database.slow_query_ms
+          store_queries.select { |query| query.duration_ms >= threshold }
+            .sort_by!(&.duration_ms).reverse!.first(limit)
+            .map { |query| SlowQuery.new(query.sql, query.duration_ms, query.rows || 0_i64, Time.unix_ms(query.started_ms)) }
+        end
+
+        private def store_query_patterns(limit : Int32) : Array(QueryPattern)
+          store_queries.group_by(&.normalized_sql).map do |sql, group|
+            durations = group.map(&.duration_ms)
+            avg = durations.sum / durations.size
+            QueryPattern.new(sql, group.size, avg, pattern_score(group.size, avg, durations.max))
+          end.sort_by!(&.executions).reverse!.first(limit)
+        end
+
+        private def store_n_plus_one_issues : Array(NPlusOneIssue)
+          QueryAnalysis.n_plus_one(store_queries, Azu::CONFIG.database.n_plus_one_threshold).map do |alert|
+            where = [alert.endpoint || alert.path, alert.caller].compact.join(" at ")
+            hint = alert.suggestion.try { |text| ". #{text}" } || ""
+            severity = alert.count >= store_critical_threshold ? "critical" : "high"
+            NPlusOneIssue.new(severity, "#{alert.count}x #{alert.normalized_sql} (#{alert.total_ms.round(1)} ms) in #{where}#{hint}")
+          end
+        end
+
         private def load_database_stats : DatabaseStats
+          return store_database_stats if store_active?
           {% if @top_level.has_constant?("CQL") %}
             monitor = CQL::Performance.monitor
             profiler = monitor.profiler.not_nil!

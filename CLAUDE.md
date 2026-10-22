@@ -50,6 +50,9 @@ src/azu/
 ├── params.cr           # Parameter extraction & uploads
 ├── handler/            # Middleware handlers (12 files)
 ├── templates.cr        # Crinja template engine
+├── query_store.cr      # Query/transaction telemetry + N+1 analysis (dev dashboard)
+├── request_context.cr  # Fiber-keyed current request for tagging SQL/logs
+├── cql.cr + cql/       # Opt-in CQL bridge (`require "azu/cql"`), see docs/reference/database-dashboard.md
 └── helpers/            # Template helpers DSL
     ├── helpers.cr      # Main require & DSL macros
     ├── registry.cr     # Thread-safe helper registration

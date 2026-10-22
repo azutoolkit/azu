@@ -48,7 +48,10 @@ module Azu
       endpoint_name = self.class.name.split("::").last
       context.request.headers["X-Azu-Endpoint"] = endpoint_name
 
-      context.response << call.render
+      RequestContext.scope(context) do |info|
+        info.endpoint = endpoint_name
+        context.response << call.render
+      end
       context
     end
 

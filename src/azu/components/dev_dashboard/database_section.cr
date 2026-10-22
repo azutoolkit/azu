@@ -18,9 +18,120 @@ module Azu
           end
 
           render_database_kpis(db)
+          render_n_plus_one
+          render_recent_queries
           render_slow_queries
           render_query_patterns
-          render_n_plus_one
+          render_database_transactions
+          render_database_pool
+          render_sql_playground
+        end
+
+        # Green under 5 ms, yellow under 50 ms, red beyond: the thresholds for a single statement.
+        private def query_status(ms : Float64) : Status
+          Status.ceiling(ms, 5.0, 50.0)
+        end
+
+        # Statements an ORM integration (`azu/cql`) recorded, each tagged with the request that ran it.
+        private def render_recent_queries : Nil
+          return unless provider.store_backed?
+          queries = provider.recent_queries
+          card "Recent queries", "logs", meta: "newest first, with the request that ran them" do
+            if queries.empty?
+              empty_state "No queries recorded yet", "Hit an endpoint that talks to the database.", "database"
+            else
+              data_table "Recent queries", ["Time", "SQL", "Rows", "Request", "Call site"] do
+                queries.each { |query| render_recent_query(query) }
+              end
+            end
+          end
+        end
+
+        private def render_recent_query(query : QueryMetric) : Nil
+          tr data_filter: query.sql do
+            td do
+              badge query_status(query.duration_ms), Format.ms(query.duration_ms)
+              badge Status::Bad, "Error" if query.error?
+            end
+            td class: "azd-mono azd-wrap" do
+              text query.sql
+              copy_button "SQL", query.sql
+              paragraph query.error.to_s, class: "azd-muted" if query.error?
+            end
+            td query.rows.try(&.to_s) || "-"
+            td class: "azd-wrap" do
+              text [query.method, query.path].compact.join(" ").presence || "-"
+              paragraph query.endpoint.to_s, class: "azd-muted" if query.endpoint
+            end
+            td query.caller || "-", class: "azd-mono azd-wrap"
+          end
+        end
+
+        private def render_database_transactions : Nil
+          return unless provider.store_backed?
+          transactions = provider.database_transactions
+          card "Transactions", "tracing", meta: "open, committed or rolled back" do
+            if transactions.empty?
+              empty_state "No transactions yet", "Wrap writes in Model.transaction to see them here.", "database"
+            else
+              data_table "Transactions", ["Transaction", "State", "Queries", "Duration", "Request"] do
+                transactions.each do |transaction|
+                  tr data_filter: nil do
+                    td "##{transaction.id}#{" (nested)" if transaction.nested}"
+                    td { badge transaction_status(transaction.state), transaction.state.tr("_", " ") }
+                    td transaction.query_count.to_s
+                    td transaction.state == "open" ? "running" : Format.ms(transaction.duration_ms)
+                    td transaction.endpoint || transaction.request_id || "-"
+                  end
+                end
+              end
+            end
+          end
+        end
+
+        private def transaction_status(state : String) : Status
+          case state
+          when "committed"   then Status::Good
+          when "rolled_back" then Status::Bad
+          else                    Status::Idle
+          end
+        end
+
+        private def render_database_pool : Nil
+          return unless provider.store_backed?
+          card "Connection pool", "database" do
+            if pool = provider.database_pool
+              usage = pool.usage_percent
+              meter usage, Status.ceiling(usage, 60.0, 85.0), "Connections in use"
+              facts do
+                fact "In use", pool.active.to_s
+                fact "Open", pool.open.to_s
+                fact "Idle", pool.idle.to_s
+                fact "Limit", pool.max > 0 ? pool.max.to_s : "unbounded"
+              end
+            else
+              empty_state "No pool information", "Attach a schema with Azu::CQL.attach or Azu::Database to see pool usage.", "database"
+            end
+          end
+        end
+
+        # Read-only SELECT / EXPLAIN against the app database; `dashboard.js` posts to `<dashboard>/sql`.
+        private def render_sql_playground : Nil
+          return unless provider.store_backed? && provider.sql_playground?
+          card "SQL playground", "database", meta: "read-only, rolled back, development only" do
+            div class: "azd-sql" do
+              label "SQL statement", for: "azd-sql", class: "azd-sr"
+              textarea id: "azd-sql", class: "azd-sql-editor azd-mono", rows: "5", spellcheck: "false", autocomplete: "off" do
+                text "SELECT 1"
+              end
+              div class: "azd-sql-actions" do
+                button "Run", type: "button", class: "azd-btn", data_action: "sql-run", data_mode: "run"
+                button "Explain", type: "button", class: "azd-btn", data_action: "sql-run", data_mode: "explain"
+                button "Explain analyze", type: "button", class: "azd-btn", data_action: "sql-run", data_mode: "explain_analyze"
+              end
+              div id: "azd-sql-result", class: "azd-sql-result", aria_live: "polite"
+            end
+          end
         end
 
         private def render_database_kpis(db : DatabaseData::DatabaseStats) : Nil
