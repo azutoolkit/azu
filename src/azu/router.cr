@@ -1,6 +1,7 @@
 require "http/web_socket"
 require "radix"
 require "./method"
+require "./routable"
 
 module Azu
   # Defines an Azu Router
@@ -105,8 +106,11 @@ module Azu
       precompute_method_cache
     end
 
+    # What a route points at is `Routable`: an endpoint (class or struct) or any `HTTP::Handler`.
+    # A struct that needs to be routed to should include `Azu::Routable`, not `HTTP::Handler`:
+    # the handler's `next` link makes a struct contain itself and the compiler rejects it.
     record Route,
-      endpoint : HTTP::Handler,
+      endpoint : Routable,
       resource : String,
       method : Azu::Method
 
@@ -130,7 +134,7 @@ module Azu
     end
 
     {% for method in RESOURCES %}
-      def {{method.id}}(path : Router::Path, handler : HTTP::Handler)
+      def {{method.id}}(path : Router::Path, handler : Routable)
         method = Azu::Method.parse({{method}})
         add path, handler, method
 
@@ -174,7 +178,7 @@ module Azu
     # ```
     # root :web, ExampleApp::HelloWorld
     # ```
-    def root(endpoint : HTTP::Handler)
+    def root(endpoint : Routable)
       route = Route.new(endpoint: endpoint, resource: "/get/", method: Azu::Method::Get)
       @routes_registry << route
       @radix.add "/get/", route
@@ -198,7 +202,7 @@ module Azu
     # add path: '/proc', endpoint: ->(env) { [200, {}, ['Hello from Hanami!']] }, method: Azu::Method::Get
     # add path: '/endpoint',   endpoint: Handler.new, method: Azu::Method::Get
     # ```
-    def add(path : Path, endpoint : HTTP::Handler, method : Azu::Method = Azu::Method::Get)
+    def add(path : Path, endpoint : Routable, method : Azu::Method = Azu::Method::Get)
       resource = "/#{method.to_s.downcase}#{path}"
       route = Route.new(endpoint, resource, method)
       @routes_registry << route

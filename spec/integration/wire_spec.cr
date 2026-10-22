@@ -27,9 +27,7 @@ module WireSpec
     end
   end
 
-  # Endpoints are classes on purpose: a struct endpoint inherits `HTTP::Handler#next`, a union that
-  # contains the struct itself, and a handler chain in front of it then corrupts memory.
-  class EchoEndpoint
+  struct EchoEndpoint
     include Azu::Endpoint(EchoRequest, EchoResponse)
     post "/wire/echo/:id"
 
@@ -51,7 +49,7 @@ module WireSpec
     end
   end
 
-  class HelloEndpoint
+  struct HelloEndpoint
     include Azu::Endpoint(Azu::Request, HelloResponse)
     get "/wire/hello/:name"
 

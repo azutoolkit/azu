@@ -152,7 +152,7 @@ struct GreetResponse
 end
 
 # Create a simple endpoint
-class HelloEndpoint
+struct HelloEndpoint
   include Azu::Endpoint(Azu::Request, HelloResponse)
 
   get "/"
@@ -164,7 +164,7 @@ class HelloEndpoint
 end
 
 # Create a JSON endpoint
-class GreetEndpoint
+struct GreetEndpoint
   include Azu::Endpoint(Azu::Request, GreetResponse)
 
   get "/greet/:name"
@@ -181,9 +181,6 @@ MyFirstAzuApp.start [
   Azu::Handler::Logger.new,
 ] of HTTP::Handler
 ```
-
-The endpoints are declared as `class`es: a `struct` endpoint behind a handler crashed with a segmentation
-fault when this tutorial was tested.
 
 ## Step 4: Run Your Application
 
@@ -253,7 +250,7 @@ struct HelloResponse
   end
 end
 
-class HelloEndpoint
+struct HelloEndpoint
   include Azu::Endpoint(Azu::Request, HelloResponse)
 
   get "/"
