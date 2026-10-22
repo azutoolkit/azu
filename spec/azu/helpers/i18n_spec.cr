@@ -106,6 +106,64 @@ describe Azu::Helpers::I18n do
     end
   end
 
+  describe "locale isolation between fibers" do
+    it "keeps a locale scoped with with_locale out of other fibers" do
+      inside = Channel(Nil).new
+      release = Channel(Nil).new
+      seen = Channel(String).new
+
+      spawn do
+        Azu::Helpers::I18n.with_locale("es") do
+          inside.send(nil)
+          release.receive
+          seen.send(Azu::Helpers::I18n.locale)
+        end
+      end
+
+      inside.receive
+      Azu::Helpers::I18n.locale.should eq "en"
+      release.send(nil)
+      seen.receive.should eq "es"
+    end
+
+    it "keeps a locale assigned in one fiber out of the others" do
+      assigned = Channel(Nil).new
+
+      spawn do
+        Azu::Helpers::I18n.locale = "es"
+        assigned.send(nil)
+      end
+
+      assigned.receive
+      Azu::Helpers::I18n.locale.should eq "en"
+    end
+
+    it "gives interleaved requests each their own locale" do
+      locales = %w(en es en es)
+      results = Channel({Int32, String}).new
+
+      locales.each_with_index do |locale, index|
+        spawn do
+          Azu::Helpers::I18n.with_locale(locale) do
+            Fiber.yield # let the other fibers run before this one reads its locale
+            results.send({index, Azu::Helpers::I18n.locale})
+          end
+        end
+      end
+
+      seen = locales.size.times.map { results.receive }.to_a.sort_by(&.first).map(&.last)
+      seen.should eq locales
+    end
+
+    it "restores the enclosing locale when with_locale calls are nested" do
+      Azu::Helpers::I18n.with_locale("es") do
+        Azu::Helpers::I18n.with_locale("en") { Azu::Helpers::I18n.locale.should eq "en" }
+        Azu::Helpers::I18n.locale.should eq "es"
+      end
+      Azu::Helpers::I18n.locale.should eq "en"
+    end
+  end
+
   describe ".available_locales" do
     it "returns configured available locales" do
       locales = Azu::Helpers::I18n.available_locales
