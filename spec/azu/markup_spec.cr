@@ -14,7 +14,45 @@ class TestMarkupComponent
   end
 end
 
+class MarkupProbe
+  include Azu::Markup
+
+  def build : String
+    div(class: "a<b", disabled: true, hidden: false, "data-flag": true, "aria-hidden": false) do
+      span "<script>alert(1)</script>"
+      raw "<b>trusted</b>"
+      input(type: "checkbox", checked: true, "data-quote": "it's \"x\"")
+    end
+    to_s
+  end
+end
+
 describe Azu::Markup do
+  describe "rendering" do
+    html = MarkupProbe.new.build
+
+    it "escapes text and attribute values by default" do
+      html.should contain "&lt;script&gt;alert(1)&lt;/script&gt;"
+      html.should contain "class='a&lt;b'"
+      html.should contain "data-quote='it&#39;s &quot;x&quot;'"
+    end
+
+    it "emits raw markup only through the explicit raw opt-out" do
+      html.should contain "<b>trusted</b>"
+    end
+
+    it "renders boolean attributes bare when true and omits them when false" do
+      html.should contain " disabled "
+      html.should contain " checked "
+      html.should_not contain " hidden"
+    end
+
+    it "keeps true and false as strings for non boolean attributes" do
+      html.should contain "data-flag='true'"
+      html.should contain "aria-hidden='false'"
+    end
+  end
+
   describe "basic functionality" do
     it "can be included in a class" do
       markup = TestMarkup.new
