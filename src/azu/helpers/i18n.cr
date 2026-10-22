@@ -63,7 +63,8 @@ module Azu
       @@translations = {} of String => Hash(String, YAML::Any)
       @@loaded = false
       @@mutex = Mutex.new
-      @@current_locale : String?
+      @@fiber_locales = {} of Fiber => String
+      @@locale_mutex = Mutex.new
       @@missing_key_format : String?
 
       # Configure I18n settings.
@@ -85,12 +86,19 @@ module Azu
       end
 
       # Get/set the current locale for the current fiber.
+      #
+      # Each request runs in its own fiber, so a locale set while handling one request
+      # never changes the one another concurrent request sees. Prefer `with_locale`, which
+      # also restores the previous locale: a connection's fiber serves several requests.
       def self.locale : String
-        @@current_locale || @@config.default_locale
+        fiber_locale || @@config.default_locale
       end
 
       def self.locale=(value : String) : String
-        @@current_locale = value
+        @@locale_mutex.synchronize do
+          @@fiber_locales.reject! { |fiber, _| fiber.dead? }
+          @@fiber_locales[Fiber.current] = value
+        end
       end
 
       # Get the default locale.
@@ -290,18 +298,32 @@ module Azu
           @@config = Config.new
           @@translations.clear
           @@loaded = false
-          @@current_locale = nil
         end
+        @@locale_mutex.synchronize { @@fiber_locales.clear }
       end
 
-      # Execute a block with a specific locale.
+      # Execute a block with a specific locale for the current fiber.
       def self.with_locale(locale : String, &)
-        previous = @@current_locale
-        @@current_locale = locale
+        previous = fiber_locale
+        self.locale = locale
         begin
           yield
         ensure
-          @@current_locale = previous
+          restore_locale(previous)
+        end
+      end
+
+      private def self.fiber_locale : String?
+        @@locale_mutex.synchronize { @@fiber_locales[Fiber.current]? }
+      end
+
+      private def self.restore_locale(previous : String?) : Nil
+        @@locale_mutex.synchronize do
+          if previous
+            @@fiber_locales[Fiber.current] = previous
+          else
+            @@fiber_locales.delete(Fiber.current)
+          end
         end
       end
 
