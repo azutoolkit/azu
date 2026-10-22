@@ -79,6 +79,9 @@ module Azu
     # Asset pipeline configuration
     getter assets : AssetConfiguration = AssetConfiguration.new
 
+    # Database integration settings (see `azu/cql`)
+    getter database : DatabaseConfiguration = DatabaseConfiguration.new
+
     # Cache configuration and manager
     getter cache : Cache::Manager do
       initialize_cache_with_retry
@@ -221,6 +224,20 @@ module Azu
   end
 
   # Configuration for file upload handling
+  # Settings for database instrumentation and the dev dashboard's database tab.
+  class DatabaseConfiguration
+    # Connection URI used by `Azu::CQL.setup` when no schema is passed.
+    property uri : String? = ENV["DATABASE_URL"]?
+    # Record queries/transactions into `Azu::QueryStore`.
+    property? instrument : Bool = ENV.fetch("AZU_DB_INSTRUMENT", "true") == "true"
+    # Same query shape this many times in one request raises an N+1 alert.
+    property n_plus_one_threshold : Int32 = ENV.fetch("AZU_DB_N_PLUS_ONE_THRESHOLD", "3").to_i
+    # Queries slower than this (ms) are flagged as slow.
+    property slow_query_ms : Float64 = ENV.fetch("AZU_DB_SLOW_QUERY_MS", "50").to_f
+    # Enables the dashboard SQL playground (still limited to Development + loopback clients).
+    property? playground : Bool = ENV.fetch("AZU_DB_PLAYGROUND", "true") == "true"
+  end
+
   class UploadConfiguration
     property max_file_size : UInt64 = ENV.fetch("UPLOAD_MAX_FILE_SIZE", "10485760").to_u64 # 10MB default
     property temp_dir : String = ENV.fetch("UPLOAD_TEMP_DIR", Dir.tempdir)

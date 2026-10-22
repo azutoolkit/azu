@@ -3,6 +3,30 @@ require "../../support/integration_helpers"
 
 include IntegrationHelpers
 
+class FakeAdapter < Azu::DatabaseAdapter
+  getter executed = [] of String
+
+  def read_only(sql : String, limit : Int32) : {Array(String), Array(Array(String?))}
+    @executed << sql
+    {["one"], [["1"] of String?, [nil] of String?]}
+  end
+
+  def pool : Azu::PoolSnapshot?
+    Azu::PoolSnapshot.new(3, 1, 0, 10)
+  end
+
+  def dialect : String
+    "sqlite"
+  end
+end
+
+def post_dashboard_sql(handler, body : String, remote = "127.0.0.1", headers = HTTP::Headers{"X-Requested-With" => "azu-dashboard"})
+  context, io = create_context_with_remote_addr("POST", "/dev-dashboard/sql", remote, headers)
+  context.request.body = IO::Memory.new(body)
+  handler.call(context)
+  {context, get_response_body(context, io)}
+end
+
 describe Azu::Handler::DevDashboard do
   describe "initialization" do
     it "initializes with default path" do
@@ -238,6 +262,93 @@ describe Azu::Handler::DevDashboard do
 
       # Should still render dashboard
       context.response.headers["Content-Type"].should contain("text/html")
+    end
+  end
+  describe "database tab" do
+    it "renders the Database & Queries section" do
+      handler = Azu::Handler::DevDashboard.new(queries: Azu::QueryStore.new)
+      context, io = create_context("GET", "/dev-dashboard")
+      handler.call(context)
+      body = get_response_body(context, io)
+      body.should contain("Database &amp; Queries")
+      body.should contain("id='database'")
+      body.should contain("dbx-root")
+    end
+
+    it "serves queries.json with stats, alerts and the since cursor" do
+      store = Azu::QueryStore.new
+      4.times { |i| store.record_query("SELECT * FROM posts WHERE user_id = #{i}", [] of String, 2.0, 1_i64, nil, "src/a.cr:1", nil, "r1", "E", "GET", "/", 1_u64) }
+      handler = Azu::Handler::DevDashboard.new(queries: store)
+
+      context, io = create_context("GET", "/dev-dashboard/queries.json")
+      handler.call(context)
+      json = JSON.parse(get_response_body(context, io))
+      json["stats"]["total"].as_i.should eq 4
+      json["stats"]["n_plus_one"].as_i.should eq 1
+      json["alerts"].as_a.size.should eq 1
+      json["queries"].as_a.size.should eq 4
+      json["config"]["playground"].as_bool.should be_false
+
+      context, io = create_context("GET", "/dev-dashboard/queries.json?since=#{json["last_id"]}")
+      handler.call(context)
+      JSON.parse(get_response_body(context, io))["queries"].as_a.should be_empty
+    end
+
+    it "clears recorded queries with ?clear=true" do
+      store = Azu::QueryStore.new
+      store.record_query("SELECT 1", [] of String, 1.0, 1_i64, nil, nil, nil, nil, nil, nil, nil, 1_u64)
+      handler = Azu::Handler::DevDashboard.new(queries: store)
+      context, _io = create_context("GET", "/dev-dashboard?clear=true")
+      handler.call(context)
+      store.queries.should be_empty
+    end
+
+    describe "SQL playground" do
+      it "runs a read-only query in development from loopback" do
+        store = Azu::QueryStore.new
+        adapter = FakeAdapter.new
+        store.adapter = adapter
+        handler = Azu::Handler::DevDashboard.new(queries: store)
+        with_azu_env(Azu::Environment::Development) do
+          context, body = post_dashboard_sql(handler, %({"sql":"SELECT 1","mode":"run"}))
+          context.response.status_code.should eq 200
+          result = JSON.parse(body)
+          result["columns"].as_a.map(&.as_s).should eq ["one"]
+          result["rows"].as_a.size.should eq 2
+          adapter.executed.should eq ["SELECT 1"]
+
+          _, _ = post_dashboard_sql(handler, %({"sql":"SELECT 1","mode":"explain"}))
+          adapter.executed.last.should eq "EXPLAIN QUERY PLAN SELECT 1"
+        end
+      end
+
+      it "refuses writes, non-loopback clients, missing header and non-development envs" do
+        store = Azu::QueryStore.new
+        adapter = FakeAdapter.new
+        store.adapter = adapter
+        handler = Azu::Handler::DevDashboard.new(queries: store)
+
+        with_azu_env(Azu::Environment::Development) do
+          ctx, _ = post_dashboard_sql(handler, %({"sql":"DELETE FROM users","mode":"run"}))
+          ctx.response.status_code.should eq 400
+          ctx, _ = post_dashboard_sql(handler, %({"sql":"INSERT INTO t VALUES (1)","mode":"explain"}))
+          ctx.response.status_code.should eq 400
+          ctx, _ = post_dashboard_sql(handler, %({"sql":"SELECT 1","mode":"run"}), remote: "10.0.0.5")
+          ctx.response.status_code.should eq 404
+          ctx, _ = post_dashboard_sql(handler, %({"sql":"SELECT 1","mode":"run"}), headers: HTTP::Headers.new)
+          ctx.response.status_code.should eq 403
+          ctx, _ = post_dashboard_sql(handler, %({"sql":"SELECT 1"}), headers: HTTP::Headers{"X-Requested-With" => "azu-dashboard", "Origin" => "http://evil.test", "Host" => "localhost:4000"})
+          ctx.response.status_code.should eq 403
+          ctx, _ = post_dashboard_sql(handler, "not json")
+          ctx.response.status_code.should eq 400
+        end
+
+        with_azu_env(Azu::Environment::Production) do
+          ctx, _ = post_dashboard_sql(handler, %({"sql":"SELECT 1","mode":"run"}))
+          ctx.response.status_code.should eq 404
+        end
+        adapter.executed.should be_empty
+      end
     end
   end
 end

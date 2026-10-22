@@ -4,14 +4,8 @@ require "../performance_reporter"
 require "../development_tools"
 require "../cache"
 
-# Conditionally require CQL if available
-{% begin %}
-  {% if @top_level.has_constant?("CQL") %}
-    # CQL is available, performance monitoring enabled
-  {% else %}
-    # CQL not available, using fallback implementations
-  {% end %}
-{% end %}
+require "../query_store"
+require "./dev_dashboard/database_tab"
 
 module Azu
   module Components
@@ -98,257 +92,6 @@ module Azu
         end
       end
 
-      def collect_database_data
-        {% if @top_level.has_constant?("CQL") %}
-          monitor = CQL::Performance.monitor
-          metrics = monitor.metrics_summary
-          profiler = monitor.profiler.not_nil!
-          detector = monitor.detector.not_nil!
-          stats = profiler.statistics
-          slow_queries = profiler.slowest_queries(100)
-          n_plus_one_issues = detector.issues
-
-          # Calculate aggregate stats from query statistics
-          total_queries = stats.values.sum(&.[:count]).to_i64
-          slow_query_count = slow_queries.size
-          avg_time = stats.empty? ? 0.0 : stats.values.sum(&.[:avg_ms]) / stats.size
-          min_time = stats.empty? ? 0.0 : stats.values.min_of(&.[:min_ms])
-          max_time = stats.empty? ? 0.0 : stats.values.max_of(&.[:max_ms])
-
-          slow_queries_count = (metrics["slow_queries"]?.try(&.as(Int64)) || 0_i64)
-          n_plus_one_count = (metrics["n_plus_one_patterns"]?.try(&.as(Int64)) || 0_i64)
-          avg_query_time_ms = (metrics["avg_query_time_ms"]?.try(&.as(Float64)) || 0.0)
-          uptime_seconds = (metrics["uptime_seconds"]?.try(&.as(Float64)) || 0.0)
-
-          {
-            "total_queries"         => total_queries,
-            "slow_queries"          => slow_query_count.to_i64,
-            "very_slow_queries"     => slow_queries.count { |q| q.execution_time.total_milliseconds > 500 }.to_i64,
-            "error_queries"         => 0_i64,
-            "avg_query_time"        => avg_time,
-            "min_query_time"        => min_time,
-            "max_query_time"        => max_time,
-            "error_rate"            => 0.0,
-            "queries_per_second"    => 0.0,
-            "slow_query_rate"       => total_queries > 0 ? (slow_query_count.to_f / total_queries * 100) : 0.0,
-            "n_plus_one_patterns"   => n_plus_one_issues.size,
-            "critical_n_plus_one"   => n_plus_one_issues.count { |i| i.severity == :critical },
-            "high_n_plus_one"       => n_plus_one_issues.count { |i| i.severity == :high },
-            "database_health_score" => begin
-              # Calculate health score inline
-              health = 100
-              health -= [slow_queries_count * 2, 30].min
-              health -= [n_plus_one_count * 5, 25].min
-              health -= avg_query_time_ms > 100 ? [((avg_query_time_ms - 100) / 50).to_i, 20].min : 0
-              health.clamp(0, 100)
-            end,
-            "monitoring_enabled" => monitor.enabled?,
-            "uptime"             => Time::Span.new(seconds: uptime_seconds.to_i64),
-          }
-        {% else %}
-          # CQL not available - return default values
-          {
-            "total_queries"         => 0_i64,
-            "slow_queries"          => 0_i64,
-            "very_slow_queries"     => 0_i64,
-            "error_queries"         => 0_i64,
-            "avg_query_time"        => 0.0,
-            "min_query_time"        => 0.0,
-            "max_query_time"        => 0.0,
-            "error_rate"            => 0.0,
-            "queries_per_second"    => 0.0,
-            "slow_query_rate"       => 0.0,
-            "n_plus_one_patterns"   => 0,
-            "critical_n_plus_one"   => 0,
-            "high_n_plus_one"       => 0,
-            "database_health_score" => 100,
-            "monitoring_enabled"    => false,
-            "uptime"                => Time::Span.zero,
-          }
-        {% end %}
-      rescue ex
-        @log.error { "Failed to collect database metrics: #{ex.message}" }
-        {
-          "total_queries"         => 0_i64,
-          "slow_queries"          => 0_i64,
-          "very_slow_queries"     => 0_i64,
-          "error_queries"         => 0_i64,
-          "avg_query_time"        => 0.0,
-          "min_query_time"        => 0.0,
-          "max_query_time"        => 0.0,
-          "error_rate"            => 0.0,
-          "queries_per_second"    => 0.0,
-          "slow_query_rate"       => 0.0,
-          "n_plus_one_patterns"   => 0,
-          "critical_n_plus_one"   => 0,
-          "high_n_plus_one"       => 0,
-          "database_health_score" => 100,
-          "monitoring_enabled"    => false,
-          "uptime"                => Time::Span.zero,
-        }
-      end
-
-      def collect_database_summary_count : Int32
-        {% if @top_level.has_constant?("CQL") %}
-          monitor = CQL::Performance.monitor
-          metrics = monitor.metrics_summary
-          total = (metrics["total_queries"]?.try(&.as(Int64)) || 0_i64)
-          slow = (metrics["slow_queries"]?.try(&.as(Int64)) || 0_i64)
-          npo = (metrics["n_plus_one_patterns"]?.try(&.as(Int64)) || 0_i64)
-          (total + slow + npo).to_i32
-        {% else %}
-          0 # CQL not available
-        {% end %}
-      rescue ex : Exception
-        0
-      end
-
-      def collect_query_profiler_data
-        {% if @top_level.has_constant?("CQL") %}
-          monitor = CQL::Performance.monitor
-          profiler = monitor.profiler.not_nil!
-          stats = profiler.statistics
-          slowest = profiler.slowest_queries(10)
-
-          total_executions = stats.values.sum(&.[:count]).to_i64
-          max_time = stats.empty? ? 0.0 : stats.values.max_of(&.[:max_ms])
-          most_frequent = stats.values.max_by?(&.[:count])
-
-          {
-            "unique_patterns"       => stats.size,
-            "total_executions"      => total_executions,
-            "avg_performance_score" => begin
-              # Calculate average performance score across all query patterns
-              if stats.empty?
-                100.0
-              else
-                total_score = stats.values.sum do |stat|
-                  score = 100.0
-                  score -= [(stat[:count] - 100) / 50.0, 30.0].min if stat[:count] > 100
-                  score -= [(stat[:avg_ms] - 50) / 25.0, 40.0].min if stat[:avg_ms] > 50
-                  score.clamp(0.0, 100.0)
-                end
-                total_score / stats.size
-              end
-            end,
-            "slowest_pattern_time" => max_time,
-            "most_frequent_count"  => (most_frequent.try(&.[:count]) || 0).to_i64,
-          }
-        {% else %}
-          # CQL not available - return default values
-          {
-            "unique_patterns"       => 0,
-            "total_executions"      => 0_i64,
-            "avg_performance_score" => 0.0,
-            "slowest_pattern_time"  => 0.0,
-            "most_frequent_count"   => 0_i64,
-          }
-        {% end %}
-      rescue ex
-        @log.error { "Failed to collect query profiler data: #{ex.message}" }
-        {
-          "unique_patterns"       => 0,
-          "total_executions"      => 0_i64,
-          "avg_performance_score" => 0.0,
-          "slowest_pattern_time"  => 0.0,
-          "most_frequent_count"   => 0_i64,
-        }
-      end
-
-      def collect_n_plus_one_data
-        {% if @top_level.has_constant?("CQL") %}
-          monitor = CQL::Performance.monitor
-          issues = monitor.detector.not_nil!.issues
-
-          {
-            "issues"         => issues.map { |i| {message: i.message, severity: i.severity.to_s, type: i.type}.to_json },
-            "total_issues"   => issues.size,
-            "critical_count" => issues.count { |i| i.severity == :critical },
-            "high_count"     => issues.count { |i| i.severity == :high },
-            "medium_count"   => issues.count { |i| i.severity == :medium },
-            "low_count"      => issues.count { |i| i.severity == :low },
-          }
-        {% else %}
-          # CQL not available - return default values
-          {
-            "issues"         => [] of String,
-            "total_issues"   => 0,
-            "critical_count" => 0,
-            "high_count"     => 0,
-            "medium_count"   => 0,
-            "low_count"      => 0,
-          }
-        {% end %}
-      rescue ex
-        @log.error { "Failed to collect N+1 data: #{ex.message}" }
-        {
-          "issues"         => [] of String,
-          "total_issues"   => 0,
-          "critical_count" => 0,
-          "high_count"     => 0,
-          "medium_count"   => 0,
-          "low_count"      => 0,
-        }
-      end
-
-      def collect_slow_queries_data
-        {% if @top_level.has_constant?("CQL") %}
-          monitor = CQL::Performance.monitor
-          slow_queries = monitor.profiler.not_nil!.slowest_queries(20)
-
-          slow_queries.map do |query|
-            {
-              "sql"               => query.sql,
-              "normalized_sql"    => query.sql.gsub(/\?/, "?").gsub(/\d+/, "?").gsub(/'[^']*'/, "?").gsub(/"[^"]*"/, "?").gsub(/\s+/, " ").strip,
-              "context"           => "N/A",
-              "timestamp"         => query.timestamp.to_rfc3339,
-              "rows_affected"     => query.rows_affected || 0_i64,
-              "error"             => "None",
-              "execution_time_ms" => query.execution_time.total_milliseconds,
-            }
-          end
-        {% else %}
-          # CQL not available - return empty array
-          [] of Hash(String, String | Float64 | Int64)
-        {% end %}
-      rescue ex
-        @log.error { "Failed to collect slow queries data: #{ex.message}" }
-        [] of Hash(String, String | Float64 | Int64)
-      end
-
-      def collect_query_patterns_data
-        {% if @top_level.has_constant?("CQL") %}
-          monitor = CQL::Performance.monitor
-          profiler = monitor.profiler.not_nil!
-          stats = profiler.statistics
-
-          # Sort by execution count descending and take top 15
-          sorted_patterns = stats.to_a.sort_by { |_, v| v[:count] }.reverse.first(15)
-
-          sorted_patterns.map do |sql, stat|
-            {
-              "normalized_sql"    => sql,
-              "execution_count"   => stat[:count].to_i64,
-              "avg_time_ms"       => stat[:avg_ms],
-              "performance_score" => begin
-                # Calculate performance score for single query pattern
-                score = 100.0
-                score -= [(stat[:count] - 100) / 50.0, 30.0].min if stat[:count] > 100
-                score -= [(stat[:avg_ms] - 50) / 25.0, 40.0].min if stat[:avg_ms] > 50
-                score -= [(stat[:max_ms] - 200) / 100.0, 20.0].min if stat[:max_ms] > 200
-                score.clamp(0.0, 100.0)
-              end,
-            }
-          end
-        {% else %}
-          # CQL not available - return empty array
-          [] of Hash(String, String | Float64 | Int64)
-        {% end %}
-      rescue ex
-        @log.error { "Failed to collect query patterns data: #{ex.message}" }
-        [] of Hash(String, String | Int64 | Float64)
-      end
-
       def collect_error_logs
         recent_requests = @metrics.recent_requests(50)
         errors = recent_requests.select(&.error?)
@@ -389,54 +132,40 @@ module Azu
         end
       end
 
-      private def calculate_performance_score(query_metrics) : Float64
-        {% if @top_level.has_constant?("CQL") %}
-          return 0.0 if query_metrics.total_queries == 0
+      def collect_database_data
+        store = QueryStore.instance
+        settings = Azu::CONFIG.database
+        queries = store.queries(0_i64, QueryStore::MAX_QUERIES)
+        total = queries.size.to_i64
+        durations = queries.map(&.duration_ms)
+        slow = queries.count { |query| query.duration_ms >= settings.slow_query_ms }.to_i64
+        errors = queries.count(&.error?).to_i64
+        alerts = QueryAnalysis.n_plus_one(queries, settings.n_plus_one_threshold)
+        health = 100 - {slow * 2, 30_i64}.min - {alerts.size * 5, 25}.min - {errors * 3, 20_i64}.min
 
-          # Calculate score based on various metrics
-          base_score = 100.0
-
-          # Penalize for slow queries
-          slow_query_penalty = (query_metrics.slow_query_rate * 0.5)
-
-          # Penalize for errors
-          error_penalty = (query_metrics.error_rate * 2.0)
-
-          # Penalize for high average execution time (assuming > 100ms is bad)
-          avg_time_penalty = (query_metrics.avg_execution_time.total_milliseconds / 100.0) * 10.0
-
-          score = base_score - slow_query_penalty - error_penalty - avg_time_penalty
-          [score, 0.0].max
-        {% else %}
-          0.0
-        {% end %}
+        {
+          "total_queries"         => total,
+          "slow_queries"          => slow,
+          "very_slow_queries"     => queries.count { |query| query.duration_ms > 500 }.to_i64,
+          "error_queries"         => errors,
+          "avg_query_time"        => total > 0 ? durations.sum / total : 0.0,
+          "min_query_time"        => durations.min? || 0.0,
+          "max_query_time"        => durations.max? || 0.0,
+          "error_rate"            => total > 0 ? errors * 100.0 / total : 0.0,
+          "queries_per_second"    => 0.0,
+          "slow_query_rate"       => total > 0 ? slow * 100.0 / total : 0.0,
+          "n_plus_one_patterns"   => alerts.size,
+          "critical_n_plus_one"   => alerts.count { |alert| alert.count >= settings.n_plus_one_threshold * 3 },
+          "high_n_plus_one"       => alerts.count { |alert| alert.count < settings.n_plus_one_threshold * 3 },
+          "database_health_score" => health.clamp(0, 100).to_i,
+          "monitoring_enabled"    => store.enabled?,
+          "uptime"                => Time::Span.zero,
+        }
       end
 
-      private def calculate_query_performance_score(pattern : NamedTuple(sql: String, count: Int64, avg_time: Time::Span)) : Float64
-        {% if @top_level.has_constant?("CQL") %}
-          # Base score starts at 100
-          score = 100.0
-
-          # Penalize for high execution count (assuming > 1000 is concerning)
-          count_penalty = (pattern[:count] / 1000.0) * 10.0
-
-          # Penalize for high average time (assuming > 100ms is concerning)
-          time_penalty = (pattern[:avg_time].total_milliseconds / 100.0) * 20.0
-
-          score = score - count_penalty - time_penalty
-          [score, 0.0].max
-        {% else %}
-          0.0
-        {% end %}
-      end
-
-      private def calculate_database_health_score(metrics) : Int32
-        {% if @top_level.has_constant?("CQL") %}
-          # Placeholder implementation
-          100
-        {% else %}
-          100
-        {% end %}
+      def collect_database_summary_count : Int32
+        data = collect_database_data
+        (data["slow_queries"].as(Int64) + data["n_plus_one_patterns"].as(Int32)).to_i32
       end
 
       def collect_routes_data
@@ -602,6 +331,7 @@ module Azu
     # Built with AdminKit's professional admin dashboard framework
     class DevDashboardComponent
       include Component
+      include DevDashboard::DatabaseTab
 
       getter metrics : PerformanceMetrics
       getter log : ::Log
@@ -629,7 +359,7 @@ module Azu
             script src: "https://unpkg.com/lucide@latest/dist/umd/lucide.js"
 
             style do
-              raw custom_styles
+              raw custom_styles + DevDashboard::DatabaseTab::STYLES
             end
           end
 
@@ -1037,28 +767,6 @@ module Azu
             render_performance_card_v2
             render_throughput_card
           end
-        end
-      end
-
-      private def render_database_section
-        div id: "database", class: "section" do
-          div class: "section-header" do
-            h2 class: "section-title" do
-              text "Database Performance"
-            end
-            para class: "section-description" do
-              text "Query metrics, slow queries, and N+1 detection"
-            end
-          end
-
-          div class: "grid grid-cols-3 mb-6" do
-            render_database_overview_cards
-            render_query_performance_card
-            render_n_plus_one_analysis_card
-          end
-
-          render_slow_queries_table
-          render_query_patterns_table
         end
       end
 
@@ -1726,10 +1434,6 @@ module Azu
         render_routes_section
       end
 
-      private def render_database_tab
-        render_database_section
-      end
-
       private def render_cache_tab
         render_cache_section
       end
@@ -1811,194 +1515,6 @@ module Azu
                       td "#{error_hash["processing_time_ms"]}ms"
                       td error_hash["endpoint"]
                       td error_hash["category"]
-                    end
-                  end
-                end
-              end
-            end
-          end
-        end
-      end
-
-      private def render_database_tab
-        div id: "database", class: "tab-pane" do
-          # Database Overview Cards
-          div class: "grid grid-cols-3 mb-6" do
-            render_database_overview_cards
-            render_query_performance_card
-            render_n_plus_one_analysis_card
-          end
-          # Detailed Query Tables
-          render_slow_queries_table
-          render_query_patterns_table
-        end
-      end
-
-      private def render_database_overview_cards
-        data = @data_provider.collect_database_data
-
-        render_metric_card "Query Performance Stats", "bar-chart-3" do
-          div class: "metric-list" do
-            render_metric_item "Total Queries", data["total_queries"].to_s, "text-primary"
-            render_metric_item "Queries/Second", data["queries_per_second"].as(Float64).round(2).to_s, "text-performance"
-            render_metric_item "Avg Query Time", "#{data["avg_query_time"].as(Float64).round(2)}ms", "text-crystal"
-            render_metric_item "Min Query Time", "#{data["min_query_time"].as(Float64).round(2)}ms", "text-performance"
-            render_metric_item "Max Query Time", "#{data["max_query_time"].as(Float64).round(2)}ms",
-              data["max_query_time"].as(Float64) > 1000.0 ? "text-destructive" : "text-accent"
-            render_metric_item "Error Rate", "#{data["error_rate"].as(Float64).round(2)}%",
-              data["error_rate"].as(Float64) > 1.0 ? "text-destructive" : "text-crystal"
-            render_metric_item "Health Score", "#{data["database_health_score"]}/100",
-              data["database_health_score"].as(Int32) > 80 ? "text-performance" : "text-destructive"
-          end
-        end
-      end
-
-      private def render_query_performance_card
-        profiler_data = @data_provider.collect_query_profiler_data
-
-        render_metric_card "Query Patterns", "bar-chart-3" do
-          div class: "metric-list" do
-            render_metric_item "Unique Patterns", profiler_data["unique_patterns"].to_s, "text-primary"
-            render_metric_item "Total Executions", profiler_data["total_executions"].to_s, "text-crystal"
-            render_metric_item "Avg Pattern Score", "#{profiler_data["avg_performance_score"].as(Float64).round(2)}", "text-performance"
-            render_metric_item "Slowest Pattern", "#{profiler_data["slowest_pattern_time"].as(Float64).round(2)}ms", "text-accent"
-            render_metric_item "Most Frequent", profiler_data["most_frequent_count"].to_s, "text-muted-foreground"
-          end
-        end
-      end
-
-      private def render_n_plus_one_analysis_card
-        n_plus_one_data = @data_provider.collect_n_plus_one_data
-
-        render_metric_card "N+1 Analysis", "git-branch" do
-          if n_plus_one_data["issues"].as(Array).empty?
-            render_empty_state("check", "No N+1 patterns detected", nil)
-          else
-            div class: "metric-list" do
-              render_metric_item "Total Issues", n_plus_one_data["total_issues"].to_s, "text-primary"
-              render_metric_item "Critical", n_plus_one_data["critical_count"].to_s, "text-destructive"
-              render_metric_item "High", n_plus_one_data["high_count"].to_s, "text-accent"
-              render_metric_item "Medium", n_plus_one_data["medium_count"].to_s, "text-crystal"
-              render_metric_item "Low", n_plus_one_data["low_count"].to_s, "text-muted-foreground"
-            end
-          end
-        end
-      end
-
-      private def render_slow_queries_table
-        slow_queries = @data_provider.collect_slow_queries_data
-
-        render_metric_card "Recent Slow Queries", "clock" do
-          if slow_queries.empty?
-            render_empty_state("check", "No slow queries detected!", "All queries are performing well.")
-          else
-            div class: "table-container" do
-              table class: "table" do
-                thead do
-                  tr do
-                    th "Execution Time"
-                    th "Query"
-                    th "Normalized Pattern"
-                    th "Rows"
-                    th "Status"
-                    th "Timestamp"
-                  end
-                end
-                tbody do
-                  slow_queries.each do |query|
-                    query_hash = query.as(Hash)
-                    execution_time = query_hash["execution_time_ms"].as(Float64)
-                    severity_class = case execution_time
-                                     when 0..100    then "text-performance"
-                                     when 100..500  then "text-crystal"
-                                     when 500..1000 then "text-accent"
-                                     else                "text-destructive"
-                                     end
-
-                    tr do
-                      td class: severity_class do
-                        text "#{execution_time.round(2)}ms"
-                      end
-                      td do
-                        pre class: "sql-query" do
-                          text query_hash["sql"].as(String)
-                        end
-                      end
-                      td do
-                        code query_hash["normalized_sql"].as(String)
-                      end
-                      td do
-                        text query_hash["rows_affected"].to_s
-                      end
-                      td do
-                        error = query_hash["error"].as(String)
-                        if error == "None"
-                          span class: "badge badge-default" do
-                            text "SUCCESS"
-                          end
-                        else
-                          span class: "badge badge-destructive" do
-                            text "ERROR"
-                            div class: "tooltip" do
-                              text error
-                            end
-                          end
-                        end
-                      end
-                      td class: "text-muted-foreground" do
-                        small query_hash["timestamp"].to_s
-                      end
-                    end
-                  end
-                end
-              end
-            end
-          end
-        end
-      end
-
-      private def render_query_patterns_table
-        query_patterns = @data_provider.collect_query_patterns_data
-
-        render_metric_card "Query Patterns Analysis", "list" do
-          if query_patterns.empty?
-            render_empty_state("info", "No query patterns recorded", "Query patterns will appear here as queries are executed.")
-          else
-            div class: "table-container" do
-              table class: "table" do
-                thead do
-                  tr do
-                    th "Pattern"
-                    th "Executions"
-                    th "Avg Time"
-                    th "Performance Score"
-                  end
-                end
-                tbody do
-                  query_patterns.each do |pattern|
-                    pattern_hash = pattern.as(Hash)
-                    performance_score = pattern_hash["performance_score"].as(Float64)
-
-                    score_class = case performance_score
-                                  when 80.0..100.0 then "text-performance"
-                                  when 60.0..79.9  then "text-crystal"
-                                  when 40.0..59.9  then "text-accent"
-                                  else                  "text-destructive"
-                                  end
-
-                    tr do
-                      td do
-                        code pattern_hash["normalized_sql"].as(String)[0..60] + (pattern_hash["normalized_sql"].as(String).size > 60 ? "..." : "")
-                      end
-                      td do
-                        text pattern_hash["execution_count"].to_s
-                      end
-                      td do
-                        text "#{pattern_hash["avg_time_ms"].as(Float64).round(2)}ms"
-                      end
-                      td class: score_class do
-                        text performance_score.round(2).to_s
-                      end
                     end
                   end
                 end
@@ -2560,7 +2076,7 @@ module Azu
 
       private def render_scripts
         script do
-          raw dashboard_scripts
+          raw dashboard_scripts + DevDashboard::DatabaseTab::SCRIPT
         end
       end
 
@@ -4108,6 +3624,12 @@ module Azu
             }
             initKeyboardShortcuts();
             updateLastUpdated();
+
+            // Restore the last viewed section (auto refresh reloads the page)
+            try {
+                const savedSection = localStorage.getItem('azu-dashboard-section');
+                if (savedSection && document.getElementById(savedSection)) showSection(savedSection);
+            } catch (e) {}
         });
 
         // ===== Section Navigation =====
@@ -4133,6 +3655,9 @@ module Azu
             if (navItem) {
                 navItem.classList.add('active');
             }
+
+            try { localStorage.setItem('azu-dashboard-section', sectionName); } catch (e) {}
+            if (sectionName === 'database' && typeof dbx !== 'undefined') dbx.poll();
         }
 
         // Legacy tab support
@@ -4166,7 +3691,8 @@ module Azu
         function startAutoRefresh() {
             if (autoRefreshInterval) clearInterval(autoRefreshInterval);
             autoRefreshInterval = setInterval(() => {
-                if (autoRefreshEnabled) {
+                // The database tab live-polls, so never reload underneath it
+                if (autoRefreshEnabled && !(typeof dbx !== 'undefined' && dbx.active())) {
                     window.location.reload();
                 }
             }, 30000);
