@@ -20,7 +20,7 @@ module ExampleApp
 
     # Only create performance monitor when monitoring is enabled
     {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-      performance_monitor = Handler::PerformanceMonitor.new
+      CONFIG.performance_monitor = Handler::PerformanceMonitor.new
     {% end %}
   end
 end
