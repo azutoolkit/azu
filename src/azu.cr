@@ -100,6 +100,7 @@ module Azu
     end
 
     def self.start(handlers : Array(HTTP::Handler))
+      config.handlers = handlers
       server = if handlers.empty?
                  HTTP::Server.new { |context| config.router.process(context) }
                else
