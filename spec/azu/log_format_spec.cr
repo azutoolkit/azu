@@ -57,6 +57,14 @@ describe Azu::LogFormat do
   end
 
   describe "AsyncLogging" do
+    describe "lifecycle" do
+      it "stays running when a Configuration is finalized" do
+        Azu::Configuration.new.finalize
+
+        Azu::AsyncLogging.running?.should be_true
+      end
+    end
+
     describe "LogEntry" do
       it "creates log entry with required fields" do
         entry = Azu::AsyncLogging::LogEntry.new(

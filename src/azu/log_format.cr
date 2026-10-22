@@ -107,6 +107,9 @@ module Azu
               last_flush = Time.instant
             end
           end
+        rescue ::Channel::ClosedError
+          batch.each { |log_entry| process_entry_sync(log_entry) }
+          break
         rescue ex
           Log.for("Azu::AsyncLogging").error(exception: ex) { "Worker #{worker_id} failed" }
           # Process remaining entries synchronously
@@ -120,6 +123,8 @@ module Azu
           sleep @@flush_interval
           # Force flush of any pending entries
           flush_pending_entries
+        rescue ::Channel::ClosedError
+          break
         rescue ex
           Log.for("Azu::AsyncLogging").error(exception: ex) { "Flush timer failed" }
         end
@@ -234,6 +239,10 @@ module Azu
         @@started = false
         @@queue.close
       end
+
+      def self.running? : Bool
+        !@@queue.closed?
+      end
     end
 
     # Background error reporter
@@ -264,6 +273,8 @@ module Azu
           spawn(name: "error-processor") do
             process_error(exception)
           end
+        rescue ::Channel::ClosedError
+          break
         rescue ex
           Log.for("Azu::ErrorReporter").error(exception: ex) { "Error reporter failed" }
         end
@@ -305,6 +316,10 @@ module Azu
       def self.shutdown
         @@started = false
         @@error_queue.close
+      end
+
+      def self.running? : Bool
+        !@@error_queue.closed?
       end
     end
 
@@ -364,6 +379,10 @@ module Azu
     def self.shutdown
       BatchProcessor.shutdown
       ErrorReporter.shutdown
+    end
+
+    def self.running? : Bool
+      BatchProcessor.running? && ErrorReporter.running?
     end
   end
 
