@@ -450,4 +450,52 @@ describe Azu::Handler::Static do
       end
     end
   end
+
+  describe "Range requests" do
+    # Every byte differs from its neighbours, so a wrong offset shows up in the body
+    content = (0...3000).map { |i| ('a'.ord + i % 26).chr }.join
+
+    serve = ->(range : String) do
+      with_temp_file(content, "data.txt") do |dir, _|
+        context, io = create_context("GET", "/data.txt", HTTP::Headers{"Range" => range})
+        Azu::Handler::Static.new(dir).call(context)
+        {context, get_response_body(context, io)}
+      end
+    end
+
+    {
+      "bytes=2000-2009" => {2000, 2009},
+      "bytes=1024-1030" => {1024, 1030},
+      "bytes=0-0"       => {0, 0},
+      "bytes=5-5"       => {5, 5},
+      "bytes=2990-"     => {2990, 2999},
+      "bytes=-10"       => {2990, 2999},
+      "bytes=2990-9999" => {2990, 2999},
+    }.each do |range, (first, last)|
+      it "serves #{range} as 206 with exactly those bytes" do
+        context, body = serve.call(range)
+
+        context.response.status_code.should eq(206)
+        context.response.headers["Content-Range"].should eq("bytes #{first}-#{last}/3000")
+        context.response.headers["Content-Length"].should eq((last - first + 1).to_s)
+        body.should eq(content[first..last])
+      end
+    end
+
+    it "answers 416 with the total size when the range starts past the end" do
+      context, _ = serve.call("bytes=3000-3010")
+
+      context.response.status_code.should eq(416)
+      context.response.headers["Content-Range"].should eq("bytes */3000")
+    end
+
+    %w(bytes=abc bytes=5-3 bytes=- bytes=0-10,20-30 items=0-5).each do |range|
+      it "ignores the unsupported range #{range} and serves the whole file" do
+        context, body = serve.call(range)
+
+        context.response.status_code.should eq(200)
+        body.should eq(content)
+      end
+    end
+  end
 end

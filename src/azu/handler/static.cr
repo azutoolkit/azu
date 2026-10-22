@@ -5,6 +5,9 @@ module Azu
     class Static < HTTP::StaticFileHandler
       ZIPPED_FILE_EXTENSIONS = %w(.htm .html .txt .css .js .svg .json .xml .otf .ttf .woff .woff2)
 
+      # A single byte range: `bytes=first-last`, `bytes=first-` or `bytes=-suffix`
+      RANGE_HEADER = /\Abytes=(\d*)-(\d*)\z/
+
       MIME.register(".collection", "font/collection")
       MIME.register(".otf", "font/otf")
       MIME.register(".sfnt", "font/sfnt")
@@ -155,7 +158,7 @@ module Azu
         request_headers = env.request.headers
         filesize = File.size(file_path)
         File.open(file_path) do |file|
-          next multipart(file, env) if next_multipart?(env)
+          next serve_range(file, env) if range_request?(env)
 
           if request_headers.includes_word?("Accept-Encoding", "gzip") && config_gzip?(config) && filesize > minsize && zip_file?(file_path)
             gzip_encoding(env, file)
@@ -173,7 +176,7 @@ module Azu
         ZIPPED_FILE_EXTENSIONS.includes? File.extname(path)
       end
 
-      private def next_multipart?(env)
+      private def range_request?(env)
         env.request.method == "GET" && env.request.headers.has_key?("Range")
       end
 
@@ -195,56 +198,59 @@ module Azu
         end
       end
 
-      private def multipart(file, env)
-        fileb = file.size
-
-        range = env.request.headers["Range"]
-        match = range.match(/bytes=(\d{1,})-(\d{0,})/)
-
-        startb = 0
-        endb = 0
-
-        if match
-          if match.size >= 2
-            startb = match[1].to_i { 0 }
-          end
-
-          if match.size >= 3
-            endb = match[2].to_i { 0 }
-          end
+      # A byte range resolved against the size of the file it applies to
+      private record ByteRange, first : Int64, last : Int64 do
+        def length : Int64
+          last - first + 1
         end
 
-        if endb == 0
-          endb = fileb - 1
+        def satisfiable? : Bool
+          length > 0
         end
+      end
 
-        if startb < endb && endb < fileb
-          content_length = 1 + endb - startb
+      # Serves the requested byte range (RFC 7233): 206 with exactly those bytes, 416 when the
+      # range lies past the end, or the whole file when the header is not a range we understand.
+      private def serve_range(file, env)
+        size = file.size
+        return send_whole(file, env) unless range = byte_range(env.request.headers["Range"], size)
+
+        if range.satisfiable?
           env.response.status_code = 206
-          env.response.content_length = content_length
-          env.response.headers["Accept-Ranges"] = "bytes"
-          env.response.headers["Content-Range"] = "bytes #{startb}-#{endb}/#{fileb}" # MUST
-
-          if startb > 1024
-            skipped = 0
-            # file.skip only accepts values less or equal to 1024 (buffer size, undocumented)
-            until skipped + 1024 > startb
-              file.skip(1024)
-              skipped += 1024
-            end
-            if skipped - startb > 0
-              file.skip(skipped - startb)
-            end
-          else
-            file.skip(startb)
-          end
-
-          IO.copy(file, env.response, content_length)
+          env.response.headers["Content-Range"] = "bytes #{range.first}-#{range.last}/#{size}"
+          env.response.content_length = range.length
+          file.seek(range.first)
+          IO.copy(file, env.response, range.length)
         else
-          env.response.content_length = fileb
-          env.response.status_code = 200 # Range not satisfiable, see 4.4 Note
-          IO.copy(file, env.response)
+          env.response.status_code = 416
+          env.response.headers["Content-Range"] = "bytes */#{size}"
+          env.response.content_length = 0
         end
+      end
+
+      private def send_whole(file, env)
+        env.response.content_length = file.size
+        IO.copy(file, env.response)
+      end
+
+      # nil means the header is not a single, well-formed byte range (another unit, several
+      # ranges, reversed bounds), which a server may ignore. An end past the file is clamped to
+      # its last byte; a range that starts past it comes back unsatisfiable.
+      private def byte_range(header : String, size : Int64) : ByteRange?
+        return unless match = RANGE_HEADER.match(header.strip)
+        from, to = match[1], match[2]
+
+        if from.empty?
+          return if to.empty?
+          suffix = to.to_i64? || size
+          return ByteRange.new(Math.max(size - suffix, 0_i64), size - 1)
+        end
+
+        first = from.to_i64? || return
+        requested_last = to.to_i64? || Int64::MAX
+        return if requested_last < first
+
+        ByteRange.new(first, Math.min(requested_last, size - 1))
       end
     end
   end
