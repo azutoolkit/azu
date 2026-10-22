@@ -78,7 +78,7 @@ Create a `Dockerfile`:
 
 ```dockerfile
 # Build stage
-FROM crystallang/crystal:1.17.1-alpine AS builder
+FROM crystallang/crystal:1.19.1-alpine AS builder
 
 WORKDIR /app
 
@@ -322,7 +322,7 @@ jobs:
       - name: Install Crystal
         uses: crystal-lang/install-crystal@v1
         with:
-          crystal: 1.17.1
+          crystal: 1.19.1
 
       - name: Install dependencies
         run: shards install

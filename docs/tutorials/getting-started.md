@@ -21,7 +21,7 @@ Before starting, ensure you have:
 
 ## Step 1: Install Crystal
 
-Azu requires **Crystal 0.35.0 or higher**. Install Crystal for your operating system:
+Azu requires **Crystal 1.19.1 or higher**. Install Crystal for your operating system:
 
 ### macOS
 
@@ -100,7 +100,7 @@ dependencies:
     github: azutoolkit/azu
     version: ~> 0.5.28
 
-crystal: >= 0.35.0
+crystal: ">= 1.19.1"
 
 license: MIT
 ```

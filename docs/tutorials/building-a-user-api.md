@@ -36,7 +36,7 @@ dependencies:
     github: azutoolkit/azu
     version: ~> 0.5.28
 
-crystal: >= 0.35.0
+crystal: ">= 1.19.1"
 license: MIT
 ```
 
