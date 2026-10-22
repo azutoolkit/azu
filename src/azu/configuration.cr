@@ -159,7 +159,10 @@ module Azu
     # configuration, and so requiring azu, starts nothing.
     def prepare : Nil
       development_tools.profiler.enabled = true if performance_profiling_enabled?
-      development_tools.memory_detector.start_monitoring if performance_memory_monitoring?
+      if performance_memory_monitoring?
+        development_tools.memory_detector.start_monitoring
+        @started_memory_monitor = true
+      end
       upload.prepare
     end
 
@@ -176,9 +179,12 @@ module Azu
       !ssl_cert.empty? && !ssl_key.empty?
     end
 
+    @started_memory_monitor = false
+
     def finalize
-      # Only shutdown development tools if they were started
-      if performance_memory_monitoring?
+      # The memory monitor is process-wide: stop it only if this configuration started it, not when
+      # some other configuration (a second app, a spec) is collected.
+      if @started_memory_monitor
         development_tools.memory_detector.stop_monitoring
       end
     end

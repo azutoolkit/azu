@@ -1,8 +1,16 @@
 require "http/server"
 
 module Azu
-  # An application as a value: its own configuration and router, so two can live in one process and
-  # each request sees the configuration of the app that serves it.
+  # An application as a value: its own configuration and router, so two can live in one process.
+  # Code that runs while a request is being handled, including WebSocket callbacks and fibers
+  # started with `Azu.spawn_scoped`, sees the configuration of the app that serves it through
+  # `Azu.current_config`.
+  #
+  # Not yet per app, and shared by every app in the process: the endpoint macros (they register on
+  # `App.default`), `Channel.ws`, the PubSub backend, Spark connections, `QueryStore`, the helper and
+  # i18n registries, and handler constructors whose defaults read the global `CONFIG` (`Logger`,
+  # `SimpleLogger`, `Throttle`, `Static`: pass `log:` explicitly). Constructing an app also applies
+  # its `i18n` settings to the process-wide `Helpers::I18n`. Later slices of the 0.6 plan move these.
   #
   # ```
   # app = Azu::App.new
@@ -44,7 +52,13 @@ module Azu
     end
 
     # The handler chain this app serves: its scope first, then `handlers`.
+    #
+    # A handler holds the next handler of the chain it is in, so an instance can be in one chain
+    # only: reusing one for a second app would point the first app at the second one's router.
     def chain(handlers : Array(HTTP::Handler) = [] of HTTP::Handler) : Array(HTTP::Handler)
+      handlers.each do |handler|
+        raise ArgumentError.new("#{handler.class} is already part of a chain; use one handler instance per server") if handler.next
+      end
       [Scope.new(self)] of HTTP::Handler + handlers
     end
 

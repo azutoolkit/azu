@@ -39,6 +39,8 @@ crystal run playground/example_app.cr  # Run example app
 ```
 src/azu/
 ├── azu.cr              # Core module & startup
+├── app.cr              # Azu::App: an app as a value (config + router), App.default wraps the global CONFIG
+├── routable.cr         # Azu::Routable: what the router dispatches to (endpoints, upgraders, plain handlers)
 ├── router.cr           # Radix-tree routing with path caching
 ├── endpoint.cr         # Type-safe request handlers
 ├── request.cr          # Request contracts with validation

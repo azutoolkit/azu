@@ -66,19 +66,35 @@ module Azu
   #   # Code here uses test_config
   #   Azu.current_config.env # => Environment::Test
   # end
-  # # Outside the block, global CONFIG is used again
+  # # Outside the block, the configuration that was current before is current again
   # ```
+  #
+  # Scopes nest: leaving an inner one restores the outer configuration, or the global one when
+  # there was none.
   def self.with_config(config : Configuration, &)
-    @@config_mutex.synchronize do
-      @@fiber_configs[Fiber.current] = config
+    fiber = Fiber.current
+    previous = @@config_mutex.synchronize do
+      @@fiber_configs[fiber]?.tap { @@fiber_configs[fiber] = config }
     end
     begin
       yield
     ensure
       @@config_mutex.synchronize do
-        @@fiber_configs.delete(Fiber.current)
+        if previous
+          @@fiber_configs[fiber] = previous
+        else
+          @@fiber_configs.delete(fiber)
+        end
       end
     end
+  end
+
+  # Like `spawn`, but the new fiber sees the configuration that is current in the fiber that spawns
+  # it. A plain `spawn` starts with the global configuration, so work that outlives the request
+  # (timers, WebSocket heartbeats) must spawn through this to keep the app it belongs to.
+  def self.spawn_scoped(name : String? = nil, &block : ->) : Fiber
+    config = current_config
+    spawn(name: name) { with_config(config, &block) }
   end
 
   # Clear all fiber-local configurations

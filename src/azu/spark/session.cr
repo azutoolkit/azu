@@ -137,7 +137,7 @@ module Azu
       # :nodoc:
       def schedule(id : String, interval : Time::Span, payload : String, repeat : Bool) : Nil
         return unless entry = @registry[id]?
-        spawn(name: "azu-spark-timer") do
+        Azu.spawn_scoped("azu-spark-timer") do
           loop do
             select
             when entry.retired.receive?
