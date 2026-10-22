@@ -382,7 +382,7 @@ describe Azu::Handler::Throttle do
   end
 
   describe "edge cases" do
-    it "handles missing REMOTE_ADDR header gracefully" do
+    it "handles a request without a peer address gracefully" do
       handler = Azu::Handler::Throttle.new(
         interval: 60,
         duration: 60,
@@ -441,6 +441,70 @@ describe Azu::Handler::Throttle do
       context.response.status_code.should eq(429)
       verify.call
       handler.reset
+    end
+  end
+
+  describe "client identity" do
+    # Real servers never send a REMOTE_ADDR header, and a client can send any value
+    # for it, so only the peer address of the connection identifies a client.
+    request_from = ->(ip : String, port : Int32, spoofed_header : String?) do
+      headers = HTTP::Headers.new
+      headers["REMOTE_ADDR"] = spoofed_header if spoofed_header
+      context, _ = create_context("GET", "/test", headers)
+      context.request.remote_address = Socket::IPAddress.new(ip, port)
+      context
+    end
+
+    it "limits a client that rotates a spoofed REMOTE_ADDR header" do
+      handler = Azu::Handler::Throttle.new(interval: 60, duration: 60, threshold: 2, blacklist: [] of String, whitelist: [] of String)
+      handler.next = ->(context : HTTP::Server::Context) { context.response.print "OK" }
+
+      statuses = %w(1.1.1.1 2.2.2.2 3.3.3.3).map do |spoofed|
+        context = request_from.call("6.6.6.6", 4000, spoofed)
+        handler.call(context)
+        context.response.status_code
+      end
+
+      statuses.should eq([200, 200, 429])
+    end
+
+    it "does not let a client borrow a whitelisted address through the header" do
+      handler = Azu::Handler::Throttle.new(interval: 60, duration: 60, threshold: 1, blacklist: [] of String, whitelist: ["10.0.0.1"])
+      handler.next = ->(context : HTTP::Server::Context) { context.response.print "OK" }
+
+      statuses = 2.times.map do
+        context = request_from.call("6.6.6.6", 4000, "10.0.0.1")
+        handler.call(context)
+        context.response.status_code
+      end.to_a
+
+      statuses.should eq([200, 429])
+    end
+
+    it "keys a client by address, not by connection port" do
+      handler = Azu::Handler::Throttle.new(interval: 60, duration: 60, threshold: 1, blacklist: [] of String, whitelist: [] of String)
+      handler.next = ->(context : HTTP::Server::Context) { context.response.print "OK" }
+
+      statuses = [4000, 4001].map do |port|
+        context = request_from.call("5.5.5.5", port, nil)
+        handler.call(context)
+        context.response.status_code
+      end
+
+      statuses.should eq([200, 429])
+    end
+
+    it "keeps clients at different addresses apart" do
+      handler = Azu::Handler::Throttle.new(interval: 60, duration: 60, threshold: 1, blacklist: [] of String, whitelist: [] of String)
+      handler.next = ->(context : HTTP::Server::Context) { context.response.print "OK" }
+
+      statuses = %w(7.7.7.7 7.7.7.7 8.8.8.8).map do |ip|
+        context = request_from.call(ip, 4000, nil)
+        handler.call(context)
+        context.response.status_code
+      end
+
+      statuses.should eq([200, 429, 200])
     end
   end
 end

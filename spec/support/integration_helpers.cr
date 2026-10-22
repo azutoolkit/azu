@@ -107,11 +107,11 @@ module IntegrationHelpers
     body.should contain(text)
   end
 
-  # Create a request with remote address
-  def create_context_with_remote_addr(method = "GET", path = "/", remote_addr = "127.0.0.1")
-    headers = HTTP::Headers.new
-    headers["REMOTE_ADDR"] = remote_addr
-    create_context(method, path, headers)
+  # Create a request coming from the given peer address, as a real server would
+  def create_context_with_remote_addr(method = "GET", path = "/", remote_addr = "127.0.0.1", headers = HTTP::Headers.new)
+    context, io = create_context(method, path, headers)
+    context.request.remote_address = Socket::IPAddress.new(remote_addr, 0)
+    {context, io}
   end
 
   # Wait for async operations to complete

@@ -212,9 +212,7 @@ describe "Middleware Chain Integration" do
       rescuer.next = logger
       request_id.next = rescuer
 
-      headers = HTTP::Headers.new
-      headers["REMOTE_ADDR"] = "192.168.1.1"
-      context, io = create_context("GET", "/api/users", headers)
+      context, io = create_context_with_remote_addr("GET", "/api/users", "192.168.1.1")
 
       request_id.call(context)
 
