@@ -31,8 +31,14 @@ module Azu
         response.headers["Sec-WebSocket-Accept"] = HTTP::WebSocket::Protocol.key_challenge(context.request.headers["Sec-WebSocket-Key"])
         response.upgrade do |io|
           socket = HTTP::WebSocket.new(BoundedProtocol.new(io, @channel.max_message_size))
-          @channel.new(socket).call(context)
-          socket.run
+          channel = @channel.new(socket)
+          channel.call(context)
+          begin
+            socket.run
+          ensure
+            # `on_close` never fires when a handler raises out of `run`.
+            channel.teardown
+          end
         end
       end
 
