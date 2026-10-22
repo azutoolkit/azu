@@ -400,16 +400,18 @@ describe Azu::Templates do
       templates.load("test_template.jinja")
     end
 
-    it "prevents multiple file watchers from starting" do
+    it "applies helpers once, and again only after the registry changes" do
+      Azu::Helpers::Registry.register_global(:apply_probe, "registered")
       templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors")
-      templates.hot_reload = true
+      templates.load("test_template.jinja")
+      templates.crinja.context["apply_probe"] = "tampered"
 
-      # Should prevent multiple file watchers
-      templates.@file_watcher_started.should be_true
+      templates.load("test_template.jinja")
+      templates.crinja.context["apply_probe"].to_s.should eq "tampered"
 
-      # Enabling hot reload again should not start another watcher
-      templates.hot_reload = true
-      templates.@file_watcher_started.should be_true
+      Azu::Helpers::Registry.register_global(:apply_other, "x")
+      templates.load("test_template.jinja")
+      templates.crinja.context["apply_probe"].to_s.should eq "registered"
     end
 
     it "only checks for changes when interval has passed" do
