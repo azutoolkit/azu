@@ -871,6 +871,28 @@ Function that returns the current locale:
 {{ current_locale() }}  {# en #}
 ```
 
+### Choosing the locale per request
+
+`Azu::Handler::Locale` serves each request in the available locale that best matches its `Accept-Language` header, or in the default locale when none matches. The locale applies to everything the request does, including template rendering, and ends with the request:
+
+```crystal
+Azu.start [
+  Azu::Handler::RequestId.new,
+  Azu::Handler::Locale.new,
+  Azu::Handler::Rescuer.new,
+]
+```
+
+To choose the locale yourself, for example from a user setting, wrap the work in `with_locale`. The locale belongs to the current fiber, so concurrent requests never see each other's, and the previous locale is restored afterwards:
+
+```crystal
+Azu::Helpers::I18n.with_locale(user.locale) do
+  # render, send emails, ...
+end
+```
+
+Assigning `Azu::Helpers::I18n.locale = "es"` directly also stays within the fiber, but a connection's fiber serves several requests in turn. Only assign it while handling a request that runs behind `Azu::Handler::Locale`, which discards it when the request ends.
+
 ### available_locales
 
 Function that returns available locales:
