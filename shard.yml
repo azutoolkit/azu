@@ -1,5 +1,5 @@
 name: azu
-version: 0.5.49
+version: 0.5.50
 authors:
   - Elias J. Perez <eliasjpr@gmail.com>
 crystal: '>= 0.35.0'
@@ -17,7 +17,6 @@ dependencies:
     github: stefanwille/crystal-redis
     version: ~> 2.9.0
 development_dependencies:
-  # Only needed to build/test the opt-in `azu/cql` bridge (apps add cql themselves)
   cql:
     github: azutoolkit/cql
     branch: claude/elegant-euler-3m1kyy
