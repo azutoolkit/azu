@@ -1,3 +1,4 @@
+require "cql"
 require "../../spec_helper"
 require "../../support/integration_helpers"
 
@@ -47,12 +48,16 @@ describe "Dev dashboard Database tab backed by the query store" do
     store.clear
     store.enabled = false
     store.adapter = nil
+    # cql is a development dependency and the whole suite compiles it in, so the tab would
+    # otherwise read CQL's global monitor, which is on by default. Start from one that is off.
+    CQL::Performance.monitor = CQL::Performance::Monitor.new(CQL::Performance::Config.new { |config| config.monitoring.enabled = false })
   end
 
   after_all do
     store.clear
     store.enabled = false
     store.adapter = nil
+    CQL::Performance.monitor = CQL::Performance::Monitor.new
   end
 
   it "keeps the n/a state until an ORM integration records queries" do
