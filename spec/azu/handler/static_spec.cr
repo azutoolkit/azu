@@ -391,6 +391,46 @@ describe Azu::Handler::Static do
         end
       end
 
+      it "treats a date or a number in the name as not being a fingerprint" do
+        with_temp_dir({"report-20240101.pdf" => "x", "photo.12345678.jpg" => "x"}) do |dir|
+          handler = Azu::Handler::Static.new(dir)
+
+          cache_control.call(handler, "/report-20240101.pdf", HTTP::Headers.new).should eq "public, no-cache"
+          cache_control.call(handler, "/photo.12345678.jpg", HTTP::Headers.new).should eq "public, no-cache"
+        end
+      end
+
+      it "recognizes a fingerprint followed by several extensions" do
+        with_temp_dir({"app-3f2a9c1b.min.css" => "x", "app-3f2a9c1b.js.map" => "x"}) do |dir|
+          handler = Azu::Handler::Static.new(dir, cache_max_age: 60)
+
+          cache_control.call(handler, "/app-3f2a9c1b.min.css", HTTP::Headers.new).should eq "public, max-age=60, immutable"
+          cache_control.call(handler, "/app-3f2a9c1b.js.map", HTTP::Headers.new).should eq "public, max-age=60, immutable"
+        end
+      end
+
+      it "sends the policy for a directory index too, and on its 304" do
+        with_temp_dir({"index.html" => "<p>home</p>"}) do |dir|
+          handler = Azu::Handler::Static.new(dir)
+          first, _ = create_context("GET", "/")
+          handler.call(first)
+          first.response.headers["Cache-Control"]?.should eq "public, no-cache"
+
+          headers = HTTP::Headers{"If-None-Match" => first.response.headers["ETag"]}
+          cache_control.call(handler, "/", headers).should eq "public, no-cache"
+        end
+      end
+
+      it "varies on Accept-Encoding, since the stored body depends on it" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir)
+          context, _ = create_context("GET", "/app.css")
+          handler.call(context)
+
+          context.response.headers["Vary"]?.should eq "Accept-Encoding"
+        end
+      end
+
       it "also sends the policy with a 304 so caches keep refreshing it" do
         with_temp_dir(files) do |dir|
           handler = Azu::Handler::Static.new(dir)

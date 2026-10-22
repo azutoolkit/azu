@@ -10,7 +10,8 @@ module Azu
 
       # A content hash in the file name (`app-3f2a9c1b.css`, `logo.8c1d0e5f.png`): the name
       # changes whenever the content does, so the file may be cached for as long as wanted.
-      FINGERPRINTED = /[-.][0-9a-f]{8,}\.[^.\/]+\z/
+      # The hash has at least one letter, so a date (`report-20240101.pdf`) is not one.
+      FINGERPRINTED = /[-.](?=[0-9]*[a-f])[0-9a-f]{8,}(?:\.[a-z0-9]+)+\z/i
 
       MIME.register(".collection", "font/collection")
       MIME.register(".otf", "font/otf")
@@ -82,7 +83,7 @@ module Azu
       end
 
       private def handle_directory_request(context : HTTP::Server::Context, path_info : PathInfo)
-        return if etag(context, path_info.root_file)
+        return if not_modified?(context, path_info.root_file)
         serve_file(context, path_info.root_file)
       end
 
@@ -133,8 +134,7 @@ module Azu
             context.response.status_code = 404
           end
         elsif File.exists?(file_path)
-          context.response.headers["Cache-Control"] = cache_control_for(file_path)
-          return if etag(context, file_path)
+          return if not_modified?(context, file_path)
           serve_file(context, file_path)
         elsif @fallthrough
           call_next(context)
@@ -147,8 +147,14 @@ module Azu
         {"dir_listing" => @directory_listing, "gzip" => true}
       end
 
-      private def cache_control_for(file_path : String) : String
-        FINGERPRINTED.matches?(file_path) ? @fingerprinted_cache_control : @cache_control
+      # Sends the caching headers of a file, then answers 304 when the client's copy is current.
+      # `Vary` is needed because a shared cache may now store the response, and it is stored
+      # compressed or not depending on the request.
+      private def not_modified?(context, file_path : String) : Bool
+        headers = context.response.headers
+        headers["Cache-Control"] = FINGERPRINTED.matches?(file_path) ? @fingerprinted_cache_control : @cache_control
+        headers["Vary"] = "Accept-Encoding"
+        etag(context, file_path)
       end
 
       private def etag(context, file_path)
