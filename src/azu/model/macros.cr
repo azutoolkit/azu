@@ -26,6 +26,10 @@ module Azu
   # validations come after. Association targets must be written as full
   # constant paths (`Blog::Post`) because CQL resolves them at compile time.
   abstract class Model
+    # Raised by `has_many ..., dependent: :restrict_with_error` when children exist.
+    class DependentRecordsExist < Azu::Database::Error
+    end
+
     macro inherited
       macro finished
         __azu_model_finish
@@ -156,14 +160,40 @@ module Azu
     end
 
     # `has_many posts : Post, dependent: :destroy`
+    #
+    # `dependent:` acts when the parent is deleted (CQL records the option but never applies it):
+    # `:destroy` deletes each child through its own `delete!`, `:delete_all` removes them in one
+    # statement, `:restrict_with_error` raises `Azu::Model::DependentRecordsExist` while children exist.
     macro has_many(decl, **opts)
       {% fk = opts[:foreign_key] || "#{@type.name.split("::").last.underscore.id}_id".id.symbolize %}
+      {% dependent = opts[:dependent] %}
       has_many :{{decl.var.id}}, {{decl.type}}, foreign_key: {{fk}}{% for key, value in opts %}{% if key != :foreign_key %}, {{key.id}}: {{value}}{% end %}{% end %}
 
       def {{decl.var.id}}
         _azu_lazy_association(:{{decl.var.id}}) unless @{{decl.var.id}}.try(&.loaded?)
         previous_def
       end
+
+      {% if dependent == :destroy || dependent == :delete_all || dependent == :restrict_with_error %}
+        def __azu_dependent_{{decl.var.id}} : Nil
+          parent_id = id
+          return if parent_id.nil?
+          {% if dependent == :destroy %}
+            {{decl.type}}.where({ {{fk}} => parent_id }).all.each(&.delete!)
+          {% elsif dependent == :delete_all %}
+            {{decl.type}}.delete_by!({{fk.id}}: parent_id)
+          {% else %}
+            if {{decl.type}}.where({ {{fk}} => parent_id }).count > 0
+              raise ::Azu::Model::DependentRecordsExist.new("cannot delete {{@type.name.split("::").last.id}} #{parent_id}: it still has {{decl.var.id}}")
+            end
+          {% end %}
+        end
+
+        def delete!
+          __azu_dependent_{{decl.var.id}}
+          previous_def
+        end
+      {% end %}
     end
 
     # `has_one profile : Profile`. Works with `preload(:profile)` (CQL itself only preloads has_many).
@@ -231,9 +261,66 @@ module Azu
       end
     end
 
-    # `many_to_many tags : Tag, through: :taggings`
+    # `many_to_many tags : Tag, through: Tagging` (join model with `note_id` / `tag_id` columns).
+    #
+    # Override the join columns with `foreign_key:` (this model's key in the join table) and
+    # `association_foreign_key:` (the target's). The reader returns a small collection:
+    # enumerable, `<<` (idempotent), `delete(record)` and `clear` change the join rows only.
+    # (CQL's own `many_to_many` derives table names from class names and cannot be used with
+    # namespaced models.)
     macro many_to_many(decl, through, **opts)
-      many_to_many :{{decl.var.id}}, {{decl.type}}, {{through}}{% for key, value in opts %}, {{key.id}}: {{value}}{% end %}
+      {% name = decl.var.id %}
+      {% klass = decl.type %}
+      {% owner = @type %}
+      {% fk = opts[:foreign_key] || "#{@type.name.split("::").last.underscore.id}_id".id.symbolize %}
+      {% afk = opts[:association_foreign_key] || "#{klass.stringify.split("::").last.underscore.id}_id".id.symbolize %}
+
+      class AzuMany{{name.camelcase}}
+        include Enumerable({{klass}})
+
+        def initialize(@owner : {{owner}})
+        end
+
+        def each(& : {{klass}} ->) : Nil
+          to_a.each { |record| yield record }
+        end
+
+        def to_a : Array({{klass}})
+          owner_id = @owner.id
+          return [] of {{klass}} if owner_id.nil?
+          ids = {{through}}.where({ {{fk}} => owner_id }).all.compact_map(&.{{afk.id}})
+          return [] of {{klass}} if ids.empty?
+          {{klass}}.where({:id => ids}).all
+        end
+
+        def <<(record : {{klass}}) : self
+          owner_id, target_id = ids_for(record)
+          unless {{through}}.where({ {{fk}} => owner_id, {{afk}} => target_id }).count > 0
+            {{through}}.create!({{fk.id}}: owner_id, {{afk.id}}: target_id)
+          end
+          self
+        end
+
+        def delete(record : {{klass}}) : Nil
+          owner_id, target_id = ids_for(record)
+          {{through}}.delete_by!({{fk.id}}: owner_id, {{afk.id}}: target_id)
+        end
+
+        def clear : Nil
+          owner_id = @owner.id
+          {{through}}.delete_by!({{fk.id}}: owner_id) if owner_id
+        end
+
+        private def ids_for(record : {{klass}})
+          owner_id = @owner.id || raise ::Azu::Database::Error.new("save the {{owner.name.split("::").last.id}} before changing its {{name}}")
+          target_id = record.id || raise ::Azu::Database::Error.new("save the {{klass.stringify.split("::").last.id}} before adding it to {{name}}")
+          {owner_id, target_id}
+        end
+      end
+
+      def {{name}} : AzuMany{{name.camelcase}}
+        AzuMany{{name.camelcase}}.new(self)
+      end
     end
 
     # Default for a column declared without one so `Model.new` always works.
@@ -300,6 +387,31 @@ module Azu
           created = nil
           transaction(tx) { |_| created = create!(**fields) }
           created.not_nil!
+        end
+
+        # CQL collects column values as `DB::Any`, which has no JSON; `JSON::Any` columns (json,
+        # jsonb) are written as JSON text, which PostgreSQL casts on insert and update.
+        def attributes
+          hash = Hash(Symbol, DB::Any).new
+          {% verbatim do %}
+            {% for ivar in @type.instance_vars %}
+              {% field = ivar.annotation(DB::Field) %}
+              {% unless field && field.named_args[:ignore] %}
+                {% key = field && field.named_args[:key] ? field.named_args[:key].id : ivar.id %}
+                {% type = ivar.type.stringify %}
+                {% if type.includes?("JSON::Any") %}
+                  _value = @{{ivar.id}}
+                  hash[:{{key}}] = _value.nil? ? nil : _value.to_json
+                {% elsif type.includes?("UUID") %}
+                  _value = @{{ivar.id}}
+                  hash[:{{key}}] = _value.nil? ? nil : _value.to_s
+                {% else %}
+                  hash[:{{key}}] = @{{ivar.id}}
+                {% end %}
+              {% end %}
+            {% end %}
+          {% end %}
+          hash
         end
       {% end %}
     end
