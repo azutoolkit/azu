@@ -106,15 +106,6 @@ ensure
   Azu::Spark.config.secret = previous
 end
 
-private def wait_until(timeout : Time::Span = 2.seconds, &) : Bool
-  deadline = Time.instant + timeout
-  until yield
-    return false if Time.instant > deadline
-    sleep 5.milliseconds
-  end
-  true
-end
-
 describe Azu::Spark::Connection do
   describe "joining and events" do
     it "greets, mounts the view from its token and applies events" do

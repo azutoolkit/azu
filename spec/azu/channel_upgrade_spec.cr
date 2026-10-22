@@ -163,12 +163,8 @@ describe Azu::Channel do
       with_ws_server(Azu::Channel::Upgrader.new(RaisingChannel)) do |port|
         client = WsProbe.new(port)
         client.send("go")
-        50.times do
-          break if client.closed?
-          sleep 20.milliseconds
-        end
-        sleep 100.milliseconds
-        backend.subscriber_count.should eq 0
+        wait_until { client.closed? }.should be_true
+        wait_until { backend.subscriber_count == 0 }.should be_true
       end
     end
   end
@@ -184,8 +180,7 @@ describe Azu::Channel do
           socket.on_ping { |_| pings.add(1) }
           spawn { socket.run }
 
-          sleep 200.milliseconds
-          pings.get.should be >= 2
+          wait_until { pings.get >= 2 }.should be_true
 
           socket.close
           EchoChannel.closed.receive

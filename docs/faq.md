@@ -499,7 +499,7 @@ When reporting issues, include:
 ### Example Issue Report
 
 ````
-**Crystal Version**: 1.10.1
+**Crystal Version**: 1.19.1
 **Azu Version**: 0.5.26
 **OS**: macOS 13.0
 
