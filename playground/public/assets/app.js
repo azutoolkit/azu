@@ -22,8 +22,10 @@
       var mode = current();
       toggle.setAttribute("data-mode", mode);
       var label = $("[data-theme-label]", toggle);
-      if (label) label.textContent = mode === "system" ? "Auto" : mode === "light" ? "Light" : "Dark";
-      toggle.setAttribute("aria-label", "Colour theme: " + mode + ". Activate to change.");
+      var visible = mode === "system" ? "Auto" : mode === "light" ? "Light" : "Dark";
+      if (label) label.textContent = visible;
+      // The accessible name starts with the visible text (WCAG 2.5.3, label in name).
+      toggle.setAttribute("aria-label", visible + " colour theme. Activate to change.");
     };
     toggle.hidden = false;
     toggle.addEventListener("click", function () {
@@ -81,7 +83,13 @@
       if (form) { form.__confirmed = true; form.requestSubmit(); }
     });
     $("[data-dialog-cancel]", dialog).addEventListener("click", function () { pending = null; dialog.close("cancel"); });
-    dialog.addEventListener("click", function (event) { if (event.target === dialog) { pending = null; dialog.close("cancel"); } });
+    dialog.addEventListener("click", function (event) {
+      // The dialog element is also its own padding, so a click on it only means "outside" when it
+      // lands beyond the box (the backdrop), not inside the padding around the content.
+      var box = dialog.getBoundingClientRect();
+      var outside = event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+      if (event.target === dialog && outside) { pending = null; dialog.close("cancel"); }
+    });
     // Undo the busy state set by the capture-phase listener ordering above.
     dialog.addEventListener("close", function () {
       $all(".is-busy").forEach(function (b) { if (!b.form || !b.form.__confirmed) { b.classList.remove("is-busy"); b.removeAttribute("aria-disabled"); } });
