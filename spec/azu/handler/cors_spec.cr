@@ -399,4 +399,76 @@ describe Azu::Handler::CORS do
       verify.call
     end
   end
+
+  # The specs above inspect the in-memory response headers. A preflight response is flushed by
+  # the handler, so only a real connection shows which headers actually reach the browser.
+  describe "over a real connection" do
+    preflight = HTTP::Headers{
+      "Origin"                         => "https://app.example",
+      "Access-Control-Request-Method"  => "POST",
+      "Access-Control-Request-Headers" => "Content-Type",
+    }
+
+    serve = ->(cors : Azu::Handler::CORS, request : Proc(HTTP::Client, HTTP::Client::Response)) do
+      server = HTTP::Server.new([cors] of HTTP::Handler) { |context| context.response.print "OK" }
+      address = server.bind_unused_port
+      spawn { server.listen }
+      Fiber.yield
+
+      begin
+        request.call(HTTP::Client.new(address.address, address.port))
+      ensure
+        server.close
+      end
+    end
+
+    it "sends the Allow-Origin, Vary and preflight headers in a preflight response" do
+      cors = Azu::Handler::CORS.new(origins: ["https://app.example"], methods: ["POST"], headers: ["Content-Type"], max_age: 600)
+
+      response = serve.call(cors, ->(client : HTTP::Client) { client.options("/", preflight) })
+
+      response.status_code.should eq(200)
+      response.headers["Access-Control-Allow-Origin"]?.should eq("https://app.example")
+      response.headers["Vary"]?.should eq("Origin")
+      response.headers["Access-Control-Allow-Methods"]?.should eq("POST")
+      response.headers["Access-Control-Allow-Headers"]?.should eq("Content-Type")
+      response.headers["Access-Control-Max-Age"]?.should eq("600")
+    end
+
+    it "sends Allow-Credentials in a preflight response when credentials are enabled" do
+      cors = Azu::Handler::CORS.new(origins: ["https://app.example"], methods: ["POST"], headers: ["Content-Type"], credentials: true)
+
+      response = serve.call(cors, ->(client : HTTP::Client) { client.options("/", preflight) })
+
+      response.headers["Access-Control-Allow-Credentials"]?.should eq("true")
+    end
+
+    it "sends the Allow-Origin header with an actual request" do
+      cors = Azu::Handler::CORS.new(origins: ["https://app.example"])
+
+      response = serve.call(cors, ->(client : HTTP::Client) { client.get("/", HTTP::Headers{"Origin" => "https://app.example"}) })
+
+      response.body.should eq("OK")
+      response.headers["Access-Control-Allow-Origin"]?.should eq("https://app.example")
+    end
+
+    it "grants nothing to a preflight for a method that is not allowed" do
+      cors = Azu::Handler::CORS.new(origins: ["https://app.example"], methods: ["PUT"], headers: ["Content-Type"])
+
+      response = serve.call(cors, ->(client : HTTP::Client) { client.options("/", preflight) })
+
+      response.status_code.should eq(403)
+      response.headers["Access-Control-Allow-Origin"]?.should be_nil
+      response.headers["Access-Control-Allow-Methods"]?.should be_nil
+    end
+
+    it "grants nothing to an origin that is not allowed" do
+      cors = Azu::Handler::CORS.new(origins: ["https://other.example"], methods: ["POST"], headers: ["Content-Type"])
+
+      response = serve.call(cors, ->(client : HTTP::Client) { client.options("/", preflight) })
+
+      response.status_code.should eq(403)
+      response.headers["Access-Control-Allow-Origin"]?.should be_nil
+    end
+  end
 end
