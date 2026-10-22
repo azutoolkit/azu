@@ -91,8 +91,9 @@ module MigratorSpec
     end
   end
 
+  # Limited to this spec's classes so migrations other specs define do not leak in.
   def self.migrator : Azu::Migrator
-    Azu::Migrator.new(table: TABLE)
+    Azu::Migrator.new(table: TABLE, migrations: [CreateUsers, AddEnumAndPosts, ConcurrentIndex, Alterations, Broken] of Azu::BaseMigration.class)
   end
 
   def self.scalar(sql : String)

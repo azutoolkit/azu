@@ -50,9 +50,16 @@ module Azu
     # SQL collected by the last run (always filled; only executed when not a dry run).
     getter statements = [] of String
 
-    def initialize(@schema : ::CQL::Schema = Azu::Database.schema, table : Symbol | String = :schema_migrations)
+    # `migrations` limits the runner to an explicit list (default: every registered `Azu::Migration`).
+    def initialize(@schema : ::CQL::Schema = Azu::Database.schema, table : Symbol | String = :schema_migrations,
+                   @migrations : Array(BaseMigration.class)? = nil)
       @table_name = table.to_s
       @table = Migrations::SQL.ident(table)
+    end
+
+    # The migrations this runner knows, ordered by version.
+    def known : Array(BaseMigration.class)
+      @migrations.try(&.sort_by(&.version)) || self.class.migrations
     end
 
     # Applies pending migrations (up to `to`, inclusive). Returns the ones that ran.
@@ -61,7 +68,7 @@ module Azu
       ran = [] of BaseMigration.class
       with_connection(dry_run) do |conn|
         applied = applied_versions(conn)
-        todo = self.class.migrations.reject { |migration| applied.includes?(migration.version) }
+        todo = known.reject { |migration| applied.includes?(migration.version) }
         todo = todo.select { |migration| migration.version <= to } if to
         todo.each do |migration|
           run(migration, :up, conn, dry_run)
@@ -98,18 +105,18 @@ module Azu
         end
       end
 
-      known = self.class.migrations.map do |migration|
+      entries = known.map do |migration|
         Status.new(migration.version, migration.migration_name, applied[migration.version]?.try(&.[1]))
       end
-      orphans = applied.reject { |version, _| known.any? { |status| status.version == version } }.map do |version, (name, at)|
+      orphans = applied.reject { |version, _| entries.any? { |status| status.version == version } }.map do |version, (name, at)|
         Status.new(version, name, at, missing: true)
       end
-      (known + orphans).sort_by(&.version)
+      (entries + orphans).sort_by(&.version)
     end
 
     def pending : Array(BaseMigration.class)
       applied = applied_versions
-      self.class.migrations.reject { |migration| applied.includes?(migration.version) }
+      known.reject { |migration| applied.includes?(migration.version) }
     end
 
     def pending_count : Int32
@@ -139,7 +146,7 @@ module Azu
       with_connection(dry_run) do |conn|
         applied = applied_versions(conn).to_a.sort.reverse!
         yield(applied).each do |version|
-          migration = self.class.migrations.find { |candidate| candidate.version == version } ||
+          migration = known.find { |candidate| candidate.version == version } ||
                       raise Migrations::MigrationError.new("version #{version} is recorded in #{@table_name} but no migration class defines it")
           run(migration, :down, conn, dry_run)
           reverted << migration
