@@ -216,13 +216,7 @@ module Azu
           return
         end
 
-        # Skip CSRF protection for AJAX requests with custom headers (preflight protection)
-        if ajax_request_with_custom_headers?(context)
-          call_next(context)
-          return
-        end
-
-        # Validate CSRF token
+        # Validate CSRF token (AJAX clients send it in the header)
         if valid_token?(context)
           call_next(context)
         else
@@ -242,21 +236,6 @@ module Azu
       # Check if route should skip CSRF protection
       private def skip_route?(path : String) : Bool
         @skip_routes.any? { |route| path.starts_with?(route) }
-      end
-
-      # Check if request is AJAX with custom headers (provides CSRF protection)
-      private def ajax_request_with_custom_headers?(context : HTTP::Server::Context) : Bool
-        # Check for common AJAX headers that require preflight
-        ajax_headers = ["X-Requested-With", "Content-Type"]
-        content_type = context.request.headers["Content-Type"]?
-
-        # JSON requests require preflight
-        if content_type && content_type.starts_with?("application/json")
-          return true
-        end
-
-        # Custom headers require preflight
-        ajax_headers.any? { |header| context.request.headers.has_key?(header) }
       end
 
       # Validate CSRF token based on configured strategy

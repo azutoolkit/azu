@@ -135,28 +135,51 @@ describe Azu::Handler::CSRF do
     end
   end
 
-  describe "AJAX request detection" do
-    it "allows AJAX requests with JSON content type" do
+  describe "requests that look like AJAX or form posts" do
+    # A cross-site form can send any of these Content-Types and a caller can always
+    # add X-Requested-With, so neither is proof that a request is same-origin.
+    {% for content_type in %w(application/x-www-form-urlencoded multipart/form-data text/plain application/json) %}
+      it "rejects a {{content_type.id}} POST without a token" do
+        handler = Azu::Handler::CSRF.new
+        next_handler, verify_calls = create_next_handler(0)
+        handler.next = next_handler
+
+        headers = HTTP::Headers{"Content-Type" => "{{content_type.id}}"}
+        context, _ = create_context("POST", "/api/data", headers)
+        handler.call(context)
+
+        context.response.status.should eq(HTTP::Status::FORBIDDEN)
+        verify_calls.call
+      end
+    {% end %}
+
+    it "rejects an X-Requested-With POST without a token" do
       handler = Azu::Handler::CSRF.new
-      next_handler, verify_calls = create_next_handler(1)
+      next_handler, verify_calls = create_next_handler(0)
       handler.next = next_handler
 
-      headers = HTTP::Headers.new
-      headers["Content-Type"] = "application/json"
-      context, io = create_context("POST", "/api/data", headers)
+      headers = HTTP::Headers{"X-Requested-With" => "XMLHttpRequest"}
+      context, _ = create_context("POST", "/api/data", headers)
       handler.call(context)
 
-      get_response_body(context, io).should eq("OK")
+      context.response.status.should eq(HTTP::Status::FORBIDDEN)
       verify_calls.call
     end
 
-    it "allows AJAX requests with X-Requested-With header" do
+    it "accepts a JSON POST that carries a valid token header" do
+      Azu::Handler::CSRF.use_signed_double_submit!
       handler = Azu::Handler::CSRF.new
       next_handler, verify_calls = create_next_handler(1)
       handler.next = next_handler
 
-      headers = HTTP::Headers.new
-      headers["X-Requested-With"] = "XMLHttpRequest"
+      get_context, _ = create_context("GET", "/")
+      token = Azu::Handler::CSRF.token(get_context)
+
+      headers = HTTP::Headers{
+        "Content-Type" => "application/json",
+        "X-CSRF-TOKEN" => token,
+        "Cookie"       => "csrf_token=#{token}",
+      }
       context, io = create_context("POST", "/api/data", headers)
       handler.call(context)
 
