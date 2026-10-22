@@ -85,17 +85,17 @@ describe Azu::Helpers::Registry do
       template.render.should eq "Hello, World!"
     end
 
-    it "only applies helpers once to the same environment" do
-      crinja = Crinja.new
+    it "changes its revision only when a helper is registered or the registry is reset" do
+      revision = Azu::Helpers::Registry.revision
+      Azu::Helpers::Registry.apply_to(Crinja.new)
+      Azu::Helpers::Registry.revision.should eq revision
 
-      Azu::Helpers::Registry.apply_to(crinja)
-      first_call = Azu::Helpers::Registry.applied_to?(crinja)
+      Azu::Helpers::Registry.register_global(:revision_probe, "x")
+      Azu::Helpers::Registry.revision.should_not eq revision
 
-      Azu::Helpers::Registry.apply_to(crinja)
-      second_call = Azu::Helpers::Registry.applied_to?(crinja)
-
-      first_call.should be_true
-      second_call.should be_true
+      revision = Azu::Helpers::Registry.revision
+      Azu::Helpers::Registry.reset!
+      Azu::Helpers::Registry.revision.should_not eq revision
     end
   end
 
