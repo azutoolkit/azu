@@ -220,13 +220,16 @@ module Azu
       # ---- command line -----------------------------------------------------------------------
 
       # Runs one command; returns the process exit status (0 ok, 1 failure, 2 usage).
-      def run(args : Array(String), io : IO = STDOUT, err : IO = STDERR) : Int32
+      # Debug and info logs (every SQL statement) stay hidden unless `--verbose` is passed;
+      # `quiet: false` leaves the logging setup alone (specs).
+      def run(args : Array(String), io : IO = STDOUT, err : IO = STDERR, quiet : Bool = true) : Int32
         command = args.first? || "help"
         rest = args.size > 1 ? args[1..] : [] of String
         flags = rest.select(&.starts_with?("--"))
         positional = rest.reject(&.starts_with?("--"))
         dry_run = flags.includes?("--dry-run")
         force = flags.includes?("--force")
+        ::Log.setup(:warn) if quiet && !flags.includes?("--verbose")
 
         case command
         when "help", "--help", "-h" then print_usage(io)
@@ -258,6 +261,7 @@ module Azu
         io.puts "Usage: crystal run db/tasks.cr -- <command> [options]\n\nCommands:"
         width = COMMANDS.keys.max_of(&.size)
         COMMANDS.each { |name, description| io.puts "  #{name.ljust(width)}  #{description}" }
+        io.puts "\nAdd --verbose to any command to log the SQL that runs."
       end
 
       # ---- helpers ----------------------------------------------------------------------------

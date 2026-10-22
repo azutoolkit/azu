@@ -63,8 +63,9 @@ module Azu
       {% else %}
         AZU_COL_{{name.id.upcase}} = {{name.stringify}}
         property {{name.id}} : {{type}} = {% if value %}{{value}}{% else %}__azu_default({{type}}, {{nilable}}){% end %}
+        {% scalar_default = value && %w(String Int32 Int64 Float32 Float64 Bool Time).includes?(base.stringify) %}
         ::Azu::Database::Registry.add({{table}}, ->(t : ::CQL::Table) {
-          t.column(:{{name.id}}, {{base}}, null: {{nilable}}, default: {% if value %}{{value}}.as(DB::Any){% else %}nil{% end %}, unique: {{opts[:unique] ? true : false}}, index: {{opts[:index] ? true : false}})
+          t.column(:{{name.id}}, {{base}}, null: {{nilable}}, default: {% if scalar_default %}{{value}}.as(DB::Any){% else %}nil{% end %}, unique: {{opts[:unique] ? true : false}}, index: {{opts[:index] ? true : false}})
           nil
         })
         {% if opts[:validate] %}

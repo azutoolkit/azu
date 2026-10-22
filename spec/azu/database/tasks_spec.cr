@@ -40,7 +40,7 @@ module TasksSpec
   def self.run(*args : String) : {Int32, String, String}
     stdout = IO::Memory.new
     stderr = IO::Memory.new
-    code = Azu::Database::Tasks.run(args.to_a, stdout, stderr)
+    code = Azu::Database::Tasks.run(args.to_a, stdout, stderr, quiet: false)
     {code, stdout.to_s, stderr.to_s}
   end
 end
