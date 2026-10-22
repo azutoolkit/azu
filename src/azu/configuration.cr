@@ -78,6 +78,9 @@ module Azu
 
     getter upload : UploadConfiguration = UploadConfiguration.new
 
+    # WebSocket security and keep-alive settings shared by `Azu::Channel`s
+    getter websocket : WebSocketConfiguration = WebSocketConfiguration.new
+
     # i18n configuration
     getter i18n : I18nConfiguration = I18nConfiguration.new
 
@@ -270,6 +273,29 @@ module Azu
       end
     rescue ex
       Log.for("Azu::UploadConfiguration").error(exception: ex) { "Upload cleanup failed" }
+    end
+  end
+
+  # Configuration for WebSocket channels
+  #
+  # ```
+  # Azu.configure do |c|
+  #   c.websocket.allowed_origins = ["https://app.example.com"]
+  #   c.websocket.max_message_size = 64 * 1024
+  #   c.websocket.ping_interval = 20.seconds
+  # end
+  # ```
+  class WebSocketConfiguration
+    # Origins accepted besides the request's own origin; "*" accepts any origin
+    property allowed_origins : Array(String) = ENV.fetch("WEBSOCKET_ALLOWED_ORIGINS", "").split(',').map(&.strip).reject(&.empty?)
+
+    # Largest accepted message in bytes; bigger messages close the connection
+    property max_message_size : Int32 = ENV.fetch("WEBSOCKET_MAX_MESSAGE_SIZE", "1048576").to_i
+
+    # Interval between server pings, nil disables them
+    property ping_interval : Time::Span? = begin
+      seconds = ENV.fetch("WEBSOCKET_PING_INTERVAL", "30").to_i
+      seconds > 0 ? seconds.seconds : nil
     end
   end
 
