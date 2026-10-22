@@ -166,9 +166,6 @@ module Azu
     end
 
     def finalize
-      # Shutdown async logging system
-      AsyncLogging.shutdown
-
       # Only shutdown development tools if they were started
       if performance_memory_monitoring?
         development_tools.memory_detector.stop_monitoring
