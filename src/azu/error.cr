@@ -90,7 +90,7 @@ module Azu
       @_environment ||= CachedEnvironment.get
     end
 
-    def self.from_http_context(context : HTTP::Server::Context, request_id : String? = nil, load_environment : Bool = true)
+    def self.from_http_context(context : HTTP::Server::Context, request_id : String? = nil, load_environment : Bool = false)
       request = context.request
 
       new(

@@ -39,6 +39,14 @@ describe "Azu Error Handling" do
       context.headers.should eq(request.headers)
     end
 
+    it "loads the process environment only when asked to" do
+      response = HTTP::Server::Response.new(IO::Memory.new)
+      http_context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/"), response)
+
+      Azu::ErrorContext.from_http_context(http_context).environment.should be_nil
+      Azu::ErrorContext.from_http_context(http_context, load_environment: true).environment.should_not be_nil
+    end
+
     it "converts to JSON" do
       context = Azu::ErrorContext.new(
         request_id: "req-123",
