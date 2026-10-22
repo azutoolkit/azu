@@ -136,11 +136,7 @@ module Azu
     def self.start(handlers : Array(HTTP::Handler))
       Azu.prepare
       config.handlers = handlers.map(&.as(HTTP::Handler))
-      server = if handlers.empty?
-                 HTTP::Server.new { |context| config.router.process(context) }
-               else
-                 HTTP::Server.new(handlers) { |context| config.router.process(context) }
-               end
+      server = Azu::App.default.server(handlers)
 
       if config.tls?
         server.bind_tls config.host, config.port, config.tls, config.port_reuse?

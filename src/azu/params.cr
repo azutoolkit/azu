@@ -106,7 +106,7 @@ module Azu
 
       # An oversized body is refused after at most limit + 1 bytes, instead of buffering all of it first.
       def self.read(io : IO) : String
-        limit = CONFIG.upload.max_file_size
+        limit = Azu.current_config.upload.max_file_size
         content = IO::Sized.new(io, read_size: limit.to_i64 + 1).gets_to_end
         raise TooLarge.new("Request body exceeds maximum allowed size") if content.bytesize > limit
         content
@@ -137,18 +137,19 @@ module Azu
           random_suffix = Random.rand(999999)
           temp_filename = "azu_upload_#{timestamp}_#{random_suffix}"
           temp_filename += "_#{@filename}" if @filename && !@filename.try(&.empty?)
-          CONFIG.upload.prepare
-          @temp_path = Path[CONFIG.upload.temp_dir, temp_filename].to_s
+          upload_config = Azu.current_config.upload
+          upload_config.prepare
+          @temp_path = Path[upload_config.temp_dir, temp_filename].to_s
 
           # Create temp file and stream upload data
           @file = ::File.new(@temp_path, "w+")
-          stream_upload_data(upload.body)
+          stream_upload_data(upload.body, upload_config)
         end
 
-        private def stream_upload_data(source_io : IO)
-          buffer = Bytes.new(CONFIG.upload.buffer_size)
+        private def stream_upload_data(source_io : IO, upload_config : UploadConfiguration)
+          buffer = Bytes.new(upload_config.buffer_size)
           total_bytes = 0_u64
-          max_size = CONFIG.upload.max_file_size
+          max_size = upload_config.max_file_size
 
           begin
             while (bytes_read = source_io.read(buffer)) > 0
@@ -166,7 +167,7 @@ module Azu
               @file.write(buffer[0, bytes_read])
 
               # Yield to other fibers periodically for non-blocking behavior
-              Fiber.yield if total_bytes % (CONFIG.upload.buffer_size * 10) == 0
+              Fiber.yield if total_bytes % (upload_config.buffer_size * 10) == 0
             end
 
             # Flush and rewind file for reading
@@ -257,7 +258,7 @@ module Azu
       end
 
       def self.parse_part(input : String) : HTTP::Params
-        raise TooLarge.new("Form data exceeds maximum allowed size") if input.bytesize > CONFIG.upload.max_file_size
+        raise TooLarge.new("Form data exceeds maximum allowed size") if input.bytesize > Azu.current_config.upload.max_file_size
         HTTP::Params.parse(input)
       end
 

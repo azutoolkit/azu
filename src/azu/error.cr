@@ -175,13 +175,13 @@ module Azu
     end
 
     private def log : ::Log
-      CONFIG.log
+      Azu.current_config.log
     rescue ex : Exception
       ::Log.for("Azu::ErrorReporter")
     end
 
     private def env : Environment
-      CONFIG.env
+      Azu.current_config.env
     rescue ex : Exception
       Environment::Development
     end
