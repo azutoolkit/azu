@@ -48,12 +48,21 @@ module DocsCheck
     error.to_s.lines.find(&.starts_with?("Error")) || error.to_s.lines.first? || "compile failed"
   end
 
+  # The first compile that requires Azu builds Crystal's ECR helper into the shared cache; four
+  # compiles doing that at once race each other, so do it once before starting the workers.
+  def self.warm_cache(dir : String) : Nil
+    path = File.join(dir, "warmup.cr")
+    File.write(path, %(require "azu"\n))
+    Process.run("crystal", ["build", "--no-codegen", "--no-color", path], error: Process::Redirect::Close, output: Process::Redirect::Close)
+  end
+
   def self.run(files : Array(String)) : Int32
     root = Dir.current
     ENV["CRYSTAL_PATH"] = "#{File.join(root, "src")}:lib:#{`crystal env CRYSTAL_PATH`.strip}"
     all = files.flat_map { |file| snippets(file) }
     dir = File.tempname("azu-docs-check")
     Dir.mkdir_p(dir)
+    warm_cache(dir)
 
     results = Channel({Snippet, String?}).new
     queue = Channel({Snippet, Int32}).new
