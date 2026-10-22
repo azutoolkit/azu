@@ -68,7 +68,7 @@ module Azu
       RETRY_AFTER    = "Retry-After"
       CONTENT_TYPE   = "Content-Type"
       CONTENT_LENGTH = "Content-Length"
-      REMOTE_ADDR    = "REMOTE_ADDR"
+      UNKNOWN_CLIENT = "unknown"
 
       private getter log : ::Log = CONFIG.log,
         interval : Int32 = 5,
@@ -86,10 +86,21 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context)
-        remote = context.request.headers[REMOTE_ADDR]? || "unknown"
+        remote = client_address(context)
 
         return call_next(context) unless deflect?(remote)
         too_many_requests(context, remote)
+      end
+
+      # Clients are identified by the peer address of the connection. A header such as
+      # REMOTE_ADDR is never set by the server and a client can send any value for it,
+      # which would let it dodge the limit, borrow a whitelisted address or frame another one.
+      private def client_address(context : HTTP::Server::Context) : String
+        case address = context.request.remote_address
+        when Socket::IPAddress then address.address
+        when Nil               then UNKNOWN_CLIENT
+        else                        address.to_s
+        end
       end
 
       private def deflect?(remote : String) : Bool

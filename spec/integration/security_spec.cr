@@ -83,17 +83,16 @@ describe "Security Integration" do
 
       headers = HTTP::Headers.new
       headers["X-Forwarded-For"] = "192.168.1.1"
-      headers["REMOTE_ADDR"] = "192.168.1.1"
 
       # First 2 requests should pass
       2.times do
-        context, io = create_context("GET", "/test", headers)
+        context, io = create_context_with_remote_addr("GET", "/test", "192.168.1.1", headers)
         ip_spoofing.call(context)
         get_response_body(context, io).should eq("OK")
       end
 
       # 3rd request should be throttled
-      context, _ = create_context("GET", "/test", headers)
+      context, _ = create_context_with_remote_addr("GET", "/test", "192.168.1.1", headers)
       ip_spoofing.call(context)
       context.response.status_code.should eq(429)
 
@@ -120,8 +119,7 @@ describe "Security Integration" do
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
       headers["X-Forwarded-For"] = "192.168.1.1"
-      headers["REMOTE_ADDR"] = "192.168.1.1"
-      context, io = create_context("GET", "/test", headers)
+      context, io = create_context_with_remote_addr("GET", "/test", "192.168.1.1", headers)
 
       request_id.call(context)
 
@@ -165,15 +163,14 @@ describe "Security Integration" do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://example.com"
-      headers["REMOTE_ADDR"] = "192.168.1.1"
 
       # First request
-      context1, io1 = create_context("GET", "/test", headers)
+      context1, io1 = create_context_with_remote_addr("GET", "/test", "192.168.1.1", headers)
       cors.call(context1)
       get_response_body(context1, io1).should eq("OK")
 
       # Second request should be blocked
-      context2, _ = create_context("GET", "/test", headers)
+      context2, _ = create_context_with_remote_addr("GET", "/test", "192.168.1.1", headers)
       cors.call(context2)
       context2.response.status_code.should eq(429)
 
@@ -191,11 +188,10 @@ describe "Security Integration" do
 
       headers = HTTP::Headers.new
       headers["Origin"] = "https://trusted.com"
-      headers["REMOTE_ADDR"] = "192.168.1.1"
 
       # Should allow unlimited requests from whitelisted IP
       5.times do
-        context, io = create_context("GET", "/test", headers)
+        context, io = create_context_with_remote_addr("GET", "/test", "192.168.1.1", headers)
         cors.call(context)
         get_response_body(context, io).should eq("OK")
       end
@@ -283,9 +279,7 @@ describe "Security Integration" do
       cors.next = final_handler
       throttle.next = cors
 
-      headers = HTTP::Headers.new
-      headers["REMOTE_ADDR"] = "10.0.0.1"
-      context, _ = create_context("GET", "/test", headers)
+      context, _ = create_context_with_remote_addr("GET", "/test", "10.0.0.1")
 
       throttle.call(context)
 
@@ -310,8 +304,7 @@ describe "Security Integration" do
         spawn do
           headers = HTTP::Headers.new
           headers["Origin"] = "https://test.com"
-          headers["REMOTE_ADDR"] = "192.168.1.#{i}"
-          context, _ = create_context("GET", "/test", headers)
+          context, _ = create_context_with_remote_addr("GET", "/test", "192.168.1.#{i}", headers)
           cors.call(context)
           channel.send(true)
         end
