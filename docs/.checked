@@ -2,3 +2,5 @@
 # CI fails when a listed file has a block that does not compile. Fix a file's blocks (or mark a fragment
 # with `<!-- skip -->` on the line before its fence), then add it here; the list only ever grows.
 docs/README.md
+README.md
+docs/tutorials/getting-started.md

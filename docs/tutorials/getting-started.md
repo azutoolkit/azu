@@ -98,7 +98,7 @@ authors:
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.5.28
+    version: ~> 0.5.52
 
 crystal: ">= 1.19.1"
 
@@ -122,43 +122,68 @@ require "azu"
 module MyFirstAzuApp
   include Azu
 
-  configure do
-    port = 4000
-    host = "0.0.0.0"
+  configure do |config|
+    config.port = 4000
+    config.host = "0.0.0.0"
+  end
+end
+
+# A response turns your data into the body that is sent
+struct HelloResponse
+  include Azu::Response
+
+  def initialize(@message : String)
+  end
+
+  def render
+    @message
+  end
+end
+
+struct GreetResponse
+  include Azu::Response
+
+  def initialize(@name : String)
+  end
+
+  def render
+    {message: "Hello, #{@name}!", timestamp: Time.utc.to_rfc3339}.to_json
   end
 end
 
 # Create a simple endpoint
-struct HelloEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Text)
+class HelloEndpoint
+  include Azu::Endpoint(Azu::Request, HelloResponse)
 
   get "/"
 
-  def call
-    text "Hello from Azu!"
+  def call : HelloResponse
+    content_type "text/plain"
+    HelloResponse.new("Hello from Azu!")
   end
 end
 
 # Create a JSON endpoint
-struct GreetEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Json)
+class GreetEndpoint
+  include Azu::Endpoint(Azu::Request, GreetResponse)
 
   get "/greet/:name"
 
-  def call
-    json({
-      message: "Hello, #{params["name"]}!",
-      timestamp: Time.utc.to_rfc3339
-    })
+  def call : GreetResponse
+    content_type "application/json"
+    GreetResponse.new(params["name"])
   end
 end
 
 # Start the server
 MyFirstAzuApp.start [
-  HelloEndpoint.new,
-  GreetEndpoint.new,
-]
+  Azu::Handler::Rescuer.new,
+  Azu::Handler::Logger.new,
+] of HTTP::Handler
 ```
+
+The endpoints are declared as `class`es: a `struct` endpoint behind a handler crashed with a segmentation
+fault when this tutorial was tested.
 
 ## Step 4: Run Your Application
 
@@ -171,11 +196,11 @@ crystal run src/my_first_azu_app.cr
 You should see output like:
 
 ```
-Server started at Fri 01/24/2026 10:30:45.
-   ⤑  Environment: development
+ AZU   Thu 10/22/2026 09:15:03 ⤑   Info  ⤑  App ⤑  Server started at Thu 10/22/2026 09:15:03.
+   ⤑  Environment: Development
    ⤑  Host: 0.0.0.0
    ⤑  Port: 4000
-   ⤑  Startup Time: 12.34 millis
+   ⤑  Startup Time: 0.04 millis
 ```
 
 ## Step 5: Test Your Endpoints
@@ -189,7 +214,7 @@ curl http://localhost:4000/
 
 # Test the greet endpoint
 curl http://localhost:4000/greet/World
-# Output: {"message":"Hello, World!","timestamp":"2026-01-24T10:30:45Z"}
+# Output: {"message":"Hello, World!","timestamp":"2026-10-22T09:15:30Z"}
 ```
 
 You can also open `http://localhost:4000/` in your browser.
@@ -204,36 +229,50 @@ Let's break down what you just created:
 module MyFirstAzuApp
   include Azu
 
-  configure do
-    port = 4000
-    host = "0.0.0.0"
+  configure do |config|
+    config.port = 4000
+    config.host = "0.0.0.0"
   end
 end
 ```
 
-This defines your application and configures the server settings.
+This defines your application and configures the server settings. `configure` yields the configuration,
+and `include Azu` gives the module its `start` method.
 
 ### Endpoints
 
 ```crystal
-struct HelloEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Text)
+struct HelloResponse
+  include Azu::Response
+
+  def initialize(@message : String)
+  end
+
+  def render
+    @message
+  end
+end
+
+class HelloEndpoint
+  include Azu::Endpoint(Azu::Request, HelloResponse)
 
   get "/"
 
-  def call
-    text "Hello from Azu!"
+  def call : HelloResponse
+    content_type "text/plain"
+    HelloResponse.new("Hello from Azu!")
   end
 end
 ```
 
 Endpoints handle HTTP requests:
-- `include Azu::Endpoint(RequestType, ResponseType)` defines the contract
+- `include Azu::Endpoint(RequestType, ResponseType)` defines the contract; `Azu::Request` stands for "no request body to validate"
 - `get "/"` declares the HTTP method and route
-- `def call` contains your handler logic
+- `def call` contains your handler logic and returns the response object, whose `render` produces the body
 
 ### Route Parameters
 
+<!-- skip -->
 ```crystal
 get "/greet/:name"
 
