@@ -12,7 +12,7 @@ module Azu
           db = provider.database_stats
           unless db.active
             card "Database monitoring", "database" do
-              empty_state "n/a", "CQL performance monitoring is not active. Require \"azu/cql\" and call Azu::CQL.configure to collect every query through CQL::Events and see queries, slow statements and N+1 patterns here.", "database"
+              empty_state "n/a", "CQL performance monitoring is not active. Require \"azu/cql\" and call Azu::CQL.configure to collect every query through CQL::Telemetry and see queries, slow statements and N+1 patterns here.", "database"
             end
             return
           end

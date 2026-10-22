@@ -23,6 +23,12 @@ require "../request_context"
 require "./instrumentor"
 require "./adapter"
 
+# The dashboard is fed through CQL's event framework, which gained transaction events and pool
+# stats after 0.0.533: fail with one clear message instead of a cascade of missing methods.
+{% unless ::CQL.has_constant?("Telemetry") && ::CQL::Telemetry.class.has_method?("subscribe_transactions") && ::CQL::Schema.has_method?("pool_stats") %}
+  {% raise "azu/cql needs a CQL release that provides CQL::Telemetry.subscribe_transactions and CQL::Schema#pool_stats (newer than 0.0.533). Update the cql shard." %}
+{% end %}
+
 module Azu
   module CQL
     # Raised by `verify!` when the database cannot be reached.
@@ -79,7 +85,7 @@ module Azu
 
     # Fails fast (for example at boot in production) when the database is unreachable.
     def self.verify!(schema : ::CQL::Schema) : ::CQL::Schema
-      schema.raw_readonly("SELECT 1", 1)
+      schema.with_connection { |connection| connection.scalar("SELECT 1") }
       schema
     rescue ex
       raise VerificationError.new(<<-MSG)
@@ -98,10 +104,11 @@ module Azu
     def self.adapter_for(uri : String) : ::CQL::Adapter
       case scheme = URI.parse(uri).scheme
       when "postgres", "postgresql" then ::CQL::Adapter::Postgres
+      when "cockroachdb"            then ::CQL::Adapter::CockroachDB
       when "mysql"                  then ::CQL::Adapter::MySql
       when "sqlite3"                then ::CQL::Adapter::SQLite
       else
-        raise ArgumentError.new("Unsupported database URL scheme #{scheme.inspect}; use postgres://, mysql:// or sqlite3://")
+        raise ArgumentError.new("Unsupported database URL scheme #{scheme.inspect}; use postgres://, cockroachdb://, mysql:// or sqlite3://")
       end
     end
 

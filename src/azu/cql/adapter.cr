@@ -18,8 +18,24 @@ module Azu
         @schema = nil
       end
 
+      # Runs one statement in a transaction that is always rolled back and returns
+      # `{column_names, rows}` with at most `limit` rows (values as text, `nil` stays `nil`).
+      # The caller validates the SQL (`QueryAnalysis.playground_sql`).
       def read_only(sql : String, limit : Int32) : {Array(String), Array(Array(String?))}
-        schema.raw_readonly(sql, limit)
+        columns = [] of String
+        rows = [] of Array(String?)
+        schema.with_connection do |connection|
+          connection.transaction do |transaction|
+            transaction.connection.query(sql) do |result|
+              columns = result.column_names
+              while rows.size < limit && result.move_next
+                rows << Array(String?).new(columns.size) { text(result.read) }
+              end
+            end
+            raise DB::Rollback.new
+          end
+        end
+        {columns, rows}
       end
 
       def pool : PoolSnapshot?
@@ -31,9 +47,9 @@ module Azu
 
       def dialect : String
         case schema.adapter
-        when ::CQL::Adapter::Postgres then "postgres"
-        when ::CQL::Adapter::MySql    then "mysql"
-        else                               "sqlite"
+        when .postgres_compatible? then "postgres" # PostgreSQL and CockroachDB share EXPLAIN
+        when .my_sql?              then "mysql"
+        else                            "sqlite"
         end
       rescue
         "unknown" # plain EXPLAIN; the statement itself will report why the schema is unavailable
@@ -41,6 +57,14 @@ module Azu
 
       private def schema : ::CQL::Schema
         @schema || @mutex.synchronize { @schema ||= @provider.not_nil!.call }
+      end
+
+      private def text(value) : String?
+        case value
+        when Nil   then nil
+        when Bytes then "<#{value.size} bytes>"
+        else            value.to_s
+        end
       end
     end
   end
