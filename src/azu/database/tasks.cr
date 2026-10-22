@@ -119,7 +119,7 @@ module Azu
       def redo(io : IO = STDOUT) : Nil
         migrator = new_migrator
         reverted = migrator.rollback
-        ran = migrator.migrate(to: reverted.map(&.version).max?)
+        ran = migrator.migrate(to: reverted.max_of?(&.version))
         io.puts "Reverted #{reverted.size} and re-applied #{ran.size} migration(s)."
       end
 
@@ -224,37 +224,76 @@ module Azu
       # `quiet: false` leaves the logging setup alone (specs).
       def run(args : Array(String), io : IO = STDOUT, err : IO = STDERR, quiet : Bool = true) : Int32
         command = args.first? || "help"
-        rest = args.size > 1 ? args[1..] : [] of String
-        flags = rest.select(&.starts_with?("--"))
-        positional = rest.reject(&.starts_with?("--"))
-        dry_run = flags.includes?("--dry-run")
-        force = flags.includes?("--force")
-        ::Log.setup(:warn) if quiet && !flags.includes?("--verbose")
+        options = Options.new(args.size > 1 ? args[1..] : [] of String)
+        ::Log.setup(:warn) if quiet && !options.flag?("--verbose")
 
-        case command
-        when "help", "--help", "-h" then print_usage(io)
-        when "create"               then io.puts(create ? "Created database #{target.database}." : "Database #{target.database} already exists.")
-        when "drop"                 then io.puts(drop(force: force) ? "Dropped database #{target.database}." : "Database #{target.database} does not exist.")
-        when "setup"                then setup(io)
-        when "reset"                then reset(io, force)
-        when "migrate"              then migrate(positional.first?.try { |value| integer!(value, "VERSION").to_i64 }, dry_run, io)
-        when "rollback"             then rollback(positional.first?.try { |value| integer!(value, "STEPS").to_i32 } || 1, dry_run, io)
-        when "redo"                 then redo(io)
-        when "status"               then status(io)
-        when "version"              then version(io)
-        when "seed"                 then seed(io)
-        when "structure:dump"       then structure_dump(positional.first? || "db/structure.sql", io: io)
-        when "structure:load"       then structure_load(positional.first? || "db/structure.sql", io: io)
-        when "analyze"              then analyze(flags.includes?("--refresh"), io)
-        else
-          err.puts "unknown command #{command.inspect}"
-          print_usage(err)
-          return 2
-        end
-        0
+        return 0 if dispatch(command, options, io)
+        err.puts "unknown command #{command.inspect}"
+        print_usage(err)
+        2
       rescue ex : Database::Error | Migrations::MigrationError | Migrations::InvalidIdentifier | ArgumentError
         err.puts "error: #{ex.message}"
         1
+      end
+
+      # Flags (`--dry-run`) and positional arguments (`rollback 3`) of one command line.
+      private struct Options
+        getter positional : Array(String)
+        @flags : Array(String)
+
+        def initialize(args : Array(String))
+          @flags = args.select(&.starts_with?("--"))
+          @positional = args.reject(&.starts_with?("--"))
+        end
+
+        def flag?(name : String) : Bool
+          @flags.includes?(name)
+        end
+      end
+
+      # False for an unknown command.
+      private def dispatch(command : String, options : Options, io : IO) : Bool
+        case command
+        when "help", "--help", "-h"                             then print_usage(io)
+        when "create", "drop", "setup", "reset"                 then run_lifecycle(command, options, io)
+        when "migrate", "rollback", "redo", "status", "version" then run_migrations(command, options, io)
+        when "seed"                                             then seed(io)
+        when "structure:dump", "structure:load", "analyze"      then run_structure(command, options, io)
+        else
+          return false
+        end
+        true
+      end
+
+      private def run_lifecycle(command : String, options : Options, io : IO) : Nil
+        force = options.flag?("--force")
+        case command
+        when "create" then io.puts(create ? "Created database #{target.database}." : "Database #{target.database} already exists.")
+        when "drop"   then io.puts(drop(force: force) ? "Dropped database #{target.database}." : "Database #{target.database} does not exist.")
+        when "setup"  then setup(io)
+        else               reset(io, force)
+        end
+      end
+
+      private def run_migrations(command : String, options : Options, io : IO) : Nil
+        argument = options.positional.first?
+        dry_run = options.flag?("--dry-run")
+        case command
+        when "migrate"  then migrate(argument.try { |value| integer!(value, "VERSION") }, dry_run, io)
+        when "rollback" then rollback(argument.try { |value| integer!(value, "STEPS").to_i32 } || 1, dry_run, io)
+        when "redo"     then redo(io)
+        when "status"   then status(io)
+        else                 version(io)
+        end
+      end
+
+      private def run_structure(command : String, options : Options, io : IO) : Nil
+        path = options.positional.first? || "db/structure.sql"
+        case command
+        when "structure:dump" then structure_dump(path, io: io)
+        when "structure:load" then structure_load(path, io: io)
+        else                       analyze(options.flag?("--refresh"), io)
+        end
       end
 
       def print_usage(io : IO) : Nil

@@ -53,6 +53,9 @@ src/azu/
 ├── query_store.cr      # Query/transaction telemetry + N+1 analysis (dev dashboard)
 ├── request_context.cr  # Fiber-keyed current request for tagging SQL/logs
 ├── cql.cr + cql/       # Opt-in CQL bridge (`require "azu/cql"`), see docs/reference/database-dashboard.md
+├── database/           # Opt-in `require "azu/database"`: URL config, lazy pool, seeds, `Tasks` (db:*), `Maintenance` (analyze)
+├── model/              # `Azu::Model` macro DSL over CQL (columns, relations, validations, soft delete, paginate, N+1 guard)
+├── migrations/         # `Azu::Migration` DSL + `Azu::Migrator` (PostgreSQL types, concurrent indexes, advisory lock)
 └── helpers/            # Template helpers DSL
     ├── helpers.cr      # Main require & DSL macros
     ├── registry.cr     # Thread-safe helper registration

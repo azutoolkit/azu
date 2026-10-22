@@ -1,5 +1,10 @@
 # How to Run Migrations
 
+> **PostgreSQL apps:** `require "azu/database"` provides `Azu::Migration` (PostgreSQL types, GIN/GiST/BTREE
+> and concurrent indexes, enums, per-migration transactions, dry runs) and the `db:*` tasks. See the
+> [Migrations reference](../../reference/database/migrations.md) and
+> [Database tasks](../../reference/database/tasks.md). This page describes CQL's own migration classes.
+
 This guide shows you how to create and run database migrations with CQL.
 
 ## Creating a Migration

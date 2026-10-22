@@ -240,18 +240,30 @@ module Azu
                      request_id : String?, endpoint : String?, method : String?, path : String?,
                      fiber_id : UInt64) : QueryMetric
       normalized = QueryAnalysis.normalize(sql)
-      @@mutex.synchronize do
+      metric = @@mutex.synchronize do
         @next_id += 1
-        metric = QueryMetric.new(
+        entry = QueryMetric.new(
           @next_id, request_id, endpoint, method, path, fiber_id, sql, normalized,
           QueryAnalysis.operation(sql), QueryAnalysis.table(sql), params, duration_ms, rows, error,
           caller_location, transaction_id, Time.utc.to_unix_ms - duration_ms.to_i64
         )
-        @queries << metric
+        @queries << entry
         @queries.shift if @queries.size > MAX_QUERIES
         @open_transactions[transaction_id].try { |tx| tx.query_count += 1 } if transaction_id
-        metric
+        entry
       end
+      warn_if_slow(metric)
+      metric
+    end
+
+    # Slow-query alert: one warning per statement at or over `database.slow_query_ms` (0 disables it).
+    private def warn_if_slow(metric : QueryMetric) : Nil
+      threshold = Azu::CONFIG.database.slow_query_ms
+      return if threshold <= 0 || metric.duration_ms < threshold
+      origin = metric.endpoint.try { |name| " in #{name}" }
+      sql = metric.sql.gsub(/\s+/, " ")
+      sql = "#{sql[0, 300]}..." if sql.size > 300
+      Azu::CONFIG.log.warn { "Slow query (#{metric.duration_ms.round(1)}ms, limit #{threshold.round(1)}ms)#{origin}: #{sql}" }
     end
 
     def record_transaction_begin(id : Int64, nested : Bool, request_id : String?, endpoint : String?) : Nil

@@ -66,7 +66,7 @@ module Azu
     #   t.string :title, limit: 120
     #   t.text :body, null: true
     #   t.jsonb :meta, default_sql: "'{}'::jsonb"
-    #   t.array :tags, :text, default_sql: "'{}'"
+    #   t.array :tags, of: :text, default_sql: "'{}'"
     #   t.timestamps
     #   t.index :title, unique: true
     #   t.index :meta, using: :gin

@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "log/spec"
 
 private def add_query(store : Azu::QueryStore, sql : String, request_id : String? = "req-1", duration_ms = 1.0, tx : Int64? = nil, error : String? = nil)
   store.record_query(sql, [] of String, duration_ms, 1_i64, error, "src/app.cr:10", tx, request_id, "UsersEndpoint", "GET", "/users", 1_u64)
@@ -48,6 +49,28 @@ describe Azu::QueryStore do
     b.id.should be > a.id
     store.queries(a.id).map(&.sql).should eq ["SELECT 2"]
     store.last_id.should eq b.id
+  end
+
+  it "warns about statements at or over database.slow_query_ms, naming the endpoint" do
+    store = Azu::QueryStore.new
+    original = Azu::CONFIG.database.slow_query_ms
+    Azu::CONFIG.database.slow_query_ms = 50.0
+    begin
+      Log.capture("Azu") do |logs|
+        add_query(store, "SELECT 1", duration_ms: 49.9)
+        add_query(store, "SELECT *\n  FROM posts", duration_ms: 120.0)
+        logs.check(:warn, /Slow query \(120\.0ms, limit 50\.0ms\) in UsersEndpoint: SELECT \* FROM posts/)
+        logs.empty
+      end
+
+      Azu::CONFIG.database.slow_query_ms = 0.0
+      Log.capture("Azu") do |logs|
+        add_query(store, "SELECT 1", duration_ms: 5000.0)
+        logs.empty
+      end
+    ensure
+      Azu::CONFIG.database.slow_query_ms = original
+    end
   end
 
   it "keeps a bounded history" do

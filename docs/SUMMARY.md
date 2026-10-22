@@ -38,6 +38,7 @@
 
 ### Database
 
+- [A PostgreSQL Database in 5 Minutes](how-to/database/getting-started.md)
 - [Define Schema](how-to/database/define-schema.md)
 - [Create Models](how-to/database/create-models.md)
 - [Run Migrations](how-to/database/run-migrations.md)
@@ -116,6 +117,10 @@
 
 ### Database
 
+- [Models](reference/database/models.md)
+- [Migrations](reference/database/migrations.md)
+- [Database Tasks and Maintenance](reference/database/tasks.md)
+- [Database Dashboard](reference/database-dashboard.md)
 - [CQL API](reference/database/cql-api.md)
 - [Validations](reference/database/validations.md)
 - [Query Methods](reference/database/query-methods.md)

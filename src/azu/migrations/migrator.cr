@@ -91,15 +91,15 @@ module Azu
     # Reverts and re-applies the last migration.
     def redo : Array(BaseMigration.class)
       reverted = rollback
-      migrate(to: reverted.map(&.version).max?)
+      migrate(to: reverted.max_of?(&.version))
     end
 
     def status : Array(Status)
       applied = {} of Int64 => {String, Time}
       @schema.exec_query do |conn|
         if table_exists?(conn)
-          conn.query_each("SELECT version, name, applied_at FROM #{@table}") do |rs|
-            version, name, at = rs.read(Int64, String, Time)
+          conn.query_each("SELECT version, name, applied_at FROM #{@table}") do |row|
+            version, name, at = row.read(Int64, String, Time)
             applied[version] = {name, at}
           end
         end

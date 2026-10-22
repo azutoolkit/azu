@@ -1,5 +1,9 @@
 # How to Create Models
 
+> **Starting a new app?** `require "azu/database"` gives you `Azu::Model`, which needs no schema constant
+> or `db_context` and works with `Azu::Migration`: see [A PostgreSQL Database in 5 Minutes](getting-started.md)
+> and the [Models reference](../../reference/database/models.md). This page describes plain CQL models.
+
 This guide shows you how to create CQL models that map to your database tables.
 
 ## Basic Model
