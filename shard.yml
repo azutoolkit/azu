@@ -1,5 +1,5 @@
 name: azu
-version: 0.5.58
+version: 0.5.59
 authors:
   - Elias J. Perez <eliasjpr@gmail.com>
 crystal: '>= 1.19.1'
@@ -19,7 +19,7 @@ dependencies:
 development_dependencies:
   cql:
     github: azutoolkit/cql
-    branch: claude/telemetry-transactions-pool
+    branch: claude/elegant-euler-3m1kyy
   sqlite3:
     github: crystal-lang/crystal-sqlite3
   pg:
