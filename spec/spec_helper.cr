@@ -14,6 +14,17 @@ def with_azu_env(env : Azu::Environment, &)
   end
 end
 
+# Polls until the block is truthy or the timeout passes; returns whether it became true.
+# Use it instead of a fixed `sleep` when a spec waits for something asynchronous.
+def wait_until(timeout : Time::Span = 2.seconds, &) : Bool
+  deadline = Time.instant + timeout
+  until yield
+    return false if Time.instant > deadline
+    sleep 5.milliseconds
+  end
+  true
+end
+
 # Simple dummy request type for specs
 struct TestRequest
   include Azu::Request
