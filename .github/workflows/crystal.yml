@@ -89,6 +89,22 @@ jobs:
       - name: Run all specs
         run: crystal spec $(find spec -name '*_spec.cr' | sort)
 
+  # Documentation examples must compile: the docs are only as good as the code they show. Only the
+  # files listed in docs/.checked are enforced; the list grows as the docs are brought up to date.
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: crystallang/crystal:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: shards install
+
+      - name: Compile the documented examples
+        run: crystal run scripts/check_docs.cr -- $(grep -v '^#' docs/.checked)
+
   # The same suite on the newest Crystal, so a release of the language never breaks the framework
   # unnoticed. The job above (the oldest supported version) is the one that gates a release.
   test-latest:
