@@ -1,4 +1,5 @@
 require "log"
+require "http/server/handler"
 require "openssl"
 require "./environment"
 require "./router"
@@ -62,6 +63,10 @@ module Azu
     property ssl_mode : String = ENV.fetch("SSL_MODE", "none")
 
     getter router : Router = Router.new
+
+    # The middleware pipeline handed to `Azu.start`, in execution order. Recorded
+    # for introspection only (the development dashboard draws it).
+    property handlers : Array(HTTP::Handler) = [] of HTTP::Handler
 
     getter templates : Templates do
       Templates.new(
