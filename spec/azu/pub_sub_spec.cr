@@ -2,6 +2,21 @@ require "../spec_helper"
 
 REDIS_URL = ENV.fetch("AZU_TEST_REDIS_URL", "redis://localhost:6379/0")
 
+# Patterns currently subscribed on the server: the Redis backend's listener subscribes in its own
+# fiber, so a spec has to wait for this to grow before it publishes.
+private def redis_pattern_count : Int64
+  redis = Redis.new(url: REDIS_URL, reconnect: false)
+  begin
+    redis.command(["PUBSUB", "NUMPAT"]).as(Int64)
+  ensure
+    redis.close
+  end
+end
+
+private def wait_for_listener(baseline : Int64) : Nil
+  wait_until { redis_pattern_count > baseline }.should be_true
+end
+
 private def redis_available? : Bool
   redis = Redis.new(url: REDIS_URL, reconnect: false)
   redis.ping
@@ -145,8 +160,9 @@ describe Azu::PubSub do
       node_a = Azu::PubSub::Redis.new(REDIS_URL, prefix)
       node_b = Azu::PubSub::Redis.new(REDIS_URL, prefix)
       inbox = ::Channel(String).new(4)
+      baseline = redis_pattern_count
       node_a.subscribe("room:1") { |message| inbox.send("#{message.topic}=#{message.payload}") }
-      sleep 100.milliseconds # let the listener issue PSUBSCRIBE
+      wait_for_listener(baseline)
 
       node_b.broadcast("room:1", "hi")
       node_b.broadcast("room:2", "ignored")
@@ -169,8 +185,9 @@ describe Azu::PubSub do
       node_a = Azu::PubSub::Redis.new(REDIS_URL, prefix)
       node_b = Azu::PubSub::Redis.new(REDIS_URL, prefix)
       inbox = ::Channel(String).new(4)
+      baseline = redis_pattern_count
       node_a.subscribe("room") { |message| inbox.send(message.payload) }
-      sleep 100.milliseconds
+      wait_for_listener(baseline)
 
       node_b.broadcast("room", "first")
       inbox.receive.should eq "first"
@@ -199,8 +216,9 @@ describe Azu::PubSub do
       pending!("Redis is not reachable on localhost:6379") unless redis_available?
 
       backend = Azu::PubSub::Redis.new(REDIS_URL, prefix: "azu:test:#{Random::Secure.hex(4)}:")
+      baseline = redis_pattern_count
       subscription = backend.subscribe("t") { |_| }
-      sleep 50.milliseconds
+      wait_for_listener(baseline)
 
       backend.shutdown
       backend.shutdown # idempotent

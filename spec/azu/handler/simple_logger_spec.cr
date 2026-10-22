@@ -78,8 +78,8 @@ describe Azu::Handler::SimpleLogger do
       context, io = create_context("GET", "/test")
       handler.call(context)
 
-      # Give async logger time to complete
-      sleep 0.1.seconds
+      # Let the spawned logger fiber run
+      Fiber.yield
 
       verify.call
     end
@@ -92,7 +92,7 @@ describe Azu::Handler::SimpleLogger do
       context, io = create_context("GET", "/api/users")
       handler.call(context)
 
-      sleep 0.1.seconds
+      Fiber.yield
       verify.call
     end
   end
@@ -109,7 +109,7 @@ describe Azu::Handler::SimpleLogger do
       context, io = create_context("GET", "/test")
       handler.call(context)
 
-      sleep 0.1.seconds
+      Fiber.yield
       context.response.status_code.should eq(200)
     end
 
@@ -125,7 +125,7 @@ describe Azu::Handler::SimpleLogger do
       context, io = create_context("GET", "/test")
       handler.call(context)
 
-      sleep 0.1.seconds
+      Fiber.yield
       context.response.status_code.should eq(302)
     end
 
@@ -140,7 +140,7 @@ describe Azu::Handler::SimpleLogger do
       context, io = create_context("GET", "/missing")
       handler.call(context)
 
-      sleep 0.1.seconds
+      Fiber.yield
       context.response.status_code.should eq(404)
     end
 
@@ -155,7 +155,7 @@ describe Azu::Handler::SimpleLogger do
       context, io = create_context("GET", "/error")
       handler.call(context)
 
-      sleep 0.1.seconds
+      Fiber.yield
       context.response.status_code.should eq(500)
     end
   end
@@ -174,7 +174,7 @@ describe Azu::Handler::SimpleLogger do
         handler.call(context)
       end
 
-      sleep 0.1.seconds
+      Fiber.yield
     end
 
     it "re-raises exceptions after logging" do
@@ -204,7 +204,7 @@ describe Azu::Handler::SimpleLogger do
         handler.call(context)
       end
 
-      sleep 0.1.seconds
+      Fiber.yield
     end
   end
 
@@ -217,7 +217,7 @@ describe Azu::Handler::SimpleLogger do
       context, io = create_context("POST", "/test")
       handler.call(context)
 
-      sleep 0.1.seconds
+      Fiber.yield
       verify.call
     end
 
@@ -229,7 +229,7 @@ describe Azu::Handler::SimpleLogger do
       context, io = create_context("GET", "/api/users/123")
       handler.call(context)
 
-      sleep 0.1.seconds
+      Fiber.yield
       verify.call
     end
 
@@ -244,7 +244,7 @@ describe Azu::Handler::SimpleLogger do
 
       handler.call(context)
 
-      sleep 0.1.seconds
+      Fiber.yield
       verify.call
     end
 
@@ -259,7 +259,7 @@ describe Azu::Handler::SimpleLogger do
       context, io = create_context("GET", "/test")
       handler.call(context)
 
-      sleep 0.15.seconds
+      Fiber.yield
       get_response_body(context, io).should eq("OK")
     end
   end
@@ -292,7 +292,7 @@ describe Azu::Handler::SimpleLogger do
       end
 
       ids.size.should eq(5)
-      sleep 0.1.seconds
+      Fiber.yield
       verify.call
     end
   end
@@ -306,7 +306,7 @@ describe Azu::Handler::SimpleLogger do
       context, io = create_context("GET", "/test")
       handler.call(context)
 
-      sleep 0.1.seconds
+      Fiber.yield
       verify.call
     end
 
@@ -318,7 +318,7 @@ describe Azu::Handler::SimpleLogger do
       context, io = create_context("GET", "/fast")
       handler.call(context)
 
-      sleep 0.1.seconds
+      Fiber.yield
       verify.call
     end
 
@@ -333,7 +333,7 @@ describe Azu::Handler::SimpleLogger do
       context, io = create_context("GET", "/test")
       handler.call(context)
 
-      sleep 0.1.seconds
+      Fiber.yield
       context.response.status_code.should eq(999)
     end
   end
