@@ -12,3 +12,6 @@
 # Shards installed for the playground app
 /playground/lib/
 playground/bin/
+
+# SQLite file the CQL demo recreates on every start
+/playground/azu_cql_demo.db
