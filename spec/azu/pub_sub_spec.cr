@@ -1,7 +1,9 @@
 require "../spec_helper"
 
+REDIS_URL = ENV.fetch("AZU_TEST_REDIS_URL", "redis://localhost:6379/0")
+
 private def redis_available? : Bool
-  redis = Redis.new(url: "redis://localhost:6379/0", reconnect: false)
+  redis = Redis.new(url: REDIS_URL, reconnect: false)
   redis.ping
   redis.close
   true
@@ -140,8 +142,8 @@ describe Azu::PubSub do
       pending!("Redis is not reachable on localhost:6379") unless redis_available?
 
       prefix = "azu:test:#{Random::Secure.hex(4)}:"
-      node_a = Azu::PubSub::Redis.new(prefix: prefix)
-      node_b = Azu::PubSub::Redis.new(prefix: prefix)
+      node_a = Azu::PubSub::Redis.new(REDIS_URL, prefix)
+      node_b = Azu::PubSub::Redis.new(REDIS_URL, prefix)
       inbox = ::Channel(String).new(4)
       node_a.subscribe("room:1") { |message| inbox.send("#{message.topic}=#{message.payload}") }
       sleep 100.milliseconds # let the listener issue PSUBSCRIBE
@@ -160,10 +162,43 @@ describe Azu::PubSub do
       node_b.try(&.shutdown)
     end
 
+    it "publishes again after its publisher connection is dropped" do
+      pending!("Redis is not reachable on #{REDIS_URL}") unless redis_available?
+
+      prefix = "azu:test:#{Random::Secure.hex(4)}:"
+      node_a = Azu::PubSub::Redis.new(REDIS_URL, prefix)
+      node_b = Azu::PubSub::Redis.new(REDIS_URL, prefix)
+      inbox = ::Channel(String).new(4)
+      node_a.subscribe("room") { |message| inbox.send(message.payload) }
+      sleep 100.milliseconds
+
+      node_b.broadcast("room", "first")
+      inbox.receive.should eq "first"
+
+      # node_b's publisher is the only client whose last command was PUBLISH.
+      admin = Redis.new(url: REDIS_URL, reconnect: false)
+      listing = admin.command(["CLIENT", "LIST"]).as(String)
+      ids = listing.lines.select(&.includes?("cmd=publish")).compact_map(&.match(/\bid=(\d+)/).try(&.[1]))
+      ids.should_not be_empty
+      ids.each { |id| admin.command(["CLIENT", "KILL", "ID", id]) }
+      admin.close
+
+      node_b.broadcast("room", "second")
+      select
+      when delivered = inbox.receive
+        delivered.should eq "second"
+      when timeout(3.seconds)
+        fail "broadcast after the publisher connection dropped never arrived"
+      end
+    ensure
+      node_a.try(&.shutdown)
+      node_b.try(&.shutdown)
+    end
+
     it "stops its listener fiber and rejects further work on shutdown" do
       pending!("Redis is not reachable on localhost:6379") unless redis_available?
 
-      backend = Azu::PubSub::Redis.new(prefix: "azu:test:#{Random::Secure.hex(4)}:")
+      backend = Azu::PubSub::Redis.new(REDIS_URL, prefix: "azu:test:#{Random::Secure.hex(4)}:")
       subscription = backend.subscribe("t") { |_| }
       sleep 50.milliseconds
 

@@ -13,6 +13,9 @@ module Azu
     class Redis < Backend
       DEFAULT_PREFIX = "azu:pubsub:"
       MAX_BACKOFF    = 15.seconds
+      # Upper bound for connecting and for each publish, so a hung Redis cannot hold the
+      # publish mutex (and with it every broadcaster) indefinitely.
+      PUBLISH_TIMEOUT = 5.seconds
 
       def initialize(@url : String = ENV.fetch("PUBSUB_REDIS_URL", "redis://localhost:6379/0"),
                      @prefix : String = DEFAULT_PREFIX)
@@ -36,10 +39,7 @@ module Azu
       end
 
       def broadcast(topic : String, payload : String) : Nil
-        @mutex.synchronize do
-          publisher = (@publisher ||= connect)
-          publisher.publish(channel_for(topic), payload)
-        end
+        @mutex.synchronize { publish(channel_for(topic), payload) }
       end
 
       def shutdown : Nil
@@ -51,6 +51,23 @@ module Azu
           @listener = @publisher = nil
         end
         @subscribers.clear
+      end
+
+      # Publishes over the shared connection. A dead connection (restart, failover, idle drop,
+      # timeout) is discarded and the publish retried once on a fresh one; a second failure surfaces.
+      private def publish(channel : String, payload : String) : Nil
+        (@publisher ||= connect(PUBLISH_TIMEOUT)).publish(channel, payload)
+      rescue ::Redis::Error | IO::Error
+        discard_publisher
+        (@publisher = connect(PUBLISH_TIMEOUT)).publish(channel, payload)
+      end
+
+      private def discard_publisher : Nil
+        publisher, @publisher = @publisher, nil
+        begin
+          publisher.try(&.close)
+        rescue ::Redis::Error | IO::Error
+        end
       end
 
       private def ensure_listening : Nil
@@ -98,8 +115,9 @@ module Azu
         end
       end
 
-      private def connect : ::Redis
-        ::Redis.new(url: @url, reconnect: false)
+      # *command_timeout* is left unset for the listener, which blocks on an idle subscription.
+      private def connect(command_timeout : Time::Span? = nil) : ::Redis
+        ::Redis.new(url: @url, reconnect: false, connect_timeout: command_timeout, command_timeout: command_timeout)
       end
 
       private def channel_for(topic : String) : String
