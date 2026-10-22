@@ -137,6 +137,7 @@ module Azu
           random_suffix = Random.rand(999999)
           temp_filename = "azu_upload_#{timestamp}_#{random_suffix}"
           temp_filename += "_#{@filename}" if @filename && !@filename.try(&.empty?)
+          CONFIG.upload.prepare
           @temp_path = Path[CONFIG.upload.temp_dir, temp_filename].to_s
 
           # Create temp file and stream upload data

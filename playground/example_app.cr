@@ -48,6 +48,9 @@ csrf = Azu::Handler::CSRF.new(
   secure_cookies: false
 )
 
+# Azu's log format at Debug level; it is opt-in so apps with their own Log setup keep it
+Azu.setup_logging
+
 # Build handler chain with explicit typing to avoid Crystal type inference issues
 {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
   ExampleApp.start [

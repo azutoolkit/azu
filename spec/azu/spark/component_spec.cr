@@ -78,6 +78,14 @@ module SparkComponentSpec
   end
 end
 
+# Changes the first character of the signature of `payload.signature`. The signature is base64url,
+# which includes `-`; matching it with \w left a token whose signature began with `-` untouched,
+# so the spec failed about one run in 64.
+private def tampered(token : String) : String
+  payload, _, signature = token.rpartition('.')
+  "#{payload}.#{signature[0] == 'A' ? 'B' : 'A'}#{signature[1..]}"
+end
+
 describe Azu::Spark::Component do
   describe "props and state" do
     it "exposes typed assigns" do
@@ -222,7 +230,7 @@ describe Azu::Spark::Component do
     it "ignores a snapshot that was issued for another view" do
       snapshot = Azu::Spark::Testing.mount(SparkComponentSpec::Counter, &.trigger("increment").snapshot)
 
-      Azu::Spark::Testing.mount(SparkComponentSpec::Counter, snapshot: snapshot.try(&.sub(/\.(\w)/) { |_, match| match[1] == "x" ? ".y" : ".x" })) do |view|
+      Azu::Spark::Testing.mount(SparkComponentSpec::Counter, snapshot: snapshot.try { |token| tampered(token) }) do |view|
         view.component.count.should eq 0
       end
     end

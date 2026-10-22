@@ -1,5 +1,8 @@
 require "../../src/azu"
 
+# Opt in to Azu's log format; requiring azu no longer configures Log
+Azu.setup_logging
+
 # Demo response
 struct DemoResponse
   include Azu::Response
