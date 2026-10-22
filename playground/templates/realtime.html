@@ -1,0 +1,33 @@
+{% extends "layout.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}{{ t('realtime.title') }} · {{ t('app.name') }}{% endblock %}
+
+{% block content %}
+{{ ui.page_head(t('realtime.title'), lead=t('realtime.lead'), eyebrow="WebSockets") }}
+
+<div class="split" data-realtime="/hi">
+  <section class="card" aria-labelledby="conn-title">
+    <h2 id="conn-title">Connection</h2>
+    <div class="status-line">
+      <span class="badge badge--dot is-warn" data-rt-status>
+        <span data-rt-status-text>Waiting for JavaScript</span>
+      </span>
+    </div>
+    <div class="stat">
+      <span class="stat__value" data-rt-count>0</span>
+      <span class="stat__label">people connected right now</span>
+    </div>
+    <div class="row">
+      <button class="btn" type="button" data-rt-send disabled>Say Marco!</button>
+    </div>
+    <noscript><p class="muted">The live channel needs JavaScript to open a WebSocket. Everything else in the playground works without it.</p></noscript>
+  </section>
+
+  <section class="card" aria-labelledby="log-title">
+    <h2 id="log-title">Activity</h2>
+    <p class="muted" data-rt-empty>Nothing yet. Events appear here as they happen.</p>
+    <ul class="log" data-rt-log role="log" aria-live="polite" aria-relevant="additions" aria-label="Channel activity"></ul>
+  </section>
+</div>
+{% endblock %}

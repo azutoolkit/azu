@@ -1,0 +1,69 @@
+{% extends "layout.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}{{ t('users.title') }} · {{ t('app.name') }}{% endblock %}
+
+{% block content %}
+{{ ui.page_head(t('users.title'), lead=t('users.lead'), eyebrow="Forms and data") }}
+
+<div class="split">
+  <section aria-labelledby="list-title">
+    <h2 id="list-title" class="sr-only">Everyone</h2>
+    {% if people | length == 0 %}
+    <div class="card empty">
+      <span class="card__icon">{{ ui.icon("inbox") }}</span>
+      <h3>{{ t('users.empty_title') }}</h3>
+      <p>{{ t('users.empty_body') }}</p>
+      {{ link_to("Add the first person", "#name", class="btn") }}
+    </div>
+    {% else %}
+    <div class="table-wrap">
+      <table class="table table--stack">
+        <caption>{{ people | length }} {% if people | length == 1 %}person{% else %}people{% endif %}</caption>
+        <thead>
+          <tr><th scope="col">Person</th><th scope="col" class="num">Posts</th><th scope="col"><span class="sr-only">Actions</span></th></tr>
+        </thead>
+        <tbody>
+          {% for person in people %}
+          <tr>
+            <td class="cell-main">
+              <div class="person">
+                <span class="avatar" aria-hidden="true">{{ person.initial }}</span>
+                <div><div class="person__name">{{ person.name }}</div><div class="muted">{{ person.email }}</div></div>
+              </div>
+            </td>
+            <td class="num" data-label="Posts">{{ person.posts }}</td>
+            <td class="num" data-label="Actions">
+              {{ form_tag("/users/" ~ person.id, method="delete", class="inline-form", data={"confirm": "This removes " ~ person.name ~ " and their posts for good.", "confirm-title": "Remove " ~ person.name ~ "?", "confirm-label": "Remove"}) }}
+                {{ csrf_field() }}
+                <button class="btn btn--danger btn--sm" type="submit">Remove<span class="sr-only"> {{ person.name }}</span></button>
+              {{ end_form() }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="card" aria-labelledby="add-title">
+    <h2 id="add-title">{{ t('users.add_title') }}</h2>
+    {{ form_tag("/users", method="post", class="form", id="person-form") }}
+      {{ csrf_field() }}
+      {% if name_error or email_error %}
+      <div class="form-summary" role="alert" tabindex="-1" data-form-summary>
+        <strong>{{ t('users.fix_below') }}</strong>
+        <ul>
+          {% if name_error %}<li><a href="#name">{{ name_error }}</a></li>{% endif %}
+          {% if email_error %}<li><a href="#email">{{ email_error }}</a></li>{% endif %}
+        </ul>
+      </div>
+      {% endif %}
+      {{ ui.field("name", "name", t('users.name'), value=form_name, error=name_error, autocomplete="name", placeholder="Ada Lovelace") }}
+      {{ ui.field("email", "email", t('users.email'), value=form_email, type="email", error=email_error, autocomplete="email", placeholder="ada@example.com", help="We never send email. This is just a demo.") }}
+      <div class="row"><button class="btn" type="submit">{{ ui.icon("plus") }}{{ t('users.submit') }}</button></div>
+    {{ end_form() }}
+  </section>
+</div>
+{% endblock %}

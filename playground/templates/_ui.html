@@ -1,0 +1,37 @@
+{# Shared UI components #}
+
+{# A labelled input wired to its error and help text #}
+{% macro field(id, name, label, value="", type="text", error=false, help=false, placeholder=false, autocomplete="off", required=true) %}
+<div class="field">
+  <label for="{{ id }}">{{ label }}{% if not required %} <span class="optional">(optional)</span>{% endif %}</label>
+  <input class="input" id="{{ id }}" name="{{ name }}" type="{{ type }}" value="{{ value }}"
+         {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}
+         autocomplete="{{ autocomplete }}"{% if required %} required aria-required="true"{% endif %}
+         {% if error %}aria-invalid="true"{% endif %}
+         {% if error or help %}aria-describedby="{% if help %}{{ id }}-help {% endif %}{% if error %}{{ id }}-error{% endif %}"{% endif %}>
+  {% if help %}<p class="help" id="{{ id }}-help">{{ help }}</p>{% endif %}
+  {% if error %}
+  <p class="field-error" id="{{ id }}-error">
+    <svg class="icon" aria-hidden="true"><use href="#i-warn"/></svg>
+    <span>{{ error }}</span>
+  </p>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{# A coloured status pill #}
+{% macro badge(text, kind="info", dot=false) %}
+<span class="badge is-{{ kind }}{% if dot %} badge--dot{% endif %}">{{ text }}</span>
+{% endmacro %}
+
+{# A page heading block. #}
+{% macro page_head(title, lead="", eyebrow="") %}
+<header class="page-head">
+  {% if eyebrow %}<p class="eyebrow">{{ eyebrow }}</p>{% endif %}
+  <h1>{{ title }}</h1>
+  {% if lead %}<p>{{ lead }}</p>{% endif %}
+</header>
+{% endmacro %}
+
+{# An icon from the sprite defined in the layout. #}
+{% macro icon(name) %}<svg class="icon" aria-hidden="true"><use href="#i-{{ name }}"/></svg>{% endmacro %}

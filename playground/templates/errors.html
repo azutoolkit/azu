@@ -1,0 +1,26 @@
+{% extends "layout.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}Errors · {{ t('app.name') }}{% endblock %}
+
+{% block content %}
+{{ ui.page_head("Error handling", lead="Break things safely. Browsers get a friendly page; API clients that send Accept: application/json get a structured error.", eyebrow="Resilience") }}
+
+<ul class="grid" aria-label="Error scenarios">
+  {% for kind in kinds %}
+  <li class="card">
+    <div class="row row--between">
+      <h2>{{ kind.title }}</h2>
+      {% if kind.status >= 500 %}{{ ui.badge(kind.status, kind="bad") }}{% else %}{{ ui.badge(kind.status, kind="warn") }}{% endif %}
+    </div>
+    <p class="muted">{{ kind.note }}</p>
+    {{ link_to("Trigger it", "/error-demo?error_type=" ~ kind.type, class="btn btn--secondary btn--sm") }}
+  </li>
+  {% endfor %}
+  <li class="card">
+    <div class="row row--between"><h2>Not found</h2>{{ ui.badge(404, kind="info") }}</div>
+    <p class="muted">A route that does not exist.</p>
+    {{ link_to("Trigger it", "/this-page-does-not-exist", class="btn btn--secondary btn--sm") }}
+  </li>
+</ul>
+{% endblock %}

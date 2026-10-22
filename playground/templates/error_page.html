@@ -1,0 +1,21 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ code }} · {{ headline }} · {{ t('app.name') }}{% endblock %}
+
+{% block content %}
+<section class="error-page is-{{ kind }}" aria-labelledby="error-title">
+  <p class="error-page__code" aria-hidden="true">{{ code }}</p>
+  <h1 id="error-title">{{ headline }}</h1>
+  <p class="muted">{{ detail }}</p>
+  {% if errors | length > 0 %}
+  <ul aria-label="Details">
+    {% for message in errors %}<li>{{ message }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  <div class="row">
+    {{ link_to("Back to the start", "/", class="btn") }}
+    {{ link_to("See other scenarios", "/errors", class="btn btn--secondary") }}
+  </div>
+  {% if request_id %}<p class="help">Reference: <code>{{ request_id }}</code></p>{% endif %}
+</section>
+{% endblock %}
