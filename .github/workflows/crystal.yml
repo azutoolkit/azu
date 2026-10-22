@@ -87,7 +87,7 @@ jobs:
       # Every spec file, not a hand-picked list: a file that is not listed here is a file that is
       # never run. spec/azu_spec.cr drives a prebuilt binary and is left out (it is stale).
       - name: Run all specs
-        run: crystal spec $(find spec -name '*_spec.cr' ! -path spec/azu_spec.cr | sort)
+        run: crystal spec $(find spec -name '*_spec.cr' | sort)
 
   # The same suite on the newest Crystal, so a release of the language never breaks the framework
   # unnoticed. The job above (the oldest supported version) is the one that gates a release.
@@ -130,7 +130,7 @@ jobs:
         run: crystal tool format --check --exclude lib --exclude playground/lib
 
       - name: Run all specs
-        run: crystal spec $(find spec -name '*_spec.cr' ! -path spec/azu_spec.cr | sort)
+        run: crystal spec $(find spec -name '*_spec.cr' | sort)
 
   release:
     runs-on: ubuntu-latest
