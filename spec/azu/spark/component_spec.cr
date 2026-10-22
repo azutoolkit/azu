@@ -222,7 +222,7 @@ describe Azu::Spark::Component do
     it "ignores a snapshot that was issued for another view" do
       snapshot = Azu::Spark::Testing.mount(SparkComponentSpec::Counter, &.trigger("increment").snapshot)
 
-      Azu::Spark::Testing.mount(SparkComponentSpec::Counter, snapshot: snapshot.try(&.sub(/\.\w/, ".x"))) do |view|
+      Azu::Spark::Testing.mount(SparkComponentSpec::Counter, snapshot: snapshot.try(&.sub(/\.(\w)/) { |_, match| match[1] == "x" ? ".y" : ".x" })) do |view|
         view.component.count.should eq 0
       end
     end
