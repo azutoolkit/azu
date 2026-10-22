@@ -10,10 +10,10 @@
 # Every query, transaction and the connection pool then show up in the
 # dashboard's "Database & Queries" tab, tagged with the HTTP request that ran them.
 require "cql"
-require "./query_store"
-require "./request_context"
-require "./cql/instrumentor"
-require "./cql/adapter"
+require "../query_store"
+require "../request_context"
+require "./instrumentor"
+require "./adapter"
 
 module Azu
   module CQL

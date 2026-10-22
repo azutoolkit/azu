@@ -13,7 +13,13 @@ require "./azu/query_store"
 require "./azu/request_context"
 require "./azu/development_tools"
 require "./azu/performance_reporter"
-require "./azu/**"
+require "./azu/*"
+require "./azu/components/**"
+require "./azu/handler/**"
+require "./azu/helpers/**"
+require "./azu/templates/**"
+
+# Not globbed on purpose: `azu/cql`, `azu/database` and `azu/model` are opt-in and need the cql shard.
 
 module Azu
   alias Validator = Schema::Validator
