@@ -96,12 +96,12 @@ module Azu
 
     def path=(path : String)
       @path << Path[path].expand.to_s
-      reload_loader_if_needed
+      reload_loader
     end
 
     def error_path=(path : String)
       @error_path = Path[path].expand.to_s
-      reload_loader_if_needed
+      reload_loader
     end
 
     def load(template : String)
@@ -132,8 +132,9 @@ module Azu
       update_template_mtimes if @hot_reload_enabled
     end
 
-    private def reload_loader_if_needed
-      return unless @hot_reload_enabled
+    # The loader searches the paths it was built with, so adding one has to rebuild it, whether
+    # or not hot reload is on: production never reloads, but still needs its templates found.
+    private def reload_loader
       initialize_loader
     end
 
