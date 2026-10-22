@@ -7,6 +7,7 @@ require "./templates"
 require "./log_format"
 require "./cache"
 require "./development_tools"
+require "./spark/configuration"
 
 # Conditionally require performance monitor only when needed
 {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
@@ -80,6 +81,9 @@ module Azu
 
     # WebSocket security and keep-alive settings shared by `Azu::Channel`s
     getter websocket : WebSocketConfiguration = WebSocketConfiguration.new
+
+    # Spark live views (see `Azu::Spark`)
+    getter spark : Spark::Configuration = Spark::Configuration.new
 
     # i18n configuration
     getter i18n : I18nConfiguration = I18nConfiguration.new
