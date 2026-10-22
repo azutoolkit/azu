@@ -8,23 +8,55 @@
 
 ## Quick Start
 
+Save this as `hello.cr`, with `azu` in your `shard.yml` (see Installation above):
+
 ```crystal
 require "azu"
 
-# Define a type-safe endpoint
-struct HelloEndpoint
-  include Azu::Endpoint
+module HelloApp
+  include Azu
+end
 
-  get "/hello/:name"
+# A response turns your data into the body that is sent
+struct HelloResponse
+  include Azu::Response
 
-  def call
-    response.body("Hello, #{request.param("name")}!")
+  def initialize(@name : String)
+  end
+
+  def render
+    {message: "Hello, #{@name}!"}.to_json
   end
 end
 
-# Start the server
-Azu.start
+# A type-safe endpoint: Endpoint(RequestType, ResponseType)
+class HelloEndpoint
+  include Azu::Endpoint(Azu::Request, HelloResponse)
+
+  get "/hello/:name"
+
+  def call : HelloResponse
+    content_type "application/json"
+    HelloResponse.new params["name"]
+  end
+end
+
+# Start the server (PORT defaults to 4000)
+HelloApp.start [
+  Azu::Handler::RequestId.new,
+  Azu::Handler::Rescuer.new,
+  Azu::Handler::Logger.new,
+] of HTTP::Handler
 ```
+
+```bash
+crystal run hello.cr
+curl http://localhost:4000/hello/Crystal
+# {"message":"Hello, Crystal!"}
+```
+
+Declare endpoints as `class`es: a `struct` endpoint with handlers in front of it crashed with a
+segmentation fault when this example was tested.
 
 ## Key Features
 
@@ -103,8 +135,10 @@ graph TB
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.4.14
+    version: ~> 0.5.52
 ```
+
+Azu needs Crystal 1.19.1 or newer (`crystal: ">= 1.19.1"`).
 
 2. Run `shards install`
 
@@ -116,11 +150,15 @@ require "azu"
 
 ## 🎯 Complete Quickstart Guide
 
-This guide walks through building a complete Azu application with all major features in logical order.
+This guide walks through building a complete Azu application in logical order. It keeps users in memory so
+every step runs without a database; step 5 shows how to swap in [CQL](https://github.com/azutoolkit/cql).
+The files are written to a `my_app/` project. Blocks that use types from earlier steps are
+marked as fragments in the Markdown source.
 
 ### 1. Project Configuration
 
-Create your main application file with comprehensive configuration:
+Create your main application file. `configure` yields the configuration, so settings are assigned on the
+block argument:
 
 ```crystal
 # src/my_app.cr
@@ -129,79 +167,48 @@ require "azu"
 module MyApp
   include Azu
 
-  # Application configuration
-  configure do
-    # Server settings
-    port = ENV.fetch("PORT", "4000").to_i
-    host = ENV.fetch("HOST", "0.0.0.0")
-
-    # SSL/TLS configuration
-    ssl_cert = ENV["SSL_CERT"]?
-    ssl_key = ENV["SSL_KEY"]?
+  configure do |config|
+    # Server settings (PORT and HOST are also read from the environment by default)
+    config.port = ENV.fetch("PORT", "4000").to_i
+    config.host = ENV.fetch("HOST", "0.0.0.0")
 
     # Template configuration
-    templates.path = ["src/templates", "src/views"]
-    template_hot_reload = ENV.fetch("CRYSTAL_ENV", "development") == "development"
+    config.templates.path = "src/templates"
+    config.template_hot_reload = config.env.development?
 
     # File upload configuration
-    upload.max_file_size = 50.megabytes
-    upload.temp_dir = "tmp/uploads"
-    upload.buffer_size = 8192
+    config.upload.max_file_size = 50_u64 * 1024 * 1024
+    config.upload.temp_dir = "tmp/uploads"
 
     # Cache configuration
-    cache_config.enabled = true
-    cache_config.store = "memory"
-    cache_config.max_size = 1000
-    cache_config.default_ttl = 300
-
-    # Performance monitoring (optional)
-    performance_enabled = ENV.fetch("PERFORMANCE_MONITORING", "false") == "true"
-
-    # Development tools
-    if env.development?
-      performance_profiling_enabled = true
-      performance_memory_monitoring = true
-    end
+    config.cache_config.enabled = true
+    config.cache_config.store = "memory"
+    config.cache_config.max_size = 1000
+    config.cache_config.default_ttl = 300
   end
 end
-
-# Load application components
-require "./models/*"
-require "./services/*"
-require "./requests/*"
-require "./responses/*"
-require "./validators/*"
-require "./endpoints/*"
-require "./channels/*"
-require "./middleware/*"
 ```
 
 ### 2. Server Startup
 
-Create a dedicated server file to start your application:
+Create a dedicated server file that requires your application files and starts the server. The handler
+array is typed `of HTTP::Handler`, and the handlers run in the order listed:
 
+<!-- skip -->
 ```crystal
 # server.cr
 require "./src/my_app"
+require "./src/models/*"
+require "./src/requests/*"
+require "./src/responses/*"
+require "./src/endpoints/*"
+require "./src/channels/*"
 
-# Build handler chain with explicit typing to avoid Crystal type inference issues
-{% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-  MyApp.start [
-    Azu::Handler::RequestId.new,                     # Enhanced request ID tracking
-    Azu::Handler::DevDashboard.new,                  # Development Dashboard at /dev-dashboard
-    MyApp::CONFIG.performance_monitor.not_nil!,     # Performance metrics collection (shared instance)
-    Azu::Handler::Rescuer.new,                       # Enhanced error handling
-    Azu::Handler::Logger.new,                        # Request logging
-  ]
-{% else %}
-  MyApp.start [
-    Azu::Handler::RequestId.new, # Enhanced request ID tracking
-    Azu::Handler::Rescuer.new,   # Enhanced error handling
-    Azu::Handler::Logger.new,    # Request logging
-  ]
-{% end %}
-
-puts "🚀 MyApp server starting on http://#{MyApp::CONFIG.host}:#{MyApp::CONFIG.port}"
+MyApp.start [
+  Azu::Handler::RequestId.new, # Request ID tracking
+  Azu::Handler::Rescuer.new,   # Error handling
+  Azu::Handler::Logger.new,    # Request logging
+] of HTTP::Handler
 ```
 
 To run your application:
@@ -220,7 +227,9 @@ CRYSTAL_ENV=production PORT=8080 crystal run server.cr
 
 ### 3. Request Contracts with Validation
 
-Define type-safe request objects with comprehensive validation:
+Define type-safe request objects. `validate` takes a field and one or more rules: `presence`, `size`
+(an `Int` or a `Range`), `match` (a `Regex`), `in` (an `Array` or a `Range`), `eq`, `gt`, `gte`, `lt`,
+`lte`, `exclude`, `required`, plus an optional `message`:
 
 ```crystal
 # src/requests/user_request.cr
@@ -230,274 +239,191 @@ struct UserRequest
   getter name : String
   getter email : String
   getter age : Int32?
-  getter profile_image : Azu::Params::Multipart::File?
 
-  def initialize(@name = "", @email = "", @age = nil, @profile_image = nil)
+  def initialize(@name = "", @email = "", @age = nil)
   end
 
-    # Built-in validation rules
-  validate :name, presence: true, length: {min: 2, max: 50}
-  validate :email, presence: true, format: /\A[\w+\-.]+@[a-z\d\-]+(\.[a-z\d\-]+)*\.[a-z]+\z/i
-  validate :age, numericality: {greater_than: 0, less_than: 150}, if: ->{ age }
-
-  # Use custom validators (defined in section 4)
-  use EmailValidator
-  use UniqueRecordValidator
-  use AgeValidator
-  use FileValidator
+  validate name, size: 2..50, message: "Name must be between 2 and 50 characters."
+  validate email, match: /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/, message: "Enter a valid email address."
 end
 
 # src/requests/search_request.cr
 struct SearchRequest
   include Azu::Request
 
-  getter query : String
-  getter page : Int32
-  getter per_page : Int32
-  getter sort : String
-  getter filters : Hash(String, String)
+  @query : String = ""
+  @page : Int32 = 1
+  @per_page : Int32 = 20
+  @sort : String = "name"
 
-  def initialize(@query = "", @page = 1, @per_page = 20, @sort = "created_at", @filters = {} of String => String)
-  end
+  getter query, page, per_page, sort
 
-  validate :query, presence: true, length: {min: 1}
-  validate :page, numericality: {greater_than: 0}
-  validate :per_page, numericality: {greater_than: 0, less_than_or_equal_to: 100}
-  validate :sort, inclusion: {in: %w(name email created_at updated_at)}
+  validate query, presence: true
+  validate page, gt: 0
+  validate per_page, in: 1..100
+  validate sort, in: %w(name email)
 end
+
+UserRequest.new(name: "A", email: "nope").errors.map(&.message)
+# => ["Name must be between 2 and 50 characters.", "Enter a valid email address."]
+SearchRequest.from_query("query=ada&page=2").valid? # => true
 ```
 
 ### 4. Custom Validators
 
-Create reusable validation logic using Azu's validator pattern:
+For rules that need code, subclass `Schema::Validator`, return the errors from `valid?`, and register it
+with `use`. The validator receives the request as `@record`:
 
 ```crystal
-# src/validators/email_validator.cr
-class EmailValidator < Azu::Validator
-  getter :record, :field, :message
+# src/validators/unique_email_validator.cr
+class UniqueEmailValidator < Schema::Validator
+  TAKEN = ["ada@example.com"]
 
-  EMAIL_REGEX = /\A[\w+\-.]+@[a-z\d\-]+(\.[a-z\d\-]+)*\.[a-z]+\z/i
-
-  def initialize(@record : User)
-    @field = :email
-    @message = "Email must be valid!"
+  def initialize(@record : SignupRequest)
   end
 
   def valid? : Array(Schema::Error)
     errors = [] of Schema::Error
-
-    email = @record.email
-    return errors if email.empty?
-
-    unless EMAIL_REGEX.match(email)
-      errors << Schema::Error.new(@field, @message)
-    end
-
+    errors << Schema::Error.new(:email, "Email has already been taken!") if TAKEN.includes?(@record.email)
     errors
   end
 end
 
-# src/validators/unique_record_validator.cr
-class UniqueRecordValidator < Azu::Validator
-  getter :record, :field, :message
-
-  def initialize(@record : User)
-    @field = :email
-    @message = "Email must be unique!"
-  end
-
-  def valid? : Array(Schema::Error)
-    errors = [] of Schema::Error
-
-    # Check if email already exists in database
-    if User.where(email: @record.email).where { id != @record.id }.exists?
-      errors << Schema::Error.new(@field, @message)
-    end
-
-    errors
-  end
-end
-
-# src/validators/age_validator.cr
-class AgeValidator < Azu::Validator
-  getter :record, :field, :message
-
-  def initialize(@record : User)
-    @field = :age
-    @message = "Age must be between 13 and 120!"
-  end
-
-  def valid? : Array(Schema::Error)
-    errors = [] of Schema::Error
-
-    age = @record.age
-    return errors unless age # Skip if age is nil
-
-    unless (13..120).includes?(age)
-      errors << Schema::Error.new(@field, @message)
-    end
-
-    errors
-  end
-end
-
-# src/validators/file_validator.cr
-class FileValidator < Azu::Validator
-  getter :record, :field, :message
-
-  IMAGE_EXTENSIONS = %w(.jpg .jpeg .png .gif .webp)
-
-  def initialize(@record : User)
-    @field = :profile_image
-    @message = "Profile image must be a valid image file!"
-  end
-
-  def valid? : Array(Schema::Error)
-    errors = [] of Schema::Error
-
-    # This assumes your User model has a profile_image_path field
-    return errors unless @record.profile_image_url
-
-    extension = File.extname(@record.profile_image_url || "").downcase
-    unless IMAGE_EXTENSIONS.includes?(extension)
-      errors << Schema::Error.new(@field, @message)
-    end
-
-    errors
-  end
-end
-```
-
-**Using Custom Validators in Models:**
-
-```crystal
-# src/models/user.cr
-struct User
+struct SignupRequest
   include Azu::Request
 
-  property id : Int64?
-  property name : String
-  property email : String
-  property age : Int32?
-  property profile_image_url : String?
+  getter email : String
 
-  def initialize(@name = "", @email = "", @age = nil, @profile_image_url = nil)
+  def initialize(@email = "")
   end
 
-  # Use custom validators
-  use EmailValidator
-  use UniqueRecordValidator
-  use AgeValidator
-  use FileValidator
-
-  # Built-in validations still work alongside custom validators
-  validate :name, presence: true, length: {min: 2, max: 50}
+  validate email, presence: true
+  use UniqueEmailValidator
 end
-```
 
-**Advanced Custom Validator Example:**
-
-```crystal
-# src/validators/password_strength_validator.cr
-class PasswordStrengthValidator < Azu::Validator
-  getter :record, :field, :message
-
-  def initialize(@record : User)
-    @field = :password
-    @message = "Password must contain at least 8 characters, one uppercase, one lowercase, and one number!"
-  end
-
-  def valid? : Array(Schema::Error)
-    errors = [] of Schema::Error
-
-    password = @record.password
-    return errors if password.empty?
-
-    # Check length
-    if password.size < 8
-      errors << Schema::Error.new(@field, "Password must be at least 8 characters long!")
-      return errors
-    end
-
-    # Check for uppercase letter
-    unless password.match(/[A-Z]/)
-      errors << Schema::Error.new(@field, "Password must contain at least one uppercase letter!")
-    end
-
-    # Check for lowercase letter
-    unless password.match(/[a-z]/)
-      errors << Schema::Error.new(@field, "Password must contain at least one lowercase letter!")
-    end
-
-    # Check for number
-    unless password.match(/[0-9]/)
-      errors << Schema::Error.new(@field, "Password must contain at least one number!")
-    end
-
-    # Check for special character (optional)
-    unless password.match(/[!@#$%^&*(),.?":{}|<>]/)
-      errors << Schema::Error.new(@field, "Password should contain at least one special character!")
-    end
-
-    errors
-  end
-end
+SignupRequest.new(email: "ada@example.com").errors.map(&.message)
+# => ["Email has already been taken!"]
 ```
 
 ### 5. Data Models
 
-Define your data models using [CQL ORM](https://github.com/azutoolkit/cql):
+The guide keeps users in memory, behind a small store you can replace:
 
 ```crystal
-require "cql"
-
+# src/models/user.cr
 struct User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AppDB, :users
+  getter id : Int64
+  property name : String
+  property email : String
 
-  getter id : Int64?
-  getter name : String
-  getter email : String
+  def initialize(@id, @name, @email)
+  end
+end
 
-  has_many :posts, Post, foreign_key: :user_id
-  validates :name, presence: true, size: 2..50
-  validates :email, presence: true
+module Users
+  @@all = [] of User
+  @@next_id = 1_i64
+  @@lock = Mutex.new
 
-  scope :active, -> { where(active: true) }
+  def self.create(name : String, email : String) : User
+    @@lock.synchronize do
+      user = User.new(@@next_id, name, email)
+      @@next_id += 1
+      @@all << user
+      user
+    end
+  end
+
+  def self.find?(id : Int64) : User?
+    @@lock.synchronize { @@all.find { |user| user.id == id } }
+  end
+
+  def self.search(term : String) : Array(User)
+    @@lock.synchronize { @@all.select { |user| user.name.downcase.includes?(term.downcase) } }
+  end
 end
 ```
 
-See the [Database documentation](docs/database/cql-overview.md) for complete CQL integration details including schemas, migrations, and queries.
+To use a database, add [CQL](https://github.com/azutoolkit/cql) and its `azu/cql` bridge, which instruments
+queries for the development dashboard (see [Database dashboard](docs/reference/database-dashboard.md)):
+
+```crystal
+require "azu/cql"
+require "sqlite3"
+
+module Blog
+  BlogDB = Azu::CQL.schema(:blog, "sqlite3://./blog.db") do
+    table :users do
+      primary :id, Int64
+      column :name, String
+      column :email, String
+    end
+
+    table :posts do
+      primary :id, Int64
+      column :user_id, Int64
+      column :title, String
+    end
+  end
+
+  class Post
+    include ::CQL::ActiveRecord::Model(Int64)
+    db_context schema: BlogDB, table: :posts
+
+    property user_id : Int64
+    property title : String
+
+    belongs_to :user, Blog::User, :user_id
+
+    def initialize(@user_id, @title)
+    end
+  end
+
+  class User
+    include ::CQL::ActiveRecord::Model(Int64)
+    db_context schema: BlogDB, table: :users
+
+    property name : String
+    property email : String
+
+    has_many :posts, Blog::Post, foreign_key: :user_id
+
+    def initialize(@name, @email)
+    end
+  end
+end
+```
 
 ### 6. Services (Business Logic)
 
-Organize business logic in service classes:
+Organize business logic in plain modules that raise Azu's error types:
 
+<!-- skip -->
 ```crystal
+# src/services/user_service.cr
 module UserService
   extend self
 
   def create_user(request : UserRequest) : User
-    raise Azu::Response::ValidationError.new(request.errors) unless request.valid?
+    unless request.valid?
+      field_errors = request.errors.group_by(&.field.to_s).transform_values(&.map(&.message))
+      raise Azu::Response::ValidationError.new(field_errors)
+    end
 
-    user = User.create!(
-      name: request.name,
-      email: request.email
-    )
-
-    user
+    Users.create(request.name, request.email)
   end
 
   def find_user(id : Int64) : User?
-    User.find?(id)
+    Users.find?(id)
   end
 end
 ```
 
 ### 7. Response Objects
 
-Create structured response objects:
+Responses implement `render`, which returns the body:
 
+<!-- skip -->
 ```crystal
 # src/responses/user_response.cr
 struct UserResponse
@@ -507,17 +433,11 @@ struct UserResponse
   getter id : Int64
   getter name : String
   getter email : String
-  getter age : Int32?
-  getter profile_image_url : String?
-  getter created_at : String
 
   def initialize(user : User)
     @id = user.id
     @name = user.name
     @email = user.email
-    @age = user.age
-    @profile_image_url = user.profile_image_url
-    @created_at = user.created_at.to_s("%Y-%m-%d %H:%M:%S")
   end
 
   def render
@@ -528,30 +448,12 @@ end
 # src/responses/user_list_response.cr
 struct UserListResponse
   include Azu::Response
-  include JSON::Serializable
 
-  getter users : Array(UserResponse)
-  getter pagination : PaginationResponse
-
-  def initialize(@users : Array(UserResponse), @pagination : PaginationResponse)
+  def initialize(@users : Array(UserResponse))
   end
 
   def render
-    to_json
-  end
-end
-
-# src/responses/pagination_response.cr
-struct PaginationResponse
-  include JSON::Serializable
-
-  getter page : Int32
-  getter per_page : Int32
-  getter total : Int32
-  getter total_pages : Int32
-
-  def initialize(@page : Int32, @per_page : Int32, @total : Int32)
-    @total_pages = (@total.to_f / @per_page.to_f).ceil.to_i
+    {users: @users}.to_json
   end
 end
 
@@ -560,29 +462,14 @@ struct UserPageResponse
   include Azu::Response
   include Azu::Templates::Renderable
 
-  getter user : User
-  getter posts : Array(Post)
-
-  def initialize(@user : User, @posts : Array(Post))
+  def initialize(@user : User)
   end
 
   def render
     view "users/show.html", {
-      "user" => {
-        "id" => user.id,
-        "name" => user.name,
-        "email" => user.email,
-        "profile_image_url" => user.profile_image_url
-      },
-      "posts" => posts.map { |post|
-        {
-          "id" => post.id,
-          "title" => post.title,
-          "content" => post.content,
-          "created_at" => post.created_at.to_s("%B %d, %Y")
-        }
-      },
-      "title" => "#{user.name}'s Profile"
+      "title" => "#{@user.name}'s Profile",
+      "name"  => @user.name,
+      "email" => @user.email,
     }
   end
 end
@@ -590,113 +477,71 @@ end
 
 ### 8. Type-Safe Endpoints
 
-Create endpoints that connect everything together:
+Endpoints connect a request type to a response type. Path parameters come from `params`, and the
+validated request object is available through a method named after its type (`user_request` for
+`UserRequest`). Declare endpoints that run behind a handler chain as `class`es: a `struct` endpoint
+with a handler in front of it crashed with a segmentation fault when this guide was tested.
 
+<!-- skip -->
 ```crystal
 # src/endpoints/user_endpoints.cr
-struct CreateUserEndpoint
+class CreateUserEndpoint
   include Azu::Endpoint(UserRequest, UserResponse)
 
   post "/api/users"
 
   def call : UserResponse
-    user = UserService.create_user(request)
+    user = UserService.create_user(user_request)
+    status 201
+    content_type "application/json"
     UserResponse.new(user)
-  rescue ex : Azu::Response::ValidationError
-    raise ex
-  rescue ex
-    raise Azu::Response::InternalServerError.new("Failed to create user: #{ex.message}")
   end
 end
 
-struct GetUserEndpoint
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+class GetUserEndpoint
+  include Azu::Endpoint(Azu::Request, UserResponse)
 
   get "/api/users/:id"
 
   def call : UserResponse
-    user_id = path_params["id"].to_i64
-    user = UserService.find_user(user_id)
-
-    unless user
-      raise Azu::Response::NotFoundError.new("User not found")
-    end
-
+    user = UserService.find_user(params["id"].to_i64) || raise Azu::Response::NotFound.new(context.request.path)
+    content_type "application/json"
     UserResponse.new(user)
   end
 end
 
-struct SearchUsersEndpoint
+class SearchUsersEndpoint
   include Azu::Endpoint(SearchRequest, UserListResponse)
 
   get "/api/users"
 
   def call : UserListResponse
-    users = UserService.search_users(request)
-    user_responses = users.map { |user| UserResponse.new(user) }
-
-    # Get total count for pagination
-    total = User.count
-    pagination = PaginationResponse.new(request.page, request.per_page, total)
-
-    UserListResponse.new(user_responses, pagination)
+    search = search_request
+    users = Users.search(search.query).first(search.per_page)
+    content_type "application/json"
+    UserListResponse.new(users.map { |user| UserResponse.new(user) })
   end
 end
 
-struct UserProfilePageEndpoint
-  include Azu::Endpoint(EmptyRequest, UserPageResponse)
+class UserProfilePageEndpoint
+  include Azu::Endpoint(Azu::Request, UserPageResponse)
 
   get "/users/:id"
 
   def call : UserPageResponse
-    user_id = path_params["id"].to_i64
-    user = UserService.find_user(user_id)
-
-    unless user
-      raise Azu::Response::NotFoundError.new("User not found")
-    end
-
-    posts = Post.by_user(user_id).published.recent.limit(10).to_a
-    UserPageResponse.new(user, posts)
-  end
-end
-
-# File upload endpoint
-struct UploadAvatarEndpoint
-  include Azu::Endpoint(FileUploadRequest, FileUploadResponse)
-
-  post "/api/users/:id/avatar"
-
-  def call : FileUploadResponse
-    user_id = path_params["id"].to_i64
-    user = UserService.find_user(user_id)
-
-    unless user
-      raise Azu::Response::NotFoundError.new("User not found")
-    end
-
-    # Validate file
-    unless request.file
-      raise Azu::Response::ValidationError.new("file", "Avatar file is required")
-    end
-
-    # Upload and update user
-    avatar_url = FileUploadService.upload_image(request.file.not_nil!)
-    user.profile_image_url = avatar_url
-    user.save!
-
-    FileUploadResponse.new(
-      filename: File.basename(avatar_url),
-      url: avatar_url,
-      size: request.file.not_nil!.size
-    )
+    user = UserService.find_user(params["id"].to_i64) || raise Azu::Response::NotFound.new(context.request.path)
+    content_type "text/html"
+    UserPageResponse.new(user)
   end
 end
 ```
 
+Upload endpoints read files from `params.files`; see [File Uploads](#-file-uploads).
+
 ### 9. Crinja Templates with Layouts
 
-Create template layouts and pages:
+Templates live in the configured templates path (`src/templates` above) and use
+[Crinja](https://github.com/straight-shoota/crinja), a Jinja2 implementation:
 
 ```html
 <!-- src/templates/layouts/base.html -->
@@ -706,152 +551,19 @@ Create template layouts and pages:
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{% block title %}My App{% endblock %}</title>
-    <link
-      href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
-      rel="stylesheet"
-    />
-    {% block head %}{% endblock %}
   </head>
-  <body class="bg-gray-100">
-    <nav class="bg-blue-600 text-white p-4">
-      <div class="container mx-auto flex justify-between items-center">
-        <h1 class="text-xl font-bold">
-          <a href="/" class="hover:text-blue-200">My App</a>
-        </h1>
-        <div class="space-x-4">
-          <a href="/users" class="hover:text-blue-200">Users</a>
-          <a href="/posts" class="hover:text-blue-200">Posts</a>
-        </div>
-      </div>
-    </nav>
-
-    <main class="container mx-auto py-8">
-      {% if flash_message %}
-      <div
-        class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4"
-      >
-        {{ flash_message }}
-      </div>
-      {% endif %} {% block content %}{% endblock %}
-    </main>
-
-    <footer class="bg-gray-800 text-white p-4 mt-8">
-      <div class="container mx-auto text-center">
-        <p>&copy; 2024 My App. Built with Azu Framework.</p>
-      </div>
-    </footer>
-
-    {% block scripts %}{% endblock %}
+  <body>
+    <nav><a href="/">My App</a></nav>
+    <main>{% block content %}{% endblock %}</main>
   </body>
 </html>
 
 <!-- src/templates/users/show.html -->
-{% extends "layouts/base.html" %} {% block title %}{{ user.name }}'s Profile -
-My App{% endblock %} {% block content %}
-<div class="bg-white rounded-lg shadow-md overflow-hidden">
-  <div class="bg-gradient-to-r from-blue-500 to-purple-600 p-6 text-white">
-    <div class="flex items-center space-x-4">
-      {% if user.profile_image_url %}
-      <img
-        src="{{ user.profile_image_url }}"
-        alt="{{ user.name }}"
-        class="w-20 h-20 rounded-full border-4 border-white"
-      />
-      {% else %}
-      <div
-        class="w-20 h-20 rounded-full bg-gray-300 flex items-center justify-center border-4 border-white"
-      >
-        <span class="text-2xl text-gray-600">{{ user.name[0] | upper }}</span>
-      </div>
-      {% endif %}
-
-      <div>
-        <h1 class="text-3xl font-bold">{{ user.name }}</h1>
-        <p class="text-blue-100">{{ user.email }}</p>
-        {% if user.age %}
-        <p class="text-sm text-blue-200">Age: {{ user.age }}</p>
-        {% endif %}
-      </div>
-    </div>
-  </div>
-
-  <div class="p-6">
-    <h2 class="text-2xl font-semibold mb-4">Recent Posts</h2>
-
-    {% if posts %}
-    <div class="space-y-4">
-      {% for post in posts %}
-      <article class="border-l-4 border-blue-500 pl-4 py-2">
-        <h3 class="text-lg font-medium text-gray-900">
-          <a href="/posts/{{ post.id }}" class="hover:text-blue-600">
-            {{ post.title }}
-          </a>
-        </h3>
-        <p class="text-gray-600 mt-1">{{ post.content | truncate(150) }}</p>
-        <p class="text-sm text-gray-500 mt-2">{{ post.created_at }}</p>
-      </article>
-      {% endfor %}
-    </div>
-    {% else %}
-    <p class="text-gray-600">No posts yet.</p>
-    {% endif %}
-  </div>
-</div>
-{% endblock %}
-
-<!-- src/templates/users/index.html -->
-{% extends "layouts/base.html" %} {% block title %}Users - My App{% endblock %}
+{% extends "layouts/base.html" %}
+{% block title %}{{ title }}{% endblock %}
 {% block content %}
-<div class="flex justify-between items-center mb-6">
-  <h1 class="text-3xl font-bold">Users</h1>
-  <a
-    href="/users/new"
-    class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
-  >
-    Add New User
-  </a>
-</div>
-
-<div class="bg-white rounded-lg shadow-md overflow-hidden">
-  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
-    {% for user in users %}
-    <div class="border rounded-lg p-4 hover:shadow-lg transition">
-      <div class="flex items-center space-x-3 mb-3">
-        {% if user.profile_image_url %}
-        <img
-          src="{{ user.profile_image_url }}"
-          alt="{{ user.name }}"
-          class="w-12 h-12 rounded-full"
-        />
-        {% else %}
-        <div
-          class="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center"
-        >
-          <span class="text-white font-semibold"
-            >{{ user.name[0] | upper }}</span
-          >
-        </div>
-        {% endif %}
-
-        <div>
-          <h3 class="font-semibold text-gray-900">{{ user.name }}</h3>
-          <p class="text-sm text-gray-600">{{ user.email }}</p>
-        </div>
-      </div>
-
-      <div class="flex justify-between items-center">
-        <span class="text-sm text-gray-500">{{ user.created_at }}</span>
-        <a
-          href="/users/{{ user.id }}"
-          class="text-blue-600 hover:text-blue-800 font-medium"
-        >
-          View Profile
-        </a>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-</div>
+<h1>{{ name }}</h1>
+<p>{{ email }}</p>
 {% endblock %}
 ```
 
@@ -889,414 +601,89 @@ JavaScript client, the security model and the list of breaking changes.
 
 ### 11. WebSocket Channels
 
-Create real-time communication channels:
+A channel is a class with a `ws` route and the six callbacks below. `subscribe` joins a topic of the
+built-in PubSub (in-process memory by default) and `broadcast` sends a message to every subscriber of
+a topic; each subscriber's socket receives the payload as is:
 
 ```crystal
 # src/channels/chat_channel.cr
 class ChatChannel < Azu::Channel
-  SUBSCRIBERS = [] of HTTP::WebSocket
-
   ws "/chat"
 
   def on_connect
-    SUBSCRIBERS << socket.not_nil!
-    user_count = SUBSCRIBERS.size
-
-    # Notify all clients about new user
-    broadcast_to_all("user_joined", {
-      "message" => "A user joined the chat",
-      "user_count" => user_count
-    })
-
-    # Send current user count to new connection
-    send_to_socket("connection_established", {
-      "message" => "Welcome to the chat!",
-      "user_count" => user_count
-    })
+    subscribe("chat")
+    broadcast("chat", {event: "user_joined"}.to_json)
   end
 
   def on_message(message : String)
-    begin
-      data = JSON.parse(message)
-      event_type = data["type"]?.try(&.as_s) || "message"
+    broadcast("chat", {event: "message", text: message}.to_json)
+  end
 
-      case event_type
-      when "chat_message"
-        handle_chat_message(data)
-      when "typing_start"
-        handle_typing_start(data)
-      when "typing_stop"
-        handle_typing_stop(data)
-      else
-        send_error("Unknown message type: #{event_type}")
-      end
-    rescue JSON::ParseError
-      send_error("Invalid JSON format")
-    rescue ex
-      send_error("Error processing message: #{ex.message}")
-    end
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
   end
 
   def on_close(code, message)
-    SUBSCRIBERS.delete(socket)
-    user_count = SUBSCRIBERS.size
-
-    # Notify remaining users
-    broadcast_to_all("user_left", {
-      "message" => "A user left the chat",
-      "user_count" => user_count
-    })
-  end
-
-  private def handle_chat_message(data)
-    username = data["username"]?.try(&.as_s) || "Anonymous"
-    text = data["text"]?.try(&.as_s) || ""
-
-    return if text.empty?
-
-    # Validate message length
-    if text.size > 500
-      send_error("Message too long (max 500 characters)")
-      return
-    end
-
-    # Broadcast message to all subscribers
-    message_data = {
-      "type" => "chat_message",
-      "username" => username,
-      "text" => text,
-      "timestamp" => Time.utc.to_unix_ms
-    }
-
-    broadcast_to_all("new_message", message_data)
-  end
-
-  private def handle_typing_start(data)
-    username = data["username"]?.try(&.as_s) || "Anonymous"
-
-    broadcast_to_others("user_typing", {
-      "username" => username,
-      "typing" => true
-    })
-  end
-
-  private def handle_typing_stop(data)
-    username = data["username"]?.try(&.as_s) || "Anonymous"
-
-    broadcast_to_others("user_typing", {
-      "username" => username,
-      "typing" => false
-    })
-  end
-
-  private def broadcast_to_all(event : String, data)
-    message = {
-      "event" => event,
-      "data" => data
-    }.to_json
-
-    SUBSCRIBERS.each do |subscriber|
-      begin
-        subscriber.send(message)
-      rescue ex
-        # Remove disconnected subscribers
-        SUBSCRIBERS.delete(subscriber)
-      end
-    end
-  end
-
-  private def broadcast_to_others(event : String, data)
-    message = {
-      "event" => event,
-      "data" => data
-    }.to_json
-
-    SUBSCRIBERS.each do |subscriber|
-      next if subscriber == socket # Skip current socket
-
-      begin
-        subscriber.send(message)
-      rescue ex
-        SUBSCRIBERS.delete(subscriber)
-      end
-    end
-  end
-
-  private def send_to_socket(event : String, data)
-    message = {
-      "event" => event,
-      "data" => data
-    }.to_json
-
-    socket.not_nil!.send(message)
-  rescue ex
-    # Handle send error
-  end
-
-  private def send_error(error_message : String)
-    send_to_socket("error", {"message" => error_message})
-  end
-end
-
-# src/channels/notification_channel.cr
-class NotificationChannel < Azu::Channel
-  @@user_sockets = {} of String => HTTP::WebSocket
-
-  ws "/notifications/:user_id"
-
-  def on_connect
-    user_id = path_params["user_id"]
-    @@user_sockets[user_id] = socket.not_nil!
-
-    # Send any pending notifications
-    send_pending_notifications(user_id)
-  end
-
-  def on_message(message : String)
-    # Handle ping/pong for connection keep-alive
-    if message == "ping"
-      socket.not_nil!.send("pong")
-    end
-  end
-
-  def on_close(code, message)
-    # Remove user socket from tracking
-    user_id = path_params["user_id"]
-    @@user_sockets.delete(user_id)
-  end
-
-  # Class method to send notification to specific user
-  def self.notify_user(user_id : String, notification : Hash(String, String | Int32))
-    if socket = @@user_sockets[user_id]?
-      begin
-        message = {
-          "type" => "notification",
-          "data" => notification
-        }.to_json
-
-        socket.send(message)
-      rescue ex
-        # Remove disconnected socket
-        @@user_sockets.delete(user_id)
-      end
-    end
-  end
-
-  private def send_pending_notifications(user_id : String)
-    # This would typically fetch from a database
-    # For demo purposes, sending a welcome notification
-    notification = {
-      "id" => 1,
-      "title" => "Welcome!",
-      "message" => "You are now connected to real-time notifications",
-      "type" => "info"
-    }
-
-    send_to_socket("notification", notification)
+    broadcast("chat", {event: "user_left"}.to_json)
   end
 end
 ```
 
+Query parameters of the upgrade request are available as `params`, and its headers as `headers`.
+For a channel that tracks its own sockets, see `playground/channels/example_channel.cr`.
+
 ### 12. Custom Middleware
 
-Create middleware for cross-cutting concerns:
+Middleware is an `HTTP::Handler`: do your work, then call `call_next(context)` to continue the chain, or
+answer the request yourself to stop it. Azu ships `CORS`, `CSRF`, `Throttle`, `Static` and others
+(see [Middleware](#-middleware)).
 
 ```crystal
-# src/middleware/authentication_middleware.cr
-class AuthenticationMiddleware
+# src/middleware/token_auth.cr
+class TokenAuth
   include HTTP::Handler
 
-  def call(context)
-    # Skip authentication for certain paths
-    if public_path?(context.request.path)
+  PUBLIC_PATHS = ["/", "/health"]
+
+  def initialize(@token : String)
+  end
+
+  def call(context : HTTP::Server::Context)
+    return call_next(context) if PUBLIC_PATHS.includes?(context.request.path)
+
+    if bearer_token(context.request) == @token
       call_next(context)
-      return
-    end
-
-    # Check for authentication token
-    token = extract_token(context.request)
-
-    unless token && valid_token?(token)
+    else
       context.response.status = HTTP::Status::UNAUTHORIZED
       context.response.content_type = "application/json"
-      context.response.print({
-        "error" => "Authentication required",
-        "message" => "Please provide a valid authentication token"
-      }.to_json)
-      return
+      context.response.print({error: "Authentication required"}.to_json)
     end
-
-    # Add user information to context
-    if user = get_user_from_token(token)
-      context.set("current_user", user)
-    end
-
-    call_next(context)
   end
 
-  private def public_path?(path : String) : Bool
-    public_paths = ["/", "/login", "/register", "/health", "/assets"]
-    public_paths.any? { |public_path| path.starts_with?(public_path) }
-  end
-
-  private def extract_token(request : HTTP::Request) : String?
-    # Try Authorization header first
-    if auth_header = request.headers["Authorization"]?
-      if auth_header.starts_with?("Bearer ")
-        return auth_header[7..-1]
-      end
-    end
-
-    # Try query parameter
-    request.query_params["token"]?
-  end
-
-  private def valid_token?(token : String) : Bool
-    # Implement your token validation logic
-    # This could check JWT, database tokens, etc.
-    token.size > 10 # Simple validation for demo
-  end
-
-  private def get_user_from_token(token : String) : User?
-    # Implement user lookup from token
-    # This would typically decode JWT or query database
-    User.first? # Simple demo
+  private def bearer_token(request : HTTP::Request) : String?
+    request.headers["Authorization"]?.try { |header| header.lchop?("Bearer ") }
   end
 end
 
-# src/middleware/cors_middleware.cr
-class CustomCorsMiddleware
-  include HTTP::Handler
-
-  def initialize(@allowed_origins : Array(String) = ["*"],
-                 @allowed_methods : Array(String) = ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-                 @allowed_headers : Array(String) = ["Content-Type", "Authorization"],
-                 @max_age : Int32 = 86400)
-  end
-
-  def call(context)
-    request = context.request
-    response = context.response
-
-    # Set CORS headers
-    if origin = request.headers["Origin"]?
-      if @allowed_origins.includes?("*") || @allowed_origins.includes?(origin)
-        response.headers["Access-Control-Allow-Origin"] = origin
-      end
-    end
-
-    response.headers["Access-Control-Allow-Methods"] = @allowed_methods.join(", ")
-    response.headers["Access-Control-Allow-Headers"] = @allowed_headers.join(", ")
-    response.headers["Access-Control-Max-Age"] = @max_age.to_s
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-
-    # Handle preflight requests
-    if request.method == "OPTIONS"
-      response.status = HTTP::Status::NO_CONTENT
-      return
-    end
-
-    call_next(context)
-  end
+module MyApp
+  include Azu
 end
 
-# src/middleware/rate_limiting_middleware.cr
-class RateLimitingMiddleware
-  include HTTP::Handler
-
-  @@request_counts = {} of String => {count: Int32, reset_time: Time}
-
-  def initialize(@requests_per_minute : Int32 = 60)
-  end
-
-  def call(context)
-    client_ip = get_client_ip(context.request)
-    current_time = Time.utc
-
-    # Clean old entries
-    cleanup_old_entries(current_time)
-
-    # Check rate limit
-    if rate_limited?(client_ip, current_time)
-      context.response.status = HTTP::Status::TOO_MANY_REQUESTS
-      context.response.content_type = "application/json"
-      context.response.headers["Retry-After"] = "60"
-      context.response.print({
-        "error" => "Rate limit exceeded",
-        "message" => "Too many requests. Please try again later."
-      }.to_json)
-      return
-    end
-
-    # Increment counter
-    increment_counter(client_ip, current_time)
-
-    call_next(context)
-  end
-
-  private def get_client_ip(request : HTTP::Request) : String
-    # Check for forwarded IP headers
-    if forwarded_for = request.headers["X-Forwarded-For"]?
-      return forwarded_for.split(",").first.strip
-    end
-
-    if real_ip = request.headers["X-Real-IP"]?
-      return real_ip
-    end
-
-    # Fall back to remote address
-    request.remote_address.try(&.to_s) || "unknown"
-  end
-
-  private def rate_limited?(client_ip : String, current_time : Time) : Bool
-    if entry = @@request_counts[client_ip]?
-      # Reset counter if minute has passed
-      if current_time >= entry[:reset_time]
-        return false
-      end
-
-      # Check if limit exceeded
-      return entry[:count] >= @requests_per_minute
-    end
-
-    false
-  end
-
-  private def increment_counter(client_ip : String, current_time : Time)
-    if entry = @@request_counts[client_ip]?
-      if current_time >= entry[:reset_time]
-        # Reset counter
-        @@request_counts[client_ip] = {
-          count: 1,
-          reset_time: current_time + 1.minute
-        }
-      else
-        # Increment counter
-        @@request_counts[client_ip] = {
-          count: entry[:count] + 1,
-          reset_time: entry[:reset_time]
-        }
-      end
-    else
-      # Create new entry
-      @@request_counts[client_ip] = {
-        count: 1,
-        reset_time: current_time + 1.minute
-      }
-    end
-  end
-
-  private def cleanup_old_entries(current_time : Time)
-    @@request_counts.select! do |ip, entry|
-      current_time < entry[:reset_time]
-    end
-  end
-end
+MyApp.start [
+  Azu::Handler::RequestId.new,
+  Azu::Handler::Rescuer.new,
+  TokenAuth.new(ENV.fetch("API_TOKEN", "secret")),
+] of HTTP::Handler
 ```
 
 ### 13. Background Jobs with JoobQ
 
-Implement asynchronous job processing for long-running tasks:
+[JoobQ](https://github.com/azutoolkit/joobq) is a separate shard that processes jobs from Redis.
 
 **Add JoobQ to your `shard.yml`:**
 
@@ -1304,422 +691,139 @@ Implement asynchronous job processing for long-running tasks:
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.4.14
+    version: ~> 0.5.52
   joobq:
     github: azutoolkit/joobq
-    version: ~> 1.0.0
+    version: ~> 0.4.2
 ```
 
-**Job Examples:**
+**Define a job and configure a queue for it:**
 
+<!-- skip -->
 ```crystal
 # src/jobs/email_job.cr
 struct EmailJob
   include JoobQ::Job
 
-  # Name of the queue to be processed by
-  @queue   = "default"
-  # Number Of Retries for this job
+  @queue = "default"
   @retries = 3
-  # Job Expiration
   @expires = 1.days.total_seconds.to_i
 
-  def initialize(@email_address : String, @subject : String, @body : String)
+  def initialize(@email_address : String, @subject : String)
   end
 
   def perform
-    # Logic to send email
-    EmailService.send_email(@email_address, @subject, @body)
-    Log.info { "Email sent to #{@email_address}" }
-  rescue ex
-    Log.error(exception: ex) { "Failed to send email to #{@email_address}" }
-    raise ex # Let JoobQ handle retries
+    Log.info { "Sending #{@subject} to #{@email_address}" }
   end
 end
 
-# src/jobs/image_processing_job.cr
-struct ImageProcessingJob
-  include JoobQ::Job
-
-  @queue   = "images"
-  @retries = 2
-  @expires = 30.minutes.total_seconds.to_i
-
-  def initialize(@user_id : Int64, @image_path : String, @sizes : Array(String))
-  end
-
-  def perform
-    user = User.find(@user_id)
-    return unless user
-
-    @sizes.each do |size|
-      # Process image for different sizes (thumbnail, medium, large)
-      processed_path = ImageProcessor.resize(@image_path, size)
-
-      # Update user's image URLs
-      case size
-      when "thumbnail"
-        user.thumbnail_url = processed_path
-      when "medium"
-        user.medium_image_url = processed_path
-      when "large"
-        user.large_image_url = processed_path
-      end
-    end
-
-    user.save!
-    Log.info { "Processed images for user #{@user_id}" }
-  end
-end
-
-# src/jobs/notification_job.cr
-struct NotificationJob
-  include JoobQ::Job
-
-  @queue   = "notifications"
-  @retries = 5
-  @expires = 6.hours.total_seconds.to_i
-
-  def initialize(@user_id : Int64, @type : String, @message : String, @data : Hash(String, String))
-  end
-
-  def perform
-    # Send real-time notification via WebSocket
-    NotificationChannel.notify_user(@user_id.to_s, {
-      "type" => @type,
-      "message" => @message,
-      "data" => @data,
-      "timestamp" => Time.utc.to_unix_ms
-    })
-
-    # Store notification in database for offline users
-    Notification.create!(
-      user_id: @user_id,
-      type: @type,
-      message: @message,
-      data: @data.to_json,
-      created_at: Time.utc
-    )
-
-    Log.info { "Notification sent to user #{@user_id}" }
-  end
-end
-
-# src/jobs/cleanup_job.cr
-struct CleanupJob
-  include JoobQ::Job
-
-  @queue   = "maintenance"
-  @retries = 1
-  @expires = 2.hours.total_seconds.to_i
-
-  def initialize(@days_old : Int32 = 30)
-  end
-
-  def perform
-    cutoff_date = Time.utc - @days_old.days
-
-    # Clean up old temporary files
-    temp_files_deleted = cleanup_temp_files(cutoff_date)
-
-    # Clean up old sessions
-    sessions_deleted = cleanup_old_sessions(cutoff_date)
-
-    # Clean up old logs
-    logs_deleted = cleanup_old_logs(cutoff_date)
-
-    Log.info { "Cleanup completed: #{temp_files_deleted} files, #{sessions_deleted} sessions, #{logs_deleted} logs" }
-  end
-
-  private def cleanup_temp_files(cutoff_date : Time) : Int32
-    count = 0
-    Dir.glob("tmp/uploads/*").each do |file_path|
-      if File.info(file_path).modification_time < cutoff_date
-        File.delete(file_path)
-        count += 1
-      end
-    end
-    count
-  end
-
-  private def cleanup_old_sessions(cutoff_date : Time) : Int32
-    # This would depend on your session storage implementation
-    # Example for database-stored sessions:
-    # Session.where { created_at < cutoff_date }.delete_all
-    0
-  end
-
-  private def cleanup_old_logs(cutoff_date : Time) : Int32
-    count = 0
-    Dir.glob("logs/*.log").each do |log_file|
-      if File.info(log_file).modification_time < cutoff_date
-        File.delete(log_file)
-        count += 1
-      end
-    end
-    count
-  end
-end
-
-# src/jobs/report_generation_job.cr
-struct ReportGenerationJob
-  include JoobQ::Job
-
-  @queue   = "reports"
-  @retries = 2
-  @expires = 1.hour.total_seconds.to_i
-
-  def initialize(@user_id : Int64, @report_type : String, @date_range : String)
-  end
-
-  def perform
-    user = User.find(@user_id)
-    return unless user
-
-    # Generate report based on type
-    report_data = case @report_type
-    when "user_activity"
-      generate_user_activity_report(user, @date_range)
-    when "sales"
-      generate_sales_report(user, @date_range)
-    when "analytics"
-      generate_analytics_report(user, @date_range)
-    else
-      raise "Unknown report type: #{@report_type}"
-    end
-
-    # Save report to file
-    report_path = save_report(report_data, @report_type, @date_range)
-
-    # Notify user that report is ready
-    NotificationJob.new(
-      user_id: @user_id,
-      type: "report_ready",
-      message: "Your #{@report_type} report is ready for download",
-      data: {"download_url" => report_path}
-    ).enqueue
-
-    Log.info { "Generated #{@report_type} report for user #{@user_id}" }
-  end
-
-  private def generate_user_activity_report(user, date_range)
-    # Implementation for user activity report
-    {"total_logins" => 42, "pages_visited" => 156}
-  end
-
-  private def generate_sales_report(user, date_range)
-    # Implementation for sales report
-    {"total_sales" => 1250.50, "orders_count" => 28}
-  end
-
-  private def generate_analytics_report(user, date_range)
-    # Implementation for analytics report
-    {"unique_visitors" => 890, "page_views" => 3420}
-  end
-
-  private def save_report(data, type, date_range)
-    filename = "#{type}_#{date_range}_#{Time.utc.to_unix}.json"
-    filepath = Path["reports", filename].to_s
-
-    Dir.mkdir_p("reports")
-    File.write(filepath, data.to_json)
-
-    "/downloads/#{filename}"
-  end
+# src/jobs.cr
+JoobQ.configure do
+  queue "default", 2, EmailJob
 end
 ```
 
-**Configure JoobQ in your application:**
+**Enqueue it from an endpoint:**
 
+<!-- skip -->
 ```crystal
-# src/my_app.cr (add to configuration)
-module MyApp
-  include Azu
-
-  configure do
-    # ... existing configuration ...
-
-    # JoobQ Configuration
-    JoobQ.configure do |config|
-      config.store = JoobQ::RedisStore.new(
-        host: ENV.fetch("REDIS_HOST", "localhost"),
-        port: ENV.fetch("REDIS_PORT", "6379").to_i,
-        password: ENV["REDIS_PASSWORD"]?,
-        database: ENV.fetch("REDIS_DB", "0").to_i
-      )
-
-      # Queue configurations
-      config.queues = {
-        "default" => 2,       # 2 workers for default queue
-        "images" => 1,        # 1 worker for image processing
-        "notifications" => 3, # 3 workers for notifications
-        "reports" => 1,       # 1 worker for report generation
-        "maintenance" => 1    # 1 worker for maintenance tasks
-      }
-
-      # Global job settings
-      config.failed_job_expiry = 7.days
-      config.dead_job_expiry = 30.days
-    end
-  end
-end
-
-# Load job files
-require "./jobs/*"
-```
-
-**Using Jobs in Your Application:**
-
-```crystal
-# In your endpoints
-struct CreateUserEndpoint
+class CreateUserEndpoint
   include Azu::Endpoint(UserRequest, UserResponse)
 
   post "/api/users"
 
   def call : UserResponse
-    user = UserService.create_user(request)
-
-    # Queue welcome email job
-    EmailJob.new(
-      email_address: user.email,
-      subject: "Welcome to MyApp!",
-      body: "Thank you for joining us, #{user.name}!"
-    ).enqueue
-
-    # Queue image processing if profile image was uploaded
-    if request.profile_image
-      ImageProcessingJob.new(
-        user_id: user.id,
-        image_path: user.profile_image_url.not_nil!,
-        sizes: ["thumbnail", "medium", "large"]
-      ).enqueue
-    end
-
+    user = UserService.create_user(user_request)
+    EmailJob.enqueue(email_address: user.email, subject: "Welcome to MyApp!")
+    status 201
     UserResponse.new(user)
   end
 end
 
-# Schedule recurring jobs
-# This could be in a separate scheduler file or cron job
-CleanupJob.new(days_old: 30).enqueue_in(1.day)
-
-# Delayed job execution
-EmailJob.new(
-  email_address: "user@example.com",
-  subject: "Reminder",
-  body: "Don't forget to complete your profile!"
-).enqueue_in(2.hours)
-
-# High priority job
-NotificationJob.new(
-  user_id: user.id,
-  type: "urgent",
-  message: "Security alert: New login detected",
-  data: {"ip" => request.remote_address, "timestamp" => Time.utc.to_s}
-).enqueue_at(Time.utc)
+# Delayed and recurring
+EmailJob.enqueue_at(time: 2.hours.from_now, email_address: "user@example.com", subject: "Reminder")
+EmailJob.schedule(every: 1.day, email_address: "team@example.com", subject: "Daily digest")
 ```
 
-**Worker Process:**
+**Run the workers in their own process:**
 
+<!-- skip -->
 ```crystal
 # worker.cr
-require "./src/my_app"
+require "./src/jobs"
 
-# Start the job processor
-JoobQ.start
+JoobQ.forge
+sleep
 ```
-
-**Running Jobs:**
 
 ```bash
 # Start web server
 crystal run server.cr
 
-# Start job workers (in separate terminal)
+# Start job workers (in a separate terminal)
 crystal run worker.cr
-
-# Or in production with multiple workers
-crystal build worker.cr --release
-./worker &
-./worker &
-./worker &
 ```
+
+See the JoobQ documentation for queues, throttling, scheduling and the monitoring API.
 
 ### 14. Complete Application Structure
 
-Here's how your complete project structure should look:
+Here's how the project from this guide is laid out:
 
 ```
 my_app/
 ├── src/
 │   ├── my_app.cr              # Main application configuration
 │   ├── models/
-│   │   ├── user.cr
-│   │   └── post.cr
+│   │   └── user.cr
 │   ├── services/
-│   │   ├── user_service.cr
-│   │   └── file_upload_service.cr
+│   │   └── user_service.cr
 │   ├── requests/
 │   │   ├── user_request.cr
 │   │   └── search_request.cr
 │   ├── responses/
 │   │   ├── user_response.cr
-│   │   └── user_list_response.cr
+│   │   ├── user_list_response.cr
+│   │   └── user_page_response.cr
 │   ├── validators/
-│   │   ├── email_validator.cr
-│   │   └── file_validator.cr
+│   │   └── unique_email_validator.cr
 │   ├── endpoints/
 │   │   └── user_endpoints.cr
 │   ├── channels/
-│   │   ├── chat_channel.cr
-│   │   └── notification_channel.cr
+│   │   └── chat_channel.cr
 │   ├── middleware/
-│   │   ├── authentication_middleware.cr
-│   │   ├── cors_middleware.cr
-│   │   └── rate_limiting_middleware.cr
+│   │   └── token_auth.cr
 │   ├── components/
-│   │   ├── user_counter_component.cr
-│   │   └── chat_component.cr
+│   │   └── counter_view.cr
 │   ├── jobs/
-│   │   ├── email_job.cr
-│   │   ├── image_processing_job.cr
-│   │   ├── notification_job.cr
-│   │   ├── cleanup_job.cr
-│   │   └── report_generation_job.cr
-├── server.cr                  # Application entry point
-├── worker.cr                  # Background job worker
-└── public/                    # Static assets
+│   │   └── email_job.cr
 │   └── templates/
 │       ├── layouts/
 │       │   └── base.html
 │       └── users/
-│           ├── show.html
-│           └── index.html
-    └── uploads/
-        └── images/
-├── shard.yml                  # Dependencies
+│           └── show.html
+├── server.cr                  # Application entry point
+├── worker.cr                  # Background job worker
+├── public/                    # Static assets
+└── shard.yml                  # Dependencies
 ```
 
-This comprehensive quickstart guide demonstrates:
+This guide demonstrates:
 
-- ✅ **Configuration**: Complete application setup with environment-aware settings
-- ✅ **Server Startup**: Dedicated entry point with conditional middleware loading
-- ✅ **Requests**: Type-safe request objects with comprehensive validation
-- ✅ **Custom Validators**: Reusable validation classes inheriting from Azu::Validator
-- ✅ **Models**: Database models with relationships, validations, and business logic
-- ✅ **Services**: Business logic separation and organization
+- ✅ **Configuration**: Application setup with environment-aware settings
+- ✅ **Server Startup**: A dedicated entry point with an explicit handler chain
+- ✅ **Requests**: Type-safe request objects with validation
+- ✅ **Custom Validators**: Reusable validation classes inheriting from `Schema::Validator`
+- ✅ **Models and Services**: Business logic kept apart from HTTP
 - ✅ **Responses**: Structured JSON and HTML responses
-- ✅ **Endpoints**: RESTful endpoints with proper error handling
+- ✅ **Endpoints**: RESTful endpoints with typed contracts
 - ✅ **Templates**: Crinja templates with layouts and inheritance
 - ✅ **Components**: Live, interactive components with real-time updates
 - ✅ **Channels**: WebSocket channels for real-time communication
-- ✅ **Middleware**: Custom middleware for authentication, CORS, and rate limiting
-- ✅ **Background Jobs**: Asynchronous job processing with JoobQ for emails, image processing, and maintenance
-- ✅ **File Uploads**: Secure multipart file handling with validation
-- ✅ **Complete Structure**: Production-ready project organization
+- ✅ **Middleware**: Custom `HTTP::Handler`s
+- ✅ **Background Jobs**: Asynchronous job processing with JoobQ
 
-Each component follows Azu's type-safe patterns and integrates seamlessly with the framework's architecture.
+Each component follows Azu's type-safe patterns and integrates with the framework's architecture.
 
 ## 🔌 Real-Time Features
 
@@ -1730,23 +834,36 @@ class ChatChannel < Azu::Channel
   ws "/chat"
 
   def on_connect
-    broadcast("user_joined", {user: current_user.name})
+    subscribe("chat")
+    broadcast("chat", {event: "user_joined", user: params["name"]?}.to_json)
   end
 
   def on_message(message : String)
     data = JSON.parse(message)
-    broadcast("message", {
-      user: current_user.name,
-      text: data["text"],
-      timestamp: Time.utc
-    })
+    broadcast("chat", {
+      event:     "message",
+      user:      params["name"]?,
+      text:      data["text"]?.try(&.as_s?),
+      timestamp: Time.utc,
+    }.to_json)
+  end
+
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
   end
 
   def on_close(code, message)
-    broadcast("user_left", {user: current_user.name})
+    broadcast("chat", {event: "user_left", user: params["name"]?}.to_json)
   end
 end
 ```
+
+A client connects with `ws://localhost:4000/chat?name=Ada`.
 
 ### Live Components
 
@@ -1780,7 +897,8 @@ Azu::Spark.render(CounterView)
 
 ## 🛡️ Error Handling
 
-Azu provides comprehensive error handling with structured error responses:
+Azu provides structured error responses. Raise one of the built-in errors from an endpoint (or anywhere
+below it) and `Azu::Handler::Rescuer` turns it into a response:
 
 ```crystal
 # Built-in error types
@@ -1788,68 +906,108 @@ raise Azu::Response::ValidationError.new("email", "is invalid")
 raise Azu::Response::AuthenticationError.new("Login required")
 raise Azu::Response::AuthorizationError.new("Admin access required")
 raise Azu::Response::RateLimitError.new(retry_after: 60)
+raise Azu::Response::NotFound.new("/missing")
+raise Azu::Response::BadRequest.new("Malformed input")
+```
 
-# Custom error handling
-struct MyEndpoint
-  include Azu::Endpoint(MyRequest, MyResponse)
+An endpoint that reports a failed validation with every field's messages:
 
-  def call : MyResponse
-    validate_request!
-    process_request
-  rescue ex : ValidationError
-    Azu::Response::ValidationError.new(ex.field_errors)
+```crystal
+struct SignupRequest
+  include Azu::Request
+
+  getter email : String
+
+  def initialize(@email = "")
+  end
+
+  validate email, presence: true
+end
+
+struct Registered
+  include Azu::Response
+
+  def render
+    {registered: true}.to_json
+  end
+end
+
+class RegisterEndpoint
+  include Azu::Endpoint(SignupRequest, Registered)
+
+  post "/signup"
+
+  def call : Registered
+    signup = signup_request
+    unless signup.valid?
+      raise Azu::Response::ValidationError.new(
+        signup.errors.group_by(&.field.to_s).transform_values(&.map(&.message))
+      )
+    end
+
+    content_type "application/json"
+    Registered.new
   end
 end
 ```
 
 ### Error Response Formats
 
-Azu automatically formats errors based on content negotiation:
+Azu formats errors based on content negotiation. A JSON error looks like this:
 
 ```json
-// JSON format
 {
+  "Status": "unprocessable_entity",
   "Title": "Validation Error",
-  "Detail": "Request validation failed",
-  "ErrorId": "err_123456",
-  "Fingerprint": "abc123",
+  "Detail": "The request could not be processed due to validation errors.",
   "FieldErrors": {
-    "email": ["is invalid", "is required"]
-  }
+    "email": ["Invalid field: email"]
+  },
+  "ErrorId": "…",
+  "Fingerprint": "…",
+  "Context": null,
+  "Timestamp": "…"
 }
 ```
 
 ## 📁 File Uploads
 
-Handle file uploads with built-in optimization and validation:
+Multipart uploads are streamed to `config.upload.temp_dir` and a file larger than
+`config.upload.max_file_size` is rejected. Read the files of a request from `params.files`:
 
 ```crystal
-struct FileUploadRequest
-  include Azu::Request
+struct UploadResponse
+  include Azu::Response
 
-  getter avatar : Azu::Params::Multipart::File?
-  getter description : String
+  def initialize(@filename : String, @size : UInt64?)
+  end
+
+  def render
+    {filename: @filename, size: @size}.to_json
+  end
 end
 
-struct UploadEndpoint
-  include Azu::Endpoint(FileUploadRequest, UploadResponse)
+class UploadEndpoint
+  include Azu::Endpoint(Azu::Request, UploadResponse)
 
   post "/upload"
 
+  ALLOWED = %w(.jpg .png .gif)
+
   def call : UploadResponse
-    if file = request.avatar
-      # File is automatically streamed to temp directory
-      validate_file_size!(file, max: 5.megabytes)
-      validate_file_type!(file, allowed: %w(.jpg .png .gif))
+    file = params.files["avatar"]? || raise Azu::Response::ValidationError.new("avatar", "is required")
+    filename = file.filename.to_s
 
-      # Process the file
-      final_path = save_file(file)
-      file.cleanup # Clean up temp file
-
-      UploadResponse.new(url: final_path)
-    else
-      raise Azu::Response::ValidationError.new("avatar", "is required")
+    unless ALLOWED.includes?(File.extname(filename).downcase)
+      raise Azu::Response::ValidationError.new("avatar", "must be one of #{ALLOWED.join(", ")}")
     end
+
+    Dir.mkdir_p("public/uploads")
+    File.copy(file.temp_path, File.join("public/uploads", File.basename(filename)))
+    file.cleanup # Remove the temporary file
+
+    content_type "application/json"
+    UploadResponse.new(filename, file.size)
   end
 end
 ```
@@ -1863,23 +1021,23 @@ struct UserPage
   include Azu::Response
   include Azu::Templates::Renderable
 
-  def initialize(@user : User, @posts : Array(Post))
+  def initialize(@name : String, @posts : Array(String))
   end
 
   def render
     view "users/show.html", {
-      user: @user,
-      posts: @posts,
-      title: "User Profile"
+      "title" => "User Profile",
+      "name"  => @name,
+      "posts" => @posts,
     }
   end
 end
 
 # Template: templates/users/show.html
-# <h1>{{ user.name }}</h1>
+# <h1>{{ name }}</h1>
 # <div class="posts">
 #   {% for post in posts %}
-#     <article>{{ post.content }}</article>
+#     <article>{{ post }}</article>
 #   {% endfor %}
 # </div>
 ```
@@ -1898,25 +1056,27 @@ Azu::CONFIG.template_hot_reload = false
 
 ## ⚙️ Configuration
 
-Azu provides environment-aware configuration:
+Azu provides environment-aware configuration. `PORT`, `HOST`, `CRYSTAL_ENV`, `UPLOAD_MAX_FILE_SIZE` and
+other settings are read from the environment by default; `configure` overrides them in code:
 
 ```crystal
 # config/application.cr
-Azu::CONFIG.configure do |config|
-  config.port = ENV.fetch("PORT", "4000").to_i
-  config.host = ENV.fetch("HOST", "0.0.0.0")
+require "azu"
 
-  # SSL configuration
-  config.ssl_cert = ENV["SSL_CERT"]?
-  config.ssl_key = ENV["SSL_KEY"]?
+module MyApp
+  include Azu
 
-  # File upload limits
-  config.upload.max_file_size = 10.megabytes
-  config.upload.temp_dir = "/tmp/uploads"
+  configure do |config|
+    config.port = ENV.fetch("PORT", "4000").to_i
+    config.host = ENV.fetch("HOST", "0.0.0.0")
 
-  # Template configuration
-  config.templates.path = ["templates", "views"]
-  config.templates.error_path = "errors"
+    # File upload limits
+    config.upload.max_file_size = 10_u64 * 1024 * 1024
+    config.upload.temp_dir = "/tmp/uploads"
+
+    # Template configuration
+    config.templates.path = "templates"
+  end
 end
 ```
 
@@ -1925,16 +1085,25 @@ end
 ### Built-in Middleware
 
 ```crystal
-Azu.start [
-  Azu::Handler::Rescuer.new,     # Error handling
-  Azu::Handler::Logger.new,      # Request logging
-  Azu::Handler::CORS.new,        # CORS headers
-  Azu::Handler::CSRF.new,        # CSRF protection
-  Azu::Handler::Throttle.new,    # Rate limiting
-  Azu::Handler::Static.new,      # Static files
-  # Your endpoints here
-]
+module MyApp
+  include Azu
+end
+
+MyApp.start [
+  Azu::Handler::RequestId.new,                                  # Request ID tracking
+  Azu::Handler::Rescuer.new,                                    # Error handling
+  Azu::Handler::Logger.new,                                     # Request logging
+  Azu::Handler::CORS.new(origins: ["https://example.com"]),     # CORS headers
+  Azu::Handler::CSRF.new,                                       # CSRF protection
+  Azu::Handler::Throttle.new(                                   # Rate limiting
+    interval: 5, duration: 900, threshold: 100,
+    blacklist: [] of String, whitelist: [] of String),
+  Azu::Handler::Static.new("public", fallthrough: true),        # Static files
+] of HTTP::Handler
 ```
+
+`Throttle` counts requests per remote address: more than `threshold` requests within `interval` seconds
+blocks the address for `duration` seconds.
 
 ### Custom Middleware
 
@@ -1942,7 +1111,7 @@ Azu.start [
 class AuthenticationHandler
   include HTTP::Handler
 
-  def call(context)
+  def call(context : HTTP::Server::Context)
     unless authenticated?(context)
       context.response.status = HTTP::Status::UNAUTHORIZED
       context.response.print "Authentication required"
@@ -1952,10 +1121,16 @@ class AuthenticationHandler
     call_next(context)
   end
 
-  private def authenticated?(context)
-    context.request.headers["Authorization"]?.try(&.starts_with?("Bearer "))
+  private def authenticated?(context : HTTP::Server::Context) : Bool
+    !!context.request.headers["Authorization"]?.try(&.starts_with?("Bearer "))
   end
 end
+
+module MyApp
+  include Azu
+end
+
+MyApp.start [AuthenticationHandler.new] of HTTP::Handler
 ```
 
 ## 🚄 Routing Performance
@@ -1965,6 +1140,27 @@ Azu's router includes several performance optimizations:
 ### Path Caching
 
 ```crystal
+struct UserResponse
+  include Azu::Response
+
+  def initialize(@id : String)
+  end
+
+  def render
+    {id: @id}.to_json
+  end
+end
+
+class UserEndpoint
+  include Azu::Endpoint(Azu::Request, UserResponse)
+
+  get "/api/users/:id"
+
+  def call : UserResponse
+    UserResponse.new(params["id"])
+  end
+end
+
 # Frequently accessed paths are cached
 router = Azu::Router.new
 router.get("/api/users/:id", UserEndpoint.new)
@@ -1975,51 +1171,72 @@ router.get("/api/users/:id", UserEndpoint.new)
 
 ### Method Pre-computation
 
-```crystal
-# HTTP methods are pre-computed at initialization
-# Zero allocation for method matching during request processing
-```
+HTTP methods are pre-computed at initialization, so there is no allocation for method matching during
+request processing.
 
 ### LRU Cache Management
 
-```crystal
-# Automatic cache eviction for optimal memory usage
-# Default cache size: 1000 entries
-# Configurable cache size and TTL
-```
+The path cache evicts the least recently used entries. Its default size is 1000 entries, and
+`router.clear_path_cache` empties it.
 
 ## 🧪 Testing
 
-Azu provides excellent testing support:
+Azu endpoints are plain handlers, so a spec can run the router behind a real `HTTP::Server` on a free port
+and talk to it with `HTTP::Client`:
 
 ```crystal
 require "spec"
 require "azu"
 
-describe UserEndpoint do
-  it "creates user successfully" do
-    request = UserRequest.new(
-      name: "John Doe",
-      email: "john@example.com",
-      age: 30
-    )
+struct GreetingResponse
+  include Azu::Response
 
-    endpoint = UserEndpoint.new
-    endpoint.request = request
+  def initialize(@name : String)
+  end
 
-    response = endpoint.call
-    response.should be_a(UserResponse)
+  def render
+    {greeting: "Hello, #{@name}!"}.to_json
   end
 end
 
-describe ChatChannel do
-  it "handles messages correctly" do
-    socket = MockWebSocket.new
-    channel = ChatChannel.new(socket)
+class GreetEndpoint
+  include Azu::Endpoint(Azu::Request, GreetingResponse)
 
-    channel.on_message({"text" => "Hello"}.to_json)
+  get "/greet/:name"
 
-    # Verify message was processed
+  def call : GreetingResponse
+    content_type "application/json"
+    GreetingResponse.new params["name"]
+  end
+end
+
+def with_client(&)
+  handlers = [Azu::Handler::Rescuer.new] of HTTP::Handler
+  server = HTTP::Server.new(handlers) { |context| Azu::CONFIG.router.process(context) }
+  address = server.bind_unused_port("127.0.0.1")
+  spawn { server.listen }
+  Fiber.yield
+  begin
+    yield HTTP::Client.new(address.address, address.port)
+  ensure
+    server.close
+  end
+end
+
+describe GreetEndpoint do
+  it "greets by name" do
+    with_client do |client|
+      response = client.get "/greet/Ada"
+
+      response.status_code.should eq 200
+      JSON.parse(response.body)["greeting"].as_s.should eq "Hello, Ada!"
+    end
+  end
+
+  it "answers an unknown path with 404" do
+    with_client do |client|
+      client.get("/nope", headers: HTTP::Headers{"Accept" => "text/plain"}).status_code.should eq 404
+    end
   end
 end
 ```
@@ -2038,11 +1255,7 @@ end
 
 ### Content Negotiation
 
-```crystal
-# Automatic content type detection and response formatting
-# Supports: JSON, HTML, XML, Plain Text
-# Based on Accept headers and content type
-```
+Errors are rendered as JSON, HTML, XML or plain text, depending on the request's `Accept` header.
 
 ### Request Validation
 
@@ -2054,16 +1267,21 @@ struct ProductRequest
   getter price : Float64
   getter category : String
 
-  validate name, presence: true, length: {min: 3, max: 50}
-  validate price, presence: true, numericality: {greater_than: 0}
-  validate category, inclusion: {in: %w(electronics books clothing)}
+  def initialize(@name = "", @price = 0.0, @category = "")
+  end
+
+  validate name, presence: true, size: 3..50
+  validate price, gt: 0.0
+  validate category, in: %w(electronics books clothing)
 end
+
+ProductRequest.new(name: "Book", price: 9.5, category: "books").valid? # => true
 ```
 
 ### Environment Management
 
 ```crystal
-# Automatic environment detection
+# The environment comes from CRYSTAL_ENV (development by default)
 case Azu::CONFIG.env
 when .development?
   # Development-specific configuration
@@ -2133,23 +1351,29 @@ crystal build --define=performance_monitoring src/app.cr
 
 ### Using Performance Monitoring
 
-When enabled, add the performance monitor to your handler chain:
+When enabled, add the performance monitor to your handler chain. The class only exists in a build that
+enables monitoring, so the chain is chosen at compile time:
 
+<!-- skip -->
 ```crystal
 require "azu"
 
-# Only available when performance monitoring is enabled
-{% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-  performance_monitor = Azu::Handler::PerformanceMonitor.new
-{% end %}
+module MyApp
+  include Azu
+end
 
-MyApp.start [
-  {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-    performance_monitor,
-  {% end %}
-  Azu::Handler::Logger.new,
-  Azu::Handler::Static.new
-]
+{% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
+  MyApp.start [
+    Azu::Handler::PerformanceMonitor.new,
+    Azu::Handler::Logger.new,
+    Azu::Handler::Static.new,
+  ] of HTTP::Handler
+{% else %}
+  MyApp.start [
+    Azu::Handler::Logger.new,
+    Azu::Handler::Static.new,
+  ] of HTTP::Handler
+{% end %}
 ```
 
 ### Performance Features (When Enabled)
@@ -2174,10 +1398,8 @@ This makes Azu suitable for both development (with monitoring) and production (w
 
 ### Performance API (When Enabled)
 
+<!-- skip -->
 ```crystal
-# Enable performance tracking for specific components
-component.enable_performance_tracking
-
 # Access performance data
 if monitor = Azu::CONFIG.performance_monitor
   stats = monitor.stats
@@ -2188,15 +1410,21 @@ end
 
 ## Configuration
 
-```crystal
-Azu.configure do |config|
-  config.port = 4000
-  config.host = "0.0.0.0"
+Settings are assigned on the configuration yielded by `configure`:
 
-  # Performance monitoring (only when enabled)
-  config.performance_enabled = true  # Default: false
-  config.performance_profiling_enabled = true  # Default: false
-  config.performance_memory_monitoring = true  # Default: false
+```crystal
+module MyApp
+  include Azu
+
+  configure do |config|
+    config.port = 4000
+    config.host = "0.0.0.0"
+
+    # Performance monitoring (only when enabled)
+    config.performance_enabled = true            # Default: false
+    config.performance_profiling_enabled = true  # Default: false
+    config.performance_memory_monitoring = true  # Default: false
+  end
 end
 ```
 
