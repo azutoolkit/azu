@@ -370,15 +370,15 @@ describe Azu::Templates do
       loader1.should eq(loader2)
     end
 
-    it "reuses loader when hot reload is disabled" do
+    it "recreates the loader when a path is added, even with hot reload disabled" do
       templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors")
       templates.hot_reload = false
 
       original_loader = templates.@loader
 
-      # Adding path should not recreate loader when hot reload is disabled
+      # The loader only searches the paths it was built with, so it must follow the path list
       templates.path = "/additional/path"
-      templates.@loader.should eq(original_loader)
+      templates.@loader.should_not eq(original_loader)
     end
 
     it "recreates loader when hot reload is enabled and path changes" do
@@ -398,6 +398,20 @@ describe Azu::Templates do
 
       # This should not raise an exception even if files don't exist
       templates.load("test_template.jinja")
+    end
+
+    it "loads templates from a path added after construction, with hot reload off (production)" do
+      dir = File.tempname("azu_templates")
+      Dir.mkdir_p(dir)
+      File.write(File.join(dir, "added.jinja"), "added later")
+      begin
+        templates = Azu::Templates.new(["spec/test_templates"], "spec/test_errors", hot_reload: false)
+        templates.path = dir
+
+        templates.load("added.jinja").render.should eq "added later"
+      ensure
+        FileUtils.rm_rf(dir)
+      end
     end
 
     it "applies helpers once, and again only after the registry changes" do

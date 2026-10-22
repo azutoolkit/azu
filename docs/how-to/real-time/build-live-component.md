@@ -1,5 +1,10 @@
 # How to Build a Live Component
 
+> **Outdated:** this page describes the previous `Azu::Component` live API (`on_event`, `mount`,
+> `refresh`, `live-*`), which has been removed. See
+> [Spark Live Views](../../explanation/spark-live-views.md) for the current API and the list of breaking changes.
+
+
 This guide shows you how to create real-time UI components that update automatically.
 
 ## Basic Live Component

@@ -1,0 +1,159 @@
+require "../../spec_helper"
+require "../../support/integration_helpers"
+
+include IntegrationHelpers
+
+# Database tab fed by `Azu::QueryStore` (what `azu/cql` records) instead of CQL's monitor.
+private class StubAdapter < Azu::DatabaseAdapter
+  getter executed = [] of String
+
+  def read_only(sql : String, limit : Int32) : {Array(String), Array(Array(String?))}
+    @executed << sql
+    {["one"], [["1"] of String?, [nil] of String?]}
+  end
+
+  def pool : Azu::PoolSnapshot?
+    Azu::PoolSnapshot.new(open: 3, idle: 1, in_flight: 0, max: 10)
+  end
+
+  def dialect : String
+    "sqlite"
+  end
+end
+
+private def dashboard_page : String
+  context, io = create_context("GET", "/dev-dashboard")
+  Azu::Handler::DevDashboard.new.call(context)
+  context.response.close
+  io.rewind
+  HTTP::Client::Response.from_io(io).body
+end
+
+private def post_sql(handler, body : String, remote = "127.0.0.1", headers = HTTP::Headers{"X-Requested-With" => "azu-dashboard"})
+  context, io = create_context_with_remote_addr("POST", "/dev-dashboard/sql", remote, headers)
+  context.request.body = IO::Memory.new(body)
+  handler.call(context)
+  {context, get_response_body(context, io)}
+end
+
+private def add_query(store : Azu::QueryStore, sql : String, ms = 1.0, request = "req-1", tx : Int64? = nil, error : String? = nil)
+  store.record_query(sql, [] of String, ms, 1_i64, error, "src/app.cr:10", tx, request, "UsersEndpoint", "GET", "/users", 1_u64)
+end
+
+describe "Dev dashboard Database tab backed by the query store" do
+  store = Azu::QueryStore.instance
+
+  before_each do
+    store.clear
+    store.enabled = false
+    store.adapter = nil
+  end
+
+  after_all do
+    store.clear
+    store.enabled = false
+    store.adapter = nil
+  end
+
+  it "keeps the n/a state until an ORM integration records queries" do
+    dashboard_page.should contain("CQL performance monitoring is not active")
+  end
+
+  it "shows recorded queries with their request, call site and timing badge" do
+    store.enabled = true
+    add_query(store, "SELECT * FROM users WHERE id = 1", ms: 2.0)
+    add_query(store, "SELECT pg_sleep(1)", ms: 120.0)
+    add_query(store, "INSERT INTO nope", ms: 1.0, error: "relation does not exist")
+
+    html = dashboard_page
+    html.should_not contain("CQL performance monitoring is not active")
+    html.should contain("Recent queries")
+    html.should contain("SELECT * FROM users WHERE id = 1")
+    html.should contain("GET /users")
+    html.should contain("UsersEndpoint")
+    html.should contain("src/app.cr:10")
+    html.should contain("relation does not exist")
+    html.should contain("Slow queries")
+    html.should contain("SELECT pg_sleep(1)")
+  end
+
+  it "reports a repeated query shape within one request as an N+1 with a preload hint" do
+    store.enabled = true
+    4.times { |i| add_query(store, "SELECT * FROM posts WHERE posts.user_id = #{i}") }
+
+    html = dashboard_page
+    html.should contain("N+1 analysis")
+    html.should contain("4x SELECT * FROM posts WHERE posts.user_id = ?")
+    html.should contain("UsersEndpoint at src/app.cr:10")
+    html.should contain("preload(:posts)")
+  end
+
+  it "lists transactions and pool usage" do
+    store.enabled = true
+    store.adapter = StubAdapter.new
+    store.record_transaction_begin(5_i64, false, "req-1", "UsersEndpoint")
+    add_query(store, "UPDATE users SET name = 'x'", tx: 5_i64)
+    store.record_transaction_end(5_i64, false, 4.2)
+
+    html = dashboard_page
+    html.should contain("#5")
+    html.should contain("rolled back")
+    html.should contain("Connection pool")
+    html.should contain("role='meter'")
+  end
+
+  describe "SQL playground" do
+    handler = Azu::Handler::DevDashboard.new
+
+    it "is offered only in development with a database attached" do
+      store.enabled = true
+      with_azu_env(Azu::Environment::Development) { dashboard_page.should_not contain("id='azd-sql'") }
+      store.adapter = StubAdapter.new
+      with_azu_env(Azu::Environment::Development) { dashboard_page.should contain("id='azd-sql'") }
+      with_azu_env(Azu::Environment::Production) { dashboard_page.should_not contain("id='azd-sql'") }
+    end
+
+    it "runs read-only statements and wraps explain" do
+      adapter = StubAdapter.new
+      store.adapter = adapter
+      with_azu_env(Azu::Environment::Development) do
+        context, body = post_sql(handler, %({"sql":"SELECT 1","mode":"run"}))
+        context.response.status_code.should eq 200
+        result = JSON.parse(body)
+        result["columns"].as_a.map(&.as_s).should eq ["one"]
+        result["rows"].as_a.size.should eq 2
+
+        post_sql(handler, %({"sql":"SELECT 1","mode":"explain"}))
+        adapter.executed.should eq ["SELECT 1", "EXPLAIN QUERY PLAN SELECT 1"]
+      end
+    end
+
+    it "refuses writes, remote clients, missing headers, cross-origin posts and other environments" do
+      adapter = StubAdapter.new
+      store.adapter = adapter
+
+      with_azu_env(Azu::Environment::Development) do
+        post_sql(handler, %({"sql":"DELETE FROM users","mode":"run"}))[0].response.status_code.should eq 400
+        post_sql(handler, %({"sql":"INSERT INTO t VALUES (1)","mode":"explain"}))[0].response.status_code.should eq 400
+        post_sql(handler, %({"sql":"SELECT 1","mode":"run"}), remote: "10.0.0.5")[0].response.status_code.should eq 404
+        post_sql(handler, %({"sql":"SELECT 1","mode":"run"}), headers: HTTP::Headers.new)[0].response.status_code.should eq 403
+        cross = HTTP::Headers{"X-Requested-With" => "azu-dashboard", "Origin" => "http://evil.test", "Host" => "localhost:4000"}
+        post_sql(handler, %({"sql":"SELECT 1"}), headers: cross)[0].response.status_code.should eq 403
+        post_sql(handler, "not json")[0].response.status_code.should eq 400
+      end
+
+      with_azu_env(Azu::Environment::Production) do
+        post_sql(handler, %({"sql":"SELECT 1","mode":"run"}))[0].response.status_code.should eq 404
+      end
+      adapter.executed.should be_empty
+    end
+  end
+
+  it "clears recorded queries with ?clear=true" do
+    store.enabled = true
+    add_query(store, "SELECT 1")
+    context, _io = create_context("GET", "/dev-dashboard?clear=true")
+    Azu::Handler::DevDashboard.new.call(context)
+    store.queries.should be_empty
+  end
+end

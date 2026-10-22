@@ -6,7 +6,7 @@ module ExampleApp
     def call : HtmlPage
       status 201
       content_type "text/html"
-      HtmlPage.new example_req.name
+      HtmlPage.new(example_req.name, context, "LoadEndpoint")
     end
   end
 end

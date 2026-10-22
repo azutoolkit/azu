@@ -1,0 +1,40 @@
+{% extends "layout.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}API · {{ t('app.name') }}{% endblock %}
+
+{% block content %}
+{{ ui.page_head("JSON API", lead="Every endpoint is a small struct with a typed request and response. GET routes have a link you can try right now.", eyebrow="Endpoints") }}
+
+<div class="table-wrap">
+  <table class="table table--stack">
+    <caption class="sr-only">Available endpoints</caption>
+    <thead><tr><th scope="col">Method</th><th scope="col">Path</th><th scope="col">What it does</th><th scope="col"><span class="sr-only">Try it</span></th></tr></thead>
+    <tbody>
+      {% for route in routes %}
+      <tr>
+        <td data-label="Method">
+          {% if route.method == "GET" %}{{ ui.badge("GET", kind="good") }}
+          {% elif route.method == "POST" %}{{ ui.badge("POST", kind="info") }}
+          {% else %}{{ ui.badge(route.method, kind="bad") }}{% endif %}
+        </td>
+        <td data-label="Path"><code>{{ route.path }}</code></td>
+        <td data-label="What it does">{{ route.note }}</td>
+        <td data-label="Try it">{% if route.href != "" %}<a class="btn btn--secondary btn--sm" href="{{ route.href }}">Try it<span class="sr-only">: {{ route.path }}</span></a>{% else %}<span class="muted">See below</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<section class="stack" style="margin-top: var(--s-6)" aria-labelledby="curl-title">
+  <h2 id="curl-title">From the command line</h2>
+  <pre class="code" tabindex="0">curl http://localhost:4000/stats/cache
+curl -X POST http://localhost:4000/counter/increment/hits
+curl -X POST http://localhost:4000/json/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"users":["ada","grace"]}'
+curl -X DELETE http://localhost:4000/cache/clear</pre>
+  <p class="muted">The JSON routes skip CSRF checks. The form routes on the other pages are protected with a token.</p>
+</section>
+{% endblock %}

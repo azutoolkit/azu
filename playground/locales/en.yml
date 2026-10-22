@@ -1,0 +1,59 @@
+en:
+  app:
+    name: "Azu Playground"
+    tagline: "A small, friendly tour of what the Azu web framework can do: forms, real-time channels, caching and typed APIs."
+  nav:
+    label: "Primary"
+    skip: "Skip to content"
+    home: "Home"
+    hello: "Hello"
+    users: "People"
+    realtime: "Live"
+    cache: "Cache"
+    api: "API"
+    errors: "Errors"
+  flash:
+    success: "Done. "
+    problem: "Heads up. "
+    dismiss: "Dismiss message"
+  dialog:
+    cancel: "Keep it"
+    confirm: "Yes, continue"
+  footer:
+    built: "Built for fun with"
+    dashboard: "Dev dashboard"
+  home:
+    eyebrow: "Welcome"
+    title_before: "Build fast. Stay "
+    title_em: "type-safe."
+    lead: "This playground is a living example app. Every page below is served by an Azu endpoint, validated by a typed request and rendered by a Crinja template. Poke around."
+    start: "Meet the people"
+    try_live: "Try the live channel"
+  hello:
+    title: "Say hello"
+    lead: "A typed request, a response object and one template. Tell us your name and the page greets you."
+    label: "Your name"
+    placeholder: "Ada Lovelace"
+    submit: "Greet me"
+    required: "Please tell us your name so we can greet you."
+  users:
+    title: "People"
+    lead: "A real SQLite-backed list with a validated form, flash messages and a confirm dialog before anything is removed."
+    add_title: "Add a person"
+    name: "Full name"
+    email: "Email address"
+    submit: "Add person"
+    empty_title: "Nobody here yet"
+    empty_body: "Add the first person with the form and they will show up in this list straight away."
+    created: "%{name} was added."
+    deleted: "%{name} was removed."
+    missing: "That person is already gone."
+    name_invalid: "Enter a name between 2 and 60 characters."
+    email_invalid: "Enter a valid email address, like ada@example.com."
+    fix_below: "Please fix the highlighted fields"
+  realtime:
+    title: "Live channel"
+    lead: "A WebSocket channel at /hi. Open this page in two tabs and watch the connected count change, then say Marco."
+  cache:
+    title: "Cache"
+    lead: "Counters and a deliberately slow report, both backed by the Azu cache."

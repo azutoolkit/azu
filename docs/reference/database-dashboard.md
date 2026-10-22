@@ -1,7 +1,12 @@
-# Database & Queries dashboard (CQL integration)
+# Database dashboard (CQL integration)
 
-The dev dashboard has a **Database & Queries** tab that shows every SQL statement an Azu app runs,
-with N+1 detection, transaction state, pool health and a read-only SQL playground.
+The dev dashboard's **Database** tab shows every SQL statement an Azu app runs: KPIs, N+1 analysis,
+recent queries tagged with the request that ran them, slow queries, query patterns, transactions,
+connection pool usage and a read-only SQL playground.
+
+Without an integration the tab falls back to CQL's own performance monitor (when `cql` is required
+before `azu`), or shows an "n/a" card. Once `azu/cql` is installed, the statements recorded in
+`Azu::QueryStore` take precedence.
 
 Azu core does not depend on CQL. The integration is opt-in:
 
@@ -26,8 +31,10 @@ end
 | `Azu::CQL::Instrumentor` | `src/azu/cql/instrumentor.cr` | subscribes to the events and records them in `Azu::QueryStore` |
 | `Azu::RequestContext` | `src/azu/request_context.cr` | fiber-keyed current request (id, endpoint, method, path); set by `Handler::RequestId` and `Endpoint#call` |
 | `Azu::QueryStore` | `src/azu/query_store.cr` | bounded store (2000 queries), N+1 analysis, transactions, pool snapshot |
-| `DevDashboard::DatabaseTab` | `src/azu/components/dev_dashboard/database_tab.cr` | the tab (HTML skeleton, CSS, JS) and its JSON payload |
-| `Handler::DevDashboard` | `src/azu/handler/dev_dashboard.cr` | serves `GET {path}/queries.json?since=<id>` and `POST {path}/sql` |
+| `Dashboard::DatabaseData` | `src/azu/components/dev_dashboard/database_data.cr` | numbers for the tab: from `QueryStore` when an integration is installed, else from CQL's monitor |
+| `Dashboard::DatabaseSection` | `src/azu/components/dev_dashboard/database_section.cr` | server-rendered cards (queries, transactions, pool, playground) |
+| `dashboard.js` | `src/azu/components/dev_dashboard/dashboard.js` | the playground's `fetch`; the tab itself refreshes with the dashboard's soft refresh |
+| `Handler::DevDashboard` | `src/azu/handler/dev_dashboard.cr` | serves `POST {path}/sql` for the playground |
 
 Other ORMs can feed the same dashboard by calling `Azu::QueryStore.instance.record_query` and setting an `Azu::DatabaseAdapter`.
 
@@ -50,7 +57,7 @@ runs at least `n_plus_one_threshold` times is reported with its count, total tim
 
 ## SQL playground
 
-Available only when the environment is `Development`, the client is on loopback, a database is attached and `database.playground` is on.
+The card appears only when the environment is `Development`, a database is attached and `database.playground` is on; the endpoint additionally requires a loopback client.
 Requests must be same-origin POSTs with `X-Requested-With: azu-dashboard`. One `SELECT` / `WITH` / `EXPLAIN` statement is accepted
 (no comments, no writes), runs in a transaction that is always rolled back, and returns at most 200 rows.
 

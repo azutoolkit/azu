@@ -14,12 +14,17 @@ require "./azu/request_context"
 require "./azu/development_tools"
 require "./azu/performance_reporter"
 require "./azu/*"
+require "./azu/channel/**"
 require "./azu/components/**"
 require "./azu/handler/**"
 require "./azu/helpers/**"
+require "./azu/pub_sub/**"
+require "./azu/spark/**"
 require "./azu/templates/**"
 
-# Not globbed on purpose: `azu/cql`, `azu/database` and `azu/model` are opt-in and need the cql shard.
+# Not globbed on purpose: `azu/cql` (and `azu/database`, `azu/model`, `azu/migrations`) are opt-in
+# and need the cql shard. Add every new core directory above; spec/azu/opt_in_integrations_spec.cr
+# fails when one is missing.
 
 module Azu
   alias Validator = Schema::Validator
@@ -90,6 +95,13 @@ module Azu
     current_config.cache
   end
 
+  # Stops the long lived parts of the framework: closes Spark connections and the PubSub backend.
+  # Called by `start` once the server stops; safe to call again.
+  def self.shutdown : Nil
+    Spark.shutdown
+    PubSub.shutdown
+  end
+
   macro included
     def self.configure(&)
       with CONFIG yield CONFIG
@@ -108,6 +120,7 @@ module Azu
     end
 
     def self.start(handlers : Array(HTTP::Handler))
+      config.handlers = handlers.map(&.as(HTTP::Handler))
       server = if handlers.empty?
                  HTTP::Server.new { |context| config.router.process(context) }
                else
@@ -120,11 +133,13 @@ module Azu
         server.bind_tcp config.host, config.port, config.port_reuse?
       end
 
-      Signal::INT.trap do
-        Signal::INT.reset
-        log.info { "Shutting down server" }
-        server.close
-      end
+      {% for signal in [:INT, :TERM] %}
+        Signal::{{ signal.id }}.trap do
+          Signal::{{ signal.id }}.reset
+          log.info { "Shutting down server" }
+          server.close
+        end
+      {% end %}
 
       loop do
         begin
@@ -140,6 +155,8 @@ module Azu
           end
         end
       end
+
+      Azu.shutdown
     end
 
     private def self.server_info(time = Time.instant)
