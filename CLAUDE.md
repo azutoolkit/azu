@@ -263,10 +263,10 @@ end
 
 ### Adding a Component
 
-1. Create class including `Azu::Component`
-2. Implement `content` method
-3. Register event handlers with `on_event`
-4. Add to Spark system for real-time updates
+1. Static markup: create a class including `Azu::Component` and implement `content`
+2. Live views: inherit `Azu::Spark::Component`, declare `prop`/`state`, implement `render`
+3. Expose client events with `event def` and bind them with `spark_click` etc.
+4. Render with `Azu::Spark.render` (see `docs/explanation/spark-live-views.md`)
 
 ## Template Helpers
 

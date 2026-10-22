@@ -1,5 +1,10 @@
 # Understanding Components
 
+> **Outdated:** this page describes the previous `Azu::Component` live API (`on_event`, `mount`,
+> `refresh`, `live-*`), which has been removed. See
+> [Spark Live Views](spark-live-views.md) for the current API and the list of breaking changes.
+
+
 This document explains Azu's live component system, which enables real-time, stateful UI updates without writing JavaScript.
 
 ## What are Components?
