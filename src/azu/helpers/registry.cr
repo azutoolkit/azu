@@ -26,7 +26,6 @@ module Azu
       @@functions = {} of Symbol => Crinja::Callable
       @@tests = {} of Symbol => Crinja::Callable
       @@globals = {} of Symbol => Crinja::Value
-      @@applied_to = Set(UInt64).new
       @@revision = 0_u64
       @@mutex = Mutex.new
 
@@ -117,15 +116,6 @@ module Azu
           @@globals.each do |name, value|
             crinja.context[name.to_s] = value
           end
-
-          @@applied_to.add(crinja.object_id)
-        end
-      end
-
-      # Check if a specific Crinja instance has had helpers applied.
-      def self.applied_to?(crinja : Crinja) : Bool
-        @@mutex.synchronize do
-          @@applied_to.includes?(crinja.object_id)
         end
       end
 
@@ -170,7 +160,6 @@ module Azu
           @@functions.clear
           @@tests.clear
           @@globals.clear
-          @@applied_to.clear
           @@revision += 1
         end
       end
