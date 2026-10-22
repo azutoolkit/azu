@@ -30,7 +30,7 @@ struct HelloResponse
 end
 
 # A type-safe endpoint: Endpoint(RequestType, ResponseType)
-class HelloEndpoint
+struct HelloEndpoint
   include Azu::Endpoint(Azu::Request, HelloResponse)
 
   get "/hello/:name"
@@ -54,9 +54,6 @@ crystal run hello.cr
 curl http://localhost:4000/hello/Crystal
 # {"message":"Hello, Crystal!"}
 ```
-
-Declare endpoints as `class`es: a `struct` endpoint with handlers in front of it crashed with a
-segmentation fault when this example was tested.
 
 ## Key Features
 
@@ -479,13 +476,12 @@ end
 
 Endpoints connect a request type to a response type. Path parameters come from `params`, and the
 validated request object is available through a method named after its type (`user_request` for
-`UserRequest`). Declare endpoints that run behind a handler chain as `class`es: a `struct` endpoint
-with a handler in front of it crashed with a segmentation fault when this guide was tested.
+`UserRequest`).
 
 <!-- skip -->
 ```crystal
 # src/endpoints/user_endpoints.cr
-class CreateUserEndpoint
+struct CreateUserEndpoint
   include Azu::Endpoint(UserRequest, UserResponse)
 
   post "/api/users"
@@ -498,7 +494,7 @@ class CreateUserEndpoint
   end
 end
 
-class GetUserEndpoint
+struct GetUserEndpoint
   include Azu::Endpoint(Azu::Request, UserResponse)
 
   get "/api/users/:id"
@@ -510,7 +506,7 @@ class GetUserEndpoint
   end
 end
 
-class SearchUsersEndpoint
+struct SearchUsersEndpoint
   include Azu::Endpoint(SearchRequest, UserListResponse)
 
   get "/api/users"
@@ -523,7 +519,7 @@ class SearchUsersEndpoint
   end
 end
 
-class UserProfilePageEndpoint
+struct UserProfilePageEndpoint
   include Azu::Endpoint(Azu::Request, UserPageResponse)
 
   get "/users/:id"
@@ -727,7 +723,7 @@ end
 
 <!-- skip -->
 ```crystal
-class CreateUserEndpoint
+struct CreateUserEndpoint
   include Azu::Endpoint(UserRequest, UserResponse)
 
   post "/api/users"
@@ -932,7 +928,7 @@ struct Registered
   end
 end
 
-class RegisterEndpoint
+struct RegisterEndpoint
   include Azu::Endpoint(SignupRequest, Registered)
 
   post "/signup"
@@ -987,7 +983,7 @@ struct UploadResponse
   end
 end
 
-class UploadEndpoint
+struct UploadEndpoint
   include Azu::Endpoint(Azu::Request, UploadResponse)
 
   post "/upload"
@@ -1151,7 +1147,7 @@ struct UserResponse
   end
 end
 
-class UserEndpoint
+struct UserEndpoint
   include Azu::Endpoint(Azu::Request, UserResponse)
 
   get "/api/users/:id"
@@ -1199,7 +1195,7 @@ struct GreetingResponse
   end
 end
 
-class GreetEndpoint
+struct GreetEndpoint
   include Azu::Endpoint(Azu::Request, GreetingResponse)
 
   get "/greet/:name"

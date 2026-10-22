@@ -22,7 +22,7 @@ module Azu
   # ```
   #
   module Endpoint(Request, Response)
-    include HTTP::Handler
+    include Routable
 
     @context : HTTP::Server::Context? = nil
     @params : Params(Request)? = nil
