@@ -270,7 +270,7 @@ describe Azu::Handler::Logger do
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test?param=value&other=αβγ")
+      context, io = create_context("GET", "/test?param=value&other=%CE%B1%CE%B2%CE%B3")
       handler.call(context)
 
       verify.call

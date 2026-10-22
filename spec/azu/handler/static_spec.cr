@@ -237,14 +237,12 @@ describe Azu::Handler::Static do
       with_temp_file("content", "test.txt") do |dir, _|
         handler = Azu::Handler::Static.new(dir, fallthrough: false)
 
-        # Crystal's HTTP::Request strips null bytes from paths for security
-        # "/test\0.txt" becomes "/test", which won't match "test.txt"
-        context, io = create_context("GET", "/test\0.txt")
+        # A client can only send a null byte percent-encoded; the handler must reject it
+        # rather than truncate the path at the NUL and serve "test.txt"
+        context, io = create_context("GET", "/test%00.txt")
         handler.call(context)
 
-        # Returns 404 because "/test" doesn't exist (only "test.txt" does)
-        # This effectively prevents null byte injection attacks
-        context.response.status_code.should eq(404)
+        context.response.status_code.should eq(400)
       end
     end
 
