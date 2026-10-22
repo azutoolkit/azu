@@ -116,6 +116,7 @@
 
 ### Database
 
+- [Database Dashboard](reference/database-dashboard.md)
 - [CQL API](reference/database/cql-api.md)
 - [Validations](reference/database/validations.md)
 - [Query Methods](reference/database/query-methods.md)

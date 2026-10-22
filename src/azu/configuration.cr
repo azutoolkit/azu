@@ -235,11 +235,16 @@ module Azu
     end
   end
 
-  # Configuration for file upload handling
   # Settings for database instrumentation and the dev dashboard's database tab.
+  #
+  # The connection itself is CQL's: set the URL and pool with `Azu::CQL.configure { |c| c.db = ... }`.
   class DatabaseConfiguration
-    # Connection URI used by `Azu::CQL.setup` when no schema is passed.
+    # Deprecated fallback for `Azu::CQL.schema` when `CQL.config.db` was never set (defaults to
+    # `DATABASE_URL`). Prefer `Azu::CQL.configure { |c| c.db = ENV["DATABASE_URL"] }`.
     property uri : String? = ENV["DATABASE_URL"]?
+    # Open the connection on the first query instead of when the schema is created, so the app
+    # (and tasks that only load it) boots without a database. `Azu::CQL.verify!` fails fast.
+    property? lazy_connect : Bool = ENV.fetch("AZU_DB_LAZY", "true") == "true"
     # Record queries/transactions into `Azu::QueryStore`.
     property? instrument : Bool = ENV.fetch("AZU_DB_INSTRUMENT", "true") == "true"
     # Same query shape this many times in one request raises an N+1 alert.
@@ -250,6 +255,7 @@ module Azu
     property? playground : Bool = ENV.fetch("AZU_DB_PLAYGROUND", "true") == "true"
   end
 
+  # Configuration for file upload handling
   class UploadConfiguration
     property max_file_size : UInt64 = ENV.fetch("UPLOAD_MAX_FILE_SIZE", "10485760").to_u64 # 10MB default
     property temp_dir : String = ENV.fetch("UPLOAD_TEMP_DIR", Dir.tempdir)

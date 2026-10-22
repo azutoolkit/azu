@@ -12,7 +12,7 @@ module Azu
           db = provider.database_stats
           unless db.active
             card "Database monitoring", "database" do
-              empty_state "n/a", "CQL performance monitoring is not active. Require cql before azu and enable CQL::Performance to see queries, slow statements and N+1 patterns here.", "database"
+              empty_state "n/a", "CQL performance monitoring is not active. Require \"azu/cql\" and call Azu::CQL.configure to collect every query through CQL::Events and see queries, slow statements and N+1 patterns here.", "database"
             end
             return
           end
@@ -72,7 +72,7 @@ module Azu
           transactions = provider.database_transactions
           card "Transactions", "tracing", meta: "open, committed or rolled back" do
             if transactions.empty?
-              empty_state "No transactions yet", "Wrap writes in Model.transaction to see them here.", "database"
+              empty_state "No transactions yet", "Wrap writes in Azu::CQL.transaction (or schema.transaction) to see them here.", "database"
             else
               data_table "Transactions", ["Transaction", "State", "Queries", "Duration", "Request"] do
                 transactions.each do |transaction|
@@ -110,7 +110,7 @@ module Azu
                 fact "Limit", pool.max > 0 ? pool.max.to_s : "unbounded"
               end
             else
-              empty_state "No pool information", "Attach a schema with Azu::CQL.attach or Azu::Database to see pool usage.", "database"
+              empty_state "No pool information", "Define the schema with Azu::CQL.schema, or attach it with Azu::CQL.attach, to see pool usage.", "database"
             end
           end
         end

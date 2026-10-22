@@ -22,3 +22,6 @@ development_dependencies:
     branch: claude/elegant-euler-3m1kyy
   sqlite3:
     github: crystal-lang/crystal-sqlite3
+  pg:
+    github: will/crystal-pg
+    version: ~> 0.29.0
