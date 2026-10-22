@@ -21,6 +21,7 @@ module ExampleApp
 
     def call(context : HTTP::Server::Context)
       call_next(context)
+      friendly_not_found(context)
     rescue ex : Azu::Response::Error
       raise ex unless wants_html?(context)
       render(context, ex.status_code, ex.detail, ex.errors)
@@ -29,6 +30,16 @@ module ExampleApp
     rescue ex : Exception
       raise ex if Azu::CONFIG.env.development? || !wants_html?(context)
       render(context, 500, "An unexpected error occurred. It has been logged.", [] of String)
+    end
+
+    # The router answers an unknown path by writing its own error instead of raising one.
+    # Nothing has been sent yet at this point, so the response can be reset and replaced.
+    private def friendly_not_found(context : HTTP::Server::Context) : Nil
+      return unless context.response.status_code == 404 && wants_html?(context)
+      context.response.reset
+      render(context, 404, "Nothing lives at #{context.request.path}. It may have moved, or the link may be mistyped.", [] of String)
+    rescue IO::Error | IO::EOFError
+      # Headers were already sent; keep what the client got.
     end
 
     private def wants_html?(context : HTTP::Server::Context) : Bool
