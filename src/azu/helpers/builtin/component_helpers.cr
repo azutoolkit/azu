@@ -12,13 +12,19 @@ module Azu
       # <body>
       #   {{ render_component("counter", initial_count=0) }}
       #
-      #   <button {{ "increment" | live_click }}>+</button>
-      #   <input type="text" {{ "search" | live_input }} />
+      #   <button {{ "increment" | spark_click }}>+</button>
+      #   <input type="text" {{ "search" | spark_input }} />
+      #   <form {{ "save" | spark_submit }}>...</form>
       # </body>
       # ```
       module ComponentHelpers
         def self.register : Nil
           register_spark_tag
+          register_spark_click
+          register_spark_change
+          register_spark_input
+          register_spark_submit
+          register_spark_value
           register_live_click
           register_live_change
           register_live_input
@@ -29,99 +35,28 @@ module Azu
         private def self.register_spark_tag : Nil
           func = Crinja.function({
             path:   "/spark",
-            jquery: true,
+            jquery: false,
           }, :spark_tag) do
-            path = arguments["path"].to_s
-            include_jquery = arguments["jquery"].truthy?
-
-            html = String.build do |io|
-              # Include jQuery if requested (needed for Spark)
-              if include_jquery
-                io << %Q(<script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>\n)
-              end
-
-              # Spark JavaScript
-              io << <<-JS
-              <script type="module">
-              import { h, render, hydrate } from 'https://unpkg.com/preact?module';
-              import htm from 'https://unpkg.com/htm?module';
-
-              const html = htm.bind(h);
-
-              var url = new URL(location.href);
-              url.protocol = url.protocol.replace('http', 'ws');
-              url.pathname = '#{path}';
-              var live_view = new WebSocket(url);
-
-              const sparkRenderEvent = new CustomEvent('spark-render');
-
-              live_view.addEventListener('open', (event) => {
-                document.querySelectorAll('[data-spark-view]')
-                  .forEach((view) => {
-                    var node = html(view.innerHTML)[0];
-                    hydrate(node, view.children[0]);
-
-                    live_view.send(JSON.stringify({
-                      subscribe: view.getAttribute('data-spark-view'),
-                    }))
-                  });
-              });
-
-              live_view.addEventListener('message', (event) => {
-                var html = htm.bind(h);
-                var data = event.data;
-                var { id, content } = JSON.parse(data);
-
-                document.querySelectorAll(`[data-spark-view="${id}"]`)
-                  .forEach((view) => {
-                    var div = window.$('<div>' + content + '</div>');
-                    view.children[0].innerHTML = div[0].innerHTML
-                    render(div[0], view, view.children[0]);
-
-                    document.dispatchEvent(sparkRenderEvent);
-                  });
-              });
-
-              live_view.addEventListener('close', (event) => {
-                // Connection closed
-              });
-
-              [
-                'click',
-                'change',
-                'input',
-              ].forEach((event_type) => {
-                document.addEventListener(event_type, (event) => {
-                  var element = event.target;
-                  var event_name = element.getAttribute('live-' + event_type);
-
-                  if (typeof event_name === 'string') {
-                    var channel = event
-                      .target
-                      .closest('[data-spark-view]')
-                      .getAttribute('data-spark-view')
-
-                    var data = {};
-                    switch (element.type) {
-                      case "checkbox": data = { value: element.checked }; break;
-                      default: data = { value: element.getAttribute('live-value') || element.value }; break;
-                    }
-
-                    live_view.send(JSON.stringify({
-                      event: event_name,
-                      data: JSON.stringify(data),
-                      channel: channel,
-                    }));
-                  }
-                });
-              });
-              </script>
-              JS
-            end
-
-            Crinja::SafeString.new(html)
+            # `jquery` is accepted for old templates; the client no longer needs it.
+            Crinja::SafeString.new(Azu::Spark.javascript_tag(arguments["path"].to_s))
           end
           Registry.register_function(:spark_tag, func)
+        end
+
+        {% for name in %w(click change input submit) %}
+          private def self.register_spark_{{name.id}} : Nil
+            filter = Crinja.filter(:spark_{{name.id}}) do
+              Crinja::SafeString.new(%Q(spark-{{name.id}}="#{Util.escape_html(target.to_s)}"))
+            end
+            Registry.register_filter(:spark_{{name.id}}, filter)
+          end
+        {% end %}
+
+        private def self.register_spark_value : Nil
+          filter = Crinja.filter(:spark_value) do
+            Crinja::SafeString.new(%Q(spark-value="#{Util.escape_html(target.to_s)}"))
+          end
+          Registry.register_filter(:spark_value, filter)
         end
 
         private def self.register_live_click : Nil

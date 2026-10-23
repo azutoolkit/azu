@@ -1,3 +1,4 @@
+require "html"
 require "uuid"
 
 module Azu
@@ -8,8 +9,63 @@ module Azu
     @pool = {} of String => Array(Component)
     @pool_mutex = Mutex.new
     @max_pool_size : Int32 = 50
+    @topics = {} of String => Set(String)
+    @topics_mutex = Mutex.new
 
     def initialize(@max_pool_size : Int32 = 50)
+    end
+
+    # Adds the component *id* to *topic*.
+    def subscribe(topic : String, id : String) : Nil
+      @topics_mutex.synchronize do
+        (@topics[topic] ||= Set(String).new) << id
+      end
+    end
+
+    # Removes the component *id* from *topic*.
+    def unsubscribe(topic : String, id : String) : Nil
+      @topics_mutex.synchronize do
+        if ids = @topics[topic]?
+          ids.delete(id)
+          @topics.delete(topic) if ids.empty?
+        end
+      end
+    end
+
+    # Removes the component *id* from every topic.
+    def unsubscribe_all(id : String) : Nil
+      @topics_mutex.synchronize do
+        @topics.reject! do |_, ids|
+          ids.delete(id)
+          ids.empty?
+        end
+      end
+    end
+
+    # Sends *event* with *data* to every component subscribed to *topic*.
+    # Returns the number of components reached.
+    def publish(topic : String, event : String, data : String = "") : Int32
+      ids = @topics_mutex.synchronize { @topics[topic]?.try(&.to_a) || [] of String }
+      reached = 0
+      ids.each do |id|
+        if component = get(id)
+          component.on_event(event, data)
+          reached += 1
+        end
+      end
+      reached
+    end
+
+    # Unmounts and removes only the components in *ids*.
+    def cleanup(ids : Enumerable(String)) : Nil
+      removed = [] of Component
+      @mutex.synchronize do
+        ids.each { |id| @components.delete(id).try { |component| removed << component } }
+      end
+      removed.each do |component|
+        component.unmount
+        return_to_pool(component)
+      end
     end
 
     # Thread-safe component registration
@@ -144,89 +200,37 @@ module Azu
     # Instance-level registry for dependency injection
     @components : ComponentRegistry
 
+    # Components this socket subscribed to; only these are removed when it closes.
+    @subscribed = Set(String).new
+
+    # Sends *event* to every component subscribed to *topic* with `subscribe "topic"`;
+    # they handle it with `on :event`. Returns how many components were reached.
+    #
+    # ```
+    # Azu::Spark.broadcast("room:1", "message", "Hello!")
+    # ```
+    def self.broadcast(topic : String, event : String, data : String = "") : Int32
+      components.publish(topic, event, data)
+    end
+
     def initialize(socket : HTTP::WebSocket, @components : ComponentRegistry = Spark.components)
       super(socket)
     end
 
-    def self.javascript_tag
-      <<-JS
-      <script type="module">
-      import { h, render, hydrate } from 'https://unpkg.com/preact?module';
-      import htm from 'https://unpkg.com/htm?module';
+    # The client script as a `<script type="module">` tag (no dependencies). *path* is
+    # the route of the `Azu::Spark` channel, `/spark` by default.
+    #
+    # ```
+    # Azu::Spark.javascript_tag          # in a layout
+    # Azu::Spark.javascript_tag("/live") # when the channel is mounted elsewhere
+    # ```
+    def self.javascript_tag(path : String = "/spark") : String
+      %(<script type="module" data-spark-path="#{HTML.escape(path)}">\n#{javascript_source}\n</script>)
+    end
 
-      const html = htm.bind(h);
-
-      var url = new URL(location.href);
-      url.protocol = url.protocol.replace('http', 'ws');
-      url.pathname = '/spark';
-      var live_view = new WebSocket(url);
-
-      const sparkRenderEvent = new CustomEvent('spark-render');
-
-      live_view.addEventListener('open', (event) => {
-        // Hydrate client-side rendering
-        document.querySelectorAll('[data-spark-view]')
-          .forEach((view) => {
-            var node = html(view.innerHTML)[0];
-            hydrate(node, view.children[0]);
-
-            live_view.send(JSON.stringify({
-              subscribe: view.getAttribute('data-spark-view'),
-            }))
-          });
-      });
-
-      live_view.addEventListener('message', (event) => {
-        var html = htm.bind(h);
-        var data = event.data;
-        var { id, content } = JSON.parse(data);
-
-        document.querySelectorAll(`[data-spark-view="${id}"]`)
-          .forEach((view) => {
-            var div = window.$('<div>' + content + '</div>');
-            view.children[0].innerHTML = div[0].innerHTML
-            render(div[0], view, view.children[0]);
-
-            document.dispatchEvent(sparkRenderEvent);
-          });
-      });
-
-      live_view.addEventListener('close', (event) => {
-        // Do we need to do anything here?
-      });
-
-      [
-        'click',
-        'change',
-        'input',
-      ].forEach((event_type) => {
-        document.addEventListener(event_type, (event) => {
-          var element = event.target;
-          var event_name = element.getAttribute('live-' + event_type);
-
-          if (typeof event_name === 'string') {
-            var channel = event
-              .target
-              .closest('[data-spark-view]')
-              .getAttribute('data-spark-view')
-
-            var data = {};
-            switch (element.type) {
-              case "checkbox": data = { value: element.checked }; break;
-              // Are there others?
-              default: data = { value: element.getAttribute('live-value') || element.value }; break;
-            }
-
-            live_view.send(JSON.stringify({
-              event: event_name,
-              data: JSON.stringify(data),
-              channel: channel,
-            }));
-          }
-        });
-      });
-      </script>
-      JS
+    # The client script source (`js/azu-spark.js`), embedded at compile time.
+    def self.javascript_source : String
+      {{ read_file("#{__DIR__}/../../js/azu-spark.js") }}
     end
 
     private def self.gc_sweep
@@ -250,7 +254,8 @@ module Azu
     end
 
     def on_close(code : HTTP::WebSocket::CloseCode? = nil, message : String? = nil)
-      @components.cleanup_all
+      @components.cleanup(@subscribed)
+      @subscribed.clear
     end
 
     def on_message(message)
@@ -276,6 +281,7 @@ module Azu
 
     private def handle_subscribe_message(spark : String)
       if component = @components.get(spark)
+        @subscribed << spark
         component.connected = true
         component.socket = socket
         component.mount

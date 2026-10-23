@@ -367,3 +367,82 @@ describe Azu::Configuration do
     ran.should eq ["production", "on"]
   end
 end
+
+module Azu::TestClientSpec
+  class Hello < Azu::Endpoint
+    get "/tc/hello/:name"
+
+    params do
+      param :name, String, required: true
+      param :excited, Bool, default: false
+    end
+
+    def call
+      render({greeting: "Hello, #{params.name}#{params.excited ? "!" : "."}"})
+    end
+  end
+
+  class SignIn < Azu::Endpoint
+    post "/tc/sign_in"
+
+    params do
+      param :user, String, required: true
+    end
+
+    def call
+      session[:user] = params.user
+      redirect_to "/tc/me", :see_other, notice: "Signed in"
+    end
+  end
+
+  class Me < Azu::Endpoint
+    get "/tc/me"
+
+    def call
+      render({user: session[:user]?, notice: flash.notice})
+    end
+  end
+
+  class Boom < Azu::Endpoint
+    get "/tc/boom"
+
+    def call
+      raise Azu::Response::NotFound.new("/tc/boom")
+    end
+  end
+end
+
+describe Azu::Test::Client do
+  client = Azu::Test::Client.new
+
+  it "routes real requests with path and query params" do
+    response = client.get "/tc/hello/Ana", {excited: true}
+    response.status.should eq HTTP::Status::OK
+    response.json["greeting"].as_s.should eq "Hello, Ana!"
+  end
+
+  it "keeps cookies between requests (session and flash)" do
+    session = Azu::Test::Client.new
+    signed_in = session.post "/tc/sign_in", form: {user: "ana"}
+    signed_in.status.should eq HTTP::Status::SEE_OTHER
+    signed_in.location.should eq "/tc/me"
+
+    me = session.get "/tc/me"
+    me.json["user"].as_s.should eq "ana"
+    me.json["notice"].as_s.should eq "Signed in"
+
+    again = session.get "/tc/me"
+    again.json["notice"].raw.should be_nil
+  end
+
+  it "turns errors into responses through the Rescuer" do
+    client.get("/tc/boom").status.should eq HTTP::Status::NOT_FOUND
+    client.get("/tc/missing").status.should eq HTTP::Status::NOT_FOUND
+  end
+
+  it "reports validation errors as 422" do
+    response = Azu::Test::Client.new.post "/dsl/users", json: {email: "nope", name: "A"}
+    response.status.should eq HTTP::Status::UNPROCESSABLE_ENTITY
+    response.json["FieldErrors"]["email"][0].as_s.should eq "is invalid"
+  end
+end

@@ -183,22 +183,22 @@ describe Azu::Spark do
   end
 
   describe "connection close handling" do
-    it "unmounts all components on close" do
-      component1 = TestSparkComponent.new
-      component2 = TestSparkComponent.new
-      component1_id = component1.id
-      component2_id = component2.id
-
-      Azu::Spark.components.register(component1_id, component1)
-      Azu::Spark.components.register(component2_id, component2)
+    it "unmounts only the components this socket subscribed to" do
+      mine = TestSparkComponent.new
+      theirs = TestSparkComponent.new
+      Azu::Spark.components.register(mine.id, mine)
+      Azu::Spark.components.register(theirs.id, theirs)
 
       spark = Azu::Spark.new(MockWebSocket.new)
+      spark.on_message({subscribe: mine.id}.to_json)
+      mine.connected?.should be_true
 
       spark.on_close
 
-      # Components should be removed from the registry
-      Azu::Spark.components.get(component1_id).should be_nil
-      Azu::Spark.components.get(component2_id).should be_nil
+      # Another browser's component must survive this socket closing
+      Azu::Spark.components.get(mine.id).should be_nil
+      Azu::Spark.components.get(theirs.id).should eq(theirs)
+      Azu::Spark.components.delete(theirs.id)
     end
 
     it "handles close with code and message" do
