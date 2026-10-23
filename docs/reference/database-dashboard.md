@@ -2,7 +2,7 @@
 
 The dev dashboard's **Database** tab shows every SQL statement an Azu app runs: KPIs, N+1 analysis,
 recent queries tagged with the request that ran them, slow queries, query patterns, transactions,
-connection pool usage and a read-only SQL playground.
+connection pool usage and a read-only SQL playground. The dashboard itself comes with `require "azu/dev"`.
 
 The tab is fed through CQL's event framework only: `Azu::CQL::Instrumentor` subscribes to `CQL::Telemetry`
 (one query event per statement, one transaction event per begin/commit/rollback) and records them in
@@ -99,10 +99,10 @@ CQL's types are also reachable under the Azu namespace (`Azu::CQL::Schema`,
 | `Azu::CQL::Instrumentor` | `src/azu/cql/instrumentor.cr` | subscribes (as `azu.dashboard`) and records the events in `Azu::QueryStore` |
 | `Azu::RequestContext` | `src/azu/request_context.cr` | fiber-keyed current request (id, endpoint, method, path); set by `Handler::RequestId` and `Endpoint#call` |
 | `Azu::QueryStore` | `src/azu/query_store.cr` | bounded store (2000 queries), N+1 analysis, transactions, pool snapshot |
-| `Dashboard::DatabaseData` | `src/azu/components/dev_dashboard/database_data.cr` | numbers for the tab: from `QueryStore` when an integration is installed, else from CQL's monitor |
-| `Dashboard::DatabaseSection` | `src/azu/components/dev_dashboard/database_section.cr` | server-rendered cards (queries, transactions, pool, playground) |
-| `dashboard.js` | `src/azu/components/dev_dashboard/dashboard.js` | the playground's `fetch`; the tab itself refreshes with the dashboard's soft refresh |
-| `Handler::DevDashboard` | `src/azu/handler/dev_dashboard.cr` | serves `POST {path}/sql` for the playground |
+| `Dashboard::DatabaseData` | `src/azu/dev/dev_dashboard/database_data.cr` | numbers for the tab: from `QueryStore` when an integration is installed, else from CQL's monitor |
+| `Dashboard::DatabaseSection` | `src/azu/dev/dev_dashboard/database_section.cr` | server-rendered cards (queries, transactions, pool, playground) |
+| `dashboard.js` | `src/azu/dev/dev_dashboard/dashboard.js` | the playground's `fetch`; the tab itself refreshes with the dashboard's soft refresh |
+| `Handler::DevDashboard` | `src/azu/dev/dev_dashboard.cr` | serves `POST {path}/sql` for the playground |
 
 Other ORMs can feed the same dashboard by calling `Azu::QueryStore.instance.record_query` and setting an `Azu::DatabaseAdapter`.
 

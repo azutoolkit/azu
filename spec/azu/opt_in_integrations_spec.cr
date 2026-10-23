@@ -1,9 +1,11 @@
 require "../spec_helper"
+require "file_utils"
 
 # Azu core must stay usable without the cql shard: anything that needs it lives in
-# an opt-in directory that src/azu.cr does not glob.
+# an opt-in directory that src/azu.cr does not glob. `dev` (the dashboard and performance tooling)
+# is opt-in too, but needs no extra shard.
 describe "opt-in database integrations" do
-  opt_in_dirs = %w(cql)
+  opt_in_dirs = %w(cql dev)
 
   it "does not glob the whole azu directory" do
     File.read("src/azu.cr").should_not contain(%(require "./azu/**"))
@@ -33,5 +35,58 @@ describe "opt-in database integrations" do
       end
     end
     offenders.should be_empty
+  end
+end
+
+# Which dev tooling a program that requires `requires` ends up with, found by asking the compiler.
+private def loaded_dev_constants(requires : String, flags : Array(String) = [] of String) : Array(String)
+  dir = File.tempname("azu-dev")
+  Dir.mkdir_p(dir)
+  program = File.join(dir, "main.cr")
+  File.write(program, <<-CR)
+    #{requires}
+    {% begin %}
+      {% names = [] of String %}
+      {% for name in %w(PerformanceMetrics PerformanceReporter DevelopmentTools) %}
+        {% names << name if Azu.has_constant?(name) %}
+      {% end %}
+      {% for name in %w(DevDashboard PerformanceMonitor) %}
+        {% names << "Handler::\#{name.id}" if Azu::Handler.has_constant?(name) %}
+      {% end %}
+      {% names << "Configuration#development_tools" if Azu::Configuration.has_method?("development_tools") %}
+      {% puts "LOADED:" + names.join(",") %}
+    {% end %}
+    CR
+  search_path = [File.expand_path("../../src", __DIR__), File.expand_path("../../lib", __DIR__), `crystal env CRYSTAL_PATH`.strip].join(':')
+  output = IO::Memory.new
+  error = IO::Memory.new
+  status = Process.run("crystal", ["build", "--no-codegen", "--no-color", program, *flags], env: {"CRYSTAL_PATH" => search_path, "PERFORMANCE_MONITORING" => nil}, output: output, error: error)
+  fail "child program failed:\n#{error}" unless status.success?
+
+  line = output.to_s.lines.find(&.starts_with?("LOADED:")) || fail("no report in:\n#{output}")
+  line.lchop("LOADED:").split(',', remove_empty: true)
+ensure
+  FileUtils.rm_rf(dir) if dir
+end
+
+describe "opt-in development tooling" do
+  everything = %w(PerformanceMetrics PerformanceReporter DevelopmentTools Handler::DevDashboard Handler::PerformanceMonitor Configuration#development_tools)
+
+  it "is not loaded by `require \"azu\"`" do
+    next pending!("crystal is not installed") unless Process.find_executable("crystal")
+
+    loaded_dev_constants(%(require "azu")).should be_empty
+  end
+
+  it "is loaded by `require \"azu/dev\"`" do
+    next pending!("crystal is not installed") unless Process.find_executable("crystal")
+
+    loaded_dev_constants(%(require "azu"\nrequire "azu/dev")).sort.should eq everything.sort
+  end
+
+  it "is loaded by `require \"azu\"` when built with -Dperformance_monitoring" do
+    next pending!("crystal is not installed") unless Process.find_executable("crystal")
+
+    loaded_dev_constants(%(require "azu"), ["-Dperformance_monitoring"]).sort.should eq everything.sort
   end
 end

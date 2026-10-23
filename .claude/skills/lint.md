@@ -54,4 +54,4 @@ When this skill is invoked:
 
 Ameba is configured via `.ameba.yml` in the project root:
 - Max cyclomatic complexity: 10
-- Excluded files: performance_monitor, components, demo_reporting
+- Excluded files: dev/ (performance_monitor, performance_reporter, dev_dashboard_component), demo_reporting

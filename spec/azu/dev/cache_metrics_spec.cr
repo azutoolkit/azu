@@ -1,4 +1,5 @@
-require "../spec_helper"
+require "../../spec_helper"
+require "../../../src/azu/dev/dev"
 
 describe Azu::PerformanceMetrics do
   describe "cache metrics" do
@@ -177,70 +178,6 @@ describe Azu::PerformanceMetrics do
       cleared_stats = metrics.cache_stats
       cleared_stats.should be_empty
       metrics.recent_caches.should be_empty
-    end
-
-    describe "time_cache_operation helper" do
-      it "times and records operations automatically" do
-        metrics = Azu::PerformanceMetrics.new
-        result = Azu::PerformanceMetrics.time_cache_operation(
-          metrics, "helper:key", "get", "memory", key_size: 10
-        ) do
-          "cached_value"
-        end
-
-        result.should eq("cached_value")
-
-        recent = metrics.recent_caches(1)
-        recent.size.should eq(1)
-
-        metric = recent.first
-        metric.key.should eq("helper:key")
-        metric.operation.should eq("get")
-        metric.hit?.should be_true
-        metric.processing_time.should be > 0.0
-      end
-
-      it "records nil results as cache misses" do
-        metrics = Azu::PerformanceMetrics.new
-        result = Azu::PerformanceMetrics.time_cache_operation(
-          metrics, "miss:key", "get", "memory"
-        ) do
-          nil
-        end
-
-        result.should be_nil
-
-        recent = metrics.recent_caches(1)
-        metric = recent.first
-        metric.miss?.should be_true
-      end
-
-      it "records errors correctly via helper method" do
-        metrics = Azu::PerformanceMetrics.new
-
-        # Manually record an error first to verify that works
-        metrics.record_cache("manual:error", "get", "memory", 1.0, error: "Manual error")
-        manual_metric = metrics.recent_caches(1).first
-        manual_metric.error.should eq("Manual error")
-        manual_metric.successful?.should be_false
-
-        # Clear to test helper method
-        metrics.clear
-
-        expect_raises(Exception, "Test error") do
-          Azu::PerformanceMetrics.time_cache_operation(
-            metrics, "error:key", "get", "memory"
-          ) do
-            raise "Test error"
-          end
-        end
-
-        recent = metrics.recent_caches(1)
-        recent.size.should eq(1)
-        metric = recent.first
-        metric.error.should eq("Test error")
-        metric.successful?.should be_false
-      end
     end
   end
 end

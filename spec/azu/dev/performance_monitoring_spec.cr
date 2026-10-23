@@ -1,7 +1,5 @@
-require "../spec_helper"
-require "../../src/azu/performance_metrics"
-require "../../src/azu/development_tools"
-require "../../src/azu/handler/performance_monitor"
+require "../../spec_helper"
+require "../../../src/azu/dev/dev"
 
 describe Azu::PerformanceMetrics do
   describe "#record_request" do

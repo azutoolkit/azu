@@ -6,6 +6,7 @@
 #
 # Everything runs on a local SQLite file: no database server needed.
 require "../src/azu"
+require "../src/azu/dev"
 require "../src/azu/cql" # opt-in bridge: CQL queries -> dev dashboard
 require "sqlite3"
 

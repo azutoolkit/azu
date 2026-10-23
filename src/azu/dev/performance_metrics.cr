@@ -567,43 +567,6 @@ module Azu
       GC.stats.heap_size.to_i64
     end
 
-    # Helper method to time and record cache operations
-    def self.time_cache_operation(metrics : PerformanceMetrics, key : String,
-                                  operation : String, store_type : String,
-                                  key_size : Int32 = 0, value_size : Int32? = nil,
-                                  ttl : Time::Span? = nil, &)
-      start_time = Time.instant
-      error_message : String? = nil
-      hit : Bool? = nil
-      result = nil
-
-      begin
-        result = yield
-        # Determine hit/miss for get operations
-        if operation == "get"
-          hit = !result.nil?
-        end
-      rescue ex
-        error_message = ex.message || ex.class.name
-        raise ex
-      ensure
-        processing_time = (Time.instant - start_time).total_milliseconds
-        metrics.record_cache(
-          key: key,
-          operation: operation,
-          store_type: store_type,
-          processing_time: processing_time,
-          hit: hit,
-          key_size: key_size,
-          value_size: value_size,
-          ttl: ttl,
-          error: error_message
-        )
-      end
-
-      result
-    end
-
     private def percentile(sorted_array : Array(Float64), percentile : Float64) : Float64
       return 0.0 if sorted_array.empty?
       return sorted_array.first if sorted_array.size == 1

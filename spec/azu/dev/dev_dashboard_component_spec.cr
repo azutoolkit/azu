@@ -1,4 +1,5 @@
 require "../../spec_helper"
+require "../../../src/azu/dev/dev"
 
 alias DashboardProvider = Azu::Components::DashboardDataProvider
 alias DashboardUI = Azu::Components::Dashboard
@@ -167,6 +168,21 @@ describe Azu::Components::DashboardDataProvider do
   end
 
   describe "#health_score and #insights" do
+    # The score includes database findings from the process-wide query store and, with cql loaded
+    # (the whole suite compiles it in), from its monitor; earlier specs may have filled either.
+    before_each do
+      Azu::QueryStore.instance.clear
+      {% if @top_level.has_constant?("CQL") %}
+        CQL::Performance.monitor = CQL::Performance::Monitor.new(CQL::Performance::Config.new { |config| config.monitoring.enabled = false })
+      {% end %}
+    end
+
+    after_all do
+      {% if @top_level.has_constant?("CQL") %}
+        CQL::Performance.monitor = CQL::Performance::Monitor.new
+      {% end %}
+    end
+
     it "is perfect for an idle app and does not penalise an unused cache" do
       metrics = Azu::PerformanceMetrics.new
       metrics.record_cache("k", "set", "memory", 1.0)

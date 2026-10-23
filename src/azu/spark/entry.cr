@@ -21,14 +21,14 @@ module Azu
       def initialize(@component : Component, @id : String, @parent_id : String?, @root_id : String, @depth : Int32)
       end
 
-      @mounted_at = Time.utc
+      getter mounted_at : Time = Time.utc
 
       def root? : Bool
         parent_id.nil?
       end
 
       def age : Time::Span
-        Time.utc - @mounted_at
+        Time.utc - mounted_at
       end
 
       def retire : Nil
