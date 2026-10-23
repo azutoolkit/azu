@@ -22,6 +22,9 @@ require "../query_store"
 require "../request_context"
 require "./instrumentor"
 require "./adapter"
+require "./mapping"
+require "./validation"
+require "./middleware"
 
 # The dashboard is fed through CQL's event framework, which gained transaction events and pool
 # stats after 0.0.533: fail with one clear message instead of a cascade of missing methods.

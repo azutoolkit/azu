@@ -78,6 +78,7 @@ docs/tutorials/building-a-user-api.md
 docs/tutorials/deploying-to-production.md
 docs/how-to/middleware/use-sessions.md
 docs/how-to/deployment/graceful-shutdown.md
+docs/reference/api/cql-bridge.md
 docs/reference/api/content-negotiation.md
 docs/reference/api/streaming.md
 docs/reference/api/testing.md
