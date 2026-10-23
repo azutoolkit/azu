@@ -47,6 +47,8 @@ src/azu/
 ├── endpoint.cr         # Type-safe request handlers
 ├── request.cr          # Request contracts with validation
 ├── response.cr         # Response objects & error classes
+├── response/           # Negotiable (Accept), Stream, EventStream (SSE), NotAcceptable
+├── negotiation.cr      # Accept parsing & format selection
 ├── channel.cr          # WebSocket channel handlers
 ├── spark.cr            # Real-time component system
 ├── component.cr        # Static markup components (`Azu::Component`)

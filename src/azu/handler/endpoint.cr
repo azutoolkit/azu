@@ -71,13 +71,30 @@ module Azu
         info.endpoint = endpoint_name
         begin
           enforce_contract
+          negotiate_format
         rescue ex : Response::Error
           ex.to_s(context)
           next
         end
-        context.response << call.render
+        write_response(call, context)
       end
       context
+    end
+
+    # Refuses a request the response type cannot be rendered for before `call` runs (406), when the
+    # type is known to be `Response::Negotiable`.
+    private def negotiate_format : Nil
+      {% if !Response.resolve.union? && Response.resolve <= Azu::Response::Negotiable %}
+        Negotiation.negotiate!(Response.formats, context.request)
+      {% end %}
+    end
+
+    private def write_response(result, context : HTTP::Server::Context) : Nil
+      if result.is_a?(Azu::Response)
+        result.write_to(context)
+      else
+        context.response << result.render
+      end
     end
 
     macro included

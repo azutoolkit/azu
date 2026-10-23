@@ -222,6 +222,11 @@ See [Shut Down Gracefully](../how-to/deployment/graceful-shutdown.md).
   none; `decrement` used to renew it on every call.
 - Not changed: Azu does not cache templates (`Templates#load` asks Crinja each time).
 
+**Content negotiation.** New: [`Response::Negotiable`](api/content-negotiation.md). Endpoints now write their
+response with `Response#write_to(context)`, which prints `render` unless the type overrides it, so existing
+responses are unchanged; a hand written response type that defines its own `write_to` is now called. The
+undocumented `Azu::ContentNegotiator`, which nothing called, is removed.
+
 ### 0.5.28
 
 **No breaking changes.** This version includes documentation improvements.
