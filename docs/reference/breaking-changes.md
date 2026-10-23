@@ -12,7 +12,10 @@ Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/mig
 process (at the first call, not when requiring azu) that names `Azu::App`.
 
 **Per-app leftovers.** Building a configuration no longer applies its `i18n` settings to the process-wide
-`Helpers::I18n` (`I18nConfiguration#apply` does, called when an app builds its server). `Handler::Logger`,
+`Helpers::I18n` (`I18nConfiguration#apply` does, called when an app builds its server, and it passes on only the settings that
+differ from the defaults, so an explicit `Helpers::I18n.configure` wins). Code that never reaches `App#server`
+(router-only tests, a hand-built `HTTP::Server`) no longer gets `I18N_*` environment settings applied; call
+`config.i18n.apply` yourself there. `Handler::Logger`,
 `SimpleLogger` and `Throttle` log to the app serving the request unless given `log:`, and resolve it on every call.
 
 **Requiring `azu` no longer starts anything.** Before, `require "azu"` set the root `Log` level to `Debug`

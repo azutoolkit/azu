@@ -303,18 +303,21 @@ module Azu
     # Format for missing translation keys
     property missing_key_format : String = ENV.fetch("I18N_MISSING_KEY_FORMAT", "[missing: %{key}]")
 
-    # Building the settings changes nothing outside this object. `Azu.start` and `App#server` call
-    # `apply`, which hands them to the process-wide `Helpers::I18n`.
+    # Building the settings changes nothing outside this object. `App#server` calls `apply`, which hands
+    # the settings that differ from the built-in defaults (set in code or through `I18N_*`) to the
+    # process-wide `Helpers::I18n`. Settings left at their defaults are not passed on, so an explicit
+    # `Helpers::I18n.configure` is never overwritten by defaults.
     def apply : Nil
-      if load_path.any? { |path| Dir.exists?(path) }
-        Helpers::I18n.load_path = load_path
-        Helpers::I18n.default_locale = default_locale
-        Helpers::I18n.fallback_locale = fallback_locale
-        Helpers::I18n.raise_on_missing = raise_on_missing?
-        Helpers::I18n.missing_key_format = missing_key_format
-        Helpers::I18n.load_translations
-      end
+      Helpers::I18n.load_path = load_path if load_path != DEFAULT_LOAD_PATH && load_path.any? { |path| Dir.exists?(path) }
+      Helpers::I18n.default_locale = default_locale if default_locale != DEFAULT_LOCALE
+      Helpers::I18n.fallback_locale = fallback_locale if fallback_locale
+      Helpers::I18n.raise_on_missing = raise_on_missing? if raise_on_missing?
+      Helpers::I18n.missing_key_format = missing_key_format if missing_key_format != DEFAULT_MISSING_KEY_FORMAT
     end
+
+    DEFAULT_LOAD_PATH          = ["locales"]
+    DEFAULT_LOCALE             = "en"
+    DEFAULT_MISSING_KEY_FORMAT = "[missing: %{key}]"
   end
 
   # Configuration for asset pipeline
