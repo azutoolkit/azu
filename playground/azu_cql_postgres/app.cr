@@ -42,18 +42,12 @@ module PostgresDemo
     end
   end
 
-  # `Model.create!(...)` reads the new id back with `last_insert_id`, which PostgreSQL does
-  # not provide in this CQL version; `new` + `save!` returns the id with RETURNING.
   def self.create_user(name : String, email : String) : User
-    user = User.new(name, email)
-    user.save!
-    user
+    User.create!(name: name, email: email)
   end
 
   def self.create_post(user : User, title : String, body : String = "Lorem ipsum") : Post
-    post = Post.new(user.id.not_nil!, title, body)
-    post.save!
-    post
+    Post.create!(user_id: user.id.not_nil!, title: title, body: body)
   end
 
   # GET /users: one query for users + one batched query for posts
