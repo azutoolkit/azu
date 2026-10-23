@@ -28,7 +28,8 @@ module DocsCheck
   SKIP_MARK  = "<!-- skip -->"
   WORKERS    = 4
 
-  BODY_CHECK = <<-'CR'
+  # The heredoc is raw on purpose: it holds regex escapes for the macro, and its body is Crystal code.
+  BODY_CHECK = <<-'CR' # ameba:disable Style/HeredocEscape, Style/HeredocIndent
 
     macro finished
       {% def_lines = [DEF_LINES] %}
