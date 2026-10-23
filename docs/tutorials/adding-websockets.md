@@ -7,23 +7,28 @@ This tutorial teaches you how to add real-time features to your Azu application 
 By the end of this tutorial, you'll have:
 
 - A WebSocket channel for real-time notifications
-- Broadcasting messages to connected clients
-- Client-side WebSocket connection handling
+- Broadcasting from an endpoint to every connected client
+- A browser page that receives the notifications
+- A chat channel with rooms
 - Understanding of the channel lifecycle
 
 ## Prerequisites
 
-- Completed [Building a User API](building-a-user-api.md) tutorial
+- Completed [Building a User API](building-a-user-api.md) tutorial (the `POST /users` endpoint below is a
+  slimmed-down version of the one you wrote there)
+- Crystal 1.19.1 or newer
 - Basic understanding of WebSockets
 
 ## Step 1: Understanding WebSocket Channels
 
-WebSocket channels in Azu provide:
+An HTTP request is answered and forgotten. A WebSocket stays open, so the server can push messages
+whenever something happens. In Azu a **channel** handles one connection:
 
-- **Persistent connections** - Clients stay connected for real-time updates
-- **Bidirectional communication** - Both server and client can send messages
-- **Broadcasting** - Send messages to all connected clients
-- **Lifecycle events** - Handle connect, message, and disconnect events
+- Azu creates a new channel instance for every client that connects.
+- `on_connect`, `on_message`, `on_binary`, `on_ping`, `on_pong` and `on_close` are called for the
+  events of that connection. All six are abstract, so a channel has to implement them.
+- `send` writes to this client. `subscribe` and `broadcast` use a **topic**: everything broadcast to a
+  topic reaches every connection subscribed to it (see `Azu::PubSub`).
 
 ## Step 2: Create a Notification Channel
 
@@ -31,145 +36,114 @@ Create `src/channels/notification_channel.cr`:
 
 ```crystal
 class NotificationChannel < Azu::Channel
-  CONNECTIONS = Set(HTTP::WebSocket).new
-
   ws "/notifications"
 
   def on_connect
-    # Add socket to connections
-    CONNECTIONS << socket.not_nil!
-
-    # Send welcome message
-    send_to_client({
-      type: "connected",
-      message: "Connected to notifications",
-      timestamp: Time.utc.to_rfc3339
-    })
-
-    Log.info { "Client connected. Total: #{CONNECTIONS.size}" }
+    subscribe "notifications"
+    send({type: "connected", message: "Listening for notifications"}.to_json)
   end
 
   def on_message(message : String)
-    begin
-      data = JSON.parse(message)
-      handle_message(data)
-    rescue JSON::ParseException
-      send_to_client({type: "error", message: "Invalid JSON"})
-    end
+    # Clients only listen on this channel; ignore what they send.
   end
 
-  def on_close(code, message)
-    CONNECTIONS.delete(socket)
-    Log.info { "Client disconnected. Total: #{CONNECTIONS.size}" }
+  def on_binary(binary : Bytes)
   end
 
-  private def handle_message(data : JSON::Any)
-    case data["type"]?.try(&.as_s)
-    when "ping"
-      send_to_client({type: "pong", timestamp: Time.utc.to_rfc3339})
-    when "subscribe"
-      send_to_client({type: "subscribed", message: "Subscribed to notifications"})
-    else
-      send_to_client({type: "error", message: "Unknown message type"})
-    end
+  def on_ping(message : String)
   end
 
-  private def send_to_client(data)
-    socket.not_nil!.send(data.to_json)
+  def on_pong(message : String)
   end
 
-  # Broadcast to all connected clients
-  def self.broadcast(message)
-    CONNECTIONS.each do |socket|
-      spawn socket.send(message.to_json)
-    end
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
   end
 end
 ```
+
+`ws "/notifications"` registers the route when the class is defined. Because the channel subscribes to
+the `notifications` topic, it receives every message broadcast to it, and Azu releases the subscription
+when the connection closes.
 
 ## Step 3: Add Broadcasting to Your API
 
-Update `src/endpoints/create_user_endpoint.cr` to broadcast when users are created:
+Any code can broadcast to the topic. Here a `POST /users` endpoint announces every user it creates.
+
+Create `src/endpoints/create_user_endpoint.cr`:
 
 ```crystal
+struct CreateUserRequest
+  include Azu::Request
+
+  getter name : String
+  getter email : String
+
+  def initialize(@name = "", @email = "")
+  end
+
+  validate name, presence: true, size: 2..50
+  validate email, presence: true, match: /@/
+end
+
+struct CreatedUserResponse
+  include Azu::Response
+
+  def initialize(@name : String, @email : String)
+  end
+
+  def render
+    {name: @name, email: @email}.to_json
+  end
+end
+
 struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Endpoint(CreateUserRequest, CreatedUserResponse)
 
   post "/users"
 
-  def call : UserResponse
-    unless create_user_request.valid?
-      raise Azu::Response::ValidationError.new(
-        create_user_request.errors.group_by(&.field).transform_values(&.map(&.message))
-      )
-    end
+  def call : CreatedUserResponse
+    user = create_user_request
 
-    if User.find_by_email(create_user_request.email)
-      raise Azu::Response::ValidationError.new(
-        {"email" => ["Email is already taken"]}
-      )
-    end
-
-    user = User.new(
-      name: create_user_request.name,
-      email: create_user_request.email,
-      age: create_user_request.age
-    )
-
-    # Broadcast to all WebSocket clients
-    NotificationChannel.broadcast({
-      type: "user_created",
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email
-      },
-      timestamp: Time.utc.to_rfc3339
+    Azu::PubSub.broadcast("notifications", {
+      type:    "user_created",
+      message: "#{user.name} just signed up",
+      at:      Time.utc.to_rfc3339,
     })
 
     status 201
-    UserResponse.new(user)
+    content_type "application/json"
+    CreatedUserResponse.new(user.name, user.email)
   end
 end
 ```
 
-Similarly update delete and update endpoints to broadcast their events.
+A request that fails validation never reaches `call`: Azu answers `422` with the validation errors, so
+nothing is broadcast for bad input. `Azu::PubSub.broadcast` encodes a non-string payload as JSON.
 
 ## Step 4: Update the Main Application
 
-Update `src/user_api.cr` to include the channel:
+Channels and endpoints register themselves with the router when they are defined, so the application
+only has to load their files and start. In `src/user_api.cr`, add `require "./channels/*"` next to the
+other requires, then:
 
 ```crystal
 require "azu"
 
-require "./models/*"
-require "./requests/*"
-require "./responses/*"
-require "./endpoints/*"
-require "./channels/*"
-
 module UserAPI
   include Azu
 
-  configure do
-    port = ENV.fetch("PORT", "4000").to_i
-    host = ENV.fetch("HOST", "0.0.0.0")
+  configure do |config|
+    config.port = ENV.fetch("PORT", "4000").to_i
+    config.host = ENV.fetch("HOST", "0.0.0.0")
   end
 end
 
-UserAPI.start [
-  Azu::Handler::RequestId.new,
-  Azu::Handler::Rescuer.new,
-  Azu::Handler::Logger.new,
-  Azu::Handler::CORS.new,
-  NotificationChannel.new,  # Add the channel
-  ListUsersEndpoint.new,
-  ShowUserEndpoint.new,
-  CreateUserEndpoint.new,
-  UpdateUserEndpoint.new,
-  DeleteUserEndpoint.new,
-]
+# Same default stack as Azu.start: request id, logging, error pages, security headers and static files
+UserAPI.start
 ```
+
+`UserAPI.start` without arguments uses the default handler stack, which already serves files from
+`public/` (the next step) and falls through to the router for everything else.
 
 ## Step 5: Create a Client Page
 
@@ -177,248 +151,179 @@ Create `public/index.html`:
 
 ```html
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Real-time Notifications</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    #notifications {
-      border: 1px solid #ddd;
-      padding: 10px;
-      margin: 20px 0;
-      max-height: 300px;
-      overflow-y: auto;
-    }
-    .notification {
-      padding: 5px;
-      border-bottom: 1px solid #eee;
-    }
-    .connected { color: green; }
-    .disconnected { color: red; }
-  </style>
+  <title>Notifications</title>
 </head>
 <body>
-  <h1>Real-time Notifications</h1>
-
-  <div id="status" class="disconnected">Disconnected</div>
-
-  <div id="notifications">
-    <h3>Events</h3>
-  </div>
+  <h1>Notifications</h1>
+  <p id="status">connecting...</p>
+  <ul id="notifications"></ul>
 
   <script>
-    const statusEl = document.getElementById('status');
-    const notificationsEl = document.getElementById('notifications');
+    const status = document.getElementById("status");
+    const list = document.getElementById("notifications");
+    const scheme = location.protocol === "https:" ? "wss" : "ws";
 
-    // Connect to WebSocket
-    const ws = new WebSocket('ws://localhost:4000/notifications');
+    function connect() {
+      const socket = new WebSocket(`${scheme}://${location.host}/notifications`);
 
-    ws.onopen = function() {
-      statusEl.textContent = 'Connected';
-      statusEl.className = 'connected';
-
-      // Subscribe to notifications
-      ws.send(JSON.stringify({ type: 'subscribe' }));
-    };
-
-    ws.onmessage = function(event) {
-      const data = JSON.parse(event.data);
-      addNotification(data);
-    };
-
-    ws.onclose = function() {
-      statusEl.textContent = 'Disconnected';
-      statusEl.className = 'disconnected';
-    };
-
-    function addNotification(data) {
-      const div = document.createElement('div');
-      div.className = 'notification';
-
-      const time = new Date().toLocaleTimeString();
-
-      switch(data.type) {
-        case 'user_created':
-          div.textContent = `${time}: User created - ${data.user.name}`;
-          break;
-        case 'user_updated':
-          div.textContent = `${time}: User updated - ${data.user.name}`;
-          break;
-        case 'user_deleted':
-          div.textContent = `${time}: User deleted - ID ${data.user_id}`;
-          break;
-        case 'connected':
-        case 'subscribed':
-          div.textContent = `${time}: ${data.message}`;
-          break;
-        default:
-          div.textContent = `${time}: ${JSON.stringify(data)}`;
-      }
-
-      notificationsEl.appendChild(div);
+      socket.onopen = () => (status.textContent = "connected");
+      socket.onclose = () => {
+        status.textContent = "disconnected, retrying...";
+        setTimeout(connect, 2000);
+      };
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type !== "user_created") return;
+        const item = document.createElement("li");
+        item.textContent = data.message; // textContent, never innerHTML, for server data
+        list.prepend(item);
+      };
     }
+
+    connect();
   </script>
 </body>
 </html>
 ```
 
-## Step 6: Add Static File Handler
+The page opens its own origin, which is what Azu's origin check accepts. To allow a page served from
+another origin, list it in `Azu::CONFIG.websocket.allowed_origins`.
 
-Update your application to serve static files:
+## Step 6: Serve the Page
+
+The default stack's static handler serves `public/index.html` for `/`. Nothing to add. If you pass your
+own handler array to `start`, include `Azu::Handler::Static.new(fallthrough: true)` so that requests for
+files are served and everything else reaches the router:
 
 ```crystal
+require "azu"
+
+module UserAPI
+  include Azu
+end
+
 UserAPI.start [
   Azu::Handler::RequestId.new,
   Azu::Handler::Rescuer.new,
   Azu::Handler::Logger.new,
-  Azu::Handler::CORS.new,
-  Azu::Handler::Static.new("public"),  # Serve static files
-  NotificationChannel.new,
-  # ... endpoints
-]
+  Azu::Handler::Static.new(fallthrough: true),
+] of HTTP::Handler
 ```
 
 ## Step 7: Test Real-time Updates
 
 1. Start the server:
+
    ```bash
    crystal run src/user_api.cr
    ```
 
-2. Open `http://localhost:4000/` in your browser
+2. Open `http://localhost:4000/` in your browser; the status shows "connected".
 
 3. In another terminal, create a user:
+
    ```bash
    curl -X POST http://localhost:4000/users \
      -H "Content-Type: application/json" \
      -d '{"name": "Test User", "email": "test@example.com"}'
    ```
 
-4. Watch the notification appear in your browser in real-time!
+4. The notification appears in the browser as soon as the request returns.
 
 ## Creating a Chat Room
 
-For room-based broadcasting, use a message-based room join pattern:
+For rooms, make the room part of the URL and the topic. Create `src/channels/chat_channel.cr`:
 
 ```crystal
 class ChatChannel < Azu::Channel
-  @@rooms = Hash(String, Set(HTTP::WebSocket)).new { |h, k| h[k] = Set(HTTP::WebSocket).new }
-  @@socket_rooms = Hash(HTTP::WebSocket, String).new
+  ws "/chat/:room"
 
-  ws "/chat"
+  getter id = Random::Secure.hex(4)
 
   def on_connect
-    send_to_client({
-      type: "connected",
-      message: "Send a 'join' message with room_id to join a room"
-    })
+    subscribe topic
+    send({type: "connected", room: room, you: id}.to_json)
+    broadcast topic, {type: "joined", user: id}.to_json
   end
 
   def on_message(message : String)
-    data = JSON.parse(message)
-
-    case data["type"]?.try(&.as_s)
-    when "join"
-      handle_join(data)
-    when "message"
-      handle_chat_message(data)
-    end
-  rescue
-    send_to_client({type: "error", message: "Invalid message"})
+    text = message.strip
+    return send({type: "error", message: "empty message"}.to_json) if text.empty?
+    broadcast topic, {type: "message", user: id, text: text[0, 500], at: Time.utc.to_rfc3339}.to_json
   end
 
-  def on_close(code, message)
-    if room_id = @@socket_rooms[socket]?
-      @@rooms[room_id].delete(socket)
-      @@socket_rooms.delete(socket)
-    end
+  def on_binary(binary : Bytes)
   end
 
-  private def handle_join(data)
-    room_id = data["room_id"]?.try(&.as_s)
-    return send_to_client({type: "error", message: "room_id required"}) unless room_id
-
-    @@socket_rooms[socket] = room_id
-    @@rooms[room_id] << socket
-
-    send_to_client({type: "joined", room_id: room_id})
-
-    # Notify others in room
-    broadcast_to_room(room_id, {
-      type: "user_joined",
-      message: "A user joined the room"
-    }, exclude: socket)
+  def on_ping(message : String)
   end
 
-  private def handle_chat_message(data)
-    room_id = @@socket_rooms[socket]?
-    return send_to_client({type: "error", message: "Not in a room"}) unless room_id
-
-    message = data["message"]?.try(&.as_s)
-    return send_to_client({type: "error", message: "Message required"}) unless message
-
-    broadcast_to_room(room_id, {
-      type: "chat_message",
-      message: message,
-      timestamp: Time.utc.to_rfc3339
-    })
+  def on_pong(message : String)
   end
 
-  private def broadcast_to_room(room_id : String, data, exclude : HTTP::WebSocket? = nil)
-    message = data.to_json
-    @@rooms[room_id].each do |connection|
-      next if connection == exclude
-      spawn { connection.send(message) }
-    end
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
+    broadcast topic, {type: "left", user: id}.to_json
   end
 
-  private def send_to_client(data)
-    socket.send(data.to_json)
+  private def room : String
+    context.request.path_params["room"]
+  end
+
+  private def topic : String
+    "chat:#{room}"
   end
 end
 ```
 
+- Two clients on `/chat/general` talk to each other; a client on `/chat/random` hears nothing of it.
+- The sender receives its own message too, which keeps every client's view identical. A client that
+  wants to skip its own messages compares `user` with the `you` it got on connect.
+- `on_close` can still broadcast: the connection's own subscription is already gone, so only the
+  others hear that the user left.
+
+A client can try it with any WebSocket tool, or from Crystal:
+
+```crystal
+require "http/web_socket"
+
+socket = HTTP::WebSocket.new("localhost", "/chat/general", 4000)
+socket.on_message { |message| puts message }
+spawn { socket.run }
+
+socket.send "hello room"
+sleep 200.milliseconds
+socket.close
+```
+
 ## Key Concepts Learned
 
-### Channel Lifecycle
+### Channel lifecycle
 
-```crystal
-def on_connect    # Called when client connects
-def on_message    # Called when message received
-def on_close      # Called when client disconnects
+```text
+on_connect -> on_message / on_binary / on_ping / on_pong (per frame) -> on_close
 ```
 
-### Broadcasting Patterns
+### Broadcasting patterns
 
-```crystal
-# To all clients
-CONNECTIONS.each { |s| spawn s.send(msg) }
+- **To everyone subscribed to a topic, from a channel:** `broadcast "notifications", message`.
+- **From anywhere in the application:** `Azu::PubSub.broadcast("notifications", {type: "user_created"})`.
+- **To one room:** make the room part of the topic name, `broadcast "chat:#{room}", message`.
 
-# To specific room
-@@rooms[room_id].each { |s| spawn s.send(msg) }
-
-# Exclude sender
-next if connection == exclude
-```
-
-### Message Protocol
+### Message protocol
 
 Use a `type` field to route messages:
+
 ```json
-{"type": "join", "room_id": "general"}
-{"type": "message", "content": "Hello!"}
+{"type": "message", "user": "a1b2", "text": "Hello!"}
+{"type": "joined", "user": "a1b2"}
 ```
 
 ## Next Steps
 
 You've added real-time features to your API. Continue learning with:
 
-- [Working with Databases](working-with-databases.md) - Persist data to PostgreSQL
-- [Building Live Components](building-live-components.md) - Create reactive UI components
+- [Working with Databases](working-with-databases.md) - Persist data
+- [Building Live Components](building-live-components.md) - Server-rendered UI that updates live
 - [Testing Your App](testing-your-app.md) - Test your WebSocket channels
-
----
-
-**Real-time features unlocked!** Your application now supports live updates via WebSockets.

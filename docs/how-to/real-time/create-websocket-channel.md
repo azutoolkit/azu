@@ -1,216 +1,353 @@
 # How to Create a WebSocket Channel
 
-This guide shows you how to create WebSocket channels for real-time communication.
+This guide shows how to accept WebSocket connections with `Azu::Channel`.
 
-## Basic Channel
+## Basic channel
 
-Create a channel by extending `Azu::Channel`:
+A channel implements six callbacks, all abstract. Azu creates one instance per connection.
 
 ```crystal
-class ChatChannel < Azu::Channel
-  PATH = "/chat"
+class EchoChannel < Azu::Channel
+  ws "/echo"
 
   def on_connect
-    # Called when client connects
-    send({type: "connected", message: "Welcome!"}.to_json)
+    send({type: "welcome"}.to_json)
   end
 
   def on_message(message : String)
-    # Called when client sends a message
-    data = JSON.parse(message)
-    # Process message...
+    send({type: "echo", body: message}.to_json)
   end
 
-  def on_close(code, reason)
-    # Called when connection closes
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
   end
 end
 ```
 
-## Register the Channel
+`ws "/echo"` registers the channel on the application's router. The route is added to
+`Azu::CONFIG.router` when the class is defined, so declaring the class is enough.
 
-Add your channel to the application:
+## Register the channel on an app
+
+When you build apps as values, register the route with the route builder instead of the `ws` macro:
 
 ```crystal
-MyApp.start [
-  Azu::Handler::Rescuer.new,
-  Azu::Handler::Logger.new,
-  ChatChannel.new,
-  # ... other handlers
-]
+class PingChannel < Azu::Channel
+  def on_connect
+  end
+
+  def on_message(message : String)
+    send "pong" if message == "ping"
+  end
+
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
+  end
+end
+
+app = Azu::App.new
+app.routes do
+  ws "/ping", PingChannel
+end
 ```
 
-## Client Connection
+## Connect a client
 
-Connect from JavaScript:
+From a browser:
 
 ```javascript
-const socket = new WebSocket('ws://localhost:4000/chat');
+const socket = new WebSocket("ws://localhost:3000/echo");
 
-socket.onopen = () => {
-  console.log('Connected');
-};
-
-socket.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  console.log('Received:', data);
-};
-
-socket.onclose = () => {
-  console.log('Disconnected');
-};
-
-// Send a message
-socket.send(JSON.stringify({
-  type: 'message',
-  content: 'Hello!'
-}));
+socket.onopen = () => socket.send("hello");
+socket.onmessage = (event) => console.log(JSON.parse(event.data));
+socket.onclose = (event) => console.log("closed", event.code, event.reason);
 ```
 
-## Handling Different Message Types
+From Crystal, for a script or a test, use `HTTP::WebSocket`:
 
 ```crystal
-class ChatChannel < Azu::Channel
-  PATH = "/chat"
+require "http/web_socket"
+
+socket = HTTP::WebSocket.new("localhost", "/echo", 3000)
+socket.on_message { |message| puts message }
+spawn { socket.run }
+
+socket.send "hello"
+sleep 100.milliseconds
+socket.close
+```
+
+A browser sends an `Origin` header and Azu refuses the upgrade (403) unless it is the application's own
+origin or listed in `Azu::CONFIG.websocket.allowed_origins`. Clients without an `Origin` header, such as
+the Crystal client above, are accepted.
+
+## Handle different message types
+
+Parse every message into a type so that invalid input is rejected in one place:
+
+```crystal
+struct Command
+  include JSON::Serializable
+
+  getter type : String
+  getter name : String?
+end
+
+class CommandChannel < Azu::Channel
+  def on_connect
+  end
 
   def on_message(message : String)
-    data = JSON.parse(message)
-
-    case data["type"]?.try(&.as_s)
-    when "message"
-      handle_chat_message(data)
-    when "typing"
-      handle_typing_indicator(data)
+    command = Command.from_json(message)
+    case command.type
     when "ping"
-      send({type: "pong"}.to_json)
+      send({type: "pong", at: Time.utc.to_unix}.to_json)
+    when "greet"
+      send({type: "greeting", text: "Hello, #{command.name || "stranger"}!"}.to_json)
     else
-      send({type: "error", message: "Unknown message type"}.to_json)
+      send({type: "error", message: "unknown command #{command.type}"}.to_json)
     end
-  rescue JSON::ParseException
-    send({type: "error", message: "Invalid JSON"}.to_json)
+  rescue JSON::ParseException | JSON::SerializableError
+    send({type: "error", message: "invalid message"}.to_json)
   end
 
-  private def handle_chat_message(data)
-    content = data["content"]?.try(&.as_s) || ""
-    # Process chat message...
+  def on_binary(binary : Bytes)
   end
 
-  private def handle_typing_indicator(data)
-    # Handle typing indicator...
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
   end
 end
 ```
 
-## Connection State
+## Connection state
 
-Track connection state:
+Because every connection has its own instance, per-connection state is a plain instance variable:
 
 ```crystal
-class ChatChannel < Azu::Channel
-  PATH = "/chat"
-
-  CONNECTIONS = [] of HTTP::WebSocket
+class CounterChannel < Azu::Channel
+  @messages = 0
+  @joined_at = Time.utc
 
   def on_connect
-    CONNECTIONS << socket
-    broadcast_user_count
+    @joined_at = Time.utc
+    send "connected"
   end
 
-  def on_close(code, reason)
-    CONNECTIONS.delete(socket)
-    broadcast_user_count
+  def on_message(message : String)
+    @messages += 1
+    send({messages: @messages, seconds: (Time.utc - @joined_at).total_seconds.to_i}.to_json)
   end
 
-  private def broadcast_user_count
-    message = {type: "users", count: CONNECTIONS.size}.to_json
-    CONNECTIONS.each(&.send(message))
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
+    Log.info { "closed after #{@messages} messages (#{code})" }
   end
 end
+```
+
+State shared between connections, such as a list of everyone online, lives in a class-level variable
+guarded by a `Mutex`; see [Broadcast Messages](broadcast-messages.md) for topics, which avoid most of
+that.
+
+## Query parameters, headers and path parameters
+
+`params` is the query string of the upgrade request, `headers` its headers and `context` the whole
+`HTTP::Server::Context`. Path parameters of the route are on the request.
+
+```crystal
+class InfoChannel < Azu::Channel
+  def on_connect
+    room = context.request.path_params["room"]
+    send({room: room, name: params["name"]?, agent: headers["User-Agent"]?}.to_json)
+  end
+
+  def on_message(message : String)
+  end
+
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
+  end
+end
+
+app = Azu::App.new
+app.routes { ws "/info/:room", InfoChannel }
 ```
 
 ## Authentication
 
-Authenticate WebSocket connections:
+Browsers cannot set headers on a WebSocket, so pass a token in the query string or rely on the cookies
+the browser sends with the upgrade request. Check it in `on_connect` and close the connection if it is
+not valid:
 
 ```crystal
-class AuthenticatedChannel < Azu::Channel
-  PATH = "/secure"
-
-  @user : User?
+class PrivateChannel < Azu::Channel
+  @user : String?
 
   def on_connect
-    token = context.request.query_params["token"]?
-
-    if token && (user = authenticate(token))
-      @user = user
-      send({type: "authenticated", user: user.name}.to_json)
-    else
+    user = authenticate(params["token"]?)
+    unless user
       send({type: "error", message: "Unauthorized"}.to_json)
-      socket.close
+      close(HTTP::WebSocket::CloseCode::PolicyViolation, "Unauthorized")
+      return
     end
+    @user = user
+    send({type: "authenticated", user: user}.to_json)
   end
 
-  private def authenticate(token : String) : User?
-    # Validate token and return user
-    Token.validate(token)
+  def on_message(message : String)
+    return unless user = @user
+    send({from: user, echo: message}.to_json)
+  end
+
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
+  end
+
+  # Replace with a real check: a signed token, a session lookup, ...
+  private def authenticate(token : String?) : String?
+    "alice" if token == ENV.fetch("CHANNEL_TOKEN", "change-me")
   end
 end
 ```
 
-## Room-based Channels
+`on_message` checks `@user` again because a client can send frames before the close handshake completes.
 
-Create channels with rooms:
+## Rooms
+
+A room is a PubSub topic. Subscribe in `on_connect` and broadcast to the topic:
 
 ```crystal
 class RoomChannel < Azu::Channel
-  PATH = "/rooms/:room_id"
-
-  @@rooms = Hash(String, Array(HTTP::WebSocket)).new { |h, k| h[k] = [] of HTTP::WebSocket }
-
   def on_connect
-    room_id = params["room_id"]
-    @@rooms[room_id] << socket
-    broadcast_to_room(room_id, {type: "joined", room: room_id}.to_json)
+    subscribe topic
   end
 
   def on_message(message : String)
-    room_id = params["room_id"]
-    broadcast_to_room(room_id, message)
+    broadcast topic, message
   end
 
-  def on_close(code, reason)
-    room_id = params["room_id"]
-    @@rooms[room_id].delete(socket)
+  def on_binary(binary : Bytes)
   end
 
-  private def broadcast_to_room(room_id : String, message : String)
-    @@rooms[room_id].each do |ws|
-      ws.send(message) unless ws == socket
-    end
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
+  end
+
+  private def topic : String
+    "room:#{context.request.path_params["room"]}"
   end
 end
+
+app = Azu::App.new
+app.routes { ws "/rooms/:room", RoomChannel }
 ```
 
-## Error Handling
+Every subscriber receives the broadcast, the sender included. The subscription ends when the connection
+closes; there is nothing to clean up in `on_close`.
 
-Handle errors gracefully:
+## Error handling
+
+An exception that escapes a callback ends that connection. Rescue what you can recover from and tell the
+client:
 
 ```crystal
-class ChatChannel < Azu::Channel
-  PATH = "/chat"
+class SafeChannel < Azu::Channel
+  def on_connect
+  end
 
   def on_message(message : String)
-    process_message(message)
-  rescue ex : JSON::ParseException
-    send({type: "error", code: "INVALID_JSON"}.to_json)
-  rescue ex : Exception
-    Log.error { "WebSocket error: #{ex.message}" }
-    send({type: "error", code: "INTERNAL_ERROR"}.to_json)
+    send(process(message))
+  rescue ex : ArgumentError
+    send({type: "error", message: ex.message}.to_json)
+  rescue ex
+    Log.error(exception: ex) { "channel failed" }
+    close(HTTP::WebSocket::CloseCode::InternalServerError, "internal error")
+  end
+
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
+  end
+
+  private def process(message : String) : String
+    raise ArgumentError.new("empty message") if message.empty?
+    message.upcase
   end
 end
 ```
 
-## See Also
+## Limits
+
+`Azu::CONFIG.websocket` holds the settings of every channel; override the class methods
+`allowed_origins`, `max_message_size` and `ping_interval` to change them for one channel class.
+
+```crystal
+Azu::CONFIG.websocket.allowed_origins = ["https://app.example.com"]
+Azu::CONFIG.websocket.max_message_size = 64 * 1024
+Azu::CONFIG.websocket.ping_interval = 20.seconds
+```
+
+## See also
 
 - [Broadcast Messages](broadcast-messages.md)
 - [Build Live Component](build-live-component.md)
+- [Channel Reference](../../reference/api/channel.md)
+- [Testing WebSockets](../testing/test-websockets.md)

@@ -1,333 +1,301 @@
 # Understanding Components
 
-> **Outdated:** this page describes the previous `Azu::Component` live API (`on_event`, `mount`,
-> `refresh`, `live-*`), which has been removed. See
-> [Spark Live Views](spark-live-views.md) for the current API and the list of breaking changes.
+This page explains the ideas behind Azu's components. For the API see the
+[Component Reference](../../reference/api/component.md); for the architecture, wire protocol and
+security model see [Spark Live Views](../spark-live-views.md).
 
+## What are components?
 
-This document explains Azu's live component system, which enables real-time, stateful UI updates without writing JavaScript.
+Azu has two kinds of components, and the difference is whether the browser can talk back.
 
-## What are Components?
-
-Components are server-side objects that:
-- Maintain state on the server
-- Render HTML
-- Respond to user events
-- Push updates to the browser
+**Static components** (`Azu::Component`) are a piece of HTML written in Crystal. You build them, call
+`render`, and get a `String`. Nothing stays on the server afterwards.
 
 ```crystal
-class CounterComponent
+class Badge
   include Azu::Component
 
-  @count = 0
-
-  def content
-    <<-HTML
-    <div>
-      <span>Count: #{@count}</span>
-      <button azu-click="increment">+</button>
-    </div>
-    HTML
-  end
-
-  on_event "increment" do
-    @count += 1
-    push_state
-  end
-end
-```
-
-## How Components Work
-
-### Architecture
-
-```
-┌─────────────────────────────────────────────────────┐
-│                     Browser                         │
-│  ┌─────────────────────────────────────────────┐   │
-│  │              Rendered HTML                   │   │
-│  │  <button azu-click="increment">+</button>   │   │
-│  └─────────────────────────────────────────────┘   │
-│         │                    ↑                      │
-│         │ Click Event        │ HTML Patch           │
-│         ↓                    │                      │
-│  ┌─────────────────────────────────────────────┐   │
-│  │           Spark JavaScript                   │   │
-│  └─────────────────────────────────────────────┘   │
-│         │                    ↑                      │
-│         │ WebSocket          │ WebSocket            │
-└─────────│────────────────────│──────────────────────┘
-          ↓                    │
-┌─────────────────────────────────────────────────────┐
-│                      Server                         │
-│  ┌─────────────────────────────────────────────┐   │
-│  │            CounterComponent                  │   │
-│  │            @count = 5                        │   │
-│  │                                              │   │
-│  │  on_event "increment" → @count += 1         │   │
-│  │                       → push_state           │   │
-│  └─────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────┘
-```
-
-### Event Flow
-
-1. User clicks button in browser
-2. Spark JS sends event via WebSocket
-3. Server component receives event
-4. Component updates state
-5. Component re-renders HTML
-6. Server sends HTML diff to browser
-7. Spark JS patches the DOM
-
-## Component Lifecycle
-
-```crystal
-class MyComponent
-  include Azu::Component
-
-  def mount(socket)
-    # Called when component first connects
-    # Load initial data
-    @data = load_data
-    push_state
-  end
-
-  def unmount
-    # Called when component disconnects
-    # Clean up resources
+  def initialize(@label : String)
   end
 
   def content
-    # Called to render HTML
+    span @label, class: "badge"
   end
 end
+
+Badge.new("new").render # => "<span class='badge'>new</span>"
 ```
 
-### Lifecycle Stages
+**Live components** (`Azu::Spark::Component`) keep state on the server. They:
 
-```
-mount → content → [events/updates] → content → ... → unmount
-```
-
-## State Management
-
-### Component State
-
-State lives in instance variables:
+- hold typed `state` and read-only `prop`s,
+- render HTML,
+- respond to browser events declared with `event def`,
+- push the HTML that changed to the browser over a WebSocket.
 
 ```crystal
-class TodoComponent
-  include Azu::Component
+class Counter < Azu::Spark::Component
+  mountable
 
-  @todos = [] of Todo
-  @new_todo = ""
+  state count : Int32 = 0
 
-  def content
-    # Uses @todos and @new_todo
+  event def increment : Nil
+    self.count += 1
   end
-end
-```
 
-### Updating State
-
-Update state and push to client:
-
-```crystal
-on_event "add_todo" do
-  @todos << Todo.new(@new_todo)
-  @new_todo = ""
-  push_state  # Re-render and send to client
-end
-```
-
-## Event Handling
-
-### Event Attributes
-
-Connect HTML to component events:
-
-```html
-<button azu-click="delete">Delete</button>
-<input azu-change="update_name">
-<form azu-submit="save">
-```
-
-### Event Data
-
-Send data with events:
-
-```html
-<button azu-click="delete" azu-value="123">Delete Item 123</button>
-```
-
-```crystal
-on_event "delete" do |id|
-  @items.reject! { |i| i.id == id.as_i }
-  push_state
-end
-```
-
-### Two-Way Binding
-
-Bind form inputs:
-
-```html
-<input azu-model="name" value="#{@name}">
-```
-
-The `@name` variable updates when the input changes.
-
-## Optimized Updates
-
-### Full Re-render
-
-`push_state` re-renders the entire component:
-
-```crystal
-on_event "change" do
-  @data = new_data
-  push_state  # Full re-render
-end
-```
-
-### Partial Updates
-
-For performance, update only parts:
-
-```crystal
-on_event "add_item" do
-  item = create_item
-  @items << item
-
-  # Only append the new item
-  push_append("#items-list", render_item(item))
-end
-
-on_event "remove_item" do |id|
-  @items.reject! { |i| i.id == id.as_i }
-
-  # Only remove that element
-  push_remove("#item-#{id}")
-end
-```
-
-## Props and Initialization
-
-### Component Properties
-
-Pass initial data to components:
-
-```crystal
-class UserCardComponent
-  include Azu::Component
-
-  property user_id : Int64
-
-  def mount(socket)
-    @user = User.find(user_id)
-    push_state
-  end
-end
-```
-
-### HTML Mounting
-
-```html
-<div azu-component="UserCardComponent"
-     azu-props='{"user_id": 42}'></div>
-```
-
-## Real-Time Updates
-
-### Server-Initiated Updates
-
-Components can receive updates from server events:
-
-```crystal
-class DashboardComponent
-  include Azu::Component
-
-  def mount(socket)
-    # Subscribe to data changes
-    EventBus.subscribe(:order_created) do |order|
-      @orders.unshift(order)
-      push_state
+  def render
+    div do
+      span "Count: #{count}"
+      button "+", **spark_click(:increment)
     end
   end
 end
 ```
 
-### Periodic Updates
+## How live components work
 
-Update on intervals:
+```text
+ Browser                                   Server
+ -------                                   ------
+ <button spark-click="increment">          Counter (one instance per page load)
+        |  click                              state count = 5
+        v                                       ^
+ azu_spark.js  --- {"type":"event",             | handle_event("increment")
+        |            "event":"increment"} ---->  | self.count += 1
+        |                                       | render
+        v                                       v
+ DOM morph    <--- {"type":"diff",        patches: [{id, html}]
+                     "patches":[...]} ----
+```
+
+1. `Azu::Spark.render(Counter)` puts the component's HTML in the page, together with a signed token.
+2. The client script opens one WebSocket per page and joins every component with its token. The
+   server mounts a fresh instance owned by that connection.
+3. A click sends an `event` frame. Names and parameter types of every `event def` form a
+   compile-time dispatch table, so the browser can invoke nothing else.
+4. The handler changes state, the component renders again, and the server sends a `diff` with the new
+   HTML of the components that changed.
+5. The client morphs the DOM with the new HTML.
+
+## Lifecycle
 
 ```crystal
-def mount(socket)
-  spawn do
-    loop do
-      @stats = fetch_stats
-      push_state
-      sleep 30.seconds
+class Feed < Azu::Spark::Component
+  mountable
+
+  state items : Array(String) = [] of String
+
+  def mount(socket : Azu::Spark::Socket, params : Azu::Spark::Params) : Nil
+    self.items = ["loaded for #{socket.connected? ? "the socket" : "the page"}"]
+    socket.subscribe("feed")
+  end
+
+  def handle_info(message : Azu::PubSub::Message, socket : Azu::Spark::Socket) : Nil
+    self.items = (items + [message.payload]).last(10)
+  end
+
+  def unmount(socket : Azu::Spark::Socket) : Nil
+    # Subscriptions and timers are already cancelled; release anything else here.
+  end
+
+  def render
+    ul { items.each { |item| li item } }
+  end
+end
+```
+
+```text
+mount (HTTP render) -> render -> mount (WebSocket join) -> render
+   -> [events, handle_info, timers] -> render -> ... -> unmount
+```
+
+`mount` runs twice: once while the page is rendered over HTTP (`socket.connected?` is `false`, so
+`subscribe` and timers do nothing yet) and again when the browser joins. Keep it idempotent.
+
+## State
+
+`state` is owned by the server. Assigning a different value marks the component dirty:
+
+```crystal
+class Settings < Azu::Spark::Component
+  mountable
+
+  state theme : String = "light"
+  state compact : Bool = false
+
+  event def reset : Nil
+    assign theme: "light", compact: false
+  end
+
+  event def toggle_compact : Nil
+    self.compact = !compact
+  end
+
+  def render
+    div class: "settings #{theme}" do
+      span "compact: #{compact}"
+      button "Toggle", **spark_click(:toggle_compact)
+      button "Reset", **spark_click(:reset)
     end
   end
 end
 ```
 
-## Component Communication
+Assigning a value equal to the current one does nothing, so no render is scheduled. By default state
+is lost when the connection ends. `state count : Int32 = 0, persist: true` stores the value in a
+signed snapshot that the browser sends back when it reconnects (it must be JSON serializable and not
+secret). `props` never change on their own: the page or the parent supplies them.
 
-### Parent-Child
+## Events
 
-Nest components and pass events up:
-
-```crystal
-# Child emits event
-<button azu-click="item_selected" azu-value="#{item.id}">Select</button>
-
-# Parent listens
-<div azu-component="ChildComponent"
-     azu-on-item_selected="handle_selection"></div>
-```
-
-### Global Events
-
-Use a message bus:
+Bindings turn DOM events into server events. They return `spark-*` attributes that you splat into a tag:
 
 ```crystal
-# Component A
-on_event "filter_changed" do |filter|
-  EventBus.publish(:filter, filter)
-end
+class Todos < Azu::Spark::Component
+  mountable
 
-# Component B
-def mount(socket)
-  EventBus.subscribe(:filter) do |filter|
-    @current_filter = filter
-    push_state
+  state todos : Array(String) = [] of String
+  state draft : String = ""
+
+  event def type_draft(value : String) : Nil
+    self.draft = value
+  end
+
+  event def add : Nil
+    self.todos = todos + [draft] unless draft.blank?
+    self.draft = ""
+  end
+
+  event def remove(index : Int32) : Nil
+    remaining = todos.dup
+    remaining.delete_at(index) if index < remaining.size
+    self.todos = remaining
+  end
+
+  def render
+    div do
+      form(**spark_submit(:add)) do
+        input **spark_change(:type_draft, debounce: 200), type: "text", name: "value", value: draft
+        button "Add", type: "submit"
+      end
+      ul do
+        todos.each_with_index do |todo, index|
+          li do
+            span todo
+            button "x", **spark_click(:remove, index: index)
+          end
+        end
+      end
+    end
   end
 end
 ```
 
-## When to Use Components
+Event parameters come from the payload by name (`name="value"` on the input, `index: index` on the
+button) and are converted to the declared type. A payload that does not fit is rejected before the
+handler runs and the component state is untouched. A parameter typed as an `Azu::Request` receives the
+whole form payload, so a submitted form can be validated with the same contract an endpoint uses.
 
-### Good Use Cases
+## Updates are targeted
 
-- Interactive forms
-- Real-time dashboards
-- Live search/filtering
-- Chat interfaces
-- Notifications
-- Dynamic lists
+The server tracks which components changed. Only those render again and only their HTML is sent, so a
+page with twenty components pays for the one that was clicked. Children (`live Child, key: ..., ...`)
+are components of their own: changing a child re-renders the child, not its parent.
 
-### When to Use Plain Endpoints
+You can check this in a test: `Azu::Spark::Testing` records every patch.
 
-- Static content
-- Simple forms with redirects
-- API responses
-- File downloads
+```crystal
+require "spec"
 
-## See Also
+class Item < Azu::Spark::Component
+  prop name : String
+  state clicks : Int32 = 0
 
-- [Real-Time](real-time.md)
+  event def click : Nil
+    self.clicks += 1
+  end
+
+  def render
+    button "#{name}: #{clicks}", **spark_click(:click)
+  end
+end
+
+class Page < Azu::Spark::Component
+  state title : String = "Items"
+
+  def render
+    div do
+      h1 title
+      live Item, key: "a", name: "A"
+      live Item, key: "b", name: "B"
+    end
+  end
+end
+
+describe Page do
+  it "re-renders only the child that changed" do
+    Azu::Spark::Testing.mount(Page) do |view|
+      child = view.components(Item).first
+      patches_before = view.patches.size
+      view.trigger("click", target: child)
+      (view.patches.size - patches_before).should eq 1
+      view.patches.last.id.should eq child.id
+    end
+  end
+end
+```
+
+## Server-initiated updates
+
+A live component is not limited to reacting to clicks. `handle_info` receives PubSub broadcasts, timers
+and messages the component sends itself, and the component renders afterwards.
+
+```crystal
+class Clock < Azu::Spark::Component
+  mountable
+
+  state now : String = Time.utc.to_s("%H:%M:%S")
+
+  def mount(socket : Azu::Spark::Socket, params : Azu::Spark::Params) : Nil
+    socket.every(1.second, "tick")
+  end
+
+  def handle_info(message : Azu::PubSub::Message, socket : Azu::Spark::Socket) : Nil
+    self.now = Time.utc.to_s("%H:%M:%S")
+  end
+
+  def render
+    span now
+  end
+end
+```
+
+Anything in your application can reach every connected browser through the topic bus:
+
+```crystal
+Azu::PubSub.broadcast("feed", "a new item") # every Feed component receives it in handle_info
+```
+
+## Communication between components
+
+- **Parent to child:** props. A parent passes new props on every render; the child re-renders only when
+  one differs.
+- **Child to parent:** a binding can address another component with `target: :parent` or `target: :root`,
+  and the event is handled by an `event def` of that component.
+- **Anywhere to anywhere:** `socket.broadcast(topic, payload)` and `socket.subscribe(topic)`. This also
+  reaches other users' connections and, with the Redis PubSub backend, other processes.
+
+## When to use components
+
+Good fits: interactive forms with live validation, search and filtering, dashboards, chat, notifications,
+dynamic lists.
+
+Prefer plain endpoints for static content, API responses, file downloads and simple forms that redirect.
+Each mounted component costs memory on the server for as long as the page is open (a connection owns at
+most `Azu::Spark.config.max_components`).
+
+## See also
+
+- [Real-time concepts](real-time.md)
 - [Component Reference](../../reference/api/component.md)
-- [How to Build Live Component](../../how-to/real-time/build-live-component.md)
+- [How to build a live component](../../how-to/real-time/build-live-component.md)
