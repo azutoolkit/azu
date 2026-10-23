@@ -46,13 +46,13 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context)
-        return call_next(context) unless @origin.origin_header?(context.request)
+        return call_next(context) unless request_origin = @origin.of(context.request)
 
-        if @origin.match?(context.request)
+        if @origin.match?(request_origin)
           is_preflight_request = preflight?(context)
           put_expose_header(context.response)
           Preflight.process(context, self) if is_preflight_request
-          put_response_headers(context.response)
+          put_response_headers(context.response, request_origin)
           call_next(context) unless is_preflight_request
         else
           forbidden(context)
@@ -68,11 +68,9 @@ module Azu
         response.headers[Headers::ALLOW_EXPOSE] = @expose_headers.as(Array).join(",") if @expose_headers
       end
 
-      private def put_response_headers(response)
+      private def put_response_headers(response, request_origin : String)
         response.headers[Headers::ALLOW_CREDENTIALS] = @credentials.to_s if @credentials
-        if request_origin = @origin.request_origin
-          response.headers[Headers::ALLOW_ORIGIN] = request_origin
-        end
+        response.headers[Headers::ALLOW_ORIGIN] = request_origin
         response.headers[Headers::VARY] = vary unless @origin.origins.includes?("*")
       end
 
@@ -123,16 +121,15 @@ module Azu
       end
     end
 
+    # Stateless: one instance serves every request, so the origin of a request is passed around, never kept.
     struct Origin
-      getter request_origin : String?
       getter origins : CORS::OriginType
 
       def initialize(@origins : CORS::OriginType)
       end
 
-      def match?(request)
+      def match?(request_origin : String)
         return false if @origins.empty?
-        return false unless origin_header?(request)
         return true if any?
 
         @origins.any? do |origin|
@@ -147,8 +144,8 @@ module Azu
         @origins.includes? "*"
       end
 
-      protected def origin_header?(request)
-        @request_origin = request.headers[Headers::ORIGIN]? || request.headers[Headers::X_ORIGIN]?
+      def of(request) : String?
+        request.headers[Headers::ORIGIN]? || request.headers[Headers::X_ORIGIN]?
       end
     end
   end

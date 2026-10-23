@@ -471,4 +471,65 @@ describe Azu::Handler::CORS do
       response.headers["Access-Control-Allow-Origin"]?.should be_nil
     end
   end
+
+  describe "concurrent requests" do
+    it "answers each request with its own origin when handlers run in parallel" do
+      handler = Azu::Handler::CORS.new(origins: ["https://a.com", "https://b.com"])
+      handler.next = ->(context : HTTP::Server::Context) { }
+      mismatches = Atomic(Int32).new(0)
+
+      threads = ["https://a.com", "https://b.com", "https://a.com", "https://b.com"].map do |origin|
+        Thread.new do
+          25_000.times do
+            request = HTTP::Request.new("POST", "/", HTTP::Headers{"Origin" => origin})
+            context = HTTP::Server::Context.new(request, HTTP::Server::Response.new(IO::Memory.new))
+            handler.call(context)
+            mismatches.add(1) if context.response.headers["Access-Control-Allow-Origin"]? != origin
+          end
+        end
+      end
+      threads.each(&.join)
+
+      mismatches.get.should eq 0
+    end
+  end
+
+  describe "preflight over a real server" do
+    preflight = ->(origins : Array(String), headers : HTTP::Headers) {
+      handler = Azu::Handler::CORS.new(origins: origins.map { |o| o.as(String | Regex) })
+      server = HTTP::Server.new([handler] of HTTP::Handler) { |context| context.response << "ok" }
+      address = server.bind_unused_port("127.0.0.1")
+      spawn { server.listen }
+      Fiber.yield
+      begin
+        HTTP::Client.new(address.address, address.port).exec("OPTIONS", "/", headers)
+      ensure
+        server.close
+      end
+    }
+
+    it "sends Access-Control-Allow-Origin and Vary with an accepted preflight" do
+      response = preflight.call(["https://a.com"], HTTP::Headers{
+        "Origin"                         => "https://a.com",
+        "Access-Control-Request-Method"  => "POST",
+        "Access-Control-Request-Headers" => "Content-Type",
+      })
+
+      response.status_code.should eq 200
+      response.headers["Access-Control-Allow-Origin"]?.should eq "https://a.com"
+      response.headers["Vary"]?.should eq "Origin"
+      response.headers["Access-Control-Allow-Methods"]?.should eq "POST"
+    end
+
+    it "refuses a preflight that asks for a method that is not allowed, without allowing the origin" do
+      response = preflight.call(["https://a.com"], HTTP::Headers{
+        "Origin"                         => "https://a.com",
+        "Access-Control-Request-Method"  => "TRACE",
+        "Access-Control-Request-Headers" => "Content-Type",
+      })
+
+      response.status_code.should eq 403
+      response.headers["Access-Control-Allow-Origin"]?.should be_nil
+    end
+  end
 end

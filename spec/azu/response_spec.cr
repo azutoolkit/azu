@@ -40,11 +40,15 @@ describe Azu::Response do
       exception = Exception.new("Test exception")
       context = Azu::ErrorContext.new(request_id: "req-123")
 
-      error = Azu::Response::Error.from_exception(exception, 400, context)
+      error = with_azu_env(Azu::Environment::Development) { Azu::Response::Error.from_exception(exception, 400, context) }
 
       error.title.should eq("Test exception")
       error.status.should eq(HTTP::Status::BAD_REQUEST)
       error.context.should eq(context)
+
+      public_error = with_azu_env(Azu::Environment::Production) { Azu::Response::Error.from_exception(exception, 400, context) }
+      public_error.title.should eq("Bad Request")
+      public_error.detail.should eq("Bad Request")
     end
 
     it "generates unique fingerprint" do

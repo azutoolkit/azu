@@ -43,8 +43,7 @@ module Azu
     OVERRIDE_HEADER     = "X-HTTP-Method-Override"
     OVERRIDABLE_METHODS = %w(PUT PATCH DELETE)
 
-    # Thread-safe path cache for frequently requested paths
-    # Simplified cache implementation to avoid CI hanging issues
+    # Thread-safe path cache for frequently requested paths. Stops adding entries at `max_size`.
     private struct PathCache
       DEFAULT_MAX_SIZE = 1000
 
@@ -61,8 +60,7 @@ module Azu
 
       def set(key : String, value : String) : Nil
         @mutex.synchronize do
-          # Simple cache without LRU eviction to avoid CI issues
-          # In production, you might want to implement proper LRU
+          # Once full, new paths are simply not cached; there is no eviction
           if @cache.size < @max_size
             @cache[key] = value
           end
@@ -79,15 +77,15 @@ module Azu
       def stats
         @mutex.synchronize do
           {
-            size:     @cache.size,
-            max_size: @max_size,
-            hit_rate: calculate_hit_rate,
+            size:         @cache.size,
+            max_size:     @max_size,
+            fill_percent: fill_percent,
           }
         end
       end
 
-      private def calculate_hit_rate : Float64
-        # This is a simplified version - in production you'd track hits/misses
+      # How full the cache is, not a hit rate: nothing counts hits or misses.
+      private def fill_percent : Float64
         @cache.size.to_f / @max_size.to_f * 100.0
       end
     end

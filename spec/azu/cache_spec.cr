@@ -142,6 +142,42 @@ describe Azu::Cache do
       store.increment("counter", 5).should eq(7)
     end
 
+    it "keeps the expiry set when the counter was created" do
+      store = Azu::Cache::MemoryStore.new
+      store.increment("hits", 1, 150.milliseconds)
+
+      2.times do
+        sleep 60.milliseconds
+        store.increment("hits")
+      end
+      sleep 60.milliseconds
+
+      store.increment("hits").should eq(1)
+    end
+
+    it "evicts the least recently used key when a counter would exceed max_size" do
+      store = Azu::Cache::MemoryStore.new(max_size: 2)
+
+      5.times { |i| store.increment("counter_#{i}") }
+
+      store.size.should eq(2)
+      store.exists?("counter_0").should be_false
+      store.exists?("counter_4").should be_true
+    end
+
+    it "reports the hit rate of the lookups it served" do
+      store = Azu::Cache::MemoryStore.new
+      store.stats["hit_rate"].should eq(0.0)
+
+      store.set("a", "1")
+      store.get("a")
+      store.get("a")
+      store.get("a")
+      store.get("missing")
+
+      store.stats["hit_rate"].should eq(75.0)
+    end
+
     it "supports decrement operations" do
       store = Azu::Cache::MemoryStore.new
 
@@ -265,15 +301,10 @@ describe Azu::Cache do
     it "creates redis store when configured" do
       config = Azu::Cache::Configuration.new
       config.store = "redis"
-      config.redis_url = "redis://localhost:6379/15" # Use test database
+      config.redis_url = "#{redis_url}/15" # Use test database
 
-      begin
-        manager = Azu::Cache::Manager.new(config)
-        manager.store.should be_a(Azu::Cache::RedisStore)
-      rescue
-        # puts test if Redis is not available
-        puts "Redis not available for testing"
-      end
+      manager = Azu::Cache::Manager.new(config)
+      manager.store.should be_a(Azu::Cache::RedisStore)
     end
 
     it "adds key prefix" do
@@ -373,165 +404,159 @@ describe Azu::Cache do
     end
   end
 
-  # Redis-specific tests (only run if Redis is available)
+  # Redis-specific tests: pending when no Redis answers on REDIS_HOST:REDIS_PORT, never silently passing.
   describe "RedisStore" do
+    redis_up = begin
+      TCPSocket.new(redis_host, redis_port.to_i, connect_timeout: 0.5.seconds).close
+      true
+    rescue Socket::Error | IO::Error
+      false
+    end
+
+    before_each do
+      pending!("Redis is not reachable at #{redis_url}") unless redis_up
+    end
+
     it "connects to Redis and performs basic operations" do
-      begin
-        store = Azu::Cache::RedisStore.new("#{redis_url}/15", pool_size: 2)
+      store = Azu::Cache::RedisStore.new("#{redis_url}/15", pool_size: 2)
+      store.clear.should be_true
 
-        # Clear any existing data
-        store.clear
-
-        # Basic operations
-        store.set("test_key", "test_value").should be_true
-        store.get("test_key").should eq("test_value")
-        store.exists?("test_key").should be_true
-        store.delete("test_key").should be_true
-        store.get("test_key").should be_nil
-      rescue
-        puts "Redis not available for testing"
-      end
+      store.set("test_key", "test_value").should be_true
+      store.get("test_key").should eq("test_value")
+      store.exists?("test_key").should be_true
+      store.delete("test_key").should be_true
+      store.get("test_key").should be_nil
+      store.exists?("test_key").should be_false
     end
 
     it "supports TTL operations" do
-      begin
-        store = Azu::Cache::RedisStore.new("#{redis_url}/15")
-        store.clear
+      store = Azu::Cache::RedisStore.new("#{redis_url}/15")
+      store.clear
 
-        # Set with TTL
-        store.set("ttl_key", "ttl_value", Time::Span.new(seconds: 1))
-        store.get("ttl_key").should eq("ttl_value")
+      store.set("ttl_key", "ttl_value", Time::Span.new(seconds: 1))
+      store.get("ttl_key").should eq("ttl_value")
 
-        # Wait for expiration
-        sleep(Time::Span.new(seconds: 1, nanoseconds: 100000000))
-        store.get("ttl_key").should be_nil
-      rescue
-        "Redis not available for testing"
-      end
+      sleep(Time::Span.new(seconds: 1, nanoseconds: 100000000))
+      store.get("ttl_key").should be_nil
     end
 
     it "supports counter operations with Redis native commands" do
-      begin
-        store = Azu::Cache::RedisStore.new("#{redis_url}/15")
-        store.clear
+      store = Azu::Cache::RedisStore.new("#{redis_url}/15")
+      store.clear
 
-        # Test increment
-        store.increment("counter").should eq(1)
-        store.increment("counter", 5).should eq(6)
+      store.increment("counter").should eq(1)
+      store.increment("counter", 5).should eq(6)
+      store.decrement("counter", 2).should eq(4)
+      store.decrement("counter").should eq(3)
+    end
 
-        # Test decrement
-        store.decrement("counter", 2).should eq(4)
-        store.decrement("counter").should eq(3)
-      rescue
-        puts "Skipped:Redis not available for testing"
-      end
+    it "sets a counter's expiry once, when the counter has none, and never renews it" do
+      store = Azu::Cache::RedisStore.new("#{redis_url}/15")
+      store.clear
+
+      store.increment("hits", 1, 100.seconds).should eq(1)
+      store.increment("hits", 1, 5.seconds).should eq(2)
+      store.decrement("hits", 1, 5.seconds).should eq(1)
+      ttl = Redis.new(url: "#{redis_url}/15").ttl("hits")
+      ttl.should be > 50
+
+      store.increment("existing_counter", 3) # created without an expiry
+      store.increment("existing_counter", 1, 100.seconds).should eq(4)
+      Redis.new(url: "#{redis_url}/15").ttl("existing_counter").should be > 0
+
+      store.decrement("fresh", 2, 100.seconds).should eq(-2)
+      Redis.new(url: "#{redis_url}/15").ttl("fresh").should be > 0
     end
 
     it "supports multi-key operations with Redis native commands" do
-      begin
-        store = Azu::Cache::RedisStore.new("#{redis_url}/15")
-        store.clear
+      store = Azu::Cache::RedisStore.new("#{redis_url}/15")
+      store.clear
 
-        # Multi-set
-        values = {"key1" => "value1", "key2" => "value2", "key3" => "value3"}
-        store.set_multi(values).should be_true
+      store.set_multi({"key1" => "value1", "key2" => "value2", "key3" => "value3"}).should be_true
 
-        # Multi-get
-        results = store.get_multi(["key1", "key2", "key3", "key4"])
-        results["key1"].should eq("value1")
-        results["key2"].should eq("value2")
-        results["key3"].should eq("value3")
-        results["key4"].should be_nil
-      rescue
-        puts "Redis not available for testing"
-      end
+      results = store.get_multi(["key1", "key2", "key3", "key4"])
+      results["key1"].should eq("value1")
+      results["key2"].should eq("value2")
+      results["key3"].should eq("value3")
+      results["key4"].should be_nil
     end
 
-    it "handles Redis connection errors gracefully" do
-      begin
-        # Use invalid Redis URL
-        store = Azu::Cache::RedisStore.new("#{redis_url}/0")
+    it "counts its keys" do
+      store = Azu::Cache::RedisStore.new("#{redis_url}/15")
+      store.clear
+      store.set("a", "1")
+      store.set("b", "2")
 
-        # Operations should return nil/false instead of crashing
-        store.get("test").should be_nil
-        store.set("test", "value").should be_false
-        store.delete("test").should be_false
-        store.exists?("test").should be_false
-        store.clear.should be_false
-        store.size.should eq(0)
-      rescue
-        # Expected if Redis connection fails during initialization
-      end
+      store.size.should eq(2)
     end
 
-    pending "provides Redis-specific methods" do
-      redis_available = true
-      store = nil
+    it "answers ping and info" do
+      store = Azu::Cache::RedisStore.new("#{redis_url}/15")
 
-      begin
-        store = Azu::Cache::RedisStore.new("#{redis_url}/15")
-      rescue
-        redis_available = false
-      end
+      store.ping.should eq("PONG")
+      store.info.not_nil!.has_key?("redis_version").should be_true
+    end
 
-      unless redis_available
-        puts "Redis not available for testing"
-        next
-      end
+    it "passes the connectivity check that Configuration runs at start-up" do
+      config = Azu::Cache::Configuration.new
+      config.store = "redis"
+      config.redis_url = "#{redis_url}/15"
 
-      # Ping should work
-      # store.not_nil!.ping.should eq("PONG")
-
-      # Info should return server information
-      info = store.try(&.info)
-      info.should_not be_nil
-      if info
-        info.has_key?("redis_version").should be_true
-      end
+      manager = Azu::Cache::Manager.new(config)
+      manager.store.should be_a(Azu::Cache::RedisStore)
+      manager.ping.should eq("PONG")
     end
 
     it "supports connection pooling" do
-      begin
-        store = Azu::Cache::RedisStore.new("#{redis_url}/15", pool_size: 3)
-        store.clear
+      store = Azu::Cache::RedisStore.new("#{redis_url}/15", pool_size: 3)
+      store.clear
 
-        # Test concurrent operations
-        channels = [] of Channel(String)
-
-        5.times do |i|
-          ch = Channel(String).new
-          channels << ch
-
-          spawn do
-            store.set("concurrent_#{i}", "value_#{i}")
-            result = store.get("concurrent_#{i}")
-            ch.send(result || "nil")
-          end
+      channels = Array(Channel(String)).new(5) { Channel(String).new }
+      channels.each_with_index do |ch, i|
+        spawn do
+          store.set("concurrent_#{i}", "value_#{i}")
+          ch.send(store.get("concurrent_#{i}") || "nil")
         end
-
-        # Wait for all operations to complete
-        results = channels.map(&.receive)
-        results.size.should eq(5)
-        results.each_with_index do |result, i|
-          result.should eq("value_#{i}")
-        end
-      rescue
-        puts "Redis not available for testing"
       end
+
+      channels.map(&.receive).should eq((0...5).map { |i| "value_#{i}" })
     end
 
-    it "handles Redis operation timeouts" do
-      begin
-        # Use very short timeout to test timeout behavior
-        store = Azu::Cache::RedisStore.new("#{redis_url}/15", operation_timeout: Time::Span.new(nanoseconds: 1_000_000))
-        store.clear
+    it "gives up on a command that outlasts the operation timeout" do
+      store = Azu::Cache::RedisStore.new("#{redis_url}/15", operation_timeout: 50.milliseconds)
+      store.clear
+      store.set("present", "value").should be_true
+      store.get("present").should eq("value")
 
-        # This should timeout quickly
-        result = store.get("timeout_test")
-        result.should be_nil
-      rescue
-        puts "Redis not available for testing"
-      end
+      # Keeps the server busy for ~400 ms so the next command has to wait for it
+      busy = <<-LUA
+        local started = redis.call('TIME')
+        while true do
+          local now = redis.call('TIME')
+          if (now[1] - started[1]) * 1000000 + (now[2] - started[2]) > 400000 then break end
+        end
+        return 1
+        LUA
+      spawn { Redis.new(url: "#{redis_url}/15").eval(busy) }
+      sleep 50.milliseconds
+
+      started = Time.instant
+      store.get("present").should be_nil
+      (Time.instant - started).should be < 300.milliseconds
+    end
+  end
+
+  describe "RedisStore without a server" do
+    it "answers nil/false/0 instead of raising" do
+      store = Azu::Cache::RedisStore.new("redis://127.0.0.1:1/0", timeout: 0.2.seconds, operation_timeout: 0.5.seconds)
+
+      store.get("test").should be_nil
+      store.set("test", "value").should be_false
+      store.delete("test").should be_false
+      store.exists?("test").should be_false
+      store.clear.should be_false
+      store.size.should eq(0)
+      store.ping.should be_nil
     end
   end
 

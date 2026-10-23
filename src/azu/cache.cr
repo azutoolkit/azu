@@ -125,6 +125,8 @@ module Azu
       @default_ttl : Time::Span?
       @cleanup_interval : Time::Span
       @cleanup_fiber : Fiber?
+      @hits : Int64 = 0
+      @misses : Int64 = 0
 
       def initialize(@max_size : Int32 = DEFAULT_MAX_SIZE, @default_ttl : Time::Span? = DEFAULT_TTL, cleanup_interval : Time::Span = 5.minutes)
         @cache = Hash(String, CacheEntry).new
@@ -137,14 +139,19 @@ module Azu
       def get(key : String) : String?
         @mutex.synchronize do
           entry = @cache[key]?
-          return nil unless entry
+          unless entry
+            @misses += 1
+            return nil
+          end
 
           if entry.expired?
             @cache.delete(key)
             @access_order.delete(key)
+            @misses += 1
             return nil
           end
 
+          @hits += 1
           # Update access order for LRU
           @access_order.delete(key)
           @access_order << key
@@ -156,18 +163,7 @@ module Azu
 
       def set(key : String, value : String, ttl : Time::Span? = nil) : Bool
         @mutex.synchronize do
-          ttl = ttl || @default_ttl
-
-          # Remove existing entry if present
-          if @cache.has_key?(key)
-            @access_order.delete(key)
-          elsif @cache.size >= @max_size
-            # Evict least recently used entry
-            evict_lru
-          end
-
-          @cache[key] = CacheEntry.new(value, ttl)
-          @access_order << key
+          store(key, CacheEntry.new(value, ttl || @default_ttl))
           true
         end
       end
@@ -220,6 +216,19 @@ module Azu
         end
       end
 
+      # Puts `entry` as the most recently used one, evicting the least recently used when a new key
+      # would exceed `max_size`. Callers hold the mutex.
+      private def store(key : String, entry : CacheEntry) : Nil
+        if @cache.has_key?(key)
+          @access_order.delete(key)
+        elsif @cache.size >= @max_size
+          evict_lru
+        end
+
+        @cache[key] = entry
+        @access_order << key
+      end
+
       private def evict_lru
         return if @access_order.empty?
 
@@ -240,9 +249,8 @@ module Azu
       end
 
       private def calculate_hit_rate : Float64
-        # Simplified hit rate calculation
-        # In a real implementation, you'd track hits/misses
-        @cache.size.to_f / @max_size.to_f * 100.0
+        lookups = @hits + @misses
+        lookups.zero? ? 0.0 : @hits.to_f / lookups * 100.0
       end
 
       private def calculate_memory_usage : Float64
@@ -256,13 +264,12 @@ module Azu
         @mutex.synchronize do
           entry = @cache[key]?
           if entry && !entry.expired?
-            # Update existing entry
+            # The expiry is set when the counter is created, not on every hit
             new_value = entry.value.to_i + amount
-            @cache[key] = CacheEntry.new(new_value.to_s, ttl || @default_ttl)
+            store(key, CacheEntry.new(new_value.to_s, entry.expires_at, entry.access_count + 1))
             new_value
           else
-            # Create new entry
-            @cache[key] = CacheEntry.new(amount.to_s, ttl || @default_ttl)
+            store(key, CacheEntry.new(amount.to_s, ttl || @default_ttl))
             amount
           end
         end
@@ -300,6 +307,7 @@ module Azu
       @client : Redis::PooledClient
       @default_ttl : Time::Span?
       @operation_timeout : Time::Span
+      @database : Int32
 
       def initialize(redis_url : String, pool_size : Int32 = 5, timeout : Time::Span = 5.seconds, @default_ttl : Time::Span? = nil, operation_timeout : Time::Span = 2.seconds)
         @client = Redis::PooledClient.new(
@@ -308,6 +316,7 @@ module Azu
           pool_timeout: timeout.total_seconds
         )
         @operation_timeout = operation_timeout
+        @database = URI.parse(redis_url).path.lstrip('/').to_i? || 0
       end
 
       def get(key : String) : String?
@@ -359,66 +368,34 @@ module Azu
       end
 
       def size : Int32
-        # Get database info as hash
-        info_hash = with_timeout("info", "size") { @client.info }
-        return 0 unless info_hash
-
-        # Look for db0 or current database keys count
-        if keyspace = info_hash["db0"]?
-          # Parse db0 value like "keys=123,expires=45"
-          if keyspace =~ /keys=(\d+)/
-            $1.to_i
-          else
-            0
-          end
-        else
-          0
-        end
+        keyspace = with_timeout("info", "size") { @client.info("keyspace") }["db#{@database}"]?
+        keyspace && keyspace =~ /keys=(\d+)/ ? $1.to_i : 0
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to get cache size" }
         0
       end
 
-      # Override increment for Redis native support
-      def increment(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
-        result = if amount == 1
-                   with_timeout("incr", key) { @client.incr(key) }
-                 else
-                   with_timeout("incrby", key) { @client.incrby(key, amount) }
-                 end
-
-        return nil unless result
-
-        # Set TTL if provided and key was just created
-        if ttl && result == amount
-          with_timeout("expire", key) { @client.expire(key, ttl.total_seconds.to_i) }
+      # INCRBY that gives the key `ttl` only when it has none, in one atomic step: the expiry belongs
+      # to the counter's creation and is not renewed by later hits (EXPIRE ... NX needs Redis 7).
+      INCREMENT_SCRIPT = <<-LUA
+        local value = redis.call('INCRBY', KEYS[1], ARGV[1])
+        local ttl = tonumber(ARGV[2])
+        if ttl > 0 and redis.call('TTL', KEYS[1]) == -1 then
+          redis.call('EXPIRE', KEYS[1], ttl)
         end
+        return value
+        LUA
 
-        result.to_i
+      def increment(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
+        seconds = ttl ? ttl.total_seconds.to_i : 0
+        with_timeout("incrby", key) { @client.eval(INCREMENT_SCRIPT, [key], [amount.to_s, seconds.to_s]) }.as(Int).to_i
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to increment key: #{key}" }
         nil
       end
 
-      # Override decrement for Redis native support
       def decrement(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
-        result = if amount == 1
-                   with_timeout("decr", key) { @client.decr(key) }
-                 else
-                   with_timeout("decrby", key) { @client.decrby(key, amount) }
-                 end
-
-        return nil unless result
-
-        # Set TTL if provided
-        if ttl
-          with_timeout("expire", key) { @client.expire(key, ttl.total_seconds.to_i) }
-        end
-
-        result.to_i
-      rescue ex
-        Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to decrement key: #{key}" }
-        nil
+        increment(key, -amount, ttl)
       end
 
       # Override multi-get for Redis native support
@@ -503,8 +480,8 @@ module Azu
 
       # Timeout wrapper for Redis operations
       # Uses a done channel to prevent resource leaks from orphaned fibers
-      private def with_timeout(operation : String, key : String, &block)
-        channel = ::Channel(typeof(block.call)).new
+      private def with_timeout(operation : String, key : String, &block : -> T) : T forall T
+        channel = ::Channel(T).new
         done = ::Channel(Nil).new(1) # Buffered to prevent blocking
 
         # Spawn the operation
