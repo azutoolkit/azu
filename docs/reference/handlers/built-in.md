@@ -234,6 +234,32 @@ gets `403 CSRF token validation failed`. Paths that start with an entry of `skip
 Strategies: `SignedDoubleSubmit` (default: an HMAC-signed token that expires with the cookie), `SynchronizerToken`
 and `DoubleSubmit` (plain cookie comparison, not recommended).
 
+`SynchronizerToken` compares the request's token with one the handler keeps in a token store. The default store is
+the `csrf_token` cookie (`CSRF::CookieTokenStore`), which the client holds. `CSRF::SessionTokenStore` keeps the
+token in the server-side session instead, through `Azu.session_adapter` (see
+[Use Sessions](../../how-to/middleware/use-sessions.md) for the `session` shard setup):
+
+```crystal
+class AppSession
+  property csrf_token : String? = nil
+end
+
+app_session = AppSession.new
+Azu.session_adapter = Azu::SessionAdapter.new(
+  csrf_token: ->(context : HTTP::Server::Context) { app_session.csrf_token },
+  store_csrf_token: ->(context : HTTP::Server::Context, token : String) { app_session.csrf_token = token; nil },
+)
+
+csrf = Azu::Handler::CSRF.new(
+  strategy: Azu::Handler::CSRF::Strategy::SynchronizerToken,
+  token_store: Azu::Handler::CSRF::SessionTokenStore.new,
+)
+```
+
+(A real app looks the session up from the `context` instead of closing over one object.) The session store is
+used by `SynchronizerToken` only; `SignedDoubleSubmit` and `DoubleSubmit` are cookie patterns by definition.
+Without an adapter, `SessionTokenStore` raises `Azu::SessionAdapter::NotConfigured`.
+
 Tokens are issued by calling `token(context)`, which also sets the cookie on that response, usually from the
 endpoint that renders the form:
 
