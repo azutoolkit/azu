@@ -51,6 +51,7 @@ src/azu/
 ├── negotiation.cr      # Accept parsing & format selection
 ├── channel.cr          # WebSocket channel handlers
 ├── spark.cr            # Real-time component system
+├── spark/client/azu_spark.js  # GENERATED minified Spark client; edit js/azu-spark.js, then `npm run build` in js/
 ├── component.cr        # Static markup components (`Azu::Component`)
 ├── cache.cr            # Multi-store caching (Memory/Redis)
 ├── params.cr           # Parameter extraction & uploads
@@ -89,6 +90,7 @@ spec/
 ├── azu/handler/        # Handler-specific tests
 └── azu/dev/            # azu/dev specs (they require "../../../src/azu/dev/dev")
 
+js/                     # Spark client source (azu-spark.js), build.mjs, typings, node tests (dev-only node)
 playground/             # Example application
 docs/                   # Comprehensive documentation
 ```

@@ -1,0 +1,16 @@
+{
+  "name": "azu-spark-client",
+  "private": true,
+  "type": "module",
+  "description": "Build and test tooling for the Azu Spark browser client. Application developers never need it: the built script is checked in.",
+  "scripts": {
+    "build": "node build.mjs && tsc -p tsconfig.json",
+    "check": "node build.mjs --check",
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "happy-dom": "21.0.4",
+    "typescript": "7.0.2"
+  }
+}
