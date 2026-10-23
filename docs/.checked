@@ -66,3 +66,12 @@ docs/contributing/setup.md
 docs/contributing/standards.md
 docs/faq.md
 docs/reference/breaking-changes.md
+docs/how-to/deployment/configure-production.md
+docs/how-to/deployment/scale-horizontally.md
+docs/how-to/file-handling/handle-file-uploads.md
+docs/how-to/file-handling/validate-file-types.md
+docs/how-to/templates/enable-hot-reload.md
+docs/how-to/templates/render-html-templates.md
+docs/reference/templates/helpers.md
+docs/tutorials/building-a-user-api.md
+docs/tutorials/deploying-to-production.md

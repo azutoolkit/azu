@@ -102,6 +102,9 @@ jobs:
       - name: Install dependencies
         run: shards install
 
+      - name: Every page with crystal blocks is listed in docs/.checked
+        run: crystal run scripts/check_docs_listed.cr
+
       - name: Compile the documented examples
         run: crystal run scripts/check_docs.cr -- $(grep -v '^#' docs/.checked)
 
