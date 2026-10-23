@@ -89,25 +89,23 @@ module Azu
 
     # Memory-based cache store with LRU eviction
     class MemoryStore < Store
+      # Expiry is a monotonic instant, so a wall-clock step (NTP, DST, manual change) never shortens or stretches a TTL.
       private struct CacheEntry
         getter value : String
-        getter expires_at : Time?
-        getter created_at : Time
+        getter expires_at : Time::Instant?
         getter access_count : Int32
 
         def initialize(@value : String, ttl : Time::Span? = nil)
-          @created_at = Clock.now
-          @expires_at = ttl ? @created_at + ttl : nil
+          @expires_at = ttl ? Clock.instant + ttl : nil
           @access_count = 1
         end
 
-        def initialize(@value : String, @expires_at : Time?, @access_count : Int32)
-          @created_at = Clock.now
+        def initialize(@value : String, @expires_at : Time::Instant?, @access_count : Int32)
         end
 
         def expired? : Bool
           return false unless expires_at = @expires_at
-          Clock.now > expires_at
+          Clock.instant > expires_at
         end
 
         def accessed : CacheEntry

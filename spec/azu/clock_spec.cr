@@ -24,3 +24,14 @@ describe Azu::Clock do
     Azu::Clock.source.should be original
   end
 end
+
+describe Azu::Clock::Fake do
+  it "steps the wall clock without moving instants" do
+    with_fake_clock do |clock|
+      start, mark = Azu::Clock.now, Azu::Clock.instant
+      clock.step_wall_clock(1.hour)
+      Azu::Clock.now.should eq start + 1.hour
+      Azu::Clock.instant.should eq mark
+    end
+  end
+end
