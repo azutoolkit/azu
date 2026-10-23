@@ -2,10 +2,10 @@ require "../spec_helper"
 require "file_utils"
 
 # Azu core must stay usable without the cql shard: anything that needs it lives in
-# an opt-in directory that src/azu.cr does not glob. `dev` (the dashboard and performance tooling)
-# is opt-in too, but needs no extra shard.
+# an opt-in directory that src/azu.cr does not glob. `dev` (the dashboard and performance tooling) and
+# `testing` (the in-process test client) are opt-in too, but need no extra shard.
 describe "opt-in database integrations" do
-  opt_in_dirs = %w(cql dev)
+  opt_in_dirs = %w(cql dev testing)
 
   it "does not glob the whole azu directory" do
     File.read("src/azu.cr").should_not contain(%(require "./azu/**"))
@@ -47,7 +47,7 @@ private def loaded_dev_constants(requires : String, flags : Array(String) = [] o
     #{requires}
     {% begin %}
       {% names = [] of String %}
-      {% for name in %w(PerformanceMetrics PerformanceReporter DevelopmentTools) %}
+      {% for name in %w(PerformanceMetrics PerformanceReporter DevelopmentTools Testing) %}
         {% names << name if Azu.has_constant?(name) %}
       {% end %}
       {% for name in %w(DevDashboard PerformanceMonitor) %}
@@ -67,6 +67,15 @@ private def loaded_dev_constants(requires : String, flags : Array(String) = [] o
   line.lchop("LOADED:").split(',', remove_empty: true)
 ensure
   FileUtils.rm_rf(dir) if dir
+end
+
+describe "opt-in test client" do
+  it "is loaded by `require \"azu/testing\"` and not by `require \"azu\"`" do
+    next pending!("crystal is not installed") unless Process.find_executable("crystal")
+
+    loaded_dev_constants(%(require "azu")).should be_empty
+    loaded_dev_constants(%(require "azu/testing")).should eq ["Testing"]
+  end
 end
 
 describe "opt-in development tooling" do

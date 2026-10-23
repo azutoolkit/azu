@@ -60,6 +60,7 @@ src/azu/
 ├── query_store.cr      # Query/transaction telemetry + N+1 analysis (fed by azu/cql, read by the dashboard)
 ├── request_context.cr  # Fiber-keyed current request for tagging SQL/logs
 ├── cql/                # Opt-in CQL bridge (`require "azu/cql"`), see docs/reference/database-dashboard.md
+├── testing/            # Opt-in test client (`require "azu/testing"`, entry point testing/testing.cr): Client, WebSocket, Sessions, CookieJar
 ├── dev/                # Opt-in dev tooling (`require "azu/dev"`, entry point dev/dev.cr)
 │   ├── configuration.cr        # Configuration#performance_*, #performance_monitor, #development_tools
 │   ├── performance_metrics.cr  # Request/cache/component metrics

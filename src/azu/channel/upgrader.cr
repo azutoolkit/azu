@@ -33,9 +33,11 @@ module Azu
         config = Azu.current_config
         app = Azu.current_app
         response.upgrade do |io|
-          Azu.with_config(config) do
-            socket = HTTP::WebSocket.new(BoundedProtocol.new(io, @channel.max_message_size))
-            run(app, @channel.new(socket), context, socket)
+          Azu.with_app(app) do
+            Azu.with_config(config) do
+              socket = HTTP::WebSocket.new(BoundedProtocol.new(io, @channel.max_message_size))
+              run(app, @channel.new(socket), context, socket)
+            end
           end
         end
       end

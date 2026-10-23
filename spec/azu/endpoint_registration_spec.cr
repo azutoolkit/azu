@@ -1,5 +1,5 @@
 require "../spec_helper"
-require "http/client"
+require "../../src/azu/testing/testing"
 
 private struct Hello
   include Azu::Response
@@ -32,16 +32,25 @@ private struct Greeter
   end
 end
 
-private def get(app : Azu::App, path : String, method : String = "GET") : HTTP::Client::Response
-  server = app.server
-  address = server.bind_unused_port("127.0.0.1")
-  spawn { server.listen }
-  Fiber.yield
-  begin
-    HTTP::Client.exec(method, "http://#{address.address}:#{address.port}#{path}")
-  ensure
-    server.close
+private def get(app : Azu::App, path : String, method : String = "GET") : Azu::Testing::Response
+  Azu::Testing::Client.new(app, [] of HTTP::Handler).request(method, path)
+end
+
+private class Base
+  include Azu::Endpoint(Azu::Request, Hello)
+
+  def call : Hello
+    Hello.new("base")
   end
+end
+
+private class One < Base
+  get "/p2-one"
+end
+
+private class Two < Base
+  get "/p2-two"
+  post "/p2-two"
 end
 
 describe "endpoint registration" do
@@ -75,9 +84,19 @@ describe "endpoint registration" do
     Azu.with_config(Azu::CONFIG) { Greeter.path(name: "z").should eq "/p2-greet/z" }
   end
 
-  it "does not register on the default app when only a custom app takes the type" do
+  it "starts a new app without routes, whatever endpoint types are declared" do
     isolated = Azu::App.new
     isolated.router.registered_routes.should be_empty
+  end
+
+  it "keeps routes per type: sibling subclasses never see each other's" do
+    Base.routes.should be_empty
+    One.routes.should eq [{"get", "/p2-one"}]
+    Two.routes.should eq [{"get", "/p2-two"}, {"post", "/p2-two"}]
+  end
+
+  it "refuses to register a type that declares no routes" do
+    expect_raises(ArgumentError, /declares no routes/) { Azu::App.new.routes { endpoint Base } }
   end
 
   it "raises for a verb the router does not know" do

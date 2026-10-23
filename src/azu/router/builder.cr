@@ -34,6 +34,7 @@ module Azu
       # app.routes { scope("/v1") { endpoint UsersEndpoint } }
       # ```
       def endpoint(type : T.class) : Nil forall T
+        raise ArgumentError.new("#{type} declares no routes: add get/post/... to its body") if type.routes.empty?
         type.routes.each { |(verb, path)| @router.register verb, prefixed(path), type.new }
       end
 

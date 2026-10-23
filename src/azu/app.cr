@@ -39,7 +39,7 @@ module Azu
     @in_flight = 0
     @draining = false
     @idle_waiters = [] of ::Channel(Nil)
-    @sockets = [] of Channel
+    @sockets = Set(Channel).new
     @shutdown_signal = ::Channel(Nil).new
 
     def initialize(@config : Configuration = Configuration.new)
@@ -114,7 +114,7 @@ module Azu
       sockets = @lock.synchronize do
         return if @draining
         @draining = true
-        @sockets.dup
+        @sockets.to_a
       end
       @shutdown_signal.close
       sockets.each { |socket| spawn(name: "azu-ws-goaway") { socket.close(HTTP::WebSocket::CloseCode::GoingAway, "server shutting down") } }
@@ -197,9 +197,15 @@ module Azu
     # An `HTTP::Server` for this app. It is not bound or started: call `bind_tcp`/`listen` on it, or
     # `bind_unused_port` in specs.
     def server(handlers : Array(HTTP::Handler) = [] of HTTP::Handler) : HTTP::Server
+      HTTP::Server.new(dispatcher(handlers)).tap { |server| @server = server }
+    end
+
+    # The first handler of the chain `server` serves, ending in the router: calling it with a context
+    # handles a request without a socket (this is what `Azu::Testing::Client` does).
+    def dispatcher(handlers : Array(HTTP::Handler) = [] of HTTP::Handler) : HTTP::Handler
       @config.i18n.apply
       router # takes the declared endpoints now, so a duplicate route fails at boot, not on a request
-      HTTP::Server.new(chain(handlers)) { |context| router.process(context) }.tap { |server| @server = server }
+      HTTP::Server.build_middleware(chain(handlers), ->(context : HTTP::Server::Context) { router.process(context) })
     end
   end
 end

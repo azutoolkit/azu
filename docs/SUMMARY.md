@@ -108,6 +108,7 @@
 - [Component](reference/api/component.md)
 - [Cache](reference/api/cache.md)
 - [Router](reference/api/router.md)
+- [Testing](reference/api/testing.md)
 
 ### Handlers
 
