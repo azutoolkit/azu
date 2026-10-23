@@ -6,6 +6,7 @@ require "xml"
 require "colorize"
 require "schema"
 require "crinja"
+require "./azu/clock"
 require "./azu/routable"
 require "./azu/router"
 require "./azu/router/**"
@@ -27,6 +28,9 @@ require "./azu/templates/**"
 # missing.
 
 module Azu
+  # The release version, read from shard.yml at compile time so the bot's version bump is the only edit.
+  VERSION = {{ read_file("#{__DIR__}/../shard.yml").lines.select(&.starts_with?("version:")).first.split(":")[1].strip }}
+
   alias Validator = Schema::Validator
   CONFIG = Configuration.new
 

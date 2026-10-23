@@ -36,6 +36,18 @@ describe Azu::Spark::Token do
     expect_raises(Azu::Spark::InvalidToken) { Azu::Spark::Token.verify("join", token, SECRET) }
   end
 
+  it "accepts a token until its lifetime has passed" do
+    with_fake_clock do |clock|
+      token = Azu::Spark::Token.sign("join", claims(a: 1), 1.minute, SECRET)
+
+      clock.advance(59.seconds)
+      Azu::Spark::Token.verify("join", token, SECRET)["a"].as_i.should eq 1
+
+      clock.advance(2.seconds)
+      expect_raises(Azu::Spark::InvalidToken, /expired/) { Azu::Spark::Token.verify("join", token, SECRET) }
+    end
+  end
+
   it "refuses expired tokens" do
     token = Azu::Spark::Token.sign("join", claims(a: 1), -1.second, SECRET)
 

@@ -39,6 +39,7 @@ crystal run playground/example_app.cr  # Run example app
 ```
 src/azu/
 ├── azu.cr              # Core module & startup
+├── clock.cr            # Azu::Clock: the time source for TTLs, windows and token lifetimes; Clock::Fake + `with_fake_clock` in specs
 ├── app.cr              # Azu::App: an app as a value (config + router), App.default wraps the global CONFIG
 ├── routable.cr         # Azu::Routable: what the router dispatches to (endpoints, upgraders, plain handlers)
 ├── router.cr           # Radix-tree routing with path caching

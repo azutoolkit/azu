@@ -34,8 +34,6 @@ module Azu
   # {{ app_name }}             {# My Application #}
   # ```
   module Helpers
-    VERSION = "1.0.0"
-
     # Registers a custom Crinja filter.
     #
     # Filters transform values using the pipe syntax: `{{ value | filter_name }}`.

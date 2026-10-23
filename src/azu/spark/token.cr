@@ -16,7 +16,7 @@ module Azu
       MAX_SIZE = 16 * 1024
 
       def self.sign(kind : String, claims : JSON::Any, ttl : Time::Span, secret : String = Spark.config.secret) : String
-        payload = Base64.urlsafe_encode({kind: kind, exp: (Time.utc + ttl).to_unix, claims: claims}.to_json, padding: false)
+        payload = Base64.urlsafe_encode({kind: kind, exp: (Clock.now + ttl).to_unix, claims: claims}.to_json, padding: false)
         "#{payload}.#{signature(payload, secret)}"
       end
 
@@ -29,7 +29,7 @@ module Azu
 
         envelope = decode(payload)
         raise InvalidToken.new("wrong token kind") unless envelope["kind"]?.try(&.as_s?) == kind
-        raise InvalidToken.new("token expired") unless (expiry = envelope["exp"]?.try(&.as_i64?)) && expiry >= Time.utc.to_unix
+        raise InvalidToken.new("token expired") unless (expiry = envelope["exp"]?.try(&.as_i64?)) && expiry >= Clock.now.to_unix
         envelope["claims"]? || raise InvalidToken.new("token without claims")
       end
 
