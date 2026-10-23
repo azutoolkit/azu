@@ -6,8 +6,11 @@ The router handles HTTP request routing using a radix tree.
 
 ### Verb macros
 
-Routes declared with a verb macro inside an endpoint are registered on the router of `Azu::App.default`
-when the type is defined:
+Routes declared with a verb macro inside an endpoint are recorded on the type (`UsersEndpoint.routes`, the
+`{verb, path}` pairs in order) and registered on the router of `Azu::App.default` the first time that router is
+read (`App#server`, `App#router`, `Azu.start`), so a duplicate route fails at boot. Defining the type does not touch
+any router. To serve the same type from another app, register its routes there with `endpoint` (see
+[Registering an endpoint type on an app](#registering-an-endpoint-type-on-an-app)):
 
 ```crystal
 struct MyResponse
@@ -64,6 +67,44 @@ admin = Azu::App.new
 admin.routes { get "/users", UsersEndpoint }
 app.routes { mount admin, at: "/admin" } # GET /admin/users
 ```
+
+### Registering an endpoint type on an app
+
+`endpoint Type` inside `App#routes` (or a `scope`) registers every route the verb macros declared in `Type`, below the
+builder's prefix. An endpoint type is not tied to an app: the same type can serve several, each with its own prefix,
+and `Type.path` links to the route of the app serving the request.
+
+```crystal
+require "azu"
+
+struct PingResponse
+  include Azu::Response
+
+  def render
+    "pong"
+  end
+end
+
+struct PingEndpoint
+  include Azu::Endpoint(Azu::Request, PingResponse)
+
+  get "/ping" # also served by Azu::App.default
+
+  def call : PingResponse
+    PingResponse.new
+  end
+end
+
+api = Azu::App.new
+api.routes { scope("/api") { endpoint PingEndpoint } } # GET /api/ping
+
+admin = Azu::App.new
+admin.routes { endpoint PingEndpoint } # GET /ping
+```
+
+Not per app yet: `Channel.ws` (it registers on `App.default` when the class is defined; use `ws` in `App#routes`
+for another app), and the Crinja link helpers (`link_to_get_users` and friends), which are registered once per type
+in a process-wide registry and link with the path of the app serving the request.
 
 ### Mounting another app
 

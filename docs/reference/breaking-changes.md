@@ -76,7 +76,12 @@ themselves must move to a session store.
 keeps its token: `CookieTokenStore` (default, unchanged) or `SessionTokenStore`, which uses
 `Azu.session_adapter` so the token never reaches the client as a cookie.
 
-**Routes can belong to an app** (additive; the endpoint macros keep registering on `Azu::App.default`).
+**Routes can belong to an app** (additive; the endpoint macros keep registering on `Azu::App.default`). The
+macros now record their routes on the endpoint type (`.routes`) and `App.default` registers them lazily, the first
+time its router is read, instead of when the class body runs; `Router::Builder#endpoint(Type)` registers a type on any
+other app. Observable differences: a duplicate route raises when the router is first used (`App#server` and
+`Azu.start` do it at boot) rather than at class definition, and code that reads `Azu::CONFIG.router` still sees every
+declared route because the router getter applies them.
 
 ```crystal
 require "azu"

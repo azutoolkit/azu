@@ -6,9 +6,11 @@ module Azu
   # started with `Azu.spawn_scoped`, sees the configuration of the app that serves it through
   # `Azu.current_config`.
   #
-  # Not yet per app, and shared by every app in the process: the endpoint macros (they register on
-  # `App.default`), `Channel.ws`, the PubSub backend, Spark connections, `QueryStore`, the helper and
-  # i18n registries, and handler constructors whose defaults read the global `CONFIG` (`Logger`,
+  # Endpoint macros declare their routes on the endpoint type, and `App.default` registers them on first
+  # use; another app takes a type with `Router::Builder#endpoint`.
+  #
+  # Not yet per app, and shared by every app in the process: `Channel.ws` (it registers on `App.default`), the PubSub
+  # backend, Spark connections, `QueryStore`, the helper and i18n registries, and handler constructors whose defaults read the global `CONFIG` (`Logger`,
   # `SimpleLogger`, `Throttle`, `Static`: pass `log:` explicitly). Building the server applies the
   # app's `i18n` settings to the process-wide `Helpers::I18n` (the last app to serve wins). Later
   # slices of the 0.6 plan move these.
@@ -196,6 +198,7 @@ module Azu
     # `bind_unused_port` in specs.
     def server(handlers : Array(HTTP::Handler) = [] of HTTP::Handler) : HTTP::Server
       @config.i18n.apply
+      router # takes the declared endpoints now, so a duplicate route fails at boot, not on a request
       HTTP::Server.new(chain(handlers)) { |context| router.process(context) }.tap { |server| @server = server }
     end
   end
