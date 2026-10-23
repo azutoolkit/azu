@@ -1,5 +1,5 @@
 require "../spec_helper"
-require "http/client"
+require "../../src/azu/testing/testing"
 
 private struct Link
   include Azu::Routable
@@ -62,16 +62,8 @@ private struct ShowLogin
   end
 end
 
-private def fetch(app : Azu::App, path : String, method : String = "GET") : HTTP::Client::Response
-  server = app.server
-  address = server.bind_unused_port("127.0.0.1")
-  spawn { server.listen }
-  Fiber.yield
-  begin
-    HTTP::Client.new(address.address, address.port).exec(method, path)
-  ensure
-    server.close
-  end
+private def fetch(app : Azu::App, path : String, method : String = "GET") : Azu::Testing::Response
+  Azu::Testing::Client.new(app, [] of HTTP::Handler).request(method, path)
 end
 
 describe Azu::App do
