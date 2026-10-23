@@ -78,3 +78,4 @@ docs/tutorials/building-a-user-api.md
 docs/tutorials/deploying-to-production.md
 docs/how-to/middleware/use-sessions.md
 docs/how-to/deployment/graceful-shutdown.md
+docs/reference/api/cql-bridge.md
