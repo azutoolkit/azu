@@ -5,6 +5,24 @@ require "http/web_socket"
 private GATE    = ::Channel(Nil).new
 private ENTERED = ::Channel(Nil).new(8)
 
+# A wait that fails the example instead of hanging the run when something regresses.
+private def recv(channel : ::Channel(T), within : Time::Span = 5.seconds) : T forall T
+  select
+  when value = channel.receive
+    value
+  when timeout(within)
+    fail "timed out waiting on a channel"
+  end
+end
+
+private def release(channel : ::Channel(Nil)) : Nil
+  select
+  when channel.send(nil)
+  when timeout(5.seconds)
+    fail "nobody was waiting for the gate"
+  end
+end
+
 private struct SlowRequest
   include Azu::Routable
 
@@ -67,6 +85,21 @@ private class Room < Azu::Channel
   end
 end
 
+# Reports what a channel sees of the app: in its callback and in a fiber spawned from it.
+private class Probe < Room
+  class_property app : Azu::App?
+
+  def on_connect
+  end
+
+  def on_message(message : String)
+    app = self.class.app
+    spawned = ::Channel(Bool).new
+    Azu.spawn_scoped { spawned.send(Azu.current_app.same?(app)) }
+    send "#{Azu.current_app.same?(app)}|#{recv(spawned)}|#{Azu.shutting_down?}"
+  end
+end
+
 private def app_with_long_lived_routes : Azu::App
   app = Azu::App.new
   app.config.websocket.ping_interval = nil
@@ -75,6 +108,7 @@ private def app_with_long_lived_routes : Azu::App
     get "/events", Events
     get "/deaf", Deaf
     ws "/room", Room
+    ws "/probe", Probe
   end
   app
 end
@@ -93,7 +127,7 @@ private def open_socket(host : String, port : Int32) : ::Channel(HTTP::WebSocket
   socket = HTTP::WebSocket.new(host, "/room", port)
   socket.on_close { |code, _| codes.send(code) }
   spawn { socket.run }
-  ENTERED.receive
+  recv(ENTERED)
   codes
 end
 
@@ -107,7 +141,7 @@ describe "graceful shutdown of long-lived connections" do
     app.stop(10.seconds).should be_true
     (Time.instant - started).should be < 5.seconds
 
-    codes.receive.should eq HTTP::WebSocket::CloseCode::GoingAway
+    recv(codes).should eq HTTP::WebSocket::CloseCode::GoingAway
   end
 
   it "ends a streaming response that listens for the shutdown signal" do
@@ -115,10 +149,10 @@ describe "graceful shutdown of long-lived connections" do
     host, port = serve(app)
     body = ::Channel(String).new
     spawn { body.send HTTP::Client.get("http://#{host}:#{port}/events").body }
-    ENTERED.receive
+    recv(ENTERED)
 
     app.stop(10.seconds).should be_true
-    body.receive.should eq "data: hello\n\ndata: bye\n\n"
+    recv(body).should eq "data: hello\n\ndata: bye\n\n"
   end
 
   it "lets a normal request finish while a socket and a stream are closed, and refuses new ones with 503" do
@@ -126,31 +160,44 @@ describe "graceful shutdown of long-lived connections" do
     host, port = serve(app)
     codes = open_socket(host, port)
     spawn { HTTP::Client.get("http://#{host}:#{port}/events") }
-    ENTERED.receive
+    recv(ENTERED)
     other = HTTP::Client.new(host, port)
     other.get("/nothing-yet") # keeps a connection open for the 503 below
     body = ::Channel(String).new
     spawn { body.send HTTP::Client.get("http://#{host}:#{port}/slow").body }
-    ENTERED.receive
+    recv(ENTERED)
 
     stopped = ::Channel(Bool).new
     spawn { stopped.send app.stop(10.seconds) }
-    codes.receive.should eq HTTP::WebSocket::CloseCode::GoingAway
+    recv(codes).should eq HTTP::WebSocket::CloseCode::GoingAway
     other.get("/slow").status_code.should eq 503
-    GATE.send(nil)
+    release(GATE)
 
-    stopped.receive.should be_true
-    body.receive.should eq "finished"
+    recv(stopped).should be_true
+    recv(body).should eq "finished"
   end
 
   it "waits at most the timeout for a response that ignores the shutdown signal" do
     app = app_with_long_lived_routes
     host, port = serve(app)
     spawn { HTTP::Client.get("http://#{host}:#{port}/deaf") rescue nil }
-    ENTERED.receive
+    recv(ENTERED)
 
     app.stop(50.milliseconds).should be_false
-    GATE.send(nil)
+    release(GATE)
+  end
+
+  it "lets a channel see its app and the shutdown state in callbacks and scoped fibers" do
+    app = app_with_long_lived_routes
+    Probe.app = app
+    host, port = serve(app)
+    answers = ::Channel(String).new(1)
+    socket = HTTP::WebSocket.new(host, "/probe", port)
+    socket.on_message { |message| answers.send(message) }
+    spawn { socket.run }
+    socket.send "x"
+    recv(answers).should eq "true|true|false"
+    app.stop(10.seconds).should be_true
   end
 
   it "refuses to track a socket once shutdown began, and signals streams outside an app as running" do

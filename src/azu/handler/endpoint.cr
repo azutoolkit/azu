@@ -82,12 +82,12 @@ module Azu
 
     macro included
       @@resource : String = ""
-      @@routes = [] of Tuple(String, String)
 
       # The `{verb, path}` pairs the verb macros declared on this type, in order. They are registered on
       # `Azu::App.default` on first use; `Router::Builder#endpoint` registers them on any other app.
+      # Kept per type (keyed by its name), so a subclass never sees its siblings' routes.
       def self.routes : Array(Tuple(String, String))
-        @@routes
+        Azu::DeclaredEndpoints.routes_of(name)
       end
 
       def self.path(**params)
@@ -106,7 +106,7 @@ module Azu
       {% for method in Azu::Router::RESOURCES %}
       def self.{{method.id}}(path : Azu::Router::Path)
         @@resource = path
-        @@routes << { {{method}}, path }
+        routes << { {{method}}, path }
         Azu::DeclaredEndpoints.declare(->(router : Azu::Router) { router.{{method.id}}(path, new); nil })
 
         # Register type-safe link helper: link_to_{method}_{resource}

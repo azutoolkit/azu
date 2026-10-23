@@ -184,7 +184,7 @@ Only `App.default` is drained by `start`.
 **Graceful shutdown of long-lived connections** (behaviour change). Open channel WebSockets are now tracked per
 app: when shutdown begins each gets a close frame with code 1001, and the drain waits for the peers to answer
 (within `shutdown_timeout`); before, they were neither closed nor waited for, so a client saw a dropped
-connection. A socket upgrade that arrives after shutdown began is closed with 1001 without `on_connect`. Streaming
+connection. A socket that registers after shutdown began is closed with 1001 without `on_connect` (one registered a moment before still runs it). Streaming
 responses (SSE) still count as in flight until the handler returns, but can now end promptly: `Azu.shutting_down?`
 and `Azu.shutdown_signal` report the shutdown of the app serving the request. New: `App#track_socket`,
 `App#shutdown_signal`, `Azu.current_app`, `Azu.with_app`. A handler that ignores the signal behaves as before.
