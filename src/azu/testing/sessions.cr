@@ -9,22 +9,43 @@ module Azu
       COOKIE     = "_azu_test_session"
       CSRF_FIELD = "_csrf"
 
-      @@installed = {} of UInt64 => Sessions
+      @@registry = {} of Configuration => Sessions
       @@mutex = Mutex.new
 
-      # The store behind *config*'s session adapter, installing it first. Refuses an adapter it did not install.
-      def self.install(config : Configuration) : Sessions
+      # The store behind *config*'s session adapter, installing the adapter first. Every `acquire` must be
+      # matched by a `release`; the adapter is removed from the configuration with the last one. Refuses an
+      # adapter this class did not install.
+      def self.acquire(config : Configuration) : Sessions
         @@mutex.synchronize do
-          @@installed[config.object_id]? || begin
+          sessions = @@registry[config]? || begin
             raise ArgumentError.new("the app already has a session adapter; log in through its own endpoints") if config.session_adapter
-            new.tap { |sessions| config.session_adapter = sessions.adapter }.tap { |sessions| @@installed[config.object_id] = sessions }
+            new.tap { |created| config.session_adapter = created.adapter; @@registry[config] = created }
           end
+          sessions.tap(&.retain)
+        end
+      end
+
+      def self.release(config : Configuration) : Nil
+        @@mutex.synchronize do
+          sessions = @@registry[config]? || return
+          return unless sessions.drop.zero?
+          @@registry.delete(config)
+          config.session_adapter = nil
         end
       end
 
       def initialize
         @data = {} of String => SessionAdapter::Values
         @mutex = Mutex.new
+        @users = 0
+      end
+
+      protected def retain : Int32
+        @users += 1
+      end
+
+      protected def drop : Int32
+        @users -= 1
       end
 
       # Starts a session holding *values* and returns its id.

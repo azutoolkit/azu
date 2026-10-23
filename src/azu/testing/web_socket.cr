@@ -8,6 +8,9 @@ module Azu
       class Timeout < Exception
       end
 
+      class Closed < Exception
+      end
+
       # The handshake was refused (no route, bad origin, a handler said no); carries what the server answered.
       class Rejected < Exception
         getter response : Response
@@ -47,7 +50,7 @@ module Azu
       end
 
       def receive(timeout : Time::Span = 2.seconds) : String
-        receive?(timeout) || raise Timeout.new("no WebSocket message within #{timeout}")
+        receive?(timeout) || raise(closed? ? Closed.new("the WebSocket is closed") : Timeout.new("no WebSocket message within #{timeout}"))
       end
 
       def closed? : Bool
@@ -61,8 +64,10 @@ module Azu
         when @server_done.receive?
         when timeout(timeout)
         end
-        @io.close unless @io.closed?
       rescue IO::Error
+        # The frame could not be written; the pipes are closed below all the same.
+      ensure
+        @io.close unless @io.closed?
       end
 
       private def run : Nil

@@ -58,6 +58,9 @@ response.body        # => "pong"
 | `form`    | A `Hash` or `NamedTuple`; sent as `application/x-www-form-urlencoded` |
 | `params`  | Appended to the query string                                         |
 
+`json: nil` and `json: false` are sent as the bodies `null` and `false`. In `form` and `params`, an array
+repeats its key (`ids=1&ids=2`), `nil` leaves the field out and every other value is its `to_s`.
+
 ```crystal
 require "azu"
 require "azu/testing"
@@ -142,7 +145,11 @@ response.json(Point).y     # => 2
 app (mount prefixes included) and serializes the request struct. Passing a request of another type than the
 endpoint's contract is a compile error. The encoding follows the OpenAPI document: GET, DELETE, HEAD and
 OPTIONS send the fields as query parameters, the other verbs a JSON body (`form: true` sends a form).
-Fields named by the path (`/users/:id`) fill the path.
+Fields named by the path (`/users/:id`) fill the path; a wildcard (`/files/*path`) keeps its slashes and
+encodes each segment. The route is looked up by verb: an endpoint that is not routed for the verb, or is routed
+at several paths for it, raises `ArgumentError` naming what is routed (use the path form then). In the named
+form (`client.get(Endpoint, id: 8)`) the field names `headers` and `form` are the call's own arguments; send such a field
+with a request struct.
 
 ```crystal
 require "azu"
@@ -225,8 +232,30 @@ client.post("/save").body # => "saved by 7"
 
 ### Time
 
-`Client.new(app, clock: Azu::Clock::Fake.new)` runs every request on that clock. `client.advance(10.minutes)`
-moves it, which ages cookies, cache entries, throttle windows and tokens without sleeping.
+`Client.new(app, clock: Azu::Clock::Fake.new)` gives the client a clock, and `client.advance(10.minutes)`
+moves it. It affects exactly two things: code that runs during a request of this client and reads
+`Azu::Clock` (cache TTLs, throttle windows, token lifetimes and the like), and the client's own cookie jar
+(`client.cookies`), which ages with the clock inside and outside requests. It does not affect your spec
+reading `Azu::Clock.now`, code that calls `Time.utc` directly, or fibers that outlive a request (a WebSocket
+channel runs on whatever clock is installed when it acts).
+
+`Azu::Clock` is process wide, so the client installs its clock around each request and restores the previous
+one afterwards; requests of clients that have a clock run one at a time to keep that safe.
+
+### Cleaning up
+
+`login_with` and `with_csrf` install the in-memory session adapter on the app's configuration. `client.close`
+removes it (the last open client of the app does), and `Azu::Testing::Client.open(app) { |client| ... }`
+closes for you. Close clients in an `after_each` when you share `Azu::App.default` between examples.
+
+### Known limits
+
+* Redirects to another host are returned, not followed.
+* Cookies ignore `Secure`, `SameSite` and domains; paths are honoured (`/admin` does not match `/administrator`).
+* There is no socket: request-target parsing, keep-alive and connection handling belong to `HTTP::Server`
+  and are not exercised. Keep a few specs against a real server (`app.server` and `bind_unused_port`).
+* The WebSocket client reads text frames only.
+* An exception that escapes the chain is a 500 with the exception in `Response#error`, as on a server.
 
 ## WebSocket
 
@@ -270,7 +299,7 @@ socket.receive?(10.milliseconds) # => nil
 socket.close
 ```
 
-`receive(timeout = 2.seconds)` raises `WebSocket::Timeout`; `receive?` answers nil instead. `close` sends a
+`receive(timeout = 2.seconds)` raises `WebSocket::Timeout`, or `WebSocket::Closed` once the socket is closed; `receive?` answers nil instead. `close` sends a
 close frame and waits for the channel's `on_close`.
 
 ## Live components

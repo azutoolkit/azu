@@ -21,10 +21,16 @@ module Azu
       # Verbs OpenAPI describes with query parameters instead of a body; the typed helpers follow it.
       NO_BODY = %w[GET DELETE HEAD OPTIONS TRACE]
       UNSAFE  = %w[POST PUT PATCH DELETE]
-      ACCEPT  = {json: "application/json", html: "text/html", text: "text/plain", xml: "application/xml"}
+
+      # "No json: argument", so that `json: nil` and `json: false` can be sent as bodies.
+      struct Unset
+      end
+
+      UNSET  = Unset.new
+      ACCEPT = {json: "application/json", html: "text/html", text: "text/plain", xml: "application/xml"}
 
       getter app : App
-      getter cookies = CookieJar.new
+      getter cookies : CookieJar
       # Sent with every request, below the headers of the call.
       getter headers = HTTP::Headers.new
       getter clock : Clock::Fake?
@@ -36,6 +42,26 @@ module Azu
         @handlers = handlers
         @dispatcher = @app.dispatcher(handlers)
         @csrf = nil.as({String, String}?)
+        @sessions = nil.as(Sessions?)
+        @cookies = CookieJar.new(-> { @clock.try(&.now) || Clock.now })
+      end
+
+      # Yields a client and closes it afterwards, which removes what it installed on the app.
+      def self.open(app : App = App.default, handlers : Array(HTTP::Handler) = default_handlers, **options, &)
+        client = new(app, handlers, **options)
+        begin
+          yield client
+        ensure
+          client.close
+        end
+      end
+
+      # Removes the session adapter this client (and no other open one) installed on the app. A client
+      # that never used `login_with` or `with_csrf` has nothing to remove.
+      def close : Nil
+        return unless @sessions
+        Sessions.release(@app.config)
+        @sessions = nil
       end
 
       def self.default_handlers : Array(HTTP::Handler)
@@ -43,7 +69,7 @@ module Azu
       end
 
       {% for verb in %w[get post put patch delete head options] %}
-        def {{ verb.id }}(path : String, *, headers = nil, body : String? = nil, json = nil, form = nil, params = nil) : Response
+        def {{ verb.id }}(path : String, *, headers = nil, body : String? = nil, json = UNSET, form = nil, params = nil) : Response
           request({{ verb.upcase }}, path, headers: headers, body: body, json: json, form: form, params: params)
         end
 
@@ -66,10 +92,10 @@ module Azu
         end
       {% end %}
 
-      def request(method : String, path : String, *, headers = nil, body : String? = nil, json = nil, form = nil, params = nil) : Response
+      def request(method : String, path : String, *, headers = nil, body : String? = nil, json = UNSET, form = nil, params = nil) : Response
         merged = merge_headers(headers)
         payload = body
-        if json
+        if !json.is_a?(Unset)
           payload = json.to_json
           merged["Content-Type"] = "application/json" unless merged.has_key?("Content-Type")
         elsif form
@@ -115,7 +141,7 @@ module Azu
 
       # Starts (or extends) a session of the in-memory session adapter and logs this client into it.
       def login_with(& : SessionAdapter::Values ->) : self
-        sessions = Sessions.install(@app.config)
+        sessions = sessions()
         values = @cookies[Sessions::COOKIE]?.try { |id| sessions[id] }
         unless values
           values = SessionAdapter::Values.new
@@ -128,11 +154,11 @@ module Azu
       # Fetches a token from the CSRF handler of the chain and sends it with every state-changing request.
       def with_csrf(csrf : Handler::CSRF? = nil) : self
         csrf ||= @handlers.compact_map(&.as?(Handler::CSRF)).first? || raise ArgumentError.new("no Azu::Handler::CSRF in this client's handlers")
-        Sessions.install(@app.config) if @app.config.session_adapter.nil? && csrf.strategy.synchronizer_token? && csrf.token_store.is_a?(Handler::CSRF::SessionTokenStore)
+        sessions if @app.config.session_adapter.nil? && csrf.strategy.synchronizer_token? && csrf.token_store.is_a?(Handler::CSRF::SessionTokenStore)
         context, _ = context_for("GET", "/", merge_headers(nil), nil)
         token = scoped { csrf.token(context) }
         context.response.cookies.add_response_headers(context.response.headers)
-        scoped { @cookies.absorb(context.response.headers) }
+        @cookies.absorb(context.response.headers)
         @csrf = {csrf.header_name, token}
         self
       end
@@ -142,9 +168,13 @@ module Azu
         (@clock || raise ArgumentError.new("give the client a clock: Client.new(app, clock: Azu::Clock::Fake.new)")).advance(span)
       end
 
+      private def sessions : Sessions
+        @sessions ||= Sessions.acquire(@app.config)
+      end
+
       private def call_endpoint(verb : String, endpoint : E.class, form_fields : String, json : String, headers, form : Bool) : Response forall E
         fields = HTTP::Params.parse(form_fields)
-        path = path_of(endpoint, fields)
+        path = path_of(verb, endpoint, fields)
         return request(verb, path, headers: headers, params: fields) if NO_BODY.includes?(verb)
         merged = merge_headers(headers)
         if form
@@ -156,13 +186,26 @@ module Azu
         end
       end
 
-      private def path_of(endpoint : Routable.class, fields : HTTP::Params) : String
+      private def path_of(verb : String, endpoint : Routable.class, fields : HTTP::Params) : String
         router = @app.router
-        template = router.path_of(endpoint) || raise ArgumentError.new("#{endpoint} is not routed on this app")
-        (router.mount_prefix + template).gsub(/\/[:*](\w+)/) do
-          name = $1
-          "/" + URI.encode_path_segment(fields.delete(name) || raise ArgumentError.new("path parameter #{name} of #{endpoint} is missing"))
+        (router.mount_prefix + template_for(verb, endpoint)).gsub(/\/([:*])(\w+)/) do
+          kind, name = $1, $2
+          value = fields.delete(name) || raise ArgumentError.new("path parameter #{name} of #{endpoint} is missing")
+          segments = kind == "*" ? value.split('/') : [value]
+          "/" + segments.map { |segment| URI.encode_path_segment(segment) }.join('/')
         end
+      end
+
+      # The path *endpoint* is routed at for *verb*; it must be exactly one.
+      private def template_for(verb : String, endpoint : Routable.class) : String
+        routes = @app.router.registered_routes.select { |route| route.endpoint.class == endpoint }
+        paths = routes.select { |route| route.method.to_s.upcase == verb }.map(&.path).uniq!
+        return paths.first if paths.size == 1
+        if paths.empty?
+          others = routes.map { |route| "#{route.method.to_s.upcase} #{route.path}" }
+          raise ArgumentError.new("#{endpoint} is not routed for #{verb} on this app#{" (routed: #{others.join(", ")})" unless others.empty?}")
+        end
+        raise ArgumentError.new("#{endpoint} is routed at several paths for #{verb} (#{paths.join(", ")}); call the client with the path")
       end
 
       private def perform(method : String, target : String, headers : HTTP::Headers, body : String?, redirects : Int32 = 0) : Response
@@ -171,12 +214,20 @@ module Azu
         raise TooManyRedirects.new("more than #{MAX_REDIRECTS} redirects, last to #{response.location}") if redirects >= MAX_REDIRECTS
 
         location = URI.parse(target).resolve(response.location.to_s)
+        return response unless internal?(location, headers)
+
         next_target = location.request_target
         if response.status_code == 303 || (response.status_code.in?(301, 302) && !{"GET", "HEAD"}.includes?(method))
           perform("GET", next_target, without_body(headers), nil, redirects + 1)
         else
           perform(method, next_target, headers, body, redirects + 1)
         end
+      end
+
+      # A location on another host is the browser's to follow, not the app's.
+      private def internal?(location : URI, headers : HTTP::Headers) : Bool
+        host = location.host
+        host.nil? || host == (headers["Host"]? || "localhost").split(':').first
       end
 
       private def without_body(headers : HTTP::Headers) : HTTP::Headers
@@ -191,7 +242,7 @@ module Azu
       private def context_for(method : String, target : String, headers : HTTP::Headers, body : String?) : {HTTP::Server::Context, IO::Memory}
         headers = headers.dup
         headers["Host"] = "localhost" unless headers.has_key?("Host")
-        scoped { cookie_header(target).try { |value| headers["Cookie"] = value unless headers.has_key?("Cookie") } }
+        cookie_header(target).try { |value| headers["Cookie"] = value unless headers.has_key?("Cookie") }
         if (csrf = @csrf) && UNSAFE.includes?(method) && !headers.has_key?(csrf[0])
           headers[csrf[0]] = csrf[1]
         end
@@ -222,7 +273,7 @@ module Azu
         context.response.close
         io.rewind
         parsed = HTTP::Client::Response.from_io(io, ignore_body: method == "HEAD")
-        scoped { @cookies.absorb(parsed.headers) }
+        @cookies.absorb(parsed.headers)
         Response.new(parsed.status, parsed.headers, parsed.body, error)
       end
 
@@ -234,9 +285,13 @@ module Azu
         done.close
       end
 
+      # The clock is process wide (`Azu::Clock.use`), so requests of clients that have one run one at a time:
+      # the swap is restored by the request that made it, whatever the other fibers do.
+      @@clock_lock = Mutex.new(:reentrant)
+
       private def scoped(&)
         if clock = @clock
-          Clock.use(clock) { in_app { yield } }
+          @@clock_lock.synchronize { Clock.use(clock) { in_app { yield } } }
         else
           in_app { yield }
         end
@@ -256,10 +311,22 @@ module Azu
         fields.to_s
       end
 
+      # Arrays repeat the key, nil leaves the field out, anything else is its `to_s`: what Azu's parser reads.
       private def encode(fields : Hash | NamedTuple) : String
-        pairs = {} of String => String
-        fields.each { |name, value| pairs[name.to_s] = value.to_s }
-        HTTP::Params.encode(pairs)
+        HTTP::Params.build do |form|
+          fields.each { |name, value| add_field(form, name.to_s, value) }
+        end
+      end
+
+      private def add_field(form : HTTP::Params::Builder, name : String, value : Nil) : Nil
+      end
+
+      private def add_field(form : HTTP::Params::Builder, name : String, value : Array) : Nil
+        value.each { |item| add_field(form, name, item) }
+      end
+
+      private def add_field(form : HTTP::Params::Builder, name : String, value) : Nil
+        form.add(name, value.to_s)
       end
 
       private def with_query(path : String, query : String) : String

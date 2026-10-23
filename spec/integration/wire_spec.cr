@@ -114,4 +114,22 @@ describe "Azu over a real connection" do
       response.status_code.should eq 400
     end
   end
+
+  it "parses the request target of a real request: query string, encoded characters and a trailing slash" do
+    WireSpec.serve do |client|
+      response = client.get "/wire/hello/w%20orld/?x=1&y=%26", headers: HTTP::Headers{"Accept" => "text/plain"}
+
+      response.status_code.should eq 200
+      response.body.should eq "Welcome, w%20orld"
+    end
+  end
+
+  it "serves several requests on one keep-alive connection" do
+    WireSpec.serve do |client|
+      3.times do |index|
+        response = client.get "/wire/hello/n#{index}", headers: HTTP::Headers{"Accept" => "text/plain"}
+        response.body.should eq "Welcome, n#{index}"
+      end
+    end
+  end
 end
