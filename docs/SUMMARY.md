@@ -103,6 +103,7 @@
 - [Request](reference/api/request.md)
 - [Response](reference/api/response.md)
 - [Content Negotiation](reference/api/content-negotiation.md)
+- [Streaming and SSE](reference/api/streaming.md)
 - [Channel](reference/api/channel.md)
 - [Component](reference/api/component.md)
 - [Cache](reference/api/cache.md)

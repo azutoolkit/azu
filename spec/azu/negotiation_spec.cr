@@ -239,6 +239,6 @@ describe "OpenAPI" do
     document = JSON.parse(Azu::OpenAPI.document(app, Azu::OpenAPI::Info.new("t", "1")).to_json)
 
     content = document["paths"]["/neg-page"]["get"]["responses"]["200"]["content"].as_h
-    content.keys.sort.should eq ["application/json", "application/xml", "text/html"]
+    content.keys.sort!.should eq ["application/json", "application/xml", "text/html"]
   end
 end
