@@ -37,6 +37,8 @@ module Azu
     @in_flight = 0
     @draining = false
     @idle_waiters = [] of ::Channel(Nil)
+    @sockets = [] of Channel
+    @shutdown_signal = ::Channel(Nil).new
 
     def initialize(@config : Configuration = Configuration.new)
     end
@@ -59,7 +61,7 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context)
-        return if @app.track { Azu.with_config(@app.config) { call_next(context) } }
+        return if @app.track { Azu.with_app(@app) { Azu.with_config(@app.config) { call_next(context) } } }
 
         context.response.status_code = 503
         context.response.headers["Connection"] = "close"
@@ -84,9 +86,36 @@ module Azu
       @lock.synchronize { @draining }
     end
 
+    # Closed when shutdown begins. A streaming response waits on it (`Azu.shutdown_signal`).
+    getter shutdown_signal : ::Channel(Nil)
+
+    # Counts an open WebSocket as in flight while the block runs, and closes it with 1001 (going
+    # away) when shutdown begins. False, without running the block, once the app is shutting down.
+    def track_socket(channel : Channel, &) : Bool
+      return false unless @lock.synchronize { enter_socket(channel) }
+
+      begin
+        yield
+      ensure
+        @lock.synchronize { @sockets.delete(channel) }
+        leave
+      end
+      true
+    end
+
     # From now on requests are refused with a 503, so only the ones already running need waiting for.
+    # Open WebSockets are sent a close frame with code 1001 right away (one fiber each, so a stuck
+    # peer cannot hold this up), and the shutdown signal is raised for streaming responses. The
+    # sockets count as in flight until their peers answer the close frame, so `drain` waits for them
+    # within the same `shutdown_timeout`.
     def begin_shutdown : Nil
-      @lock.synchronize { @draining = true }
+      sockets = @lock.synchronize do
+        return if @draining
+        @draining = true
+        @sockets.dup
+      end
+      @shutdown_signal.close
+      sockets.each { |socket| spawn(name: "azu-ws-goaway") { socket.close(HTTP::WebSocket::CloseCode::GoingAway, "server shutting down") } }
     end
 
     # Waits until every request in flight has finished, or `timeout` has passed. True when none is left.
@@ -113,6 +142,13 @@ module Azu
       begin_shutdown
       @server.try(&.close)
       drain(timeout)
+    end
+
+    private def enter_socket(channel : Channel) : Bool
+      return false if @draining
+      @in_flight += 1
+      @sockets << channel
+      true
     end
 
     private def enter : Bool

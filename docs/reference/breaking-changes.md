@@ -174,8 +174,16 @@ shuts the rest down. Before, it exited as soon as the listener closed. The resta
 (`e == Errno`) could never run and is gone: a failure of the listener is logged and `start` returns.
 `Azu::App#stop(timeout)` does the same from code and specs (bind the server on `bind_unused_port`).
 Requests that arrive on connections that stay open after the listener closed get `503` with `Connection: close`.
-Streaming responses (SSE) count as in flight until the client disconnects, and only `App.default` is
-drained by `start`. WebSocket sockets are not waited for.
+Only `App.default` is drained by `start`.
+
+**Graceful shutdown of long-lived connections** (behaviour change). Open channel WebSockets are now tracked per
+app: when shutdown begins each gets a close frame with code 1001, and the drain waits for the peers to answer
+(within `shutdown_timeout`); before, they were neither closed nor waited for, so a client saw a dropped
+connection. A socket upgrade that arrives after shutdown began is closed with 1001 without `on_connect`. Streaming
+responses (SSE) still count as in flight until the handler returns, but can now end promptly: `Azu.shutting_down?`
+and `Azu.shutdown_signal` report the shutdown of the app serving the request. New: `App#track_socket`,
+`App#shutdown_signal`, `Azu.current_app`, `Azu.with_app`. A handler that ignores the signal behaves as before.
+See [Shut Down Gracefully](../how-to/deployment/graceful-shutdown.md).
 
 **Fixes** (behaviour changes that make the code do what it documented):
 

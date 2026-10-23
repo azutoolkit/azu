@@ -33,6 +33,7 @@ module Azu
   # Fiber-local configuration storage for testing and isolation
   @@fiber_configs = {} of Fiber => Configuration
   @@config_mutex = Mutex.new
+  @@fiber_apps = {} of Fiber => App
 
   # Get the current configuration
   #
@@ -94,7 +95,39 @@ module Azu
   # (timers, WebSocket heartbeats) must spawn through this to keep the app it belongs to.
   def self.spawn_scoped(name : String? = nil, &block : ->) : Fiber
     config = current_config
-    spawn(name: name) { with_config(config, &block) }
+    app = current_app
+    spawn(name: name) { with_app(app) { with_config(config, &block) } }
+  end
+
+  # The app serving the request this fiber is handling (or the fiber spawned by `spawn_scoped` from
+  # it); nil outside one. A mounted app's requests belong to the app that owns the server.
+  def self.current_app : App?
+    @@config_mutex.synchronize { @@fiber_apps[Fiber.current]? }
+  end
+
+  # Runs the block with `app` as the current app of this fiber. A nil `app` leaves things as they are.
+  def self.with_app(app : App?, &)
+    return yield unless app
+    fiber = Fiber.current
+    previous = @@config_mutex.synchronize { @@fiber_apps[fiber]?.tap { @@fiber_apps[fiber] = app } }
+    begin
+      yield
+    ensure
+      @@config_mutex.synchronize { previous ? (@@fiber_apps[fiber] = previous) : @@fiber_apps.delete(fiber) }
+    end
+  end
+
+  # True once the app serving this request has begun shutting down (SIGTERM, SIGINT or
+  # `App#begin_shutdown`). A long-lived response (SSE, long polling) polls this, or waits on
+  # `shutdown_signal`, and finishes so the drain does not wait for it until `shutdown_timeout`.
+  def self.shutting_down? : Bool
+    current_app.try(&.draining?) || false
+  end
+
+  # A channel that is closed when the app serving this request begins shutting down, for
+  # `select when Azu.shutdown_signal.receive?`. Outside an app it never closes.
+  def self.shutdown_signal : ::Channel(Nil)
+    current_app.try(&.shutdown_signal) || ::Channel(Nil).new
   end
 
   # The path of `endpoint` in the app being served, with the prefix that app is mounted at. Links

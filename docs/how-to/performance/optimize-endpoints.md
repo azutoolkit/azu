@@ -257,7 +257,9 @@ end
 ```
 
 Once the first chunk is flushed the status and headers are fixed. A streamed response is also a request that stays in
-flight until it finishes, which `shutdown_timeout` waits for.
+flight until it finishes, which `shutdown_timeout` waits for. End the loop when `Azu.shutting_down?` turns true (or
+wait on `Azu.shutdown_signal`) so a stop does not wait for it; see
+[Shut Down Gracefully](../deployment/graceful-shutdown.md).
 
 ## Do Not Block Requests on Slow Side Work
 

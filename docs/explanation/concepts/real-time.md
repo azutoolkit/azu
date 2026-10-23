@@ -305,9 +305,9 @@ Azu::PubSub.backend = Azu::PubSub::Redis.new(ENV.fetch("REDIS_URL", "redis://loc
 
 Channels and Spark components need no change. What stays per process is whatever you keep in your own
 variables (the presence registry above, for example). WebSockets are sticky to the server that accepted
-them. On shutdown they are not drained: a graceful stop waits for HTTP requests in flight, not for open
-WebSockets, and only Spark connections are closed explicitly (with a "service restart" code, so the
-browser reconnects to another process).
+them. On shutdown every open channel socket is sent a close frame with code 1001 (going away) and waited for
+within `shutdown_timeout`, and Spark connections are closed with a "service restart" code, so the browser
+reconnects to another process (see [Shut Down Gracefully](../../how-to/deployment/graceful-shutdown.md)).
 
 ## See also
 
