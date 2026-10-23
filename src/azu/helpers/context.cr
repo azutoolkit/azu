@@ -96,7 +96,7 @@ module Azu
         scheme == "https"
       end
 
-      # Returns flash messages from cookie.
+      # Returns flash messages from the session adapter (`Azu.session_adapter`), empty without one.
       #
       # Flash messages are typically set after redirects to display
       # one-time notifications.
@@ -115,7 +115,8 @@ module Azu
 
       # Returns session data.
       #
-      # Session data is extracted from cookies and decoded.
+      # Session values come from `Azu.session_adapter` and are empty without one. A cookie the
+      # client can write is never read as session data.
       def session : Hash(String, String)
         @session ||= extract_session
       end
@@ -211,41 +212,11 @@ module Azu
       end
 
       private def extract_flash : Hash(String, String)
-        flash_data = Hash(String, String).new
-
-        if cookie = @cookies["_flash"]?
-          begin
-            # Decode flash from cookie (Base64 encoded JSON)
-            decoded = Base64.decode_string(cookie.value)
-            JSON.parse(decoded).as_h.each do |key, value|
-              flash_data[key.to_s] = value.as_s
-            end
-          rescue ex
-            # Invalid flash cookie, ignore
-            Log.for("Azu::Helpers::Context").debug { "Failed to parse flash cookie: #{ex.message}" }
-          end
-        end
-
-        flash_data
+        Azu.session_adapter.try(&.flash(@context)) || Hash(String, String).new
       end
 
       private def extract_session : Hash(String, String)
-        session_data = Hash(String, String).new
-
-        if cookie = @cookies["_session"]?
-          begin
-            # Decode session from cookie (Base64 encoded JSON)
-            decoded = Base64.decode_string(cookie.value)
-            JSON.parse(decoded).as_h.each do |key, value|
-              session_data[key.to_s] = value.as_s
-            end
-          rescue ex
-            # Invalid session cookie, ignore
-            Log.for("Azu::Helpers::Context").debug { "Failed to parse session cookie: #{ex.message}" }
-          end
-        end
-
-        session_data
+        Azu.session_adapter.try(&.session(@context)) || Hash(String, String).new
       end
     end
   end

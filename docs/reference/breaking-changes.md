@@ -56,6 +56,17 @@ Other changes:
   `src/azu/handler/{dev_dashboard,performance_monitor}.cr` and `src/azu/components/dev_dashboard*` are under
   `src/azu/dev/`. Require `azu/dev`, not the files.
 
+**Template helpers no longer read `_session` and `_flash` cookies.** `Helpers::TemplateContext#session` and
+`#flash` decoded an unsigned Base64 JSON cookie that no session library writes, so any client could forge
+its session or flash. They now read through `Azu.session_adapter` (`Azu::SessionAdapter`, additive and opt-in,
+no dependency on a session shard) and are empty without one. With the `session` shard (`require "session/azu"`)
+install an adapter once at boot; see `docs/how-to/middleware/use-sessions.md`. Apps that wrote those cookies
+themselves must move to a session store.
+
+**CSRF token stores** (additive). `Handler::CSRF.new(token_store:)` chooses where the `SynchronizerToken` strategy
+keeps its token: `CookieTokenStore` (default, unchanged) or `SessionTokenStore`, which uses
+`Azu.session_adapter` so the token never reaches the client as a cookie.
+
 **Routes can belong to an app** (additive; the endpoint macros keep registering on `Azu::App.default`).
 
 <!-- skip -->
