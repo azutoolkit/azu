@@ -1,7 +1,7 @@
 # Spark JavaScript client and reconnects
 
 `azu_spark.js` is the browser half of [Spark](../explanation/spark-live-views.md). It has no
-dependencies, needs no build step and is served by your application, never by a CDN, so the script
+dependencies, needs no build step in your application and is served by it, never by a CDN, so the script
 in the browser always speaks the protocol of the server it came from.
 
 ## Serving
@@ -17,8 +17,29 @@ Azu::Spark.asset_path  # => "/_spark/azu_spark.js?v=3f9c1d2a4b7e"
 Azu::Spark.script_tag  # <script src="..." data-spark-path="/spark" defer></script>
 ```
 
-The tag has no inline code, so `script-src 'self'` is enough. The script is about 25 KB unminified
-and 7.5 KB gzipped (it includes the DOM patcher and the HTML sanitiser, see the security model).
+The tag has no inline code, so `script-src 'self'` is enough. The served script is minified: about
+12 KB, under 5 KB gzipped (it includes the DOM patcher and the HTML sanitiser, see the security
+model). A spec keeps it under 8 KB gzipped.
+
+## How the client is built
+
+The readable source is `js/azu-spark.js` (an ES2022 module with JSDoc types). The script the shard
+embeds and serves, `src/azu/spark/client/azu_spark.js`, is generated from it with esbuild and checked
+in, so **application developers never need node**: `shards install` brings the built script.
+Only people who change the client need node 22 or newer:
+
+```sh
+cd js
+npm install        # esbuild, typescript and happy-dom, pinned by package-lock.json
+npm run build      # rewrites azu_spark.js (minified IIFE) and azu-spark.d.ts (typings from the JSDoc)
+npm run check      # fails when azu_spark.js is stale, without writing
+npm test           # node:test unit tests on happy-dom
+```
+
+The first line of the built script records the SHA-256 of `js/azu-spark.js`. `crystal spec` (no node
+involved) compares that hash with the source and fails with the rebuild instructions when you edited
+the source and forgot to rebuild; it also enforces the gzip size budget. The `Spark client` CI job
+rebuilds the script and fails on any diff. Commit the source, the script and the typings together.
 
 ## Connection lifecycle
 

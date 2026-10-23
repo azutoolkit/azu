@@ -1,4 +1,5 @@
 require "../../spec_helper"
+require "compress/gzip"
 
 private def serve_client_asset(headers = HTTP::Headers.new, query = "", method = "GET")
   io = IO::Memory.new
@@ -10,7 +11,23 @@ private def serve_client_asset(headers = HTTP::Headers.new, query = "", method =
   HTTP::Client::Response.from_io(io)
 end
 
+# The readable source of the client; the embedded script is built from it (js/build.mjs).
+private CLIENT_JS = File.read(File.join(__DIR__, "../../../js/azu-spark.js"))
+private REBUILD   = "run `npm install && npm run build` in js/ and commit src/azu/spark/client/azu_spark.js"
+
 describe Azu::Spark::Client do
+  it "ships the script built from js/azu-spark.js (recorded source hash matches)" do
+    recorded = Azu::Spark::Client::SOURCE[/\A\/\*! azu-spark src-sha256:([0-9a-f]{64})/, 1]?
+    recorded.should_not be_nil, "azu_spark.js has no source hash header: #{REBUILD}"
+    recorded.should eq(Digest::SHA256.hexdigest(CLIENT_JS)), "js/azu-spark.js changed without rebuilding the script: #{REBUILD}"
+  end
+
+  it "stays within the 8 KB gzip budget" do
+    io = IO::Memory.new
+    Compress::Gzip::Writer.open(io, Compress::Deflate::BEST_COMPRESSION, &.print(Azu::Spark::Client::SOURCE))
+    io.size.should be <= 8192, "the client grew to #{io.size} bytes gzipped (budget 8192)"
+  end
+
   it "ships the script inside the shard, with no CDN or library dependency" do
     Azu::Spark::Client::SOURCE.should contain("WebSocket")
     Azu::Spark::Client::SOURCE.should_not contain("unpkg")
@@ -19,14 +36,14 @@ describe Azu::Spark::Client do
   end
 
   it "implements reconnect with exponential backoff, heartbeat and rehydration" do
-    source = Azu::Spark::Client::SOURCE
+    source = CLIENT_JS
     source.should contain("Math.pow(2, attempt)")
     source.should contain(%("heartbeat"))
     source.should contain("snapshots.get(id)")
   end
 
   it "queues events while offline and reacts to the browser's offline and visibility events" do
-    source = Azu::Spark::Client::SOURCE
+    source = CLIENT_JS
     source.should contain("queueMax")
     source.should contain(%("offline"))
     source.should contain("visibilitychange")
