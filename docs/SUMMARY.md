@@ -18,11 +18,11 @@
 
 *Task-oriented guides for specific goals*
 
-### Endpoints
 ### Upgrading
 
 - [Migrate to 0.6](how-to/migrate-to-0.6.md)
 
+### Endpoints
 
 - [Create an Endpoint](how-to/endpoints/create-endpoint.md)
 - [Handle Parameters](how-to/endpoints/handle-parameters.md)
