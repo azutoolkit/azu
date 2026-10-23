@@ -1,4 +1,5 @@
 require "../../spec_helper"
+require "../../../src/azu/dev/dev"
 require "../../support/postgres"
 require "../../support/integration_helpers"
 require "../../../src/azu/cql"

@@ -43,9 +43,13 @@ Other changes:
   current configuration's monitor whenever `performance_enabled?` is on; no per-manager wiring.
 - Component and cache metrics no longer need the `PERFORMANCE_MONITORING` build flag: `azu/dev` plus
   `performance_enabled?` is enough.
-- `Azu::Spark::Instrumentation.measure` and the profiler / memory monitor start-up call
-  `Azu::Instrumentation` (`on_prepare`, `on_finalize`, `cache_subscriber=`, `component_subscriber=`);
-  use those to build your own subscriber.
+- Cache and component metrics belong to the configuration of the fiber that runs the operation
+  (`Azu.current_config`), not to the manager's. Start background fibers with `Azu.spawn_scoped` so they
+  report to the app they serve.
+- `Azu::Instrumentation` is the hook point for your own tooling: `on_cache { |operation| }`,
+  `on_component { |event| }` (several subscribers can coexist; each takes an optional `enabled` predicate
+  that keeps timing off while it answers false), and `on_prepare` / `on_finalize` for `Azu.start` and
+  configuration teardown. A subscriber or hook that raises is logged at debug level and ignored.
 - Building with `PERFORMANCE_MONITORING=true` or `-Dperformance_monitoring` still works unchanged: it makes
   `require "azu"` also load `azu/dev`.
 - Files moved: `src/azu/{performance_metrics,performance_reporter,development_tools}.cr`,

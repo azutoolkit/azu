@@ -8,10 +8,8 @@ module Azu
     property? performance_enabled : Bool = ENV.fetch("PERFORMANCE_MONITORING", "false") == "true"
     # The profiler and memory monitor follow `PERFORMANCE_PROFILING` / `PERFORMANCE_MEMORY_MONITORING`,
     # and are on in development when the variable is not set.
-    @performance_profiling_enabled : Bool? = ENV["PERFORMANCE_PROFILING"]?.presence.try(&.== "true")
-    @performance_memory_monitoring : Bool? = ENV["PERFORMANCE_MEMORY_MONITORING"]?.presence.try(&.== "true")
-    setter performance_profiling_enabled : Bool?
-    setter performance_memory_monitoring : Bool?
+    property performance_profiling_enabled : Bool? = ENV["PERFORMANCE_PROFILING"]?.presence.try(&.== "true")
+    property performance_memory_monitoring : Bool? = ENV["PERFORMANCE_MEMORY_MONITORING"]?.presence.try(&.== "true")
 
     def performance_profiling_enabled? : Bool
       @performance_profiling_enabled.nil? ? env.development? : @performance_profiling_enabled == true

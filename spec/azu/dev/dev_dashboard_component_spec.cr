@@ -170,16 +170,19 @@ describe Azu::Components::DashboardDataProvider do
   describe "#health_score and #insights" do
     # The score includes database findings from the process-wide query store and, with cql loaded
     # (the whole suite compiles it in), from its monitor; earlier specs may have filled either.
+    cql_monitor = nil
+
     before_each do
       Azu::QueryStore.instance.clear
       {% if @top_level.has_constant?("CQL") %}
+        cql_monitor ||= CQL::Performance.monitor
         CQL::Performance.monitor = CQL::Performance::Monitor.new(CQL::Performance::Config.new { |config| config.monitoring.enabled = false })
       {% end %}
     end
 
     after_all do
       {% if @top_level.has_constant?("CQL") %}
-        CQL::Performance.monitor = CQL::Performance::Monitor.new
+        cql_monitor.try { |monitor| CQL::Performance.monitor = monitor }
       {% end %}
     end
 
