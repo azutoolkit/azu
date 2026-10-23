@@ -8,11 +8,11 @@ Common questions, issues, and solutions when working with Azu.
 
 **Q: What makes Azu different from other web frameworks?**
 
-A: Azu emphasizes compile-time type safety and contract-first development. Unlike traditional frameworks that validate at runtime, Azu catches errors during compilation, resulting in more reliable applications with zero runtime overhead for type checking.
+A: Azu emphasizes compile-time type safety and contract-first development. Unlike traditional frameworks that validate at runtime, Azu catches errors during compilation, so type errors in endpoints, contracts and responses show up when you build, not in production.
 
 **Q: Can I use Azu for production applications?**
 
-A: Yes! Azu is built for production use with performance optimizations, comprehensive error handling, and scalability features. Many applications are successfully running Azu in production environments.
+A: Azu is built to be deployed: it has a default handler stack with error pages and security headers, graceful shutdown, environment-based configuration and a health check handler. See [Deploy to Production](tutorials/deploying-to-production.md).
 
 **Q: How does Azu compare to other Crystal web frameworks?**
 
@@ -26,91 +26,116 @@ A: Yes, basic Crystal knowledge is required. However, Crystal's syntax is simila
 
 **Q: How do I handle database connections in Azu?**
 
-A: Azu recommends CQL (Crystal Query Language) as the primary ORM. CQL provides type-safe database operations with compile-time validation:
+A: Azu works with CQL (Crystal Query Language), which provides typed models and queries. Define the schema once,
+point models at it, and use them in endpoints:
 
 ```crystal
-require "cql"
 require "azu"
+require "cql"
+require "sqlite3"
 
-# Define schema
-AppDB = CQL::Schema.define(:app, adapter: CQL::Adapter::Postgres, uri: ENV["DATABASE_URL"]) do
+AppDB = CQL::Schema.define(:app, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./app.db") do
   table :users do
     primary :id, Int64
-    text :name
-    text :email
+    column :name, String
+    column :email, String
     timestamps
   end
 end
 
-# Define model
-struct User
+class User
   include CQL::ActiveRecord::Model(Int64)
   db_context AppDB, :users
 
-  getter id : Int64?
-  getter name : String
-  getter email : String
+  property name : String
+  property email : String
+  property created_at : Time?
+  property updated_at : Time?
+
+  def initialize(@name : String, @email : String)
+  end
 end
 
-# Use in endpoint
+struct UserResponse
+  include Azu::Response
+
+  def initialize(@user : User)
+  end
+
+  def render
+    {id: @user.id, name: @user.name}.to_json
+  end
+end
+
 struct UserEndpoint
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+  include Azu::Endpoint(Azu::Request, UserResponse)
 
   get "/users/:id"
 
   def call : UserResponse
-    user = User.find(params["id"].to_i64)
+    content_type "application/json"
+    user = User.find?(params["id"].to_i64)
+    raise Azu::Response::NotFound.new(context.request.path) unless user
     UserResponse.new(user)
   end
 end
 ```
 
-See the [Database documentation](reference/database/cql-api.md) for complete CQL integration details.
+See the [Database documentation](reference/database/cql-api.md) for the CQL API.
 
 **Q: Can I use Azu with existing Crystal libraries?**
 
-A: Absolutely! Azu is designed to work with the Crystal ecosystem. You can use any Crystal shard or library within your Azu applications.
+A: Yes. Azu is a regular shard on top of `HTTP::Server`, so any Crystal library can be used in your endpoints and
+handlers.
 
 **Q: How do I handle authentication?**
 
-A: Implement authentication using middleware:
+A: Implement it as a handler that runs before the router, and reject unauthenticated requests there:
 
 ```crystal
 class AuthenticationHandler
   include HTTP::Handler
 
-  def call(context)
-    token = context.request.headers["Authorization"]?
+  def initialize(@token : String)
+  end
 
-    unless token && valid_token?(token)
+  def call(context : HTTP::Server::Context)
+    unless context.request.headers["Authorization"]? == "Bearer #{@token}"
       context.response.status = HTTP::Status::UNAUTHORIZED
       context.response.print "Authentication required"
       return
     end
 
-    context.set("current_user", get_user_from_token(token))
     call_next(context)
   end
 end
 
-# Add to middleware stack
+module MyApp
+  include Azu
+end
+
 MyApp.start [
-  AuthenticationHandler.new,
-  # ... other handlers
-]
+  Azu::Handler::RequestId.new,
+  Azu::Handler::Logger.new,
+  Azu::Handler::Rescuer.new,
+  AuthenticationHandler.new(ENV["API_TOKEN"]),
+] of HTTP::Handler
 ```
+
+An array passed to `start` replaces the default handler stack, so list the handlers you still want. See
+[Create Custom Middleware](how-to/middleware/create-custom-middleware.md).
 
 **Q: How do I deploy Azu applications?**
 
-A: Compile your application and deploy the binary:
+A: Compile your application and deploy the binary, or a Docker image built from it:
 
 ```bash
-# Build for production
 crystal build --release --no-debug src/my_app.cr
-
-# Deploy binary to server
 scp my_app user@server:/opt/myapp/
 ```
+
+See [Deploy to Production](tutorials/deploying-to-production.md) and
+[Deploy with Docker](how-to/deployment/deploy-with-docker.md).
 
 ## Common Issues
 
@@ -118,32 +143,63 @@ scp my_app user@server:/opt/myapp/
 
 **Problem: "can't infer type" errors**
 
-```crystal
-# ❌ This causes type inference issues
-def create_user(request)
-  # Crystal can't infer the request type
-end
-
-# ✅ Use explicit types
-def create_user(request : CreateUserRequest) : UserResponse
-  # Clear type information
-end
-```
-
-**Problem: Template compilation errors**
-
-```
-Error: can't find template "users/show.html"
-```
-
-**Solution:** Check template paths in configuration:
+Crystal infers most types, but the endpoint macros need the request and response types spelled out:
 
 ```crystal
-configure do
-  templates.path = ["templates", "views"] # Add all template directories
-  template_hot_reload = env.development?  # Enable hot reload for development
+struct CreateUserRequest
+  include Azu::Request
+
+  getter name : String
+
+  def initialize(@name = "")
+  end
+
+  validate name, presence: true
+end
+
+struct UserResponse
+  include Azu::Response
+
+  def initialize(@name : String)
+  end
+
+  def render
+    @name
+  end
+end
+
+struct CreateUserEndpoint
+  include Azu::Endpoint(CreateUserRequest, UserResponse)
+
+  post "/users"
+
+  def call : UserResponse
+    UserResponse.new(create_user_request.name)
+  end
 end
 ```
+
+**Problem: Template not found**
+
+```text
+Error: Missing template: users/show.jinja
+```
+
+**Solution:** the template path is relative to the working directory the server runs in, and its default is not
+your project's `templates` directory. Set it explicitly (or set `TEMPLATES_PATH`, a comma separated list):
+
+```crystal
+module MyApp
+  include Azu
+
+  configure do |config|
+    config.templates.path = "./public/templates"
+    config.template_hot_reload = config.env.development?
+  end
+end
+```
+
+`templates.path=` adds a directory to the search path. See [Render HTML Templates](how-to/templates/render-html-templates.md).
 
 ### Runtime Issues
 
@@ -157,32 +213,51 @@ end
 
 **Solutions:**
 
-1. Check WebSocket route registration:
+1. Check that the channel is registered and the path matches the client URL. A channel implements all six
+   callbacks, otherwise it does not compile:
 
 ```crystal
 class MyChannel < Azu::Channel
-  ws "/websocket" # Make sure this matches client URL
+  ws "/websocket"
 
   def on_connect
-    # Implementation
+  end
+
+  def on_message(message : String)
+    send message
+  end
+
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
   end
 end
 ```
 
-2. Verify middleware order:
+2. Check the allowed origins. A browser sends an `Origin` header with the upgrade request, and the channel checks
+   it against `config.websocket.allowed_origins`:
 
 ```crystal
-MyApp.start [
-  Azu::Handler::Logger.new,
-  # Don't put static handler before WebSocket routes
-  # WebSocket handlers should come early in the stack
-]
+module MyApp
+  include Azu
+
+  configure do |config|
+    config.websocket.allowed_origins = ["http://localhost:3000"]
+  end
+end
 ```
 
-3. Check client-side connection:
+3. Check the client connection:
 
 ```javascript
-// Make sure URL matches server route
+// Make sure the URL matches the server route
 const ws = new WebSocket("ws://localhost:4000/websocket");
 ```
 
@@ -195,23 +270,12 @@ const ws = new WebSocket("ws://localhost:4000/websocket");
 
 **Solutions:**
 
-1. Ensure validation is called:
+1. Validation runs before `call` for any endpoint whose request type declares `validate` rules, and answers `422`
+   through `Azu::Handler::Rescuer`. If you pass your own handler array to `start`, include `Rescuer`, otherwise the
+   client gets a bare `500`. Endpoints declared with the bare `Azu::Request` module have no contract and are not
+   validated.
 
-```crystal
-def call : UserResponse
-  # Always validate before processing
-  unless create_user_request.valid?
-    raise Azu::Response::ValidationError.new(
-      create_user_request.errors.group_by(&.field).transform_values(&.map(&.message))
-    )
-  end
-
-  # Process validated request
-  UserResponse.new(create_user(create_user_request))
-end
-```
-
-2. Check validation rules syntax:
+2. Check the rule syntax:
 
 ```crystal
 struct UserRequest
@@ -220,62 +284,63 @@ struct UserRequest
   getter name : String
   getter email : String
 
-  # ✅ Correct validation syntax
-  validate name, presence: true, length: {min: 2}
-  validate email, presence: true, format: /@/
-
   def initialize(@name = "", @email = "")
   end
+
+  validate name, presence: true, size: 2..50
+  validate email, presence: true
 end
 ```
+
+See [Validate Requests](how-to/validation/validate-requests.md).
 
 **Problem: File uploads not working**
 
 **Symptoms:**
 
-- File uploads fail silently
+- File uploads fail with `413` or `400`
 - Uploaded files are empty
-- Memory issues with large files
+- `params.files` has no entry
 
 **Solutions:**
 
-1. Configure upload limits:
+1. Raise the limit if the file is over the default 10 MB (`UPLOAD_MAX_FILE_SIZE` sets the same, in bytes):
 
 ```crystal
-configure do
-  upload.max_file_size = 50.megabytes
-  upload.temp_dir = "/tmp/uploads"
-end
-```
+module MyApp
+  include Azu
 
-2. Handle multipart data correctly:
-
-```crystal
-struct FileUploadRequest
-  include Azu::Request
-
-  getter file : Azu::Params::Multipart::File?
-  getter description : String
-
-  def initialize(@file = nil, @description = "")
-  end
-end
-
-def call : FileUploadResponse
-  if file = file_upload_request.file
-    # Validate file
-    raise error("File too large") if file.size > 10.megabytes
-
-    # Save file
-    final_path = save_uploaded_file(file)
-    file.cleanup # Important: clean up temp file
-
-    FileUploadResponse.new(path: final_path)
-  else
-    raise error("File is required")
+  configure do |config|
+    config.upload.max_file_size = 50_u64 * 1024 * 1024
+    config.upload.temp_dir = "/tmp/uploads"
   end
 end
 ```
+
+2. The form must be `multipart/form-data`, and uploaded files are read from `params.files`, not from the
+   request contract:
+
+```crystal
+struct UploadEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  post "/upload"
+
+  def call : Azu::Response::Empty
+    upload = params.files["file"]?
+    raise error("File is required") unless upload
+
+    begin
+      File.copy(upload.temp_path, "/var/uploads/#{Random::Secure.hex(8)}")
+    ensure
+      upload.cleanup
+    end
+    Azu::Response::Empty.new
+  end
+end
+```
+
+See [Handle File Uploads](how-to/file-handling/handle-file-uploads.md).
 
 ### Performance Issues
 
@@ -283,84 +348,76 @@ end
 
 **Diagnosis:**
 
-1. Enable request logging:
+1. Check the request log. `Azu::Handler::Logger` prints the status and latency of every request and is part of the
+   default stack. If you pass your own array to `start`, include it.
+
+2. Check for work that holds up a request: a slow query, a call to another service without a timeout. Fibers
+   do not run in parallel on one thread, so a long CPU-bound loop in an endpoint delays every other request on
+   that thread.
+
+3. Time a section of code:
 
 ```crystal
-MyApp.start [
-  Azu::Handler::Logger.new, # Add this first
-  # ... other handlers
-]
-```
+struct SlowEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
 
-2. Check for blocking operations:
+  get "/slow"
 
-```crystal
-def call : UserResponse
-  # ❌ Blocking database call
-  users = database.query("SELECT * FROM users") # Blocks fiber
-
-  # ✅ Use async operations when possible
-  users = database.async_query("SELECT * FROM users")
-  UserResponse.new(users)
+  def call : Azu::Response::Empty
+    started = Time.instant
+    sleep 10.milliseconds
+    Log.for("slow").info { "took #{(Time.instant - started).total_milliseconds.round(1)}ms" }
+    Azu::Response::Empty.new
+  end
 end
 ```
+
+See [Optimize Endpoints](how-to/performance/optimize-endpoints.md) and
+[Optimize Database Queries](how-to/performance/optimize-database-queries.md).
 
 **Problem: Memory leaks**
 
 **Common causes:**
 
-- Not cleaning up file uploads
-- Keeping references to WebSocket connections
-- Large object creation in loops
+- Not cleaning up uploaded files (temp files older than `config.upload.max_temp_age` are removed by a background
+  task, but remove them as soon as you are done)
+- Keeping references to WebSocket connections in a global collection
+- Unbounded caches or hashes
 
 **Solutions:**
 
-1. Clean up resources:
+1. Clean up resources with `ensure`:
 
 ```crystal
-def handle_file_upload(file)
-  process_file(file)
+def save(upload : Azu::Params::Multipart::File, destination : String) : Nil
+  File.copy(upload.temp_path, destination)
 ensure
-  file.cleanup if file # Always cleanup
+  upload.cleanup
 end
 ```
 
-2. Manage WebSocket connections:
-
-```crystal
-class MyChannel < Azu::Channel
-  CONNECTIONS = Set(HTTP::WebSocket).new
-
-  def on_connect
-    CONNECTIONS << socket.not_nil!
-  end
-
-  def on_close(code, message)
-    CONNECTIONS.delete(socket) # Remove on disconnect
-  end
-end
-```
+2. Do not keep sockets yourself: broadcast through [`Azu::PubSub`](how-to/real-time/broadcast-messages.md), which
+   drops a channel when its connection closes.
 
 ### Development Issues
 
 **Problem: Hot reload not working**
 
-**Solutions:**
-
-1. Enable in configuration:
+Template hot reload is on in the development, test and pipeline environments and off elsewhere. Set it explicitly
+(or set `TEMPLATE_HOT_RELOAD=true`):
 
 ```crystal
-configure do
-  template_hot_reload = env.development? # Make sure this is true
+module MyApp
+  include Azu
+
+  configure do |config|
+    config.template_hot_reload = true
+  end
 end
 ```
 
-2. Check file permissions and paths:
-
-```bash
-# Make sure template files are readable
-chmod -R 644 templates/
-```
+It watches the files in the configured template directories, so check that `templates.path` points at the
+directory you are editing. See [Enable Hot Reload](how-to/templates/enable-hot-reload.md).
 
 **Problem: CORS issues in development**
 
@@ -369,67 +426,92 @@ chmod -R 644 templates/
 - Browser blocks requests from frontend
 - CORS errors in console
 
-**Solution:**
+**Solution:** add the `CORS` handler with your frontend origin. By default no origin is allowed:
 
 ```crystal
+module MyApp
+  include Azu
+end
+
 MyApp.start [
+  Azu::Handler::RequestId.new,
+  Azu::Handler::Logger.new,
+  Azu::Handler::Rescuer.new,
   Azu::Handler::CORS.new(
-    allowed_origins: ["http://localhost:3000"], # Add your frontend URL
-    allowed_methods: %w(GET POST PUT PATCH DELETE OPTIONS),
-    allowed_headers: %w(Accept Content-Type Authorization)
+    origins: ["http://localhost:3000"],
+    methods: %w(GET POST PUT PATCH DELETE OPTIONS),
+    headers: %w(Accept Content-Type Authorization)
   ),
-  # ... other handlers
-]
+] of HTTP::Handler
 ```
 
 ## Debugging Tips
 
 ### Enable Debug Logging
 
+Requiring `azu` does not configure `Log`. Call `Azu.setup_logging` once at boot to get Azu's format at `Debug`
+level:
+
 ```crystal
-configure do
-  log.level = Log::Severity::DEBUG # See all log messages
-end
+Azu.setup_logging
+Log.for("my_app").debug { "visible" }
 ```
 
 ### Inspect Request Data
 
 ```crystal
-def call : UserResponse
-  Log.debug { "Request data: #{create_user_request.inspect}" }
-  Log.debug { "Params: #{params.to_hash}" }
-  Log.debug { "Headers: #{context.request.headers}" }
+struct InspectEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
 
-  # ... endpoint logic
+  get "/inspect"
+
+  def call : Azu::Response::Empty
+    log = Log.for("inspect")
+    log.debug { "Params: #{params.to_h}" }
+    log.debug { "Headers: #{header}" }
+    Azu::Response::Empty.new
+  end
 end
 ```
 
 ### Use Crystal's Built-in Debugging
 
+`pp` and `p` are in the prelude:
+
 ```crystal
-# Add pp for pretty printing
-require "pp"
+struct DebugEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
 
-def call : UserResponse
-  pp create_user_request # Pretty print request object
-  pp params.to_hash      # Pretty print parameters
+  get "/debug"
 
-  # ... endpoint logic
+  def call : Azu::Response::Empty
+    pp params.to_h
+    Azu::Response::Empty.new
+  end
 end
 ```
 
 ### Test Individual Components
 
-```crystal
-# Test request contracts in isolation
-user_request = CreateUserRequest.new(name: "test", email: "test@example.com")
-puts user_request.valid?
-puts user_request.errors.map(&.message)
+A request contract can be built from a parameter string, the same way the router builds it:
 
-# Test response objects
-user = User.new(name: "test")
-response = UserResponse.new(user)
-puts response.render
+```crystal
+struct CreateUserRequest
+  include Azu::Request
+
+  getter name : String
+  getter email : String
+
+  def initialize(@name = "", @email = "")
+  end
+
+  validate name, presence: true
+  validate email, presence: true
+end
+
+request = CreateUserRequest.from_www_form("name=test&email=test@example.com")
+puts request.valid?
+puts request.name
 ```
 
 ## Performance Troubleshooting
@@ -439,16 +521,16 @@ puts response.render
 ```crystal
 require "benchmark"
 
-def call : UserResponse
-  time = Benchmark.measure do
-    # Your endpoint logic here
-  end
-
-  Log.info { "Endpoint took #{time.total_seconds}s" }
-
-  # ... return response
+time = Benchmark.realtime do
+  # Your code here
+  1000.times { "x" * 100 }
 end
+
+puts "took #{time.total_milliseconds}ms"
 ```
+
+For a running development server, `require "azu/dev"` adds the profiler and dashboard (see
+[Breaking Changes](reference/breaking-changes.md)).
 
 ### Monitor Memory Usage
 
@@ -456,26 +538,8 @@ end
 # Check memory usage during runtime
 ps aux | grep my_app
 
-# Use Crystal's built-in memory tracking
+# Compiler statistics
 crystal run --stats src/my_app.cr
-```
-
-### Database Query Optimization
-
-```crystal
-# Log slow queries
-def call : UserResponse
-  start_time = Time.instant
-
-  users = database.query("SELECT * FROM users WHERE active = true")
-
-  duration = Time.instant - start_time
-  if duration > 100.milliseconds
-    Log.warn { "Slow query detected: #{duration.total_milliseconds}ms" }
-  end
-
-  UserResponse.new(users)
-end
 ```
 
 ## Getting Help
@@ -490,38 +554,12 @@ end
 
 When reporting issues, include:
 
-1. **Crystal version**: `crystal version`
-2. **Azu version**: Check `shard.yml`
+1. **Crystal version**: `crystal --version`
+2. **Azu version**: the `version` in the shard's `shard.lock`
 3. **Minimal reproduction case**
 4. **Error messages and stack traces**
 5. **Environment details** (OS, deployment method)
 
-### Example Issue Report
-
-````
-**Crystal Version**: 1.19.1
-**Azu Version**: 0.5.26
-**OS**: macOS 13.0
-
-**Issue**: WebSocket connection fails with "Connection refused"
-
-**Reproduction**:
-```crystal
-class TestChannel < Azu::Channel
-  ws "/test"
-  def on_connect
-    puts "Connected"
-  end
-end
-````
-
-**Error**: Connection refused when trying to connect to ws://localhost:4000/test
-
-**Expected**: WebSocket connection should succeed
-
-```
-
 ---
 
 **Still need help?** Check the [Contributing Guide](contributing/setup.md) for information on getting support from the community.
-```

@@ -69,8 +69,38 @@ keeps its token: `CookieTokenStore` (default, unchanged) or `SessionTokenStore`,
 
 **Routes can belong to an app** (additive; the endpoint macros keep registering on `Azu::App.default`).
 
-<!-- skip -->
 ```crystal
+require "azu"
+
+struct TextResponse
+  include Azu::Response
+
+  def initialize(@text : String)
+  end
+
+  def render
+    @text
+  end
+end
+
+struct UserEndpoint
+  include Azu::Endpoint(Azu::Request, TextResponse)
+
+  def call : TextResponse
+    TextResponse.new("user")
+  end
+end
+
+struct CreateUserEndpoint
+  include Azu::Endpoint(Azu::Request, TextResponse)
+
+  def call : TextResponse
+    TextResponse.new("created")
+  end
+end
+
+admin_app = Azu::App.new
+
 app = Azu::App.new
 app.routes do
   get "/users/:id", UserEndpoint
@@ -177,7 +207,7 @@ drained by `start`. WebSocket sockets are not waited for.
 
 The `Endpoint` module now requires explicit type parameters:
 
-```crystal
+```text
 # Before (0.4.x)
 struct MyEndpoint
   include Azu::Endpoint
@@ -206,7 +236,7 @@ end
 
 Request objects are now accessed via generated methods:
 
-```crystal
+```text
 # Before
 request.name
 
@@ -223,7 +253,7 @@ create_user_request.name  # For CreateUserRequest
 
 Handlers now use `call_next` instead of `next.try &.call`:
 
-```crystal
+```text
 # Before (0.3.x)
 def call(context)
   # ...
@@ -241,7 +271,7 @@ end
 
 Configuration moved from class methods to block syntax:
 
-```crystal
+```text
 # Before (0.3.x)
 Azu.port = 8080
 Azu.env = :production
@@ -261,7 +291,7 @@ end
 
 Route registration moved to macros:
 
-```crystal
+```text
 # Before (0.2.x)
 Azu.router.add("GET", "/users", UsersEndpoint)
 
@@ -281,7 +311,7 @@ end
 
 Responses now implement `Azu::Response` module:
 
-```crystal
+```text
 # Before (0.2.x)
 def call
   {users: users}.to_json
@@ -305,7 +335,7 @@ end
 
 Channel API changed from callback-based to method-based:
 
-```crystal
+```text
 # Before (0.1.x)
 Azu.channel("/chat") do |socket, message|
   # Handle message

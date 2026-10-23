@@ -61,3 +61,8 @@ docs/explanation/architecture/performance-design.md
 docs/explanation/architecture/request-lifecycle.md
 docs/explanation/architecture/overview.md
 docs/how-to/performance/optimize-endpoints.md
+docs/contributing/roadmap.md
+docs/contributing/setup.md
+docs/contributing/standards.md
+docs/faq.md
+docs/reference/breaking-changes.md
