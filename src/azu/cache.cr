@@ -156,18 +156,7 @@ module Azu
 
       def set(key : String, value : String, ttl : Time::Span? = nil) : Bool
         @mutex.synchronize do
-          ttl = ttl || @default_ttl
-
-          # Remove existing entry if present
-          if @cache.has_key?(key)
-            @access_order.delete(key)
-          elsif @cache.size >= @max_size
-            # Evict least recently used entry
-            evict_lru
-          end
-
-          @cache[key] = CacheEntry.new(value, ttl)
-          @access_order << key
+          store(key, CacheEntry.new(value, ttl || @default_ttl))
           true
         end
       end
@@ -220,6 +209,19 @@ module Azu
         end
       end
 
+      # Puts `entry` as the most recently used one, evicting the least recently used when a new key
+      # would exceed `max_size`. Callers hold the mutex.
+      private def store(key : String, entry : CacheEntry) : Nil
+        if @cache.has_key?(key)
+          @access_order.delete(key)
+        elsif @cache.size >= @max_size
+          evict_lru
+        end
+
+        @cache[key] = entry
+        @access_order << key
+      end
+
       private def evict_lru
         return if @access_order.empty?
 
@@ -256,13 +258,12 @@ module Azu
         @mutex.synchronize do
           entry = @cache[key]?
           if entry && !entry.expired?
-            # Update existing entry
+            # The expiry is set when the counter is created, not on every hit
             new_value = entry.value.to_i + amount
-            @cache[key] = CacheEntry.new(new_value.to_s, ttl || @default_ttl)
+            store(key, CacheEntry.new(new_value.to_s, entry.expires_at, entry.access_count + 1))
             new_value
           else
-            # Create new entry
-            @cache[key] = CacheEntry.new(amount.to_s, ttl || @default_ttl)
+            store(key, CacheEntry.new(amount.to_s, ttl || @default_ttl))
             amount
           end
         end

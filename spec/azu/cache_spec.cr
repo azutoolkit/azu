@@ -142,6 +142,29 @@ describe Azu::Cache do
       store.increment("counter", 5).should eq(7)
     end
 
+    it "keeps the expiry set when the counter was created" do
+      store = Azu::Cache::MemoryStore.new
+      store.increment("hits", 1, 150.milliseconds)
+
+      2.times do
+        sleep 60.milliseconds
+        store.increment("hits")
+      end
+      sleep 60.milliseconds
+
+      store.increment("hits").should eq(1)
+    end
+
+    it "evicts the least recently used key when a counter would exceed max_size" do
+      store = Azu::Cache::MemoryStore.new(max_size: 2)
+
+      5.times { |i| store.increment("counter_#{i}") }
+
+      store.size.should eq(2)
+      store.exists?("counter_0").should be_false
+      store.exists?("counter_4").should be_true
+    end
+
     it "supports decrement operations" do
       store = Azu::Cache::MemoryStore.new
 
