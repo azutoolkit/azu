@@ -1,435 +1,640 @@
 # Query Methods Reference
 
-Reference for CQL query methods.
+Reference for CQL model query methods. A model class (or a `QueryBuilder`) answers all of them; methods that add
+conditions return a new `QueryBuilder`, so they chain. Nothing runs until a method that returns records or a value is
+called. Each group of examples below is a complete program, so it compiles on its own.
+
 
 ## Retrieval Methods
 
-### all
+| Method | Returns | Notes |
+| --- | --- | --- |
+| `all` | `Array(T)` | every matching record |
+| `first`, `last` | `T?` | ordered by primary key unless the query is ordered |
+| `first!`, `last!` | `T` | raise when there is no record |
+| `find(id)`, `find?(id)` | `T?` | by primary key |
+| `find!(id)` | `T` | raises `DB::NoResultsError` |
+| `find_by(**attrs)` | `T?` | first record matching all attributes |
+| `find_by!(**attrs)` | `T` | raises `DB::NoResultsError` |
+| `each { |record| ... }` | | iterate the matches |
+| `to_a` | `Array(T)` | same as `all` on a builder |
 
-Get all matching records.
+There is no `take` or `find_by?`; use `limit(n).all` and `find_by`.
 
-```crystal
-users = User.all                        # All users
-users = User.where(active: true).all    # Filtered
-```
-
-**Returns:** `Array(T)`
-
-### first
-
-Get first record.
-
-```crystal
-user = User.first                       # First by primary key
-user = User.order(name: :asc).first     # First alphabetically
-user = User.where(active: true).first   # First active
-```
-
-**Returns:** `T?`
-
-### last
-
-Get last record.
-
-```crystal
-user = User.last
-user = User.order(created_at: :asc).last
-```
-
-**Returns:** `T?`
-
-### find
-
-Find by primary key.
-
-```crystal
-user = User.find(1)      # Raises if not found
-user = User.find?(1)     # Returns nil if not found
-```
-
-**Returns:** `T` or `T?`
-
-### find_by
-
-Find by attributes.
-
-```crystal
-user = User.find_by(email: "alice@example.com")
-user = User.find_by?(email: "alice@example.com")
-```
-
-**Returns:** `T` or `T?`
-
-### take
-
-Get n records.
-
-```crystal
-users = User.take(5)    # First 5 records
-```
-
-**Returns:** `Array(T)`
 
 ## Filtering
 
 ### where
 
-Filter by conditions.
+| Form | Example |
+| --- | --- |
+| keyword arguments | `where(active: true, role: "admin")`, `AND`ed; an array gives `IN` |
+| `Hash` | `where({:active => true})` |
+| SQL with `?` | `where("age > ?", 18)` |
+| SQL with names | `where("age > :min", min: 18)` |
+| column DSL block | `where { (age > 18) & (role == "admin") }` |
+
+The DSL block yields the model's typed columns. Operators: `==`, `!=`, `>`, `>=`, `<`, `<=`, `like`, `not_like`, `in`,
+`not_in`, `between`, `null`, `not_null`; combine with `&`, `|`, `.not`. Values are always bound as parameters.
+
+### Examples
 
 ```crystal
-# Hash conditions
-User.where(active: true)
-User.where(role: "admin", active: true)
+require "cql"
+require "sqlite3"
 
-# SQL conditions
+MyDB = CQL::Schema.define(:my_db, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :email, String
+    column :age, Int32, null: true
+    column :role, String, default: "user"
+    column :active, Bool, default: true
+    column :deleted_at, Time, null: true
+    timestamps
+  end
+
+  table :posts do
+    primary :id, Int64
+    column :user_id, Int64
+    column :title, String
+    column :published, Bool, default: false
+    column :views, Int32, default: 0
+    timestamps
+
+    foreign_key :user_id, references: :users
+  end
+end
+
+class Post
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :posts
+
+  property user_id : Int64
+  property title : String
+  property published : Bool = false
+  property views : Int32 = 0
+  property created_at : Time?
+
+  belongs_to :user, User, :user_id
+
+  scope :published, -> { where(published: true) }
+  scope :recent, -> { order(created_at: :desc) }
+  scope :by_user, ->(user_id : Int64) { where(user_id: user_id) }
+
+  def initialize(@user_id : Int64, @title : String)
+  end
+end
+
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :users
+
+  property name : String
+  property email : String
+  property age : Int32?
+  property role : String = "user"
+  property active : Bool = true
+  property deleted_at : Time?
+  property created_at : Time?
+
+  has_many :posts, Post, foreign_key: :user_id
+
+  scope :active, -> { where(active: true) }
+  scope :with_role, ->(role : String) { where(role: role) }
+
+  def initialize(@name : String, @email : String, @age : Int32? = nil)
+  end
+end
+
+users = User.all
+user = User.first
+newest = User.order(created_at: :desc).first
+user = User.find(1_i64)
+user = User.find!(1_i64)
+user = User.find_by(email: "alice@example.com")
+user = User.find_by!(email: "alice@example.com", active: true)
+
+User.where(active: true, role: "admin")
+User.where(role: ["admin", "moderator"])         # IN (?, ?)
 User.where("age > ?", 18)
-User.where("created_at > ?", 1.week.ago)
+User.where("created_at > ?", Time.utc - 7.days)
 User.where("name LIKE ?", "%smith%")
-
-# IN clause
-User.where("id IN (?)", [1, 2, 3])
-
-# NULL check
+User.where("role IN (?)", ["admin", "moderator"])
 User.where("deleted_at IS NULL")
+User.where { (age > 18) & (role == "admin") }
+User.where { (role == "banned").not }
+User.where { deleted_at.null }
+User.where_like(:name, "%smith%")
+User.query.where_gt(:age, 18)
+User.query.where_lt(:age, 65)
 ```
 
-**Returns:** Query builder (chainable)
+`where(deleted_at: nil)` compares with `= NULL` and matches nothing; use `where { deleted_at.null }`.
 
-### where.not
+### Excluding and OR
 
-Exclude matching records.
-
-```crystal
-User.where.not(role: "admin")
-User.where.not("status IN (?)", ["banned", "suspended"])
-```
-
-### or
-
-Combine conditions with OR.
-
-```crystal
-User.where(role: "admin").or(User.where(role: "moderator"))
-```
+There is no `where.not(...)` and no `or` method on a builder. Express them with the DSL block:
+`User.where { (role == "admin").not }`, `User.where { (role == "admin") | (role == "moderator") }`, or a SQL fragment.
+`merge(other_builder)` combines two builders with `AND`.
 
 ## Ordering
 
-### order
+| Method | Description |
+| --- | --- |
+| `order(name: :asc)`, `order(role: :asc, name: :desc)` | keyword form with direction |
+| `order(:role, :name)` | ascending by each symbol |
+| `reorder(...)` | replaces the existing ordering |
+| `reverse_order` | flips the directions |
 
-Sort results.
+The argument is a column name; `order("LOWER(name) ASC")` is rejected with `Column ... not found`.
 
-```crystal
-User.order(name: :asc)
-User.order(created_at: :desc)
-User.order(role: :asc, name: :asc)  # Multiple columns
-User.order("LOWER(name) ASC")       # Raw SQL
-```
-
-**Returns:** Query builder (chainable)
-
-### reorder
-
-Replace previous ordering.
-
-```crystal
-User.order(name: :asc).reorder(created_at: :desc)
-```
-
-### reverse_order
-
-Reverse current ordering.
-
-```crystal
-User.order(name: :asc).reverse_order  # Now desc
-```
 
 ## Limiting
 
-### limit
+`limit(n)` and `offset(n)` take an `Int32`. Model-level helpers paginate in one call:
 
-Limit number of results.
+| Method | Description |
+| --- | --- |
+| `User.page(page_number, per_page = 10)` | `Array(User)` for a 1-based page |
+| `User.per_page(n)` | the first `n` records |
+| `User.after_cursor(id, limit = 10)` / `before_cursor(id, limit = 10)` | keyset pagination on the primary key |
+| `User.paginate_by(:column, after_value, limit = 10)` | keyset pagination on another column |
 
-```crystal
-User.limit(10)
-User.where(active: true).limit(5)
-```
-
-**Returns:** Query builder (chainable)
-
-### offset
-
-Skip records.
-
-```crystal
-User.offset(20)
-User.limit(10).offset(20)  # Page 3
-```
-
-**Returns:** Query builder (chainable)
 
 ## Selection
 
-### select
+| Method | Returns |
+| --- | --- |
+| `select(:id, :name)` | a builder whose `all`/`first` return rows with only those columns |
+| `distinct` | the builder with `SELECT DISTINCT` |
+| `distinct(:role, as: String)` | the distinct values of a column |
+| `pluck(:name)` | `Array(DB::Any)` (on a filtered builder `as:` is required) |
+| `pluck(:id, :name, as: {Int64, String})` | `Array({Int64, String})` |
+| `pick(:name, as: String)` | the first value |
+| `ids` | the primary keys (`Array(Int64)` by default) |
 
-Select specific columns.
-
-```crystal
-User.select(:id, :name)
-User.select("id, name, email")
-User.select("*, LENGTH(bio) as bio_length")
-```
-
-### distinct
-
-Return unique records.
+### Examples
 
 ```crystal
-User.select(:role).distinct
+require "cql"
+require "sqlite3"
+
+MyDB = CQL::Schema.define(:my_db, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :email, String
+    column :age, Int32, null: true
+    column :role, String, default: "user"
+    column :active, Bool, default: true
+    column :deleted_at, Time, null: true
+    timestamps
+  end
+
+  table :posts do
+    primary :id, Int64
+    column :user_id, Int64
+    column :title, String
+    column :published, Bool, default: false
+    column :views, Int32, default: 0
+    timestamps
+
+    foreign_key :user_id, references: :users
+  end
+end
+
+class Post
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :posts
+
+  property user_id : Int64
+  property title : String
+  property published : Bool = false
+  property views : Int32 = 0
+  property created_at : Time?
+
+  belongs_to :user, User, :user_id
+
+  scope :published, -> { where(published: true) }
+  scope :recent, -> { order(created_at: :desc) }
+  scope :by_user, ->(user_id : Int64) { where(user_id: user_id) }
+
+  def initialize(@user_id : Int64, @title : String)
+  end
+end
+
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :users
+
+  property name : String
+  property email : String
+  property age : Int32?
+  property role : String = "user"
+  property active : Bool = true
+  property deleted_at : Time?
+  property created_at : Time?
+
+  has_many :posts, Post, foreign_key: :user_id
+
+  scope :active, -> { where(active: true) }
+  scope :with_role, ->(role : String) { where(role: role) }
+
+  def initialize(@name : String, @email : String, @age : Int32? = nil)
+  end
+end
+
+User.order(name: :asc)
+User.order(role: :asc, name: :desc)
+User.order(:name).reorder(created_at: :desc)
+User.order(name: :asc).reverse_order
+
+User.limit(10)
+User.order(:id).limit(10).offset(20)
+User.page(3, 10)
+User.after_cursor(120_i64, 10)
+
+rows = User.select(:id, :name).all
+rows.each { |row| puts row.name }
+
+emails = User.where(active: true).pluck(:email, as: String)
+pairs = User.pluck(:id, :name, as: {Int64, String})
+first_name = User.order(:name).pick(:name, as: String)
+ids = User.where(role: "admin").ids
+roles = User.distinct(:role, as: String)
 ```
 
-### pluck
-
-Get array of column values.
-
-```crystal
-emails = User.pluck(:email)        # => ["a@b.com", "c@d.com"]
-data = User.pluck(:id, :name)      # => [[1, "Alice"], [2, "Bob"]]
-```
-
-**Returns:** `Array`
-
-### ids
-
-Get array of primary key values.
-
-```crystal
-user_ids = User.where(active: true).ids  # => [1, 2, 3]
-```
-
-**Returns:** `Array(PrimaryKeyType)`
+`select("raw SQL")` is not supported on a model; for expressions use the schema's query builder or raw SQL (below).
 
 ## Aggregation
 
-### count
+| Method | Returns |
+| --- | --- |
+| `count`, `count(:column)` | `Int64` |
+| `sum(:column)` | the sum (an integer for integer columns) |
+| `average(:column)` (`avg`) | `Float64` |
+| `minimum(:column)` / `maximum(:column)` (`min` / `max`) | the column's value |
+| `size` | same as `count` |
 
-Count records.
-
-```crystal
-User.count                       # Total users
-User.where(active: true).count   # Active users
-User.count(:email)               # Non-null emails
-User.distinct.count(:role)       # Unique roles
-```
-
-**Returns:** `Int64`
-
-### sum
-
-Sum column values.
-
-```crystal
-Order.sum(:total)
-Order.where(user_id: 1).sum(:total)
-```
-
-**Returns:** `Number`
-
-### average
-
-Average column values.
-
-```crystal
-User.average(:age)
-Product.average(:price)
-```
-
-**Returns:** `Float64?`
-
-### minimum
-
-Get minimum value.
-
-```crystal
-Product.minimum(:price)
-User.minimum(:created_at)
-```
-
-**Returns:** Column type or nil
-
-### maximum
-
-Get maximum value.
-
-```crystal
-Product.maximum(:price)
-User.maximum(:age)
-```
-
-**Returns:** Column type or nil
 
 ## Grouping
 
-### group
+Grouped aggregates are built on the schema's query builder, which returns tuples (see the examples after Existence).
 
-Group results.
-
-```crystal
-User.select("role, COUNT(*) as count").group(:role)
-Order.select("user_id, SUM(total) as total").group(:user_id)
-```
-
-### having
-
-Filter groups.
-
-```crystal
-User.select("role, COUNT(*) as count")
-    .group(:role)
-    .having("COUNT(*) > ?", 5)
-```
 
 ## Joining
 
-### join
+`joins` and `left_joins` take association names (`belongs_to`/`has_many`) and derive the `ON` clause from the foreign
+key. The block form of `join` takes an explicit condition. They are methods of the builder, so start with `query`.
 
-Inner join tables.
 
-```crystal
-Post.join(:users, "users.id = posts.user_id")
-Post.join(:users, "users.id = posts.user_id")
-    .select("posts.*, users.name as author_name")
-```
+`preload(:posts)` loads a `has_many` association for all returned records in one extra query.
 
-### left_join
 
-Left outer join.
-
-```crystal
-User.left_join(:posts, "posts.user_id = users.id")
-    .select("users.*, COUNT(posts.id) as post_count")
-    .group("users.id")
-```
-
-### includes
-
-Eager load associations.
-
-```crystal
-Post.includes(:author)
-User.includes(:posts, :comments)
-```
+There is no `includes` and no string-condition `join`/`left_join`; `preload` supports `has_many` only.
 
 ## Existence
 
-### exists?
+| Method | Returns |
+| --- | --- |
+| `exists?`, `exists?(**attrs)` | `Bool` |
+| `any?` | `Bool`, same as `exists?` |
+| `empty?` | `Bool` |
+| `many?` | `Bool`, more than one match |
+| `none` | a builder that always matches nothing |
 
-Check if records exist.
+There is no `none?`; use `empty?`.
+
+### Examples
 
 ```crystal
-User.where(email: "alice@example.com").exists?
+require "cql"
+require "sqlite3"
+
+MyDB = CQL::Schema.define(:my_db, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :email, String
+    column :age, Int32, null: true
+    column :role, String, default: "user"
+    column :active, Bool, default: true
+    column :deleted_at, Time, null: true
+    timestamps
+  end
+
+  table :posts do
+    primary :id, Int64
+    column :user_id, Int64
+    column :title, String
+    column :published, Bool, default: false
+    column :views, Int32, default: 0
+    timestamps
+
+    foreign_key :user_id, references: :users
+  end
+end
+
+class Post
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :posts
+
+  property user_id : Int64
+  property title : String
+  property published : Bool = false
+  property views : Int32 = 0
+  property created_at : Time?
+
+  belongs_to :user, User, :user_id
+
+  scope :published, -> { where(published: true) }
+  scope :recent, -> { order(created_at: :desc) }
+  scope :by_user, ->(user_id : Int64) { where(user_id: user_id) }
+
+  def initialize(@user_id : Int64, @title : String)
+  end
+end
+
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :users
+
+  property name : String
+  property email : String
+  property age : Int32?
+  property role : String = "user"
+  property active : Bool = true
+  property deleted_at : Time?
+  property created_at : Time?
+
+  has_many :posts, Post, foreign_key: :user_id
+
+  scope :active, -> { where(active: true) }
+  scope :with_role, ->(role : String) { where(role: role) }
+
+  def initialize(@name : String, @email : String, @age : Int32? = nil)
+  end
+end
+
+User.count
+User.where(active: true).count
+User.count(:email)
+Post.sum(:views)
+Post.where(published: true).average(:views)
+Post.minimum(:views)
+Post.maximum(:views)
+
+by_role = MyDB.query
+  .from(:users)
+  .select(:role)
+  .count(as: :total)
+  .group(:role)
+  .all(as: {String, Int64})
+
+busy_roles = MyDB.query
+  .from(:users)
+  .select(:role)
+  .count(as: :total)
+  .group(:role)
+  .having { count(:id) > 5 }
+  .all(as: {String, Int64})
+
+views_per_user = MyDB.query
+  .from(:posts)
+  .select(:user_id)
+  .sum(:views, as: :total)
+  .group(:user_id)
+  .all(as: {Int64, Int64})
+
+Post.query.joins(:user)
+User.query.left_joins(:posts).distinct
+Post.query.joins(:user).where(published: true).order(created_at: :desc)
+Post.join(:users) { |on| on.posts.user_id == on.users.id }
+
+User.preload(:posts).all.each { |user| puts user.posts.size }
+
 User.exists?(email: "alice@example.com")
-```
-
-**Returns:** `Bool`
-
-### any?
-
-Check if any records match.
-
-```crystal
 User.where(role: "admin").any?
+User.where(role: "banned").empty?
+User.none.all
 ```
-
-**Returns:** `Bool`
-
-### none?
-
-Check if no records match.
-
-```crystal
-User.where(role: "banned").none?
-```
-
-**Returns:** `Bool`
-
-### empty?
-
-Check if result set is empty.
-
-```crystal
-User.where(active: false).empty?
-```
-
-**Returns:** `Bool`
 
 ## Batch Processing
 
-### find_each
+`find_each(batch_size = 1000)` yields records, `find_in_batches(batch_size = 1000)` yields arrays. There is no
+`in_batches`.
 
-Process records in batches.
 
-```crystal
-User.find_each(batch_size: 1000) do |user|
-  process(user)
-end
-```
+## Bulk Writes
 
-### in_batches
+These issue a single statement and do not validate or run callbacks (except `delete_all` on a query, which loads each
+record and calls `delete!`):
 
-Process batches.
+| Method | Description |
+| --- | --- |
+| `User.update_by(where_attrs, update_attrs)` | `UPDATE ... WHERE`; both arguments are `Hash(Symbol, DB::Any)` |
+| `User.update_all(attrs)` | updates every row |
+| `User.delete_by!(**attrs)` | `DELETE ... WHERE` |
+| `query.delete_all` | loads the matches and calls `delete!` on each |
 
-```crystal
-User.in_batches(of: 1000) do |batch|
-  batch.update_all(notified: true)
-end
-```
 
 ## Scopes
 
-### scope
+`scope` defines a named query on the class. It may take arguments and chains with other scopes and builder methods.
 
-Define reusable queries.
+
+## Locking
+
+On PostgreSQL, CockroachDB and MySQL `with_query(&.lock)` appends `FOR UPDATE`; `lock(:share)`, `skip_locked: true` and
+`nowait: true` adjust it. SQLite raises `CQL::DialectError`.
+
+
+## Inspecting the SQL
+
+`to_sql` returns the statement and `to_sql_with_params` the statement with its bound values.
+
+### Examples
 
 ```crystal
-class User
-  scope :active, -> { where(active: true) }
-  scope :recent, -> { order(created_at: :desc) }
-  scope :by_role, ->(role : String) { where(role: role) }
+require "cql"
+require "sqlite3"
+
+MyDB = CQL::Schema.define(:my_db, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :email, String
+    column :age, Int32, null: true
+    column :role, String, default: "user"
+    column :active, Bool, default: true
+    column :deleted_at, Time, null: true
+    timestamps
+  end
+
+  table :posts do
+    primary :id, Int64
+    column :user_id, Int64
+    column :title, String
+    column :published, Bool, default: false
+    column :views, Int32, default: 0
+    timestamps
+
+    foreign_key :user_id, references: :users
+  end
 end
 
-User.active.recent.all
-User.by_role("admin").count
-```
+class Post
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :posts
 
-## Chaining
+  property user_id : Int64
+  property title : String
+  property published : Bool = false
+  property views : Int32 = 0
+  property created_at : Time?
 
-All query methods are chainable:
+  belongs_to :user, User, :user_id
 
-```crystal
-User.where(active: true)
-    .where("age >= ?", 18)
-    .order(name: :asc)
-    .limit(10)
-    .offset(20)
-    .all
+  scope :published, -> { where(published: true) }
+  scope :recent, -> { order(created_at: :desc) }
+  scope :by_user, ->(user_id : Int64) { where(user_id: user_id) }
+
+  def initialize(@user_id : Int64, @title : String)
+  end
+end
+
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :users
+
+  property name : String
+  property email : String
+  property age : Int32?
+  property role : String = "user"
+  property active : Bool = true
+  property deleted_at : Time?
+  property created_at : Time?
+
+  has_many :posts, Post, foreign_key: :user_id
+
+  scope :active, -> { where(active: true) }
+  scope :with_role, ->(role : String) { where(role: role) }
+
+  def initialize(@name : String, @email : String, @age : Int32? = nil)
+  end
+end
+
+User.find_each(batch_size: 1000) { |user| puts user.email }
+User.where(active: true).find_in_batches(batch_size: 500) { |batch| puts batch.size }
+
+User.update_by({:role => "user".as(DB::Any)}, {:active => false.as(DB::Any)})
+User.delete_by!(role: "banned")
+User.where(active: false).delete_all
+
+User.active.with_role("admin").order(name: :asc).limit(10).all
+Post.published.recent.by_user(1_i64).count
+
+User.where(id: 1_i64).with_query(&.lock).first
+User.where(role: "worker").with_query(&.lock(skip_locked: true)).all
+
+sql, params = User.where(role: "admin").limit(5).to_sql_with_params
 ```
 
 ## Raw SQL
 
-### query
+`schema.exec_query` yields a `DB::Connection` that takes parameters; `schema.exec` takes one SQL string and no
+parameters.
 
-Execute raw SELECT.
 
-```crystal
-results = MyDB.query("SELECT * FROM users WHERE age > ?", 18)
-```
+## Chaining
 
-### exec
+All builder methods chain.
 
-Execute raw statement.
+### Examples
 
 ```crystal
-MyDB.exec("UPDATE users SET active = ? WHERE id = ?", true, 1)
+require "cql"
+require "sqlite3"
+
+MyDB = CQL::Schema.define(:my_db, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :email, String
+    column :age, Int32, null: true
+    column :role, String, default: "user"
+    column :active, Bool, default: true
+    column :deleted_at, Time, null: true
+    timestamps
+  end
+
+  table :posts do
+    primary :id, Int64
+    column :user_id, Int64
+    column :title, String
+    column :published, Bool, default: false
+    column :views, Int32, default: 0
+    timestamps
+
+    foreign_key :user_id, references: :users
+  end
+end
+
+class Post
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :posts
+
+  property user_id : Int64
+  property title : String
+  property published : Bool = false
+  property views : Int32 = 0
+  property created_at : Time?
+
+  belongs_to :user, User, :user_id
+
+  scope :published, -> { where(published: true) }
+  scope :recent, -> { order(created_at: :desc) }
+  scope :by_user, ->(user_id : Int64) { where(user_id: user_id) }
+
+  def initialize(@user_id : Int64, @title : String)
+  end
+end
+
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :users
+
+  property name : String
+  property email : String
+  property age : Int32?
+  property role : String = "user"
+  property active : Bool = true
+  property deleted_at : Time?
+  property created_at : Time?
+
+  has_many :posts, Post, foreign_key: :user_id
+
+  scope :active, -> { where(active: true) }
+  scope :with_role, ->(role : String) { where(role: role) }
+
+  def initialize(@name : String, @email : String, @age : Int32? = nil)
+  end
+end
+
+names = MyDB.exec_query { |connection| connection.query_all("SELECT name FROM users WHERE age > ?", 18, as: String) }
+
+MyDB.exec_query { |connection| connection.exec("UPDATE users SET active = ? WHERE id = ?", true, 1) }
+
+MyDB.exec("DELETE FROM users WHERE active = 0")
+
+User.where(active: true)
+  .where("age >= ?", 18)
+  .order(name: :asc)
+  .limit(10)
+  .offset(20)
+  .all
 ```
 
 ## See Also

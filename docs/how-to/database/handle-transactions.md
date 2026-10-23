@@ -1,240 +1,444 @@
 # How to Handle Transactions
 
-This guide shows you how to use database transactions for atomic operations.
+This guide shows you how to use database transactions with CQL for atomic operations.
+
+Every example defines the schema and models it uses; in an application they live in their own files.
 
 ## Basic Transaction
 
-Wrap operations in a transaction block:
+`schema.transaction` (or `Model.transaction`, which uses the model's schema) opens a transaction, commits when the block
+returns and rolls back when it raises. Queries inside the block run on the transaction's connection automatically:
 
 ```crystal
+require "cql"
+require "sqlite3"
+
+AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :email, String
+  end
+end
+
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AcmeDB, :users
+
+  property name : String
+  property email : String
+
+  def initialize(@name : String, @email : String)
+  end
+end
+
 AcmeDB.transaction do
-  user = User.create!(name: "Alice", email: "alice@example.com")
-  Profile.create!(user_id: user.id, bio: "Hello!")
-  Account.create!(user_id: user.id, balance: 0.0)
+  User.create!(name: "Alice", email: "alice@example.com")
+  User.create!(name: "Bob", email: "bob@example.com")
+end
+
+User.transaction do |tx|
+  User.create!(name: "Carol", email: "carol@example.com")
 end
 ```
 
-If any operation fails, all changes are rolled back.
+If any statement raises, every change in the block is rolled back and the exception propagates.
 
 ## Transaction with Return Value
 
+The block's value is the value of the call:
+
 ```crystal
-user = AcmeDB.transaction do
-  user = User.create!(name: "Alice", email: "alice@example.com")
-  Profile.create!(user_id: user.id)
-  user  # Return the user
+require "cql"
+require "sqlite3"
+
+AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :email, String
+  end
 end
 
-puts user.id  # Use the created user
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AcmeDB, :users
+
+  property name : String
+  property email : String
+
+  def initialize(@name : String, @email : String)
+  end
+end
+
+user = AcmeDB.transaction do
+  User.create!(name: "Alice", email: "alice@example.com")
+end
+
+user.try { |created| puts created.id }
 ```
+
+The result is `nil` when the block rolled back through `DB::Rollback` (below), so the type is a union with `Nil`.
 
 ## Manual Rollback
 
-Explicitly rollback a transaction:
+Raise `DB::Rollback` to roll back and leave the block quietly: the transaction is rolled back, nothing propagates and
+the call returns `nil`. Calling `tx.rollback` also rolls back, but execution continues until the block ends:
 
 ```crystal
-AcmeDB.transaction do |tx|
-  user = User.create!(name: "Alice", email: "alice@example.com")
+require "cql"
+require "sqlite3"
 
-  if some_condition_fails
-    tx.rollback
-    next  # Exit the block
+AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :email, String
   end
-
-  complete_setup(user)
 end
+
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AcmeDB, :users
+
+  property name : String
+  property email : String
+
+  def initialize(@name : String, @email : String)
+  end
+end
+
+def import(name : String, email : String, dry_run : Bool) : Nil
+  AcmeDB.transaction do
+    User.create!(name: name, email: email)
+    raise DB::Rollback.new if dry_run
+  end
+end
+
+import("Alice", "alice@example.com", dry_run: true)
 ```
 
 ## Error Handling
 
-Handle transaction errors:
+Exceptions leave the transaction rolled back and reach your `rescue`. Records saved with `save`/`save!` raise
+`CQL::ActiveRecord::Validations::ValidationError` when invalid; `create!(**fields)` does not validate at all (see
+[Validate Models](../validation/validate-models.md)):
 
 ```crystal
+require "cql"
+require "sqlite3"
+
+AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :email, String
+  end
+end
+
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AcmeDB, :users
+
+  property name : String
+  property email : String
+
+  validate :name, presence: true
+
+  def initialize(@name : String, @email : String)
+  end
+end
+
 begin
   AcmeDB.transaction do
-    transfer_funds(from_account, to_account, amount)
+    User.new("Alice", "alice@example.com").save!
+    User.new("", "invalid").save!
   end
-  puts "Transfer successful"
-rescue ex : CQL::TransactionError
-  puts "Transaction failed: #{ex.message}"
-rescue ex : CQL::RecordInvalid
-  puts "Validation failed: #{ex.message}"
+  puts "Saved both users"
+rescue ex : CQL::ActiveRecord::Validations::ValidationError
+  puts "Validation failed, nothing was saved: #{ex.message}"
+rescue ex : DB::Error
+  puts "Database error: #{ex.message}"
 end
 ```
 
 ## Nested Transactions (Savepoints)
 
-Use savepoints for nested operations:
+Pass the outer transaction to `Model.transaction` to open a savepoint. A failure inside only undoes the inner block:
 
 ```crystal
-AcmeDB.transaction do
-  user = User.create!(name: "Alice", email: "alice@example.com")
+require "cql"
+require "sqlite3"
 
-  AcmeDB.transaction(savepoint: true) do
-    # This is a savepoint, not a new transaction
-    create_optional_resources(user)
-  rescue
-    # Only this inner block is rolled back
-    Log.warn { "Optional resources failed" }
+AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :email, String
+  end
+end
+
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AcmeDB, :users
+
+  property name : String
+  property email : String
+
+  def initialize(@name : String, @email : String)
+  end
+end
+
+AcmeDB.transaction do |outer|
+  User.create!(name: "Alice", email: "alice@example.com")
+
+  begin
+    User.transaction(outer) do |_inner|
+      User.create!(name: "Optional", email: "optional@example.com")
+      raise "optional step failed"
+    end
+  rescue ex
+    Log.warn { "Optional step rolled back: #{ex.message}" }
   end
 
-  # User creation is preserved
-  create_required_resources(user)
+  # Alice is still part of the outer transaction
+  User.create!(name: "Required", email: "required@example.com")
 end
 ```
 
-## Transaction Isolation Levels
+## Isolation Levels and Read-Only Transactions
 
-Set isolation level for a transaction:
+CQL's `transaction` takes no options. To change the isolation level or make a transaction read-only, issue the
+statement as the first thing inside the block on the transaction's connection:
 
 ```crystal
-AcmeDB.transaction(isolation: :serializable) do
-  # Highest isolation level
-  process_financial_transaction
+require "cql"
+require "pg"
+
+AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::Postgres, uri: ENV["DATABASE_URL"]) do
+  table :accounts do
+    primary :id, Int64
+    column :balance, Float64
+  end
 end
 
-# Available levels:
-# :read_uncommitted
-# :read_committed
-# :repeatable_read
-# :serializable
+AcmeDB.transaction do |tx|
+  tx.connection.exec("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+  tx.connection.exec("SET TRANSACTION READ ONLY")
+  puts tx.connection.scalar("SELECT COUNT(*) FROM accounts")
+end
 ```
+
+The statements are PostgreSQL syntax.
 
 ## Locking Records
 
-### Pessimistic Locking
-
-Lock records for update:
+PostgreSQL, CockroachDB and MySQL support row locks; SQLite raises `CQL::DialectError` when SQL with a lock is
+generated, because it serializes writers instead. `QueryBuilder` has no `lock` method, so reach the underlying query
+with `with_query`. `lock` takes `:update` (default) or `:share`, and `skip_locked:` or `nowait:`:
 
 ```crystal
-AcmeDB.transaction do
-  # Lock the row for update
-  account = Account.lock.find(account_id)
+require "cql"
+require "pg"
 
-  # No other transaction can modify this row
-  account.balance -= amount
+AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::Postgres, uri: ENV["DATABASE_URL"]) do
+  table :accounts do
+    primary :id, Int64
+    column :user_id, Int64
+    column :balance, Float64
+  end
+end
+
+class Account
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AcmeDB, :accounts
+
+  property user_id : Int64
+  property balance : Float64
+
+  def initialize(@user_id : Int64, @balance : Float64 = 0.0)
+  end
+end
+
+AcmeDB.transaction do
+  # SELECT ... FROM accounts WHERE accounts.id = $1 FOR UPDATE
+  account = Account.where(id: 1_i64).with_query(&.lock).first!
+  account.balance -= 10.0
   account.save!
 end
-```
 
-### Select for Update
-
-```crystal
 AcmeDB.transaction do
-  accounts = Account.where(user_id: user_id)
-    .lock("FOR UPDATE")
-    .all
-
-  accounts.each do |account|
-    process_account(account)
-  end
+  # Skip rows another transaction has locked (job-queue style)
+  Account.where(user_id: 7_i64).with_query(&.lock(skip_locked: true)).all
 end
 ```
 
 ## Transfer Example
 
-Complete money transfer with transactions:
+A complete money transfer. Lock both rows in a fixed order (lowest id first) so two opposite transfers cannot deadlock:
 
 ```crystal
-def transfer(from_id : Int64, to_id : Int64, amount : Float64)
-  raise "Invalid amount" if amount <= 0
+require "cql"
+require "pg"
+
+AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::Postgres, uri: ENV["DATABASE_URL"]) do
+  table :accounts do
+    primary :id, Int64
+    column :balance, Float64
+  end
+
+  table :transfers do
+    primary :id, Int64
+    column :from_account_id, Int64
+    column :to_account_id, Int64
+    column :amount, Float64
+    column :completed_at, Time
+  end
+end
+
+class Account
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AcmeDB, :accounts
+
+  property balance : Float64
+
+  def initialize(@balance : Float64 = 0.0)
+  end
+end
+
+class Transfer
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AcmeDB, :transfers
+
+  property from_account_id : Int64
+  property to_account_id : Int64
+  property amount : Float64
+  property completed_at : Time
+
+  def initialize(@from_account_id : Int64, @to_account_id : Int64, @amount : Float64, @completed_at : Time = Time.utc)
+  end
+end
+
+def locked_account(id : Int64) : Account
+  Account.where(id: id).with_query(&.lock).first!
+end
+
+def transfer(from_id : Int64, to_id : Int64, amount : Float64) : Nil
+  raise ArgumentError.new("Invalid amount") if amount <= 0
 
   AcmeDB.transaction do
-    # Lock both accounts to prevent race conditions
-    from = Account.lock.find(from_id)
-    to = Account.lock.find(to_id)
+    first_id, second_id = {from_id, to_id}.minmax
+    accounts = {first_id => locked_account(first_id), second_id => locked_account(second_id)}
+    from = accounts[from_id]
+    to = accounts[to_id]
 
     raise "Insufficient funds" if from.balance < amount
 
     from.balance -= amount
     to.balance += amount
-
     from.save!
     to.save!
 
-    # Record the transaction
-    Transaction.create!(
-      from_account_id: from_id,
-      to_account_id: to_id,
-      amount: amount,
-      completed_at: Time.utc
-    )
+    Transfer.create!(from_account_id: from_id, to_account_id: to_id, amount: amount, completed_at: Time.utc)
   end
 end
+
+transfer(1_i64, 2_i64, 25.0)
 ```
 
 ## Batch Operations
 
-Process batches within transactions:
+Commit in chunks so a large import does not hold one huge transaction:
 
 ```crystal
-def import_users(records : Array(Hash))
-  # Process in batches of 100
+require "cql"
+require "sqlite3"
+
+AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :email, String
+  end
+end
+
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AcmeDB, :users
+
+  property name : String
+  property email : String
+
+  def initialize(@name : String, @email : String)
+  end
+end
+
+def import_users(records : Array(Hash(String, String))) : Nil
   records.each_slice(100) do |batch|
     AcmeDB.transaction do
       batch.each do |data|
-        User.create!(
-          name: data["name"],
-          email: data["email"]
-        )
+        User.create!(name: data["name"], email: data["email"])
       end
     end
   end
 end
+
+import_users([{"name" => "Alice", "email" => "alice@example.com"}])
 ```
 
-## Transaction Callbacks
+## After-Commit Work
 
-Run code after transaction commits:
+CQL has no `after_commit` or `after_rollback` callbacks. Do the follow-up work after `transaction` returns, so it only
+runs when the transaction committed:
 
 ```crystal
+require "cql"
+require "sqlite3"
+
+AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
+  table :orders do
+    primary :id, Int64
+    column :total, Float64
+  end
+end
+
 class Order
-  include CQL::Model(Order, Int64)
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AcmeDB, :orders
 
-  after_commit :send_confirmation_email, on: :create
-  after_rollback :log_failure
+  property total : Float64
 
-  private def send_confirmation_email
-    # Only runs if transaction commits
-    Mailer.order_confirmation(self).deliver
-  end
-
-  private def log_failure
-    Log.error { "Order creation rolled back: #{id}" }
+  def initialize(@total : Float64)
   end
 end
-```
 
-## Read-Only Transactions
+def place_order(total : Float64) : Order?
+  order = AcmeDB.transaction do
+    Order.create!(total: total)
+  end
 
-For read-heavy operations:
-
-```crystal
-AcmeDB.transaction(read_only: true) do
-  # Optimized for reads, no write locks
-  generate_report
+  # Reached only when the transaction committed
+  order.try { |placed| Log.info { "order #{placed.id} placed, send the confirmation email" } }
+  order
 end
+
+place_order(42.0)
 ```
+
+## Transactions and the Dashboard
+
+With `require "azu/cql"`, every transaction appears in the dev dashboard's Database tab with its duration and outcome,
+and `Azu::CQL.transaction(schema) { ... }` is a thin wrapper over `schema.transaction`. See
+[Database dashboard](../../reference/database-dashboard.md).
 
 ## Best Practices
 
-1. **Keep transactions short** - Long transactions hold locks
-2. **Order lock acquisition** - Always lock in same order to prevent deadlocks
-3. **Handle failures** - Always rescue and handle transaction failures
-4. **Don't mix concerns** - Avoid external API calls inside transactions
-5. **Use appropriate isolation** - Higher isolation = lower concurrency
-
-```crystal
-# Good: Short, focused transaction
-AcmeDB.transaction do
-  order.status = "completed"
-  order.save!
-  inventory.reduce!(order.items)
-end
-
-# Then do external operations
-send_notification(order)  # Outside transaction
-```
+1. **Keep transactions short.** Long transactions hold locks.
+2. **Lock in a fixed order.** It prevents deadlocks.
+3. **Handle failures.** Rescue around the `transaction` call, not inside it, so the rollback happens.
+4. **Do not mix concerns.** No HTTP calls or emails inside a transaction (see [After-Commit Work](#after-commit-work)).
+5. **Remember the escape hatches.** `User.create!(...)` and `update!` skip validations and callbacks; build records
+   with `new` and call `save!` when you need them.
 
 ## See Also
 

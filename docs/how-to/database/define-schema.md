@@ -1,119 +1,226 @@
 # How to Define a Schema
 
-This guide shows you how to define your database schema using CQL.
+This guide shows you how to describe your database with CQL's schema DSL.
+
+CQL is a separate shard. Azu core does not depend on it, so add `cql` and a database driver (`sqlite3`, `pg` or
+`mysql`) to your `shard.yml` and `require` them before the schema file. To see queries in the dev dashboard, also
+`require "azu/cql"` (see [Database dashboard](../../reference/database-dashboard.md)).
 
 ## Basic Schema Definition
 
-Create a schema file:
+`CQL::Schema.define` takes a name, the adapter and the connection URI, and yields a block where tables are declared:
 
 ```crystal
+require "cql"
+require "sqlite3"
+
 # src/db/schema.cr
-AcmeDB = CQL::Schema.define(
-  :acme_db,
+AppDB = CQL::Schema.define(
+  :app,
   adapter: CQL::Adapter::SQLite,
   uri: ENV.fetch("DATABASE_URL", "sqlite3://./db/development.db")
 ) do
   table :users do
     primary :id, Int64
     column :name, String
-    column :email, String
-    column :created_at, Time, default: -> { Time.utc }
-    column :updated_at, Time, default: -> { Time.utc }
+    column :email, String, unique: true
+    timestamps
+  end
+end
+
+AppDB.build # CREATE TABLE IF NOT EXISTS for every table in the schema
+```
+
+`build` runs `CREATE TABLE IF NOT EXISTS` for each table. For changes to existing databases use
+[migrations](run-migrations.md).
+
+## Column Types
+
+`column name, Type` accepts the Crystal types below. Every column is `NOT NULL` unless you pass `null: true`;
+there is no `String?` shorthand, nullability is a column option.
+
+| Crystal type | Typed helper | SQL (SQLite / PostgreSQL) |
+| --- | --- | --- |
+| `Int32` | `integer` | INTEGER |
+| `Int64` | `bigint` | INTEGER / BIGINT |
+| `Float32` | `float` | REAL |
+| `Float64` | `double`, `real` | DOUBLE / DOUBLE PRECISION |
+| `String` | `text`, `varchar` | TEXT / VARCHAR |
+| `Bool` | `boolean` | BOOLEAN |
+| `Time` | `timestamp`, `date` | DATE / TIMESTAMP |
+| `JSON::Any` | `json` | TEXT / JSONB |
+| `Slice(UInt8)` | `blob` | BLOB / BYTEA |
+| `Time::Span` | `interval` | INTERVAL |
+
+```crystal
+require "cql"
+require "sqlite3"
+
+ProductsDB = CQL::Schema.define(:products, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/products.db") do
+  table :products do
+    primary :id, Int64
+    column :name, String
+    column :description, String, null: true
+    column :price, Float64
+    column :quantity, Int32, default: 0
+    column :active, Bool, default: true
+    column :metadata, JSON::Any, null: true
+    text :sku, unique: true
+    varchar :category, size: 50
+    timestamps
   end
 end
 ```
 
-## Column Types
+Column options: `null:`, `default:` (a literal value, not a block), `unique:`, `size:` and `as:` (a different name in
+the database). `index: true` is accepted but creates nothing; see [Indexes](#indexes).
 
-### Basic Types
+### Primary Keys
+
+`primary` takes the column name and a key type (`Int32`, `Int64` or `UUID`). Integer keys auto increment:
 
 ```crystal
-table :products do
-  primary :id, Int64
-  column :name, String                    # VARCHAR/TEXT
-  column :description, String?            # Nullable
-  column :price, Float64                  # REAL/DOUBLE
-  column :quantity, Int32                 # INTEGER
-  column :active, Bool, default: true     # BOOLEAN
-  column :metadata, JSON::Any?            # JSON
+require "cql"
+require "sqlite3"
+
+IdsDB = CQL::Schema.define(:ids, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/ids.db") do
+  table :accounts do
+    primary :id, Int64
+    column :name, String
+  end
+
+  table :sessions do
+    primary :id, UUID
+    column :account_id, Int64
+  end
 end
 ```
 
 ### Timestamps
 
-```crystal
-table :posts do
-  primary :id, Int64
-  column :title, String
-  timestamps  # Adds created_at and updated_at
-end
-```
+`timestamps` adds `created_at` and `updated_at`, both `NOT NULL` with the database's current time as default.
 
-### Custom Defaults
+## Foreign Keys
+
+`foreign_key` takes the local column and the table it references (the referenced column defaults to the other
+table's primary key). `on_delete:` and `on_update:` accept `:no_action`, `:cascade`, `:restrict`, `:set_null` and
+`:set_default`:
 
 ```crystal
-table :orders do
-  primary :id, Int64
-  column :status, String, default: "pending"
-  column :order_number, String, default: -> { generate_order_number }
-  column :created_at, Time, default: -> { Time.utc }
-end
-```
+require "cql"
+require "sqlite3"
 
-## Relationships
+BlogDB = CQL::Schema.define(:blog, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/blog.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+  end
 
-### Foreign Keys
+  table :posts do
+    primary :id, Int64
+    column :user_id, Int64
+    column :title, String
+    column :content, String
+    column :published, Bool, default: false
+    timestamps
 
-```crystal
-table :posts do
-  primary :id, Int64
-  column :user_id, Int64
-  column :title, String
-  column :content, String
-
-  foreign_key :user_id, :users, :id
+    foreign_key :user_id, references: :users, on_delete: :cascade
+  end
 end
 ```
 
 ### Join Tables
 
+A composite foreign key pair needs one `foreign_key` per column:
+
 ```crystal
-table :post_tags do
-  primary :id, Int64
-  column :post_id, Int64
-  column :tag_id, Int64
+require "cql"
+require "sqlite3"
 
-  foreign_key :post_id, :posts, :id
-  foreign_key :tag_id, :tags, :id
+TagsDB = CQL::Schema.define(:tags, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/tags.db") do
+  table :posts do
+    primary :id, Int64
+    column :title, String
+  end
 
-  index [:post_id, :tag_id], unique: true
+  table :tags do
+    primary :id, Int64
+    column :name, String
+  end
+
+  table :post_tags do
+    primary :id, Int64
+    column :post_id, Int64
+    column :tag_id, Int64
+
+    foreign_key :post_id, references: :posts, on_delete: :cascade
+    foreign_key :tag_id, references: :tags, on_delete: :cascade
+    unique_constraint [:post_id, :tag_id]
+  end
+end
+```
+
+## Constraints
+
+`unique_constraint` and `check_constraint` become part of `CREATE TABLE`:
+
+```crystal
+require "cql"
+require "sqlite3"
+
+ShopDB = CQL::Schema.define(:shop, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/shop.db") do
+  table :orders do
+    primary :id, Int64
+    column :number, String
+    column :organization_id, Int64
+    column :total, Float64
+
+    unique_constraint [:organization_id, :number], name: "uk_orders_number"
+    check_constraint "total >= 0", name: "chk_orders_total"
+  end
 end
 ```
 
 ## Indexes
 
-```crystal
-table :users do
-  primary :id, Int64
-  column :email, String
-  column :username, String
-  column :organization_id, Int64
+`index [...]` and `index: true` inside `table` only record the index on the table object: `build` does not emit
+`CREATE INDEX`. Create real indexes with `schema.alter`, which runs immediately, or in a
+[migration](run-migrations.md). A `unique: true` column option is a real `UNIQUE` constraint, so it is indexed.
 
-  index :email, unique: true
-  index :username, unique: true
-  index :organization_id  # Non-unique index
-  index [:organization_id, :username], unique: true  # Composite
+```crystal
+require "cql"
+require "sqlite3"
+
+IndexedDB = CQL::Schema.define(:indexed, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/indexed.db") do
+  table :users do
+    primary :id, Int64
+    column :email, String, unique: true
+    column :organization_id, Int64
+    column :username, String
+  end
+end
+
+IndexedDB.build
+
+IndexedDB.alter(:users) do
+  create_index :index_users_on_organization_id, [:organization_id]
+  create_index :index_users_on_org_username, [:organization_id, :username], unique: true
 end
 ```
 
 ## Multiple Tables
 
+Declare every table of the application in one schema, parents before children:
+
 ```crystal
-AcmeDB = CQL::Schema.define(:acme_db, adapter: CQL::Adapter::SQLite, uri: db_uri) do
+require "cql"
+require "sqlite3"
+
+AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
   table :users do
     primary :id, Int64
     column :name, String
-    column :email, String
+    column :email, String, unique: true
     timestamps
   end
 
@@ -125,8 +232,7 @@ AcmeDB = CQL::Schema.define(:acme_db, adapter: CQL::Adapter::SQLite, uri: db_uri
     column :published, Bool, default: false
     timestamps
 
-    foreign_key :user_id, :users, :id
-    index :user_id
+    foreign_key :user_id, references: :users, on_delete: :cascade
   end
 
   table :comments do
@@ -136,37 +242,74 @@ AcmeDB = CQL::Schema.define(:acme_db, adapter: CQL::Adapter::SQLite, uri: db_uri
     column :content, String
     timestamps
 
-    foreign_key :post_id, :posts, :id
-    foreign_key :user_id, :users, :id
+    foreign_key :post_id, references: :posts, on_delete: :cascade
+    foreign_key :user_id, references: :users
   end
 end
 ```
 
+CQL can also dump a schema file from the live database after migrations (`CQL::Migrator` with `auto_sync`, see
+[Run Migrations](run-migrations.md)).
+
 ## Database Adapters
+
+The adapter decides the SQL dialect; the URI selects the driver.
 
 ### SQLite
 
 ```crystal
-CQL::Schema.define(:mydb, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/app.db")
+require "cql"
+require "sqlite3"
+
+SqliteDB = CQL::Schema.define(:app, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/app.db") do
+  table :notes do
+    primary :id, Int64
+    column :body, String
+  end
+end
 ```
 
 ### PostgreSQL
 
 ```crystal
-CQL::Schema.define(:mydb, adapter: CQL::Adapter::Postgres, uri: ENV["DATABASE_URL"])
+require "cql"
+require "pg"
+
+PgDB = CQL::Schema.define(:app, adapter: CQL::Adapter::Postgres, uri: ENV["DATABASE_URL"]) do
+  table :notes do
+    primary :id, Int64
+    column :body, String
+  end
+end
 ```
+
+`CQL::Adapter::CockroachDB` works the same way with the `pg` driver.
 
 ### MySQL
 
+Add the `mysql` shard and `require "mysql"` before the schema:
+
 ```crystal
-CQL::Schema.define(:mydb, adapter: CQL::Adapter::MySql, uri: ENV["DATABASE_URL"])
+require "cql"
+
+MysqlDB = CQL::Schema.define(:app, adapter: CQL::Adapter::MySql, uri: ENV["DATABASE_URL"]) do
+  table :notes do
+    primary :id, Int64
+    column :body, String
+  end
+end
 ```
 
 ## Environment-based Configuration
 
+Pick the URI from `CRYSTAL_ENV` (the variable Azu's `Azu::Environment` reads):
+
 ```crystal
-def database_uri
-  case ENV.fetch("AZU_ENV", "development")
+require "cql"
+require "sqlite3"
+
+def database_uri : String
+  case ENV.fetch("CRYSTAL_ENV", "development")
   when "production"
     ENV["DATABASE_URL"]
   when "test"
@@ -176,8 +319,16 @@ def database_uri
   end
 end
 
-AcmeDB = CQL::Schema.define(:acme_db, adapter: CQL::Adapter::SQLite, uri: database_uri)
+AppDB = CQL::Schema.define(:app, adapter: CQL::Adapter::SQLite, uri: database_uri) do
+  table :users do
+    primary :id, Int64
+    column :name, String
+  end
+end
 ```
+
+With `require "azu/cql"`, `Azu::CQL.schema` picks the adapter from the URL scheme and configures the connection
+pool; see [Database dashboard](../../reference/database-dashboard.md).
 
 ## See Also
 
