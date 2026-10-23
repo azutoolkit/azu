@@ -229,7 +229,7 @@ Create `src/endpoints/create_user_endpoint.cr`:
 
 ```crystal
 struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Action(CreateUserRequest, UserResponse)
 
   post "/users"
 
@@ -265,7 +265,7 @@ Create `src/endpoints/list_users_endpoint.cr`:
 
 ```crystal
 struct ListUsersEndpoint
-  include Azu::Endpoint(EmptyRequest, UsersListResponse)
+  include Azu::Action(EmptyRequest, UsersListResponse)
 
   get "/users"
 
@@ -280,7 +280,7 @@ Create `src/endpoints/show_user_endpoint.cr`:
 
 ```crystal
 struct ShowUserEndpoint
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+  include Azu::Action(EmptyRequest, UserResponse)
 
   get "/users/:id"
 
@@ -300,7 +300,7 @@ Create `src/endpoints/update_user_endpoint.cr`:
 
 ```crystal
 struct UpdateUserEndpoint
-  include Azu::Endpoint(UpdateUserRequest, UserResponse)
+  include Azu::Action(UpdateUserRequest, UserResponse)
 
   put "/users/:id"
 
@@ -345,7 +345,7 @@ Create `src/endpoints/delete_user_endpoint.cr`:
 
 ```crystal
 struct DeleteUserEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Empty)
+  include Azu::Action(EmptyRequest, Azu::Response::Empty)
 
   delete "/users/:id"
 
@@ -480,7 +480,7 @@ Response:
 
 Every endpoint declares exactly what it accepts and returns:
 ```crystal
-include Azu::Endpoint(CreateUserRequest, UserResponse)
+include Azu::Action(CreateUserRequest, UserResponse)
 ```
 
 ### Automatic Validation

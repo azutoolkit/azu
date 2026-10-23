@@ -355,7 +355,7 @@ end
 ```crystal
 # Endpoint auto-registers via macro
 struct NewFeatureEndpoint
-  include Azu::Endpoint(NewFeatureRequest, NewFeatureResponse)
+  include Azu::Action(NewFeatureRequest, NewFeatureResponse)
 
   post "/new-feature"
 

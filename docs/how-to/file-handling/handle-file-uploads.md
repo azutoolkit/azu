@@ -18,7 +18,7 @@ struct UploadRequest
 end
 
 struct UploadEndpoint
-  include Azu::Endpoint(UploadRequest, UploadResponse)
+  include Azu::Action(UploadRequest, UploadResponse)
 
   post "/upload"
 
@@ -62,7 +62,7 @@ struct MultiUploadRequest
 end
 
 struct MultiUploadEndpoint
-  include Azu::Endpoint(MultiUploadRequest, MultiUploadResponse)
+  include Azu::Action(MultiUploadRequest, MultiUploadResponse)
 
   post "/upload-multiple"
 
@@ -150,7 +150,7 @@ end
 
 ```crystal
 struct ImageUploadEndpoint
-  include Azu::Endpoint(ImageUploadRequest, ImageResponse)
+  include Azu::Action(ImageUploadRequest, ImageResponse)
 
   post "/images"
 

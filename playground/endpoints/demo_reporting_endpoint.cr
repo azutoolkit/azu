@@ -3,7 +3,7 @@ require "../responses/generic_json_response"
 
 module ExampleApp
   struct DemoReportingEndpoint
-    include Azu::Endpoint(EmptyRequest, GenericJsonResponse)
+    include Azu::Action(EmptyRequest, GenericJsonResponse)
 
     get "/demo/reporting/:action"
 

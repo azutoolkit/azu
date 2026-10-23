@@ -26,7 +26,7 @@ end
 
 # After (0.5.x)
 struct MyEndpoint
-  include Azu::Endpoint(MyRequest, MyResponse)
+  include Azu::Action(MyRequest, MyResponse)
 
   def call : MyResponse
     # ...

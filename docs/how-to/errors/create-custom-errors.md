@@ -229,7 +229,7 @@ end
 
 ```crystal
 struct TransferFundsEndpoint
-  include Azu::Endpoint(TransferRequest, TransferResponse)
+  include Azu::Action(TransferRequest, TransferResponse)
 
   post "/transfers"
 

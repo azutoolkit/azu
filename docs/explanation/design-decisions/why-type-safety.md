@@ -109,7 +109,7 @@ Endpoints declare their output:
 
 ```crystal
 struct UserEndpoint
-  include Azu::Endpoint(Request, UserResponse)
+  include Azu::Action(Request, UserResponse)
 
   def call : UserResponse  # Must return UserResponse
     if condition

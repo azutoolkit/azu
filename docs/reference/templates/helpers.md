@@ -355,27 +355,27 @@ When you define an endpoint with an HTTP method, Azu auto-generates helpers:
 ```crystal
 # Endpoint definition
 class UsersEndpoint
-  include Azu::Endpoint(UsersRequest, UsersResponse)
+  include Azu::Action(UsersRequest, UsersResponse)
   get "/users"
 end
 
 class UserEndpoint
-  include Azu::Endpoint(UserRequest, UserResponse)
+  include Azu::Action(UserRequest, UserResponse)
   get "/users/:id"
 end
 
 class CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Action(CreateUserRequest, UserResponse)
   post "/users"
 end
 
 class UpdateUserEndpoint
-  include Azu::Endpoint(UpdateUserRequest, UserResponse)
+  include Azu::Action(UpdateUserRequest, UserResponse)
   put "/users/:id"
 end
 
 class DeleteUserEndpoint
-  include Azu::Endpoint(DeleteUserRequest, EmptyResponse)
+  include Azu::Action(DeleteUserRequest, EmptyResponse)
   delete "/users/:id"
 end
 ```

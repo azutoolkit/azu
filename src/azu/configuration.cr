@@ -61,7 +61,53 @@ module Azu
     property ssl_ca : String = ENV.fetch("SSL_CA", "")
     property ssl_mode : String = ENV.fetch("SSL_MODE", "none")
 
+    # Key used to sign the session cookie (see `Azu::Session`). Set `SECRET_KEY_BASE` in
+    # production; the random fallback changes on every boot.
+    property secret_key_base : String = ENV["SECRET_KEY_BASE"]? || Random::Secure.urlsafe_base64(64)
+
     getter router : Router = Router.new
+
+    # Middleware stack used by `start` when no handlers are passed (see `#handlers`).
+    getter pipeline : HandlerPipeline = HandlerPipeline.new
+
+    # Declares the middleware stack, in order.
+    #
+    # ```
+    # Azu.configure do
+    #   handlers do
+    #     use Azu::Handler::RequestId.new
+    #     use Azu::Handler::Rescuer.new
+    #     use_if production?, Azu::Handler::Throttle.new
+    #   end
+    # end
+    # ```
+    def handlers(&) : HandlerPipeline
+      with pipeline yield pipeline
+      pipeline
+    end
+
+    # Runs the block only when the environment is one of *environments*.
+    #
+    # ```
+    # configure do
+    #   on(:production, :staging) { template_hot_reload = false }
+    # end
+    # ```
+    def on(*environments : Symbol, &) : Nil
+      yield self if env.in?(environments.to_a)
+    end
+
+    {% for name in %w(development test staging production) %}
+      # Runs the block only in the {{name.id}} environment.
+      def {{name.id}}(&) : Nil
+        yield self if env.{{name.id}}?
+      end
+    {% end %}
+
+    # True in the production environment.
+    def production? : Bool
+      env.production?
+    end
 
     getter templates : Templates do
       Templates.new(

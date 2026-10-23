@@ -79,7 +79,7 @@ docs/                   # Comprehensive documentation
 
 ```crystal
 struct UserEndpoint
-  include Azu::Endpoint(UserRequest, UserResponse)
+  include Azu::Action(UserRequest, UserResponse)
 
   post "/users"
 

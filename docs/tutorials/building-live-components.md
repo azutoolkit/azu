@@ -82,7 +82,7 @@ Create `src/endpoints/counter_endpoint.cr`:
 
 ```crystal
 struct CounterEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Html)
+  include Azu::Action(EmptyRequest, Azu::Response::Html)
   include Azu::Templates::Renderable
 
   get "/counter"

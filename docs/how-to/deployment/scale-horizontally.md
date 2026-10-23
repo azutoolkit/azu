@@ -332,7 +332,7 @@ Add instance identification:
 
 ```crystal
 struct HealthEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Json)
+  include Azu::Action(EmptyRequest, Azu::Response::Json)
 
   get "/health"
 

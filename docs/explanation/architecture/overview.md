@@ -85,7 +85,7 @@ Azu uses generics to ensure type safety throughout the request lifecycle:
 
 ```crystal
 struct UserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Action(CreateUserRequest, UserResponse)
   #                     ↑                  ↑
   #                     Input Type         Output Type
 ```

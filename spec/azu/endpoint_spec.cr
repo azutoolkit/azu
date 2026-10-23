@@ -30,7 +30,7 @@ module Azu::EndpointSpec
 
   # Test endpoint classes
   class BasicEndpoint
-    include Azu::Endpoint(TestRequest, TestResponse)
+    include Azu::Action(TestRequest, TestResponse)
 
     get "/test"
 
@@ -40,7 +40,7 @@ module Azu::EndpointSpec
   end
 
   class JsonEndpoint
-    include Azu::Endpoint(TestRequest, JsonResponse)
+    include Azu::Action(TestRequest, JsonResponse)
 
     post "/api/test"
 
@@ -50,7 +50,7 @@ module Azu::EndpointSpec
   end
 
   class CsrfEndpoint
-    include Azu::Endpoint(TestRequest, TestResponse)
+    include Azu::Action(TestRequest, TestResponse)
 
     post "/csrf-test"
 
@@ -65,7 +65,7 @@ module Azu::EndpointSpec
   end
 
   class HelperEndpoint
-    include Azu::Endpoint(TestRequest, TestResponse)
+    include Azu::Action(TestRequest, TestResponse)
 
     post "/helper-test"
 
@@ -84,7 +84,7 @@ module Azu::EndpointSpec
   end
 
   class StatusEndpoint
-    include Azu::Endpoint(TestRequest, TestResponse)
+    include Azu::Action(TestRequest, TestResponse)
 
     post "/status-test"
 
@@ -96,7 +96,7 @@ module Azu::EndpointSpec
   end
 
   class ParamsEndpoint
-    include Azu::Endpoint(TestRequest, TestResponse)
+    include Azu::Action(TestRequest, TestResponse)
 
     post "/params-test"
 
@@ -111,7 +111,7 @@ module Azu::EndpointSpec
   end
 end
 
-describe Azu::Endpoint do
+describe Azu::Action do
   describe "basic endpoint functionality" do
     it "handles GET requests" do
       endpoint = Azu::EndpointSpec::BasicEndpoint.new

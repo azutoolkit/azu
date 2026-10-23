@@ -139,7 +139,7 @@ end
 ```crystal
 # Standard endpoint structure
 struct UserEndpoint
-  include Endpoint(UserRequest, UserResponse)
+  include Action(UserRequest, UserResponse)
 
   # Route definitions
   get "/users/:id"
@@ -349,7 +349,7 @@ end
 # @apiError {Object} 404 User not found
 # @apiError {Object} 500 Internal server error
 struct GetUserEndpoint
-  include Endpoint(GetUserRequest, UserResponse)
+  include Action(GetUserRequest, UserResponse)
 
   get "/users/:id"
 

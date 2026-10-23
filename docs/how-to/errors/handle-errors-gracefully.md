@@ -103,7 +103,7 @@ Handle errors within endpoints:
 
 ```crystal
 struct CreateOrderEndpoint
-  include Azu::Endpoint(CreateOrderRequest, OrderResponse)
+  include Azu::Action(CreateOrderRequest, OrderResponse)
 
   post "/orders"
 

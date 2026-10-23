@@ -58,7 +58,7 @@ struct CreateUserRequest
 end
 
 struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Action(CreateUserRequest, UserResponse)
 
   post "/users"
 
@@ -76,7 +76,7 @@ Handle form submissions:
 
 ```crystal
 struct FormEndpoint
-  include Azu::Endpoint(FormRequest, FormResponse)
+  include Azu::Action(FormRequest, FormResponse)
 
   post "/submit"
 
@@ -104,7 +104,7 @@ struct UploadRequest
 end
 
 struct UploadEndpoint
-  include Azu::Endpoint(UploadRequest, UploadResponse)
+  include Azu::Action(UploadRequest, UploadResponse)
 
   post "/upload"
 

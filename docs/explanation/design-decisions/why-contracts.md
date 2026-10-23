@@ -151,7 +151,7 @@ Contracts document themselves:
 ```crystal
 # What does this endpoint accept?
 struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Action(CreateUserRequest, UserResponse)
   #                     ↑ Look here         ↑ Look here
 end
 ```
@@ -179,11 +179,11 @@ end
 
 # Different endpoints use different versions
 struct V1::UsersEndpoint
-  include Azu::Endpoint(Request, V1::UserResponse)
+  include Azu::Action(Request, V1::UserResponse)
 end
 
 struct V2::UsersEndpoint
-  include Azu::Endpoint(Request, V2::UserResponse)
+  include Azu::Action(Request, V2::UserResponse)
 end
 ```
 

@@ -5,7 +5,7 @@ require "../responses/cached_response"
 module ExampleApp
   # Example endpoint demonstrating Azu's caching capabilities
   struct CachedEndpoint
-    include Azu::Endpoint(CachedRequest, CachedResponse)
+    include Azu::Action(CachedRequest, CachedResponse)
 
     get "/cached/:key"
 
@@ -36,7 +36,7 @@ module ExampleApp
 
   # Counter endpoint demonstrating increment/decrement
   struct CounterEndpoint
-    include Azu::Endpoint(CounterRequest, CounterResponse)
+    include Azu::Action(CounterRequest, CounterResponse)
 
     post "/counter/:action/:key"
 
@@ -64,7 +64,7 @@ module ExampleApp
 
   # Cache stats endpoint
   struct CacheStatsEndpoint
-    include Azu::Endpoint(CacheStatsRequest, CacheStatsResponse)
+    include Azu::Action(CacheStatsRequest, CacheStatsResponse)
 
     get "/stats/cache"
 
@@ -76,7 +76,7 @@ module ExampleApp
 
   # Cache management endpoint
   struct CacheManagementEndpoint
-    include Azu::Endpoint(CacheManagementRequest, CacheManagementResponse)
+    include Azu::Action(CacheManagementRequest, CacheManagementResponse)
 
     delete "/cache/:action"
     delete "/cache/:action/:key"
@@ -105,7 +105,7 @@ module ExampleApp
 
   # Example endpoint using the new get with block syntax
   struct GetWithBlockEndpoint
-    include Azu::Endpoint(CachedRequest, CachedResponse)
+    include Azu::Action(CachedRequest, CachedResponse)
 
     get "/get-block/:key"
 

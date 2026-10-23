@@ -8,7 +8,7 @@ Azu automatically validates requests and raises `ValidationError` for invalid da
 
 ```crystal
 struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Action(CreateUserRequest, UserResponse)
 
   post "/users"
 
@@ -66,7 +66,7 @@ Handle validation manually in your endpoint:
 
 ```crystal
 struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, Azu::Response)
+  include Azu::Action(CreateUserRequest, Azu::Response)
 
   post "/users"
 

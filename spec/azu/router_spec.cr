@@ -22,7 +22,7 @@ class TestChannel < Azu::Channel
 end
 
 class ExampleEndpoint
-  include Azu::Endpoint(Azu::Request, Azu::Response)
+  include Azu::Action(Azu::Request, Azu::Response)
 
   def call : Azu::Response
     Azu::Response::Empty.new
@@ -30,7 +30,7 @@ class ExampleEndpoint
 end
 
 class TestEndpoint
-  include Azu::Endpoint(Azu::Request, Azu::Response)
+  include Azu::Action(Azu::Request, Azu::Response)
 
   def call : Azu::Response
     Azu::Response::Empty.new
@@ -46,7 +46,7 @@ struct TestResponse
 end
 
 class SimpleEndpoint
-  include Azu::Endpoint(Azu::Request, TestResponse)
+  include Azu::Action(Azu::Request, TestResponse)
 
   def call : TestResponse
     TestResponse.new
@@ -810,7 +810,7 @@ struct VerbResponse
 end
 
 class VerbEndpoint
-  include Azu::Endpoint(Azu::Request, VerbResponse)
+  include Azu::Action(Azu::Request, VerbResponse)
 
   def initialize(@verb : String)
   end

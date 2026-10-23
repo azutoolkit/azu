@@ -138,7 +138,7 @@ Add a health check for load balancers:
 
 ```crystal
 struct HealthEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Json)
+  include Azu::Action(EmptyRequest, Azu::Response::Json)
 
   get "/health"
 

@@ -1,6 +1,6 @@
 module ExampleApp
   struct HtmlEndpoint
-    include Azu::Endpoint(ExampleReq, HtmlPage)
+    include Azu::Action(ExampleReq, HtmlPage)
 
     get "/html/:name"
     get "/html"

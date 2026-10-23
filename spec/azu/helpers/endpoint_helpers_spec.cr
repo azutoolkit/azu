@@ -13,7 +13,7 @@ end
 module EndpointHelpersSpec
   # Collection endpoint (plural)
   class UsersEndpoint
-    include Azu::Endpoint(TestRequest, TestEndpointResponse)
+    include Azu::Action(TestRequest, TestEndpointResponse)
 
     def call : TestEndpointResponse
       TestEndpointResponse.new
@@ -22,7 +22,7 @@ module EndpointHelpersSpec
 
   # Member endpoint (singular with :id)
   class UserEndpoint
-    include Azu::Endpoint(TestRequest, TestEndpointResponse)
+    include Azu::Action(TestRequest, TestEndpointResponse)
 
     def call : TestEndpointResponse
       TestEndpointResponse.new
@@ -31,7 +31,7 @@ module EndpointHelpersSpec
 
   # POST endpoint for creating
   class CreateUserEndpoint
-    include Azu::Endpoint(TestRequest, TestEndpointResponse)
+    include Azu::Action(TestRequest, TestEndpointResponse)
 
     def call : TestEndpointResponse
       TestEndpointResponse.new
@@ -40,7 +40,7 @@ module EndpointHelpersSpec
 
   # PUT endpoint for updating
   class UpdateUserEndpoint
-    include Azu::Endpoint(TestRequest, TestEndpointResponse)
+    include Azu::Action(TestRequest, TestEndpointResponse)
 
     def call : TestEndpointResponse
       TestEndpointResponse.new
@@ -49,7 +49,7 @@ module EndpointHelpersSpec
 
   # DELETE endpoint
   class DeleteUserEndpoint
-    include Azu::Endpoint(TestRequest, TestEndpointResponse)
+    include Azu::Action(TestRequest, TestEndpointResponse)
 
     def call : TestEndpointResponse
       TestEndpointResponse.new

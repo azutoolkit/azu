@@ -29,7 +29,7 @@ struct HelloResponse
 end
 
 struct HelloEndpoint
-  include Azu::Endpoint(HelloRequest, HelloResponse)
+  include Azu::Action(HelloRequest, HelloResponse)
   get "/"
   def call : HelloResponse
     HelloResponse.new(hello_request.name)

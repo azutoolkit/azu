@@ -3,7 +3,7 @@ require "http/client"
 
 # Test exception logging in server context
 struct TestEndpoint
-  include Azu::Endpoint(Azu::Request, Azu::Response)
+  include Azu::Action(Azu::Request, Azu::Response)
 
   get "/test-exception"
 

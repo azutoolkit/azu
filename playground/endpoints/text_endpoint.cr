@@ -1,6 +1,6 @@
 module ExampleApp
   struct TextEndpoint
-    include Azu::Endpoint(ExampleReq, TextResponse)
+    include Azu::Action(ExampleReq, TextResponse)
 
     get "/text/"
 

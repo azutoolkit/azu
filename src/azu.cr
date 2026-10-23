@@ -99,6 +99,41 @@ module Azu
       CONFIG
     end
 
+    # Declares routes under an optional scope. See `Azu::Router::Builder`.
+    #
+    # ```
+    # MyApp.routes do
+    #   root Home.new
+    #   namespace "/api" do
+    #     post "/users", CreateUser
+    #   end
+    # end
+    # ```
+    def self.routes(scope : String = "", &block)
+      config.router.routes(scope, &block)
+    end
+
+    # Starts the server with the stack declared in `configure { handlers { ... } }`, or
+    # `RequestId`, `Rescuer` and `Logger` when none was declared.
+    def self.start
+      if config.pipeline.empty?
+        start([
+          Azu::Handler::RequestId.new,
+          Azu::Handler::Rescuer.new,
+          Azu::Handler::Logger.new,
+        ] of HTTP::Handler)
+      else
+        start(config.pipeline.to_a)
+      end
+    end
+
+    # Starts the server with the given handlers: `start Handler::Rescuer.new, Handler::Logger.new`.
+    def self.start(*handlers : HTTP::Handler)
+      list = [] of HTTP::Handler
+      handlers.each { |handler| list << handler }
+      start(list)
+    end
+
     def self.start(handlers : Array(HTTP::Handler))
       server = if handlers.empty?
                  HTTP::Server.new { |context| config.router.process(context) }

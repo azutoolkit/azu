@@ -80,6 +80,11 @@ module Azu
       build
     end
 
+    # The handlers in the order they were added, ready for `HTTP::Server.new`.
+    def to_a : Array(HTTP::Handler)
+      @handlers.dup
+    end
+
     # Returns the number of handlers in the pipeline
     def size : Int32
       @handlers.size

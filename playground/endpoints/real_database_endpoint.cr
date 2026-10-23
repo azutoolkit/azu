@@ -81,7 +81,7 @@ module ExampleApp
 
   # Simple test endpoint to verify file is being compiled
   struct RealDbTestEndpoint
-    include Azu::Endpoint(RealDatabaseRequest, RealDatabaseResponse)
+    include Azu::Action(RealDatabaseRequest, RealDatabaseResponse)
 
     get "/real-db-test"
 
@@ -92,7 +92,7 @@ module ExampleApp
 
   # Endpoint that executes REAL database queries
   struct RealDatabaseEndpoint
-    include Azu::Endpoint(RealDatabaseRequest, RealDatabaseResponse)
+    include Azu::Action(RealDatabaseRequest, RealDatabaseResponse)
 
     get "/real-db"
 

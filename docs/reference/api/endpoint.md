@@ -6,7 +6,7 @@ Endpoints handle HTTP requests with type-safe request and response contracts.
 
 ```crystal
 struct MyEndpoint
-  include Azu::Endpoint(RequestType, ResponseType)
+  include Azu::Action(RequestType, ResponseType)
 end
 ```
 
@@ -175,7 +175,7 @@ Access the typed request via generated method:
 
 ```crystal
 struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Action(CreateUserRequest, UserResponse)
 
   post "/users"
 
@@ -264,7 +264,7 @@ end
 
 ```crystal
 struct UserEndpoint
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+  include Azu::Action(EmptyRequest, UserResponse)
 
   get "/users/:id"
 

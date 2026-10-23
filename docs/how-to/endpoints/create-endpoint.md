@@ -8,7 +8,7 @@ Create an endpoint by including `Azu::Endpoint` with request and response types:
 
 ```crystal
 struct HelloEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Text)
+  include Azu::Action(EmptyRequest, Azu::Response::Text)
 
   get "/"
 
@@ -22,7 +22,7 @@ end
 
 ```crystal
 struct UserEndpoint
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+  include Azu::Action(EmptyRequest, UserResponse)
 
   get "/users/:id"
 

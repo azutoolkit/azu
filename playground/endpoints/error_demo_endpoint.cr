@@ -38,7 +38,7 @@ module ErrorDemo
 
   # Demonstration endpoint for showcasing enhanced error handling
   struct ErrorDemoEndpoint
-    include Azu::Endpoint(ErrorDemoRequest, ErrorDemoResponse)
+    include Azu::Action(ErrorDemoRequest, ErrorDemoResponse)
 
     get "/error-demo"
     post "/error-demo"

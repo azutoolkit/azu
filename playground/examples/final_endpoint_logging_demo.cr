@@ -14,7 +14,7 @@ end
 
 # Demo endpoints with different class names
 struct UserEndpoint
-  include Azu::Endpoint(Azu::Request, DemoResponse)
+  include Azu::Action(Azu::Request, DemoResponse)
 
   def call : DemoResponse
     DemoResponse.new("User endpoint response")
@@ -24,7 +24,7 @@ end
 module API
   module V1
     struct ProductEndpoint
-      include Azu::Endpoint(Azu::Request, DemoResponse)
+      include Azu::Action(Azu::Request, DemoResponse)
 
       def call : DemoResponse
         DemoResponse.new("Product endpoint response")

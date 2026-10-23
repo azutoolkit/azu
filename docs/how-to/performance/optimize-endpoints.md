@@ -8,7 +8,7 @@ Cache frequently accessed data:
 
 ```crystal
 struct ProductsEndpoint
-  include Azu::Endpoint(EmptyRequest, ProductsResponse)
+  include Azu::Action(EmptyRequest, ProductsResponse)
 
   get "/products"
 
@@ -67,7 +67,7 @@ Always paginate large collections:
 
 ```crystal
 struct UsersEndpoint
-  include Azu::Endpoint(EmptyRequest, UsersResponse)
+  include Azu::Action(EmptyRequest, UsersResponse)
 
   get "/users"
 

@@ -13,7 +13,7 @@ An endpoint is a structured handler for a specific HTTP route. It combines:
 
 ```crystal
 struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Action(CreateUserRequest, UserResponse)
 
   post "/users"
 
@@ -45,7 +45,7 @@ Endpoints make contracts explicit:
 
 ```crystal
 struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Action(CreateUserRequest, UserResponse)
   #                     ↑ Input declared    ↑ Output declared
 
   post "/users"
@@ -81,14 +81,14 @@ Routes support:
 The first type parameter defines expected input:
 
 ```crystal
-include Azu::Endpoint(CreateUserRequest, UserResponse)
+include Azu::Action(CreateUserRequest, UserResponse)
 #                     ↑ This type
 ```
 
 For endpoints without body data:
 
 ```crystal
-include Azu::Endpoint(EmptyRequest, UserResponse)
+include Azu::Action(EmptyRequest, UserResponse)
 ```
 
 ### 3. Response Contract
@@ -96,7 +96,7 @@ include Azu::Endpoint(EmptyRequest, UserResponse)
 The second type parameter defines the output:
 
 ```crystal
-include Azu::Endpoint(CreateUserRequest, UserResponse)
+include Azu::Action(CreateUserRequest, UserResponse)
 #                                        ↑ This type
 
 def call : UserResponse  # Must return this
@@ -159,7 +159,7 @@ struct CreateUserRequest
 end
 
 struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Action(CreateUserRequest, UserResponse)
 
   def call : UserResponse
     # Method name is snake_case of request type
@@ -176,17 +176,17 @@ Each endpoint handles one route:
 ```crystal
 # One endpoint per route
 struct UsersIndex
-  include Azu::Endpoint(EmptyRequest, UsersResponse)
+  include Azu::Action(EmptyRequest, UsersResponse)
   get "/users"
 end
 
 struct UsersShow
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+  include Azu::Action(EmptyRequest, UserResponse)
   get "/users/:id"
 end
 
 struct UsersCreate
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Action(CreateUserRequest, UserResponse)
   post "/users"
 end
 ```
@@ -203,7 +203,7 @@ Endpoints are typically structs:
 
 ```crystal
 struct MyEndpoint  # Struct
-  include Azu::Endpoint(Request, Response)
+  include Azu::Action(Request, Response)
 end
 ```
 

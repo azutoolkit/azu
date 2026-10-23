@@ -149,7 +149,7 @@ end
 
 ```crystal
 struct ProductEndpoint
-  include Azu::Endpoint(EmptyRequest, ProductResponse)
+  include Azu::Action(EmptyRequest, ProductResponse)
 
   get "/products/:id"
 
@@ -256,7 +256,7 @@ Verify Redis connectivity:
 
 ```crystal
 struct HealthEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Json)
+  include Azu::Action(EmptyRequest, Azu::Response::Json)
 
   get "/health"
 

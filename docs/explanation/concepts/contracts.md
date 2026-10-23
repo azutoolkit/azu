@@ -113,7 +113,7 @@ The compiler ensures you return the declared type:
 
 ```crystal
 struct MyEndpoint
-  include Azu::Endpoint(Request, UserResponse)
+  include Azu::Action(Request, UserResponse)
 
   def call : UserResponse
     # Must return UserResponse
@@ -207,7 +207,7 @@ For endpoints without body data:
 
 ```crystal
 struct GetUserEndpoint
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+  include Azu::Action(EmptyRequest, UserResponse)
 
   get "/users/:id"
 
@@ -223,7 +223,7 @@ For endpoints without response body:
 
 ```crystal
 struct DeleteUserEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Empty)
+  include Azu::Action(EmptyRequest, Azu::Response::Empty)
 
   delete "/users/:id"
 

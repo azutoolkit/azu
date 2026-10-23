@@ -34,7 +34,7 @@ Azu uses generics to enforce types:
 
 ```crystal
 struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Action(CreateUserRequest, UserResponse)
   #                     ↑ Input type       ↑ Output type
 
   def call : UserResponse  # ← Must return this type

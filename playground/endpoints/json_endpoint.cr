@@ -1,6 +1,6 @@
 module ExampleApp
   struct JsonEndpoint
-    include Azu::Endpoint(JsonReq, JsonResponse)
+    include Azu::Action(JsonReq, JsonResponse)
     post "/json/:id"
 
     def call : JsonResponse

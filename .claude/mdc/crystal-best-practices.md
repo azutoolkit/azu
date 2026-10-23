@@ -28,7 +28,7 @@ end
 
 # Use in implementations
 struct UserEndpoint
-  include Azu::Endpoint(UserRequest, UserResponse)
+  include Azu::Action(UserRequest, UserResponse)
 end
 ```
 

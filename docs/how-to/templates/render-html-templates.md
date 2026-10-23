@@ -8,7 +8,7 @@ Create an endpoint that renders a template:
 
 ```crystal
 struct HomeEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Html)
+  include Azu::Action(EmptyRequest, Azu::Response::Html)
   include Azu::Templates::Renderable
 
   get "/"

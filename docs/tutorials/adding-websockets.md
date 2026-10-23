@@ -93,7 +93,7 @@ Update `src/endpoints/create_user_endpoint.cr` to broadcast when users are creat
 
 ```crystal
 struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Action(CreateUserRequest, UserResponse)
 
   post "/users"
 

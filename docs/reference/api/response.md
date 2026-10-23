@@ -39,7 +39,7 @@ JSON response with automatic content type.
 
 ```crystal
 struct MyEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Json)
+  include Azu::Action(EmptyRequest, Azu::Response::Json)
 
   get "/data"
 
@@ -55,7 +55,7 @@ Plain text response.
 
 ```crystal
 struct HealthEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Text)
+  include Azu::Action(EmptyRequest, Azu::Response::Text)
 
   get "/health"
 
@@ -71,7 +71,7 @@ HTML response.
 
 ```crystal
 struct PageEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Html)
+  include Azu::Action(EmptyRequest, Azu::Response::Html)
 
   get "/page"
 
@@ -87,7 +87,7 @@ No content response (204).
 
 ```crystal
 struct DeleteEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Empty)
+  include Azu::Action(EmptyRequest, Azu::Response::Empty)
 
   delete "/items/:id"
 

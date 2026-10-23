@@ -1,6 +1,6 @@
 module ExampleApp
   struct LoadEndpoint
-    include Endpoint(ExampleReq, HtmlPage)
+    include Action(ExampleReq, HtmlPage)
     get "/load/:name"
 
     def call : HtmlPage

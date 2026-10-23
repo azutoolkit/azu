@@ -230,22 +230,7 @@ module Azu
       end
 
       private def extract_session : Hash(String, String)
-        session_data = Hash(String, String).new
-
-        if cookie = @cookies["_session"]?
-          begin
-            # Decode session from cookie (Base64 encoded JSON)
-            decoded = Base64.decode_string(cookie.value)
-            JSON.parse(decoded).as_h.each do |key, value|
-              session_data[key.to_s] = value.as_s
-            end
-          rescue ex
-            # Invalid session cookie, ignore
-            Log.for("Azu::Helpers::Context").debug { "Failed to parse session cookie: #{ex.message}" }
-          end
-        end
-
-        session_data
+        Azu::Session.load(@cookies).data
       end
     end
   end

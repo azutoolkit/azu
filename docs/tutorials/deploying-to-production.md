@@ -256,7 +256,7 @@ Add a health check endpoint:
 
 ```crystal
 struct HealthEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Json)
+  include Azu::Action(EmptyRequest, Azu::Response::Json)
 
   get "/health"
 
@@ -366,7 +366,7 @@ Add a simple monitoring endpoint:
 
 ```crystal
 struct MetricsEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Json)
+  include Azu::Action(EmptyRequest, Azu::Response::Json)
 
   get "/metrics"
 

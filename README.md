@@ -595,7 +595,7 @@ Create endpoints that connect everything together:
 ```crystal
 # src/endpoints/user_endpoints.cr
 struct CreateUserEndpoint
-  include Azu::Endpoint(UserRequest, UserResponse)
+  include Azu::Action(UserRequest, UserResponse)
 
   post "/api/users"
 
@@ -610,7 +610,7 @@ struct CreateUserEndpoint
 end
 
 struct GetUserEndpoint
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+  include Azu::Action(EmptyRequest, UserResponse)
 
   get "/api/users/:id"
 
@@ -627,7 +627,7 @@ struct GetUserEndpoint
 end
 
 struct SearchUsersEndpoint
-  include Azu::Endpoint(SearchRequest, UserListResponse)
+  include Azu::Action(SearchRequest, UserListResponse)
 
   get "/api/users"
 
@@ -644,7 +644,7 @@ struct SearchUsersEndpoint
 end
 
 struct UserProfilePageEndpoint
-  include Azu::Endpoint(EmptyRequest, UserPageResponse)
+  include Azu::Action(EmptyRequest, UserPageResponse)
 
   get "/users/:id"
 
@@ -663,7 +663,7 @@ end
 
 # File upload endpoint
 struct UploadAvatarEndpoint
-  include Azu::Endpoint(FileUploadRequest, FileUploadResponse)
+  include Azu::Action(FileUploadRequest, FileUploadResponse)
 
   post "/api/users/:id/avatar"
 
@@ -1656,7 +1656,7 @@ require "./jobs/*"
 ```crystal
 # In your endpoints
 struct CreateUserEndpoint
-  include Azu::Endpoint(UserRequest, UserResponse)
+  include Azu::Action(UserRequest, UserResponse)
 
   post "/api/users"
 
@@ -1877,7 +1877,7 @@ raise Azu::Response::RateLimitError.new(retry_after: 60)
 
 # Custom error handling
 struct MyEndpoint
-  include Azu::Endpoint(MyRequest, MyResponse)
+  include Azu::Action(MyRequest, MyResponse)
 
   def call : MyResponse
     validate_request!
@@ -1918,7 +1918,7 @@ struct FileUploadRequest
 end
 
 struct UploadEndpoint
-  include Azu::Endpoint(FileUploadRequest, UploadResponse)
+  include Azu::Action(FileUploadRequest, UploadResponse)
 
   post "/upload"
 

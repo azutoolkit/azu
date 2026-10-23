@@ -8,7 +8,7 @@ Routes are automatically registered when defining endpoints:
 
 ```crystal
 struct MyEndpoint
-  include Azu::Endpoint(EmptyRequest, MyResponse)
+  include Azu::Action(EmptyRequest, MyResponse)
 
   get "/path"  # Registers GET /path
 
@@ -140,12 +140,12 @@ Organize routes with common prefixes:
 ```crystal
 # Define multiple endpoints with shared prefix
 struct ApiV1::UsersIndex
-  include Azu::Endpoint(EmptyRequest, UsersResponse)
+  include Azu::Action(EmptyRequest, UsersResponse)
   get "/api/v1/users"
 end
 
 struct ApiV1::UsersShow
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+  include Azu::Action(EmptyRequest, UserResponse)
   get "/api/v1/users/:id"
 end
 ```
@@ -197,38 +197,38 @@ When path matches but method doesn't:
 ```crystal
 # User CRUD endpoints
 struct UsersIndex
-  include Azu::Endpoint(EmptyRequest, UsersResponse)
+  include Azu::Action(EmptyRequest, UsersResponse)
   get "/users"
 end
 
 struct UsersShow
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+  include Azu::Action(EmptyRequest, UserResponse)
   get "/users/:id"
 end
 
 struct UsersCreate
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Action(CreateUserRequest, UserResponse)
   post "/users"
 end
 
 struct UsersUpdate
-  include Azu::Endpoint(UpdateUserRequest, UserResponse)
+  include Azu::Action(UpdateUserRequest, UserResponse)
   put "/users/:id"
 end
 
 struct UsersDelete
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Empty)
+  include Azu::Action(EmptyRequest, Azu::Response::Empty)
   delete "/users/:id"
 end
 
 # Nested routes
 struct UserPosts
-  include Azu::Endpoint(EmptyRequest, PostsResponse)
+  include Azu::Action(EmptyRequest, PostsResponse)
   get "/users/:user_id/posts"
 end
 
 struct UserPostShow
-  include Azu::Endpoint(EmptyRequest, PostResponse)
+  include Azu::Action(EmptyRequest, PostResponse)
   get "/users/:user_id/posts/:id"
 end
 ```

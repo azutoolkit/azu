@@ -159,7 +159,7 @@ end
 ```crystal
 # GraphQL integration
 class GraphQLEndpoint
-  include Endpoint(GraphQLRequest, GraphQLResponse)
+  include Action(GraphQLRequest, GraphQLResponse)
 
   post "/graphql"
 
@@ -274,7 +274,7 @@ end
 ```crystal
 # ML model serving
 class MLModelEndpoint
-  include Endpoint(MLRequest, MLResponse)
+  include Action(MLRequest, MLResponse)
 
   post "/predict"
 

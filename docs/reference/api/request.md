@@ -167,7 +167,7 @@ Use for endpoints that don't accept body data.
 
 ```crystal
 struct GetUserEndpoint
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+  include Azu::Action(EmptyRequest, UserResponse)
 
   get "/users/:id"
 

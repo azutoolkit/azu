@@ -8,7 +8,7 @@ Return JSON data:
 
 ```crystal
 struct JsonEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Json)
+  include Azu::Action(EmptyRequest, Azu::Response::Json)
 
   get "/api/data"
 
@@ -46,7 +46,7 @@ Return plain text:
 
 ```crystal
 struct TextEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Text)
+  include Azu::Action(EmptyRequest, Azu::Response::Text)
 
   get "/health"
 
@@ -62,7 +62,7 @@ Return HTML content:
 
 ```crystal
 struct HtmlEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Html)
+  include Azu::Action(EmptyRequest, Azu::Response::Html)
 
   get "/page"
 
@@ -82,7 +82,7 @@ end
 
 ```crystal
 struct TemplateEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Html)
+  include Azu::Action(EmptyRequest, Azu::Response::Html)
   include Azu::Templates::Renderable
 
   get "/users"
@@ -102,7 +102,7 @@ Return no content (204):
 
 ```crystal
 struct DeleteEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Empty)
+  include Azu::Action(EmptyRequest, Azu::Response::Empty)
 
   delete "/users/:id"
 
@@ -122,7 +122,7 @@ Return different formats based on Accept header:
 
 ```crystal
 struct NegotiatedEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response)
+  include Azu::Action(EmptyRequest, Azu::Response)
 
   get "/data"
 
@@ -178,7 +178,7 @@ Return a file for download:
 
 ```crystal
 struct DownloadEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response)
+  include Azu::Action(EmptyRequest, Azu::Response)
 
   get "/download/:filename"
 

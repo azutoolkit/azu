@@ -130,7 +130,7 @@ end
 
 # Create a simple endpoint
 struct HelloEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Text)
+  include Azu::Action(EmptyRequest, Azu::Response::Text)
 
   get "/"
 
@@ -141,7 +141,7 @@ end
 
 # Create a JSON endpoint
 struct GreetEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Json)
+  include Azu::Action(EmptyRequest, Azu::Response::Json)
 
   get "/greet/:name"
 
@@ -217,7 +217,7 @@ This defines your application and configures the server settings.
 
 ```crystal
 struct HelloEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Text)
+  include Azu::Action(EmptyRequest, Azu::Response::Text)
 
   get "/"
 
@@ -228,7 +228,7 @@ end
 ```
 
 Endpoints handle HTTP requests:
-- `include Azu::Endpoint(RequestType, ResponseType)` defines the contract
+- `include Azu::Action(RequestType, ResponseType)` defines the contract
 - `get "/"` declares the HTTP method and route
 - `def call` contains your handler logic
 

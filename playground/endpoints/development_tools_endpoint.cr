@@ -4,7 +4,7 @@ module ExampleApp
   # Example endpoint that demonstrates development tools integration
   # This endpoint can generate test data for the dashboard
   struct DevelopmentToolsEndpoint
-    include Azu::Endpoint(DevelopmentToolsRequest, DevelopmentToolsResponse)
+    include Azu::Action(DevelopmentToolsRequest, DevelopmentToolsResponse)
 
     get "/dev-tools"
 

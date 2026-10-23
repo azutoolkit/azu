@@ -71,7 +71,7 @@ Azu.cache.clear
 
 ```crystal
 struct UserEndpoint
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+  include Azu::Action(EmptyRequest, UserResponse)
 
   get "/users/:id"
 

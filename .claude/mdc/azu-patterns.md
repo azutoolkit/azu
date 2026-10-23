@@ -47,7 +47,7 @@ end
 
 # Endpoints
 struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  include Azu::Action(CreateUserRequest, UserResponse)
 
   post "/users"
 
@@ -62,7 +62,7 @@ struct CreateUserEndpoint
 end
 
 struct GetUserEndpoint
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+  include Azu::Action(EmptyRequest, UserResponse)
 
   get "/users/:id"
 
@@ -79,7 +79,7 @@ end
 
 ```crystal
 module AuthenticatedEndpoint(Request, Response)
-  include Azu::Endpoint(Request, Response)
+  include Azu::Action(Request, Response)
 
   def current_user : User
     @current_user ||= begin
@@ -128,7 +128,7 @@ struct PaginatedResponse(T)
 end
 
 struct ListUsersEndpoint
-  include Azu::Endpoint(EmptyRequest, PaginatedResponse(UserResponse))
+  include Azu::Action(EmptyRequest, PaginatedResponse(UserResponse))
 
   get "/users"
 

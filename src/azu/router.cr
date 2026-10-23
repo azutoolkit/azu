@@ -113,19 +113,122 @@ module Azu
     class DuplicateRoute < Exception
     end
 
-    # The Router::Builder class allows you to build routes more easily
+    # The Router::Builder class allows you to build routes more easily. Every path is
+    # prefixed with the builder's scope, and endpoints can be given as instances or as
+    # `Azu::Endpoint` classes.
     #
     # ```
-    # routes :web, "/test" do
-    #   get "/hello/", ExampleApp::HelloWorld
-    #   get "/hello/:name", ExampleApp::HtmlEndpoint
-    #   get "/hello/json", ExampleApp::JsonEndpoint
+    # routes "/api" do
+    #   get "/hello/:name", HelloEndpoint
+    #   get "/users/:id", ShowUser, as: :user
+    #
+    #   namespace "/v2" do
+    #     post "/users", CreateUser # => POST /api/v2/users
+    #   end
+    #
+    #   resources "/posts", index: ListPosts, show: ShowPost, create: CreatePost,
+    #     update: UpdatePost, destroy: DeletePost
     # end
     # ```
     class Builder
       forward_missing_to @router
 
       def initialize(@router : Router, @scope : String = "")
+      end
+
+      {% for method in RESOURCES %}
+        # Registers `{{method.id.upcase}} path` under this scope.
+        def {{method.id}}(path : Router::Path, handler : HTTP::Handler)
+          @router.{{method.id}}(scoped(path), handler)
+        end
+
+        # Registers `{{method.id.upcase}} path` under this scope for an endpoint class.
+        # `as:` names the route (see `Azu::Routes`).
+        def {{method.id}}(path : Router::Path, endpoint : T.class, as name : Symbol | String | Nil = nil) forall T
+          endpoint.{{method.id}}(scoped(path), as: name, router: @router)
+        end
+      {% end %}
+
+      # Registers the root route of this scope.
+      def root(endpoint : HTTP::Handler)
+        if @scope.empty?
+          @router.root(endpoint)
+        else
+          @router.get(@scope, endpoint)
+        end
+      end
+
+      # Groups routes under *prefix*.
+      #
+      # ```
+      # namespace "/admin" do
+      #   get "/stats", Stats # => GET /admin/stats
+      # end
+      # ```
+      def namespace(prefix : String, &)
+        with Builder.new(@router, scoped(prefix)) yield
+      end
+
+      # Alias of `namespace`.
+      def scope(prefix : String, &)
+        with Builder.new(@router, scoped(prefix)) yield
+      end
+
+      # Registers the conventional REST routes of a resource. Pass only the actions you have:
+      #
+      # | action    | route                      |
+      # | --------- | -------------------------- |
+      # | `index`   | `GET /posts`               |
+      # | `new`     | `GET /posts/new`           |
+      # | `create`  | `POST /posts`              |
+      # | `show`    | `GET /posts/:id`           |
+      # | `edit`    | `GET /posts/:id/edit`      |
+      # | `update`  | `PATCH` and `PUT /posts/:id` |
+      # | `destroy` | `DELETE /posts/:id`        |
+      #
+      # Named routes are `:posts`, `:new_post`, `:post` and `:edit_post`.
+      def resources(path : Router::Path, index = nil, new new_form = nil, create = nil, show = nil, edit = nil, update = nil, destroy = nil) : Nil
+        singular = Router.singularize(path.split('/').last)
+        plural = path.split('/').last
+        member = "#{path}/:id"
+
+        mount(:get, path, index, plural) if index
+        mount(:get, "#{path}/new", new_form, "new_#{singular}") if new_form
+        mount(:post, path, create, nil) if create
+        mount(:get, member, show, singular) if show
+        mount(:get, "#{member}/edit", edit, "edit_#{singular}") if edit
+        mount(:patch, member, update, nil) if update
+        mount(:put, member, update, nil) if update
+        mount(:delete, member, destroy, nil) if destroy
+      end
+
+      private def mount(verb : Symbol, path : String, endpoint, name : String?) : Nil
+        case verb
+        when :get    then get(path, endpoint, as: name)
+        when :post   then post(path, endpoint, as: name)
+        when :patch  then patch(path, endpoint, as: name)
+        when :put    then put(path, endpoint, as: name)
+        when :delete then delete(path, endpoint, as: name)
+        end
+      end
+
+      private def scoped(path : String) : String
+        return path if @scope.empty?
+        joined = "#{@scope.rstrip('/')}/#{path.lstrip('/')}"
+        joined.size > 1 ? joined.rstrip('/') : joined
+      end
+    end
+
+    # "posts" => "post", "categories" => "category", "news" => "news"
+    def self.singularize(word : String) : String
+      if word.ends_with?("ies") && word.size > 3
+        "#{word[0...-3]}y"
+      elsif word.ends_with?("sses") || word.ends_with?("ches") || word.ends_with?("shes") || word.ends_with?("xes")
+        word[0...-2]
+      elsif word.ends_with?("s") && !word.ends_with?("ss") && word != "news"
+        word[0...-1]
+      else
+        word
       end
     end
 
