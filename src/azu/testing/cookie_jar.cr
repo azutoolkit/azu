@@ -6,7 +6,8 @@ module Azu
     class CookieJar
       private record Entry, cookie : HTTP::Cookie, expires_at : Time?
 
-      def initialize
+      # *now* tells the time; a client passes its own clock so the jar ages with it outside requests too.
+      def initialize(@now : Proc(Time) = -> { Clock.now })
         @entries = {} of String => Entry
       end
 
@@ -14,7 +15,7 @@ module Azu
       def absorb(headers : HTTP::Headers) : Nil
         HTTP::Cookies.from_server_headers(headers).each do |cookie|
           expires_at = expiry(cookie)
-          if expires_at && expires_at <= Clock.now
+          if expires_at && expires_at <= @now.call
             @entries.delete(cookie.name)
           else
             @entries[cookie.name] = Entry.new(cookie, expires_at)
@@ -49,19 +50,25 @@ module Azu
 
       # The `Cookie` request header for *path*; nil when no cookie applies.
       def header_for(path : String) : String?
-        pairs = live.values.select { |entry| path.starts_with?(entry.cookie.path || "/") }
+        pairs = live.values.select { |entry| path_matches?(entry.cookie.path, path) }
         pairs.map { |entry| "#{entry.cookie.name}=#{entry.cookie.value}" }.join("; ").presence
       end
 
+      # A cookie of `/admin` goes to `/admin` and `/admin/x`, not to `/administrator`.
+      private def path_matches?(cookie_path : String?, path : String) : Bool
+        base = (cookie_path || "/").rstrip('/')
+        base.empty? || path == base || path.starts_with?("#{base}/")
+      end
+
       private def live : Hash(String, Entry)
-        now = Clock.now
+        now = @now.call
         @entries.reject! { |_, entry| (expiry = entry.expires_at) && expiry <= now }
         @entries
       end
 
       private def expiry(cookie : HTTP::Cookie) : Time?
         if max_age = cookie.max_age
-          Clock.now + max_age
+          @now.call + max_age
         else
           cookie.expires
         end
