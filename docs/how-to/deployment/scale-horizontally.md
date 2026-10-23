@@ -4,35 +4,43 @@ This guide shows you how to scale your Azu application across multiple servers.
 
 ## Stateless Design
 
-Ensure your application is stateless:
+Each process has its own memory: a second instance does not see a hash, a counter or a default `Azu.cache` entry
+that the first one filled. Keep anything that must be shared in the database, or in a shared cache (see
+[Redis cache](../caching/setup-redis-cache.md), which also states what works in this checkout):
 
 ```crystal
-# Bad: In-memory state
-@@users_cache = {} of Int64 => User
+# In-memory state lives in one process only
+USERS_CACHE = {} of Int64 => String
 
-# Good: External cache
-Azu.cache.set("user:#{id}", user.to_json)
+# A shared store: with the Redis store, every instance reads the same entry
+Azu.cache.set("user:1", %({"id":1}))
 ```
+
+Things that are per process in Azu:
+
+- the memory cache (`CACHE_STORE=memory`, the default) and the router path cache;
+- `Azu::Handler::Throttle` counters;
+- the in-memory `Azu::PubSub` backend (see [WebSocket Scaling](#websocket-scaling));
+- the CSRF key, unless every instance is given the same one (`Azu::Handler::CSRF.new(secret_key: ENV["CSRF_SECRET"]?)`);
+- the Spark signing secret: set the same `SPARK_SECRET` everywhere.
 
 ## Session Storage
 
-Use Redis for sessions:
+A session is a random id in a cookie that points at data in a shared store. With a shared cache:
 
 ```crystal
+require "json"
+
 class SessionStore
   def self.create(user_id : Int64) : String
     session_id = Random::Secure.hex(32)
-    Azu.cache.set(
-      "session:#{session_id}",
-      {user_id: user_id, created_at: Time.utc}.to_json,
-      expires_in: 24.hours
-    )
+    Azu.cache.set("session:#{session_id}", {user_id: user_id}.to_json, 24.hours)
     session_id
   end
 
   def self.get(session_id : String) : Int64?
     data = Azu.cache.get("session:#{session_id}")
-    return nil unless data
+    return unless data
     JSON.parse(data)["user_id"].as_i64
   end
 end
@@ -114,9 +122,10 @@ services:
           cpus: "0.5"
           memory: 512M
     environment:
-      - AZU_ENV=production
+      - CRYSTAL_ENV=production
       - DATABASE_URL=postgres://...
-      - REDIS_URL=redis://redis:6379/0
+      - CACHE_STORE=redis
+      - CACHE_REDIS_URL=redis://redis:6379/0
     networks:
       - app_network
 
@@ -168,13 +177,18 @@ spec:
       labels:
         app: myapp
     spec:
+      terminationGracePeriodSeconds: 45
       containers:
         - name: app
           image: myapp:latest
           ports:
             - containerPort: 8080
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
           env:
-            - name: AZU_ENV
+            - name: CRYSTAL_ENV
               value: "production"
             - name: DATABASE_URL
               valueFrom:
@@ -233,66 +247,96 @@ spec:
           averageUtilization: 70
 ```
 
+## Graceful Rollouts
+
+On `SIGTERM` an instance stops accepting connections and waits for requests in flight, up to
+`SHUTDOWN_TIMEOUT` seconds (30 by default), before it exits. Set the grace period of the orchestrator above it
+(`terminationGracePeriodSeconds: 45` above, `docker stop -t 40`), and let the load balancer's health check take the
+instance out of rotation. WebSocket connections are not waited for: clients must reconnect.
+
 ## WebSocket Scaling
 
-Handle WebSockets across multiple servers with Redis pub/sub:
+`Azu::PubSub` delivers broadcasts to the subscribers in the same process. With several instances, select the Redis
+backend once at boot and every instance receives every broadcast:
 
 ```crystal
-class ScalableNotificationChannel < Azu::Channel
-  PATH = "/notifications"
+Azu::PubSub.backend = Azu::PubSub::Redis.new(ENV.fetch("REDIS_URL", "redis://localhost:6379/0"))
 
-  @@redis = Redis.new(url: ENV["REDIS_URL"])
-  @@local_connections = [] of HTTP::WebSocket
+class NotificationChannel < Azu::Channel
+  ws "/notifications"
 
   def on_connect
-    @@local_connections << socket
-
-    # Subscribe to Redis channel
-    spawn do
-      @@redis.subscribe("notifications") do |on|
-        on.message do |channel, message|
-          @@local_connections.each(&.send(message))
-        end
-      end
-    end
+    subscribe "notifications"
   end
 
-  def self.broadcast(message : String)
-    # Publish to Redis - all servers receive it
-    @@redis.publish("notifications", message)
+  def on_message(message : String)
+  end
+
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
   end
 end
+
+# From any instance
+Azu::PubSub.broadcast("notifications", {text: "Deploy finished"})
 ```
+
+See [Broadcast Messages](../real-time/broadcast-messages.md).
 
 ## Database Scaling
 
 ### Read Replicas
 
+Define one schema per database and point read-only work at the replica:
+
 ```crystal
-module Database
-  PRIMARY = CQL::Schema.define(:primary,
-    adapter: CQL::Adapter::Postgres,
-    uri: ENV["DATABASE_URL"]
-  )
+require "cql"
+require "pg"
 
-  REPLICA = CQL::Schema.define(:replica,
-    adapter: CQL::Adapter::Postgres,
-    uri: ENV["DATABASE_REPLICA_URL"]
-  )
-
-  def self.read
-    REPLICA
-  end
-
-  def self.write
-    PRIMARY
+PrimaryDB = CQL::Schema.define(:primary, adapter: CQL::Adapter::Postgres, uri: ENV["DATABASE_URL"]) do
+  table :users do
+    primary :id, Int64
+    column :name, String
   end
 end
 
-# Usage
-users = Database.read.query("SELECT * FROM users")
-Database.write.exec("INSERT INTO users ...")
+ReplicaDB = CQL::Schema.define(:replica, adapter: CQL::Adapter::Postgres, uri: ENV["DATABASE_REPLICA_URL"]) do
+  table :users do
+    primary :id, Int64
+    column :name, String
+  end
+end
+
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context PrimaryDB, :users
+
+  property name : String
+
+  def initialize(@name : String)
+  end
+end
+
+class ReadOnlyUser
+  include CQL::ActiveRecord::Model(Int64)
+  db_context ReplicaDB, :users
+
+  property name : String
+
+  def initialize(@name : String)
+  end
+end
 ```
+
+A replica lags behind the primary, so read your own writes from the primary.
 
 ### Connection Pooling
 
@@ -315,36 +359,25 @@ default_pool_size = 20
 
 ## Cache Scaling
 
-Use Redis Cluster:
+The memory cache is per process. Select the Redis store through the environment, and read
+[Redis cache](../caching/setup-redis-cache.md) for what the store does in this checkout:
 
-```crystal
-Azu.configure do |config|
-  config.cache = Azu::Cache::RedisStore.new(
-    url: ENV["REDIS_CLUSTER_URL"],
-    cluster: true
-  )
-end
+```bash
+CACHE_STORE=redis
+CACHE_REDIS_URL=redis://redis.example.com:6379/0
 ```
 
 ## Monitoring at Scale
 
-Add instance identification:
+`RequestId` (part of the default stack) tags every request with an id that the `Logger` line and error pages carry.
+Log the instance once at boot so a line can be traced to its host:
 
 ```crystal
-struct HealthEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Json)
-
-  get "/health"
-
-  def call
-    json({
-      status: "healthy",
-      instance: ENV.fetch("HOSTNAME", "unknown"),
-      version: ENV.fetch("APP_VERSION", "unknown"),
-      uptime: Process.times.real.to_i
-    })
-  end
+module MyApp
+  include Azu
 end
+
+MyApp.log.info { "instance #{ENV.fetch("HOSTNAME", "unknown")} version #{ENV.fetch("APP_VERSION", "unknown")}" }
 ```
 
 ## See Also

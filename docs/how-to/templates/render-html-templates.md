@@ -1,52 +1,89 @@
 # How to Render HTML Templates
 
-This guide shows you how to render HTML templates using Azu's Crinja template engine.
+This guide shows you how to render HTML templates using Azu's Crinja template engine (Jinja2 syntax).
 
 ## Basic Template Rendering
 
-Create an endpoint that renders a template:
+A response renders a template: include `Azu::Templates::Renderable` and call `view` with the template name and the
+data for it. The data keys become template variables:
 
 ```crystal
-struct HomeEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Html)
+struct HomeResponse
+  include Azu::Response
   include Azu::Templates::Renderable
+
+  def render
+    view "home/index.jinja", {
+      "title"   => "Welcome",
+      "message" => "Hello, World!",
+    }
+  end
+end
+
+struct HomeEndpoint
+  include Azu::Endpoint(Azu::Request, HomeResponse)
 
   get "/"
 
-  def call
-    view "home/index.html", {
-      title: "Welcome",
-      message: "Hello, World!"
-    }
+  def call : HomeResponse
+    content_type "text/html"
+    HomeResponse.new
   end
 end
 ```
 
+`view` also accepts a `NamedTuple` or any hash of values Crinja understands (strings, numbers, booleans, arrays,
+hashes). Without a template name it renders the template named after the response type: `Blog::Posts::ShowPage`
+renders `blog/posts/show_page.jinja`.
+
+`view` adds the request-aware variables (`csrf_token`, `current_path`, flash messages, ...) when it is called from an
+endpoint, and the [template helpers](use-template-helpers.md) are always available.
+
 ## Template Location
 
-Templates are stored in the `views` directory by default:
+Azu looks for templates in the directories of `config.templates.path`. **The default is a path relative to the
+working directory the server runs in, not to your project**, so set it explicitly. Applications generated with
+`azu new` keep templates in `public/templates`:
 
+```crystal
+module MyApp
+  include Azu
+
+  configure do |config|
+    config.templates.path = "./public/templates"
+  end
+end
 ```
-views/
+
+`path=` adds a directory to the search path; `TEMPLATES_PATH` (comma separated) sets the whole list from the
+environment. Templates are found by their path below the directory:
+
+```text
+public/templates/
 ├── layouts/
-│   └── application.html
+│   └── application.jinja
 ├── home/
-│   └── index.html
+│   └── index.jinja
 ├── users/
-│   ├── index.html
-│   ├── show.html
-│   └── edit.html
+│   ├── index.jinja
+│   ├── show.jinja
+│   └── edit.jinja
 └── shared/
-    ├── _header.html
-    └── _footer.html
+    ├── _header.jinja
+    └── _footer.jinja
 ```
+
+Use the `.jinja`, `.j2` or `.html` extension: those are the files hot reload watches
+(see [Enable Hot Reload](enable-hot-reload.md)). Azu's error pages (`error.html`) are looked up in one more directory, `ERROR_TEMPLATE`, whose default `./src/azu/templates` is also relative to the working directory: outside a checkout of Azu it does not exist, so copy those pages into your own template directory or point `ERROR_TEMPLATE` at them.
+
+A template that cannot be found raises `Crinja::TemplateNotFoundError`.
 
 ## Template Syntax
 
 Crinja uses Jinja2-style syntax:
 
 ```html
-<!-- views/home/index.html -->
+<!-- public/templates/home/index.jinja -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -64,21 +101,31 @@ Crinja uses Jinja2-style syntax:
 </html>
 ```
 
+Template files are not autoescaped. Escape values you did not write yourself with `{{ value | e }}` (or `escape`).
+
 ## Variables
 
-Pass data to templates:
+Pass data to templates. Build plain values (hashes, arrays, strings) from your models:
 
 ```crystal
-def call
-  view "users/show.html", {
-    user: User.find(params["id"]),
-    posts: user.posts.recent.all,
-    is_admin: current_user.admin?
-  }
+struct UserPageResponse
+  include Azu::Response
+  include Azu::Templates::Renderable
+
+  def initialize(@name : String, @email : String, @titles : Array(String), @admin : Bool)
+  end
+
+  def render
+    view "users/show.jinja", {
+      "user"     => {"name" => @name, "email" => @email},
+      "posts"    => @titles.map { |title| {"title" => title} },
+      "is_admin" => @admin,
+    }
+  end
 end
 ```
 
-Access in template:
+Access in the template:
 
 ```html
 <h1>{{ user.name }}</h1>
@@ -121,9 +168,9 @@ Loop variables:
 ## Conditionals
 
 ```html
-{% if user.admin %}
+{% if user.role == "admin" %}
   <span class="badge">Admin</span>
-{% elif user.moderator %}
+{% elif user.role == "moderator" %}
   <span class="badge">Moderator</span>
 {% else %}
   <span class="badge">User</span>
@@ -138,27 +185,29 @@ Transform values with filters:
 {{ name | upper }}
 {{ description | truncate(100) }}
 {{ price | round(2) }}
-{{ created_at | date("%Y-%m-%d") }}
+{{ created_at | date_format("%Y-%m-%d") }}
 {{ content | escape }}
 {{ list | join(", ") }}
 {{ text | default("N/A") }}
 ```
+
+`date_format` is an Azu helper; see the [helper reference](../../reference/templates/helpers.md) for the others
+(`currency`, `time_ago`, `l`, ...).
 
 ## Layouts
 
 Create a base layout:
 
 ```html
-<!-- views/layouts/application.html -->
+<!-- public/templates/layouts/application.jinja -->
 <!DOCTYPE html>
 <html>
 <head>
   <title>{% block title %}My App{% endblock %}</title>
-  <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
   <header>
-    {% include "shared/_header.html" %}
+    {% include "shared/_header.jinja" %}
   </header>
 
   <main>
@@ -166,7 +215,7 @@ Create a base layout:
   </main>
 
   <footer>
-    {% include "shared/_footer.html" %}
+    {% include "shared/_footer.jinja" %}
   </footer>
 </body>
 </html>
@@ -175,8 +224,8 @@ Create a base layout:
 Extend the layout:
 
 ```html
-<!-- views/users/index.html -->
-{% extends "layouts/application.html" %}
+<!-- public/templates/users/index.jinja -->
+{% extends "layouts/application.jinja" %}
 
 {% block title %}Users - My App{% endblock %}
 
@@ -192,22 +241,19 @@ Extend the layout:
 
 ## Partials
 
-Include reusable components:
+Include reusable components. An included template sees the variables of the template that includes it:
 
 ```html
-<!-- views/shared/_user_card.html -->
+<!-- public/templates/shared/_user_card.jinja -->
 <div class="user-card">
-  <img src="{{ user.avatar_url }}" alt="{{ user.name }}">
   <h3>{{ user.name }}</h3>
   <p>{{ user.bio }}</p>
 </div>
 ```
 
-Use the partial:
-
 ```html
 {% for user in users %}
-  {% include "shared/_user_card.html" with user=user %}
+  {% include "shared/_user_card.jinja" %}
 {% endfor %}
 ```
 
@@ -228,11 +274,6 @@ Define reusable template functions:
 
 ```html
 {# This is a comment and won't be rendered #}
-
-{#
-  Multi-line
-  comment
-#}
 ```
 
 ## Raw Output
@@ -247,21 +288,28 @@ Disable template processing:
 
 ## Custom Helpers
 
-Add custom template functions:
+Register your own functions and filters before the first render. They are available in every template:
 
 ```crystal
-Azu::Templates.register_function("format_currency") do |args|
-  amount = args[0].as_f
-  "$#{sprintf("%.2f", amount)}"
+Azu::Helpers.function :format_currency do
+  "$#{"%.2f" % arguments["amount"].to_s.to_f}"
+end
+
+Azu::Helpers.filter :shout do
+  target.to_s.upcase + "!"
 end
 ```
 
-Use in template:
+Use in a template:
 
 ```html
-{{ format_currency(order.total) }}
+{{ format_currency(amount=order_total) }}
+{{ "hello" | shout }}
 ```
+
+See [Use Template Helpers](use-template-helpers.md).
 
 ## See Also
 
 - [Enable Hot Reload](enable-hot-reload.md)
+- [Template helpers reference](../../reference/templates/helpers.md)

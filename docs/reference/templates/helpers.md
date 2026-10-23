@@ -353,32 +353,63 @@ Azu automatically generates type-safe URL and form helpers from your endpoint de
 When you define an endpoint with an HTTP method, Azu auto-generates helpers:
 
 ```crystal
-# Endpoint definition
-class UsersEndpoint
-  include Azu::Endpoint(UsersRequest, UsersResponse)
+struct PageResponse
+  include Azu::Response
+
+  def render
+    ""
+  end
+end
+
+struct UsersEndpoint
+  include Azu::Endpoint(Azu::Request, PageResponse)
   get "/users"
+
+  def call : PageResponse
+    PageResponse.new
+  end
 end
 
-class UserEndpoint
-  include Azu::Endpoint(UserRequest, UserResponse)
+struct UserEndpoint
+  include Azu::Endpoint(Azu::Request, PageResponse)
   get "/users/:id"
+
+  def call : PageResponse
+    PageResponse.new
+  end
 end
 
-class CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
+struct CreateUserEndpoint
+  include Azu::Endpoint(Azu::Request, PageResponse)
   post "/users"
+
+  def call : PageResponse
+    PageResponse.new
+  end
 end
 
-class UpdateUserEndpoint
-  include Azu::Endpoint(UpdateUserRequest, UserResponse)
+struct UpdateUserEndpoint
+  include Azu::Endpoint(Azu::Request, PageResponse)
   put "/users/:id"
+
+  def call : PageResponse
+    PageResponse.new
+  end
 end
 
-class DeleteUserEndpoint
-  include Azu::Endpoint(DeleteUserRequest, EmptyResponse)
+struct DeleteUserEndpoint
+  include Azu::Endpoint(Azu::Request, PageResponse)
   delete "/users/:id"
+
+  def call : PageResponse
+    PageResponse.new
+  end
 end
 ```
+
+The resource part of a helper name is the endpoint's type name without `Endpoint`, underscored. For a namespaced
+endpoint it is the last two segments joined: `Blog::Posts::ShowEndpoint` gives `posts_show`, so its link helper is
+`link_to_get_posts_show`. The helpers are registered when the `get`, `post`, ... line runs, that is, when the type is defined.
 
 This generates the following helpers:
 
@@ -876,17 +907,23 @@ Function that returns the current locale:
 `Azu::Handler::Locale` serves each request in the available locale that best matches its `Accept-Language` header, or in the default locale when none matches. The locale applies to everything the request does, including template rendering, and ends with the request:
 
 ```crystal
-Azu.start [
+module MyApp
+  include Azu
+end
+
+MyApp.start [
   Azu::Handler::RequestId.new,
   Azu::Handler::Locale.new,
   Azu::Handler::Rescuer.new,
-]
+] of HTTP::Handler
 ```
 
 To choose the locale yourself, for example from a user setting, wrap the work in `with_locale`. The locale belongs to the current fiber, so concurrent requests never see each other's, and the previous locale is restored afterwards:
 
 ```crystal
-Azu::Helpers::I18n.with_locale(user.locale) do
+user_locale = "es"
+
+Azu::Helpers::I18n.with_locale(user_locale) do
   # render, send emails, ...
 end
 ```
