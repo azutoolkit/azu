@@ -8,20 +8,31 @@ module Azu
 
     @@mutex = Mutex.new
     @@declarations = [] of Declaration
-    @@applied = 0
+    @@declared = Atomic(Int32).new(0)
+    @@applied = Atomic(Int32).new(0)
 
-    def self.declare(declaration : Declaration) : Nil
-      @@mutex.synchronize { @@declarations << declaration }
+    @@routes = {} of String => Array(Tuple(String, String))
+
+    # The `{verb, path}` pairs declared on the endpoint type called `type_name`.
+    def self.routes_of(type_name : String) : Array(Tuple(String, String))
+      @@mutex.synchronize { @@routes[type_name] ||= [] of Tuple(String, String) }
     end
 
-    # Registers every declaration not yet applied on `router`, in declaration order.
-    def self.apply_to(router : Router) : Nil
-      return if @@applied == @@declarations.size
+    def self.declare(declaration : Declaration) : Nil
       @@mutex.synchronize do
-        while @@applied < @@declarations.size
-          declaration = @@declarations[@@applied]
-          @@applied += 1
-          declaration.call(router)
+        @@declarations << declaration
+        @@declared.set(@@declarations.size)
+      end
+    end
+
+    # Registers every declaration not yet applied on `router`, in declaration order. One that raises
+    # (a duplicate route) stays pending and raises again on the next call, so the failure is not lost.
+    def self.apply_to(router : Router) : Nil
+      return if @@applied.get == @@declared.get
+      @@mutex.synchronize do
+        while (index = @@applied.get) < @@declarations.size
+          @@declarations[index].call(router)
+          @@applied.set(index + 1)
         end
       end
     end

@@ -68,6 +68,20 @@ describe Azu::Cache do
       end
     end
 
+    it "measures TTL on the monotonic clock, so a wall-clock step does not change expiry" do
+      with_fake_clock do |clock|
+        store = Azu::Cache::MemoryStore.new
+        store.set("key", "value", 1.minute)
+
+        clock.step_wall_clock(2.hours)
+        store.get("key").should eq("value")
+
+        clock.step_wall_clock(-5.hours)
+        clock.advance(61.seconds)
+        store.get("key").should be_nil
+      end
+    end
+
     it "implements LRU eviction" do
       store = Azu::Cache::MemoryStore.new(max_size: 2)
 

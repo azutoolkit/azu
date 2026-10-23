@@ -12,7 +12,7 @@ long-lived response cooperate.
    `Connection: close` and `Retry-After: 1`.
 2. Every open WebSocket is sent a close frame with code **1001** (going away) immediately, not after the requests
    finish. Browsers and Spark clients reconnect, and a load balancer sends them to another instance. A socket that
-   is accepted after this point is closed with 1001 without `on_connect` running.
+   registers after this point is closed with 1001 without `on_connect` running; one that registered a moment before still runs `on_connect` and is then closed.
 3. The shutdown signal is raised for streaming responses (see below).
 4. The listener is closed, and the app waits for what is still in flight: normal requests, streams that have not
    finished and WebSockets whose peer has not answered the close frame yet.
@@ -70,14 +70,14 @@ struct LiveEvents
 end
 ```
 
-Both read the app that is serving the request, also from a fiber started with `Azu.spawn_scoped`. Outside a request
+Both read the app that is serving the request, also in a channel's callbacks (`on_connect`, `on_message`) and in a fiber started with `Azu.spawn_scoped`. Outside a request
 `Azu.shutting_down?` is false and the signal never closes. A handler that ignores them still works: it is waited for
 until `shutdown_timeout`, then dropped with the process.
 
 ## WebSockets
 
 Nothing to write: `Azu::Channel` sockets are registered with the app that accepted them. The app sends the 1001 close
-frame, `on_close` runs with that code once the peer answers, and subscriptions are released. A peer that never
+frame, `on_close` runs with the code the peer answers with (normally 1001 too), and subscriptions are released. A peer that never
 answers is waited for until `shutdown_timeout`.
 
 ## Several Apps

@@ -39,7 +39,7 @@ module Azu
     @in_flight = 0
     @draining = false
     @idle_waiters = [] of ::Channel(Nil)
-    @sockets = [] of Channel
+    @sockets = Set(Channel).new
     @shutdown_signal = ::Channel(Nil).new
 
     def initialize(@config : Configuration = Configuration.new)
@@ -114,7 +114,7 @@ module Azu
       sockets = @lock.synchronize do
         return if @draining
         @draining = true
-        @sockets.dup
+        @sockets.to_a
       end
       @shutdown_signal.close
       sockets.each { |socket| spawn(name: "azu-ws-goaway") { socket.close(HTTP::WebSocket::CloseCode::GoingAway, "server shutting down") } }
