@@ -55,6 +55,17 @@ SignupForm.new.render
 A static component can be returned from an endpoint response:
 
 ```crystal
+class Greeting
+  include Azu::Component
+
+  def initialize(@name : String)
+  end
+
+  def content
+    h1 "Hello #{@name}"
+  end
+end
+
 struct GreetingResponse
   include Azu::Response
 

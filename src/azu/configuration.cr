@@ -63,6 +63,9 @@ module Azu
 
     getter router : Router = Router.new
 
+    # How template helpers and the session CSRF token store reach the session library (see `SessionAdapter`).
+    property session_adapter : SessionAdapter? = nil
+
     # The shape of validation failures: RFC 7807 `application/problem+json`, or the pre-0.6 body.
     property error_format : ErrorFormat = ErrorFormat::Problem
 
@@ -303,8 +306,9 @@ module Azu
     # Format for missing translation keys
     property missing_key_format : String = ENV.fetch("I18N_MISSING_KEY_FORMAT", "[missing: %{key}]")
 
-    def initialize
-      # Initialize i18n system with this configuration
+    # Building the settings changes nothing outside this object. `Azu.start` and `App#server` call
+    # `apply`, which hands them to the process-wide `Helpers::I18n`.
+    def apply : Nil
       if load_path.any? { |path| Dir.exists?(path) }
         Helpers::I18n.load_path = load_path
         Helpers::I18n.default_locale = default_locale

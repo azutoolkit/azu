@@ -88,6 +88,7 @@ Step-by-step lessons to learn Azu:
 
 Task-oriented guides for specific goals:
 
+- [Migrate to 0.6](how-to/migrate-to-0.6.md) - Move from the global shim to `Azu::App`
 - [Endpoints](how-to/endpoints/) - Create endpoints, handle parameters, return formats
 - [Validation](how-to/validation/) - Validate requests and models
 - [Real-Time](how-to/real-time/) - WebSocket channels and live components

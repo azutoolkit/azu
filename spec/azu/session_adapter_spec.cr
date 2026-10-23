@@ -28,7 +28,30 @@ ensure
   Azu.session_adapter = previous
 end
 
+# One FakeSession per value of the X-Session header, like a store keyed by the session cookie.
+private def keyed_adapter(sessions : Hash(String, FakeSession)) : Azu::SessionAdapter
+  lookup = ->(context : HTTP::Server::Context) { sessions[context.request.headers["X-Session"]] }
+  Azu::SessionAdapter.new(
+    csrf_token: ->(context : HTTP::Server::Context) { lookup.call(context).csrf_token },
+    store_csrf_token: ->(context : HTTP::Server::Context, token : String) { lookup.call(context).csrf_token = token; nil },
+  )
+end
+
 describe "Azu::SessionAdapter" do
+  after_each { Azu.session_adapter = nil }
+
+  it "lives on the configuration, not on the process" do
+    other = Azu::Configuration.new
+    other.session_adapter.should be_nil
+    with_adapter(fake_adapter(FakeSession.new)) { other.session_adapter.should be_nil }
+  end
+
+  it "rejects half of the CSRF pair" do
+    expect_raises(ArgumentError) { Azu::SessionAdapter.new(csrf_token: ->(_c : HTTP::Server::Context) { nil.as(String?) }) }
+    Azu::SessionAdapter.new.csrf?.should be_false
+    fake_adapter(FakeSession.new).csrf?.should be_true
+  end
+
   describe "template helper context" do
     it "reads session and flash through the adapter" do
       session = FakeSession.new
@@ -48,6 +71,16 @@ describe "Azu::SessionAdapter" do
         helpers = Azu::Helpers::TemplateContext.new(context)
         helpers.session.should be_empty
         helpers.flash.should be_empty
+      end
+    end
+
+    it "ignores a forged _session cookie even with an adapter set" do
+      session = FakeSession.new
+      session.values["user"] = "ada"
+      forged = Base64.strict_encode(%({"user":"admin"}))
+      with_adapter(fake_adapter(session)) do
+        context, _ = create_context("GET", "/", HTTP::Headers{"Cookie" => "_session=#{forged}"})
+        Azu::Helpers::TemplateContext.new(context).session["user"].should eq("ada")
       end
     end
 
@@ -115,6 +148,66 @@ describe "Azu::SessionAdapter" do
         handler = Azu::Handler::CSRF.new(strategy: synchronizer, token_store: Azu::Handler::CSRF::SessionTokenStore.new)
         context, _ = create_context
         expect_raises(Azu::SessionAdapter::NotConfigured) { handler.token(context) }
+      end
+    end
+
+    it "rejects a token stored in session A on a request of session B" do
+      a = FakeSession.new
+      b = FakeSession.new
+      with_adapter(keyed_adapter({"a" => a, "b" => b})) do
+        handler = Azu::Handler::CSRF.new(strategy: synchronizer, token_store: Azu::Handler::CSRF::SessionTokenStore.new)
+        issue, _ = create_context("GET", "/", HTTP::Headers{"X-Session" => "a"})
+        token = handler.token(issue)
+        b.csrf_token = handler.token(create_context("GET", "/", HTTP::Headers{"X-Session" => "b"})[0])
+        handler.valid_token?(create_context("POST", "/", HTTP::Headers{"X-Session" => "a", "X-CSRF-TOKEN" => token})[0]).should be_true
+        handler.valid_token?(create_context("POST", "/", HTTP::Headers{"X-Session" => "b", "X-CSRF-TOKEN" => token})[0]).should be_false
+      end
+    end
+
+    it "treats an empty stored token as none" do
+      session = FakeSession.new
+      session.csrf_token = ""
+      with_adapter(fake_adapter(session)) do
+        handler = Azu::Handler::CSRF.new(strategy: synchronizer, token_store: Azu::Handler::CSRF::SessionTokenStore.new)
+        context, _ = create_context("POST", "/", HTTP::Headers{"X-CSRF-TOKEN" => ""})
+        handler.valid_token?(context).should be_false
+        handler.token(context).should_not be_empty
+      end
+    end
+
+    describe "as a handler" do
+      it "passes a valid token, refuses a wrong one with 403" do
+        session = FakeSession.new
+        session.csrf_token = "good"
+        with_adapter(fake_adapter(session)) do
+          handler = Azu::Handler::CSRF.new(strategy: synchronizer, token_store: Azu::Handler::CSRF::SessionTokenStore.new)
+          handler.next = ->(c : HTTP::Server::Context) { c.response.print "OK" }
+          ok, io = create_context("POST", "/", HTTP::Headers{"X-CSRF-TOKEN" => "good"})
+          handler.call(ok)
+          get_response_body(ok, io).should eq("OK")
+          bad, _ = create_context("POST", "/", HTTP::Headers{"X-CSRF-TOKEN" => "bad"})
+          handler.call(bad)
+          bad.response.status_code.should eq(403)
+        end
+      end
+
+      it "answers 403, not 500, without an adapter or when the session lookup raises" do
+        handler = Azu::Handler::CSRF.new(strategy: synchronizer, token_store: Azu::Handler::CSRF::SessionTokenStore.new)
+        handler.next = ->(c : HTTP::Server::Context) { c.response.print "OK" }
+        with_adapter(nil) do
+          context, _ = create_context("POST", "/", HTTP::Headers{"X-CSRF-TOKEN" => "x"})
+          handler.call(context)
+          context.response.status_code.should eq(403)
+        end
+        raising = Azu::SessionAdapter.new(
+          csrf_token: ->(_c : HTTP::Server::Context) { raise "no session for this request"; nil.as(String?) },
+          store_csrf_token: ->(_c : HTTP::Server::Context, _t : String) { nil },
+        )
+        with_adapter(raising) do
+          context, _ = create_context("POST", "/", HTTP::Headers{"X-CSRF-TOKEN" => "x"})
+          handler.call(context)
+          context.response.status_code.should eq(403)
+        end
       end
     end
 

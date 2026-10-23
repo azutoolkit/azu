@@ -6,6 +6,15 @@ This document lists breaking changes between Azu versions and migration guides.
 
 ### Unreleased (0.6 work)
 
+Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
+
+**The global shim is deprecated.** `include Azu`, `configure` and `start` still work, and log one warning per
+process (at the first call, not when requiring azu) that names `Azu::App`.
+
+**Per-app leftovers.** Building a configuration no longer applies its `i18n` settings to the process-wide
+`Helpers::I18n` (`I18nConfiguration#apply` does, called when an app builds its server). `Handler::Logger`,
+`SimpleLogger` and `Throttle` log to the app serving the request unless given `log:`, and resolve it on every call.
+
 **Requiring `azu` no longer starts anything.** Before, `require "azu"` set the root `Log` level to `Debug`
 with Azu's formatter, created the upload temp directory and started seven background fibers.
 
@@ -59,7 +68,7 @@ Other changes:
 **Template helpers no longer read `_session` and `_flash` cookies.** `Helpers::TemplateContext#session` and
 `#flash` decoded an unsigned Base64 JSON cookie that no session library writes, so any client could forge
 its session or flash. They now read through `Azu.session_adapter` (`Azu::SessionAdapter`, additive and opt-in,
-no dependency on a session shard) and are empty without one. With the `session` shard (`require "session/azu"`)
+stored on `Configuration#session_adapter`, no dependency on a session shard) and are empty without one. With the `session` shard (`require "session/azu"`)
 install an adapter once at boot; see `docs/how-to/middleware/use-sessions.md`. Apps that wrote those cookies
 themselves must move to a session store.
 

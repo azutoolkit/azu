@@ -70,19 +70,24 @@ module Azu
       CONTENT_LENGTH = "Content-Length"
       UNKNOWN_CLIENT = "unknown"
 
-      private getter log : ::Log = CONFIG.log,
-        interval : Int32 = 5,
+      private getter interval : Int32 = 5,
         duration : Int32 = 900,
         threshold : Int32 = 100,
         blacklist : Array(String) = [] of String,
         whitelist : Array(String) = [] of String
 
+      @log : ::Log?
       @tracker : Hash(String, RequestTracker)
       @mutex : Mutex
 
-      def initialize(@interval, @duration, @threshold, @blacklist, @whitelist)
+      # Without an explicit log, the log of the app serving the request (`Azu.current_config`).
+      def initialize(@interval, @duration, @threshold, @blacklist, @whitelist, @log : ::Log? = nil)
         @tracker = Hash(String, RequestTracker).new
         @mutex = Mutex.new
+      end
+
+      private def log : ::Log
+        @log || Azu.current_config.log
       end
 
       def call(context : HTTP::Server::Context)

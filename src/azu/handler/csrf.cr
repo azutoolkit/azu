@@ -58,11 +58,18 @@ module Azu
         end
       end
 
-      # Keeps the token in the server-side session, through `Azu.session_adapter`
-      # (`csrf_token` and `store_csrf_token`). Raises `SessionAdapter::NotConfigured` without one.
+      # Keeps the token in the session, through `Azu.session_adapter` (`csrf_token` and
+      # `store_csrf_token`). `Session::SessionHandler` must come before `CSRF` in the handler chain.
+      #
+      # A read that fails (no adapter, no session for this request) logs and answers no token, so a
+      # state-changing request is refused with 403 instead of crashing; issuing a token still raises
+      # (`SessionAdapter::NotConfigured` without an adapter), so a misconfiguration is not silent.
       class SessionTokenStore < TokenStore
         def read(context : HTTP::Server::Context) : String?
-          adapter.csrf_token(context)
+          adapter.csrf_token(context).presence
+        rescue ex
+          Log.for("Azu::Handler::CSRF").warn { "session CSRF token unavailable: #{ex.message}" }
+          nil
         end
 
         def write(context : HTTP::Server::Context, token : String) : Nil
@@ -70,7 +77,7 @@ module Azu
         end
 
         private def adapter : SessionAdapter
-          Azu.session_adapter || raise SessionAdapter::NotConfigured.new
+          Azu.session_adapter.try { |adapter| adapter if adapter.csrf? } || raise SessionAdapter::NotConfigured.new
         end
       end
 
@@ -469,15 +476,13 @@ module Azu
         cookie_token(context)
       end
 
-      # :nodoc:
-      def cookie_token(context : HTTP::Server::Context) : String?
+      protected def cookie_token(context : HTTP::Server::Context) : String?
         cookies = HTTP::Cookies.from_client_headers(context.request.headers)
         cookies[@cookie_name]?.try(&.value)
       end
 
       # Set CSRF token cookie
-      # :nodoc:
-      def set_token_cookie(context : HTTP::Server::Context, token : String)
+      protected def set_token_cookie(context : HTTP::Server::Context, token : String)
         cookie = HTTP::Cookie.new(
           name: @cookie_name,
           value: token,

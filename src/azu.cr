@@ -120,6 +120,21 @@ module Azu
     current_config.cache
   end
 
+  @@shim_warned = Atomic(Int32).new(0)
+
+  # Logs, once per process, that the global shim (`include Azu`, `configure`, `Azu::CONFIG`) is in use
+  # and names its replacement. Called by the shim's own entry points (`configure` and `start`), never
+  # while requiring azu, so a library or an `Azu::App` based program stays silent.
+  def self.warn_global_shim : Nil
+    return unless @@shim_warned.compare_and_set(0, 1)[1]
+    CONFIG.log.warn { "`include Azu`, `configure` and `Azu::CONFIG` are deprecated: build an `Azu::App` and pass its config around instead (see docs/how-to/migrate-to-0.6.md)" }
+  end
+
+  # Lets the warning fire again; for specs.
+  def self.reset_shim_warning : Nil
+    @@shim_warned.set(0)
+  end
+
   # Installs Azu's log format and a Debug level for the whole process. Opt in by calling it once at
   # boot; neither requiring azu nor `start` does it, so an app that sets up `Log` itself keeps its
   # own backend and level.
@@ -143,6 +158,7 @@ module Azu
 
   macro included
     def self.configure(&)
+      Azu.warn_global_shim
       with CONFIG yield CONFIG
     end
 
@@ -165,6 +181,7 @@ module Azu
     end
 
     def self.start(handlers : Array(HTTP::Handler))
+      Azu.warn_global_shim
       Azu.prepare
       config.handlers = handlers.map(&.as(HTTP::Handler))
       server = Azu::App.default.server(handlers)

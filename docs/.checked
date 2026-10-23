@@ -11,6 +11,7 @@ docs/reference/api/request.md
 docs/reference/api/response.md
 docs/reference/api/router.md
 docs/reference/errors/error-types.md
+docs/how-to/migrate-to-0.6.md
 docs/how-to/endpoints/create-endpoint.md
 docs/how-to/endpoints/handle-parameters.md
 docs/how-to/endpoints/return-different-formats.md
