@@ -1,4 +1,3 @@
-require "wait_group"
 require "http/server"
 
 module Azu
@@ -33,7 +32,10 @@ module Azu
     end
 
     @server : HTTP::Server?
-    @in_flight = WaitGroup.new
+    @lock = Mutex.new
+    @in_flight = 0
+    @draining = false
+    @idle_waiters = [] of ::Channel(Nil)
 
     def initialize(@config : Configuration = Configuration.new)
     end
@@ -56,40 +58,77 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context)
-        @app.track { Azu.with_config(@app.config) { call_next(context) } }
+        return if @app.track { Azu.with_config(@app.config) { call_next(context) } }
+
+        context.response.status_code = 503
+        context.response.headers["Connection"] = "close"
+        context.response.headers["Retry-After"] = "1"
       end
     end
 
-    # Counts a request as in flight while the block runs, so `stop` can wait for it.
-    def track(&)
-      @in_flight.add
+    # Counts a request as in flight while the block runs, so `stop` can wait for it. False, without
+    # running the block, once the app is shutting down.
+    def track(&) : Bool
+      return false unless enter
+
       begin
         yield
       ensure
-        @in_flight.done
+        leave
       end
+      true
+    end
+
+    def draining? : Bool
+      @lock.synchronize { @draining }
+    end
+
+    # From now on requests are refused with a 503, so only the ones already running need waiting for.
+    def begin_shutdown : Nil
+      @lock.synchronize { @draining = true }
     end
 
     # Waits until every request in flight has finished, or `timeout` has passed. True when none is left.
     def drain(timeout : Time::Span = @config.shutdown_timeout) : Bool
-      finished = ::Channel(Nil).new(1)
-      spawn(name: "azu-drain") do
-        @in_flight.wait
-        finished.send(nil)
+      idle = ::Channel(Nil).new
+      @lock.synchronize do
+        return true if @in_flight.zero?
+        @idle_waiters << idle
       end
+
       select
-      when finished.receive
+      when idle.receive?
         true
       when timeout(timeout)
+        @lock.synchronize { @idle_waiters.delete(idle) }
         false
       end
     end
 
     # Stops accepting connections and waits, up to `timeout`, for the requests in flight. True when
-    # all of them finished. This is what SIGTERM and SIGINT do in `Azu.start`.
+    # all of them finished. This is what SIGTERM and SIGINT do in `Azu.start`. It closes the server
+    # most recently built by `server`.
     def stop(timeout : Time::Span = @config.shutdown_timeout) : Bool
+      begin_shutdown
       @server.try(&.close)
       drain(timeout)
+    end
+
+    private def enter : Bool
+      @lock.synchronize do
+        return false if @draining
+        @in_flight += 1
+        true
+      end
+    end
+
+    private def leave : Nil
+      @lock.synchronize do
+        @in_flight -= 1
+        return unless @in_flight.zero?
+        @idle_waiters.each(&.close)
+        @idle_waiters.clear
+      end
     end
 
     # The handler chain this app serves: its scope first, then `handlers`.

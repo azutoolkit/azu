@@ -180,6 +180,7 @@ module Azu
         Signal::{{ signal.id }}.trap do
           Signal::{{ signal.id }}.reset
           log.info { "Shutting down server" }
+          Azu::App.default.begin_shutdown
           server.close
         end
       {% end %}
@@ -192,7 +193,6 @@ module Azu
       end
 
       app = Azu::App.default
-      log.info { "Waiting for requests in flight" }
       log.warn { "Shutdown timeout: requests still in flight were dropped" } unless app.drain
       Azu.shutdown
     end

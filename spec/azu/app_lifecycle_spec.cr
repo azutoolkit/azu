@@ -1,12 +1,14 @@
 require "../spec_helper"
 require "http/client"
 
-private GATE = ::Channel(Nil).new
+private GATE    = ::Channel(Nil).new
+private ENTERED = ::Channel(Nil).new(8)
 
 private struct Slow
   include Azu::Routable
 
   def call(context : HTTP::Server::Context)
+    ENTERED.send(nil)
     GATE.receive
     context.response << "finished"
     context
@@ -34,7 +36,7 @@ describe Azu::App do
       client = start(app)
       body = ::Channel(String).new
       spawn { body.send client.get("/slow").body }
-      wait_until { !app.drain(1.millisecond) }
+      ENTERED.receive
 
       stopped = ::Channel(Bool).new
       spawn { stopped.send app.stop(5.seconds) }
@@ -49,7 +51,7 @@ describe Azu::App do
       app = slow_app
       client = start(app)
       spawn { client.get("/slow") rescue nil }
-      wait_until { !app.drain(1.millisecond) }
+      ENTERED.receive
 
       app.stop(50.milliseconds).should be_false
       GATE.send(nil)
@@ -64,7 +66,41 @@ describe Azu::App do
     end
   end
 
-  it "has nothing in flight when idle" do
+  describe "#begin_shutdown" do
+    it "answers 503 on a connection that stays open after the listener closed" do
+      app = slow_app
+      client = start(app)
+      spawn { client.get("/slow") }
+      ENTERED.receive
+
+      app.begin_shutdown
+      other = HTTP::Client.new(client.host, client.port)
+      response = other.get("/slow")
+      response.status_code.should eq 503
+      response.headers["Connection"].should eq "close"
+      GATE.send(nil)
+    end
+  end
+
+  describe "#track" do
+    it "releases the request when the block raises" do
+      app = Azu::App.new
+      expect_raises(Exception, "boom") { app.track { raise "boom" } }
+      app.drain(0.seconds).should be_true
+    end
+  end
+
+  it "has nothing in flight when idle, whatever the timeout" do
     Azu::App.new.drain(1.second).should be_true
+    Azu::App.new.drain(0.seconds).should be_true
+  end
+
+  it "reads the shutdown timeout from SHUTDOWN_TIMEOUT, ignoring what is not a number" do
+    {"5" => 5, "0" => 0, "-3" => 0, "30s" => 30, "" => 30}.each do |value, seconds|
+      ENV["SHUTDOWN_TIMEOUT"] = value
+      Azu::Configuration.new.shutdown_timeout.should eq seconds.seconds
+    end
+  ensure
+    ENV.delete("SHUTDOWN_TIMEOUT")
   end
 end

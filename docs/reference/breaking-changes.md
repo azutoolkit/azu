@@ -76,6 +76,9 @@ the requests in flight, up to `config.shutdown_timeout` (`SHUTDOWN_TIMEOUT` seco
 shuts the rest down. Before, it exited as soon as the listener closed. The restart branch of the server loop
 (`e == Errno`) could never run and is gone: a failure of the listener is logged and `start` returns.
 `Azu::App#stop(timeout)` does the same from code and specs (bind the server on `bind_unused_port`).
+Requests that arrive on connections that stay open after the listener closed get `503` with `Connection: close`.
+Streaming responses (SSE) count as in flight until the client disconnects, and only `App.default` is
+drained by `start`. WebSocket sockets are not waited for.
 
 ### 0.5.28
 
