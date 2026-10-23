@@ -1,14 +1,26 @@
 # CQL API Reference
 
-CQL (Crystal Query Language) is the ORM used with Azu for database operations.
+CQL (Crystal Query Language) is the ORM used with Azu for database operations. It is a separate shard
+([`azutoolkit/cql`](https://github.com/azutoolkit/cql)): add `cql` and a driver shard (`sqlite3`, `pg` or `mysql`) to your
+`shard.yml`. Azu core does not depend on it; the optional bridge `require "azu/cql"` connects CQL to the dev dashboard
+(see [Database dashboard](../database-dashboard.md)).
+
+This page lists the API as it exists in the CQL release Azu is tested against (0.0.536). For task-oriented guides see
+[Define Schema](../../how-to/database/define-schema.md), [Create Models](../../how-to/database/create-models.md),
+[Query Data](../../how-to/database/query-data.md), [Handle Transactions](../../how-to/database/handle-transactions.md)
+and [Run Migrations](../../how-to/database/run-migrations.md).
 
 ## Schema Definition
 
 ### CQL::Schema.define
 
-Create a database schema.
+Creates a schema bound to a database. The block declares tables; the schema opens the connection pool right away
+(append `?initial_pool_size=0` to the URI to connect on first use):
 
 ```crystal
+require "cql"
+require "sqlite3"
+
 MyDB = CQL::Schema.define(
   :my_db,
   adapter: CQL::Adapter::SQLite,
@@ -21,353 +33,527 @@ MyDB = CQL::Schema.define(
     timestamps
   end
 end
+
+MyDB.build   # CREATE TABLE IF NOT EXISTS for every table
 ```
 
 **Parameters:**
-- `name : Symbol` - Schema name
-- `adapter : CQL::Adapter` - Database adapter
-- `uri : String` - Connection string
+
+- `name : Symbol` - schema name
+- `adapter : CQL::Adapter` - `SQLite`, `Postgres`, `MySql` or `CockroachDB`
+- `uri : String` - connection string
+- `version : String` - free-form schema version (default `"1.0"`)
+- `quote_identifiers : Bool` - quote table and column names (default `false`)
 
 ## Adapters
 
-### Available Adapters
+| Adapter | URI Format | Driver shard |
+| --- | --- | --- |
+| `CQL::Adapter::SQLite` | `sqlite3://./path/to/db.db` | `sqlite3` |
+| `CQL::Adapter::Postgres` | `postgres://user:pass@host:5432/db` | `pg` |
+| `CQL::Adapter::MySql` | `mysql://user:pass@host:3306/db` | `mysql` |
+| `CQL::Adapter::CockroachDB` | `postgres://user@host:26257/db` | `pg` |
 
-| Adapter | URI Format |
-|---------|------------|
-| `CQL::Adapter::SQLite` | `sqlite3://./path/to/db.db` |
-| `CQL::Adapter::Postgres` | `postgres://user:pass@host:5432/db` |
-| `CQL::Adapter::MySql` | `mysql://user:pass@host:3306/db` |
+The URI query string carries crystal-db pool options such as `initial_pool_size`, `max_pool_size` and
+`checkout_timeout`.
 
 ## Table Definition
 
-### table
+Inside `table :name do ... end`:
 
-Define a database table.
+| Method | Description |
+| --- | --- |
+| `primary :id, Int64` | primary key; `Int32`, `Int64` or `UUID`; auto increment for integers |
+| `column :name, Type, null:, default:, unique:, size:, as:` | a column of any supported Crystal type |
+| `integer`, `bigint`, `float`, `double`, `real`, `text`, `varchar`, `boolean`, `timestamp`, `date`, `json`, `interval`, `blob` | typed shortcuts taking the same options |
+| `timestamps` | `created_at` and `updated_at`, `NOT NULL` with a database default |
+| `lock_version :version` | integer column for optimistic locking |
+| `foreign_key :user_id, references: :users, on_delete: :cascade` | foreign key (`:no_action`, `:cascade`, `:restrict`, `:set_null`, `:set_default`) |
+| `unique_constraint [:a, :b]`, `check_constraint "price > 0"` | table constraints |
 
-```crystal
-table :users do
-  primary :id, Int64
-  column :name, String
-  column :email, String
-end
-```
+**Column types:** `String`, `Int32`, `Int64`, `UInt32`, `UInt64`, `Float32`, `Float64`, `Bool`, `Time`, `Time::Span`,
+`JSON::Any`, `Slice(UInt8)`, `UUID`. Columns are `NOT NULL` unless `null: true`; `default:` takes a literal value.
 
-### primary
-
-Define primary key.
-
-```crystal
-primary :id, Int64
-primary :uuid, String  # For UUID primary keys
-```
-
-### column
-
-Define a column.
-
-```crystal
-column :name, String
-column :age, Int32?                    # Nullable
-column :active, Bool, default: true    # With default
-column :created_at, Time, default: -> { Time.utc }
-```
-
-**Column Types:**
-- `String` - VARCHAR/TEXT
-- `Int32`, `Int64` - INTEGER/BIGINT
-- `Float32`, `Float64` - REAL/DOUBLE
-- `Bool` - BOOLEAN
-- `Time` - TIMESTAMP
-- `JSON::Any` - JSON
-
-### timestamps
-
-Add created_at and updated_at columns.
-
-```crystal
-table :posts do
-  primary :id, Int64
-  column :title, String
-  timestamps  # Adds created_at, updated_at
-end
-```
-
-### foreign_key
-
-Define a foreign key.
-
-```crystal
-table :posts do
-  primary :id, Int64
-  column :user_id, Int64
-  foreign_key :user_id, :users, :id
-end
-```
-
-### index
-
-Define an index.
-
-```crystal
-table :users do
-  # ...
-  index :email, unique: true
-  index [:first_name, :last_name]  # Composite
-end
-```
+`index [...]` and `index: true` in a `table` block do not create indexes. Use `schema.alter(:users) { create_index :name, [:col] }`
+or a migration.
 
 ## Model Definition
 
-### CQL::Model
+### CQL::ActiveRecord::Model
 
-Include in class to make it a model.
+Include the module with the primary key type and point the class at a table with `db_context`:
 
 ```crystal
+require "cql"
+require "sqlite3"
+
+MyDB = CQL::Schema.define(:my_db, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :email, String
+    column :active, Bool, default: true
+    timestamps
+  end
+end
+
 class User
-  include CQL::Model(User, Int64)
+  include CQL::ActiveRecord::Model(Int64)
   db_context MyDB, :users
 
-  property id : Int64?
   property name : String
   property email : String
+  property active : Bool = true
+  property created_at : Time?
+  property updated_at : Time?
+
+  def initialize(@name : String, @email : String)
+  end
 end
+
+User.schema    # => MyDB
+User.table     # => :users
 ```
 
-**Parameters:**
-- First type: Model class
-- Second type: Primary key type
-
-### db_context
-
-Set database and table.
-
-```crystal
-db_context MyDB, :users
-```
+`CQL::Model` is an alias of `CQL::ActiveRecord::Model`. The type argument is the primary key type (`Int32`, `Int64`,
+`UUID`); the model gets `id : Pk?`, `id!`, `persisted?` and `new_record?`. Use `class`, not `struct`.
 
 ## CRUD Operations
 
-### create
-
-Create a new record.
-
 ```crystal
-user = User.create!(name: "Alice", email: "alice@example.com")
+require "cql"
+require "sqlite3"
+
+MyDB = CQL::Schema.define(:my_db, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :email, String
+    column :active, Bool, default: true
+    timestamps
+  end
+end
+
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :users
+
+  property name : String
+  property email : String
+  property active : Bool = true
+  property created_at : Time?
+  property updated_at : Time?
+
+  validate :name, presence: true
+
+  def initialize(@name : String, @email : String)
+  end
+end
+
+# Create
+user = User.new("Alice", "alice@example.com")
+user.save                                       # validates, runs callbacks, INSERTs; Bool
+user.save!                                      # same, raises instead of returning false
+created = User.create!(name: "Bob", email: "bob@example.com")   # INSERT only, see below
+
+# Read
+User.find(1_i64)                                # User? (find? is the same)
+User.find!(1_i64)                               # User, raises DB::NoResultsError
+User.find_by(email: "alice@example.com")        # User?
+User.find_by!(email: "alice@example.com")       # User, raises DB::NoResultsError
+User.find_or_create_by(name: "Carol", email: "carol@example.com")
+
+# Update
+user.name = "Alice Smith"
+user.save!                                      # persisted record: UPDATE
+user.update!(name: "Alice S.")                  # assigns and UPDATEs, no validation
+user.touch                                      # sets updated_at
+user.reload!                                    # re-reads the row
+
+# Delete
+user.delete!                                    # Bool; runs before/after_destroy callbacks
+User.delete!(2_i64)                             # by id
+User.delete_by!(active: false)                  # by attributes
+User.where(active: false).delete_all            # loads and delete!s each record
 ```
 
-### find
-
-Find by primary key.
-
-```crystal
-user = User.find(1)      # Raises if not found
-user = User.find?(1)     # Returns nil if not found
-```
-
-### find_by
-
-Find by attributes.
-
-```crystal
-user = User.find_by(email: "alice@example.com")
-user = User.find_by?(email: "alice@example.com")
-```
-
-### save
-
-Save record (insert or update).
-
-```crystal
-user = User.new(name: "Alice", email: "alice@example.com")
-user.save!     # Raises on failure
-user.save      # Returns Bool
-```
-
-### update
-
-Update attributes.
-
-```crystal
-user.update!(name: "Alice Smith")
-user.update(name: "Alice Smith")
-```
-
-### destroy
-
-Delete record.
-
-```crystal
-user.destroy!
-user.destroy
-```
-
-### delete_all
-
-Delete all matching records.
-
-```crystal
-User.delete_all
-User.where(active: false).delete_all
-```
+**`create!(**fields)` and `update!` write straight to the database**: they do not validate and do not run callbacks.
+Build the record with `new` and call `save`/`save!` for the full lifecycle. `save`, `save!` and the instance `create!`
+raise `CQL::ActiveRecord::Validations::ValidationError` for an invalid record; `save` returns `false` only when a
+callback returns `false`.
 
 ## Query Methods
 
-### all
-
-Get all records.
-
-```crystal
-users = User.all
-```
-
-### where
-
-Filter records.
+Model-level methods start a `QueryBuilder`; the complete list with examples is in
+[Query Methods Reference](query-methods.md):
 
 ```crystal
-users = User.where(active: true).all
-users = User.where("age > ?", 18).all
-```
+require "cql"
+require "sqlite3"
 
-### order
+MyDB = CQL::Schema.define(:my_db, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :age, Int32, null: true
+    column :active, Bool, default: true
+  end
+end
 
-Sort records.
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :users
 
-```crystal
-users = User.order(name: :asc).all
-users = User.order(created_at: :desc).all
-```
+  property name : String
+  property age : Int32?
+  property active : Bool = true
 
-### limit / offset
+  def initialize(@name : String)
+  end
+end
 
-Paginate results.
-
-```crystal
-users = User.limit(10).offset(20).all
-```
-
-### count
-
-Count records.
-
-```crystal
-count = User.count
-count = User.where(active: true).count
-```
-
-### first / last
-
-Get first or last record.
-
-```crystal
-user = User.first
-user = User.order(created_at: :desc).first
-user = User.last
-```
-
-### exists?
-
-Check if records exist.
-
-```crystal
-exists = User.where(email: "alice@example.com").exists?
+User.all
+User.where(active: true).all
+User.where("age > ?", 18).all
+User.order(name: :asc).limit(10).offset(20).all
+User.count
+User.first
+User.where(name: "Alice").exists?
 ```
 
 ## Associations
 
-### belongs_to
-
 ```crystal
+require "cql"
+require "sqlite3"
+
+MyDB = CQL::Schema.define(:my_db, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+  end
+
+  table :posts do
+    primary :id, Int64
+    column :user_id, Int64
+    column :title, String
+  end
+
+  table :profiles do
+    primary :id, Int64
+    column :user_id, Int64
+    column :bio, String
+  end
+end
+
 class Post
-  include CQL::Model(Post, Int64)
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :posts
 
   property user_id : Int64
+  property title : String
 
-  belongs_to :user, User, foreign_key: :user_id
+  belongs_to :user, User, :user_id            # (association, class, foreign key; optional: true by default)
+
+  def initialize(@title : String, @user_id : Int64 = 0_i64)
+  end
 end
-```
 
-### has_many
+class Profile
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :profiles
 
-```crystal
+  property user_id : Int64
+  property bio : String
+
+  def initialize(@user_id : Int64, @bio : String)
+  end
+end
+
 class User
-  include CQL::Model(User, Int64)
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :users
+
+  property name : String
 
   has_many :posts, Post, foreign_key: :user_id
-end
-```
-
-### has_one
-
-```crystal
-class User
-  include CQL::Model(User, Int64)
-
   has_one :profile, Profile, foreign_key: :user_id
+
+  def initialize(@name : String)
+  end
 end
+
+user = User.find!(1_i64)
+user.posts.to_a                    # Array(Post)
+user.posts.build(title: "Draft")   # Post with user_id set, not saved
+user.profile                       # Profile?
+Post.find!(1_i64).user             # User?
 ```
+
+- `has_many name, Class, foreign_key:, dependent:, inverse_of:, scope:` gives a collection with `to_a`, `each`, `size`,
+  `count`, `empty?`, `first`, `last`, `build`, `create`, `where`, `limit`, `order`, `delete` and `ids`.
+- `has_one name, Class, foreign_key:, dependent:, cache:` adds `name`, `name=`, `build_name`, `create_name`.
+- `belongs_to assoc, Class, foreign_key, optional:, cache:` adds `assoc`, `assoc=`, `build_assoc`, `create_assoc`.
+- `many_to_many name, Class, join_through: JoinModel, foreign_key:, association_foreign_key:` adds the collection and
+  `name_ids`, `name_count`, `add_<singular>`, `remove_<singular>`.
+- `dependent:` is accepted but not applied by `delete!`; declare `on_delete: :cascade` on the foreign key.
+- A collection's `where`, `limit` and `order` return a `CQL::Query`: finish with `.all(Post)`.
 
 ## Callbacks
 
-### Available Callbacks
-
-- `before_validation`
-- `after_validation`
-- `before_save`
-- `after_save`
-- `before_create`
-- `after_create`
-- `before_update`
-- `after_update`
-- `before_destroy`
-- `after_destroy`
+`before_validation`, `after_validation`, `before_save`, `after_save`, `before_create`, `after_create`, `before_update`,
+`after_update`, `before_destroy`, `after_destroy`. Each takes a method name; returning `false` halts the operation:
 
 ```crystal
+require "cql"
+require "sqlite3"
+
+MyDB = CQL::Schema.define(:my_db, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+  table :users do
+    primary :id, Int64
+    column :email, String
+  end
+end
+
 class User
-  include CQL::Model(User, Int64)
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :users
+
+  property email : String
 
   before_save :normalize_email
   after_create :send_welcome_email
 
+  def initialize(@email : String)
+  end
+
   private def normalize_email
     @email = email.downcase.strip
+    true
+  end
+
+  private def send_welcome_email
+    Log.info { "welcome #{email}" }
+    true
   end
 end
+
+User.new(" Alice@Example.com ").save!
 ```
 
 ## Scopes
 
-Define reusable query scopes.
-
 ```crystal
+require "cql"
+require "sqlite3"
+
+MyDB = CQL::Schema.define(:my_db, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :role, String, default: "user"
+    column :active, Bool, default: true
+    timestamps
+  end
+end
+
 class User
-  include CQL::Model(User, Int64)
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :users
+
+  property name : String
+  property role : String = "user"
+  property active : Bool = true
+  property created_at : Time?
 
   scope :active, -> { where(active: true) }
   scope :recent, -> { order(created_at: :desc) }
-  scope :admins, -> { where(role: "admin") }
+  scope :with_role, ->(role : String) { where(role: role) }
+
+  def initialize(@name : String)
+  end
 end
 
-# Usage
 User.active.recent.all
-User.admins.count
+User.with_role("admin").count
 ```
+
+## Validations
+
+`validate :attribute, rule: value, message: "..."` with the rules `presence`, `required`, `size`, `match`, `gt`, `gte`,
+`lt`, `lte`, `eq`, `in`, `exclude`, `confirmation`, `accept`; `use CustomValidator` for the rest. See
+[Validations Reference](validations.md).
 
 ## Transactions
 
 ```crystal
-MyDB.transaction do
-  user = User.create!(name: "Alice")
-  Profile.create!(user_id: user.id)
+require "cql"
+require "sqlite3"
+
+MyDB = CQL::Schema.define(:my_db, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+  end
+
+  table :profiles do
+    primary :id, Int64
+    column :user_id, Int64
+    column :bio, String
+  end
+end
+
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :users
+
+  property name : String
+
+  def initialize(@name : String)
+  end
+end
+
+class Profile
+  include CQL::ActiveRecord::Model(Int64)
+  db_context MyDB, :profiles
+
+  property user_id : Int64
+  property bio : String
+
+  def initialize(@user_id : Int64, @bio : String)
+  end
+end
+
+user = MyDB.transaction do |tx|
+  created = User.create!(name: "Alice")
+  Profile.create!(user_id: created.id!, bio: "Hello")
+  created                         # the block's value is returned
+end
+
+User.transaction do |outer|       # Model.transaction is schema.transaction
+  User.transaction(outer) do |_inner|   # a savepoint
+    raise DB::Rollback.new        # rolls back the savepoint only
+  end
 end
 ```
+
+An exception rolls back and propagates; `DB::Rollback` rolls back quietly and the call returns `nil`. There are no
+isolation-level or read-only options and no `after_commit`; see
+[Handle Transactions](../../how-to/database/handle-transactions.md).
 
 ## Raw Queries
 
 ```crystal
-MyDB.query("SELECT * FROM users WHERE age > ?", 18)
-MyDB.exec("UPDATE users SET active = ? WHERE id = ?", true, 1)
+require "cql"
+require "sqlite3"
+
+MyDB = CQL::Schema.define(:my_db, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :age, Int32
+    column :active, Bool, default: true
+  end
+end
+
+# Parameters go through the connection
+adults = MyDB.exec_query do |connection|
+  connection.query_all("SELECT name FROM users WHERE age > ?", 18, as: String)
+end
+
+MyDB.exec_query do |connection|
+  connection.exec("UPDATE users SET active = ? WHERE id = ?", true, 1)
+end
+
+# schema.exec runs one statement and takes no parameters
+MyDB.exec("DELETE FROM users WHERE active = 0")
+
+# The query builder works without a model
+names = MyDB.query.from(:users).select(:name).where(active: true).all(as: {String})
 ```
+
+## Optional Modules
+
+```crystal
+require "cql"
+require "sqlite3"
+
+MyDB = CQL::Schema.define(:my_db, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+  table :documents do
+    primary :id, Int64
+    column :title, String
+    column :deleted_at, Time, null: true
+  end
+
+  table :counters do
+    primary :id, Int64
+    column :name, String
+    lock_version :lock_version
+  end
+end
+
+class Document
+  include CQL::ActiveRecord::Model(Int64)
+  include CQL::ActiveRecord::SoftDeletable   # delete! sets deleted_at; queries skip deleted rows
+  db_context MyDB, :documents
+
+  property title : String
+
+  def initialize(@title : String)
+  end
+end
+
+class Counter
+  include CQL::ActiveRecord::Model(Int64)
+  include CQL::ActiveRecord::OptimisticLocking
+  db_context MyDB, :counters
+
+  property name : String
+  property lock_version : Int32 = 1
+
+  optimistic_locking :lock_version
+
+  def initialize(@name : String)
+  end
+end
+
+document = Document.find!(1_i64)
+document.delete!          # soft delete
+document.restore!         # undo
+document.force_delete!    # really DELETE
+Document.with_deleted
+Document.only_deleted
+```
+
+## Configuration
+
+`CQL.configure` sets library-wide options (URL, logging, pool). With `require "azu/cql"` use `Azu::CQL.configure`, which
+also installs the dashboard instrumentation:
+
+```crystal
+require "cql"
+
+CQL.configure do |config|
+  config.db = ENV.fetch("DATABASE_URL", "sqlite3://./db/development.db")
+  config.sql_logging = true
+  config.pool_size = 10
+end
+```
+
+## Errors
+
+| Error | Raised when |
+| --- | --- |
+| `DB::NoResultsError` | `find!`, `find_by!` and `first!` found nothing |
+| `CQL::ActiveRecord::Validations::ValidationError` | `save`, `save!`, `validate!` on an invalid record |
+| `CQL::RecordInvalid`, `CQL::RecordNotSaved` | defined by CQL for failed saves; `save!` raises them only in rare paths |
+| `CQL::DialectError` | SQL the dialect cannot express (for example `FOR UPDATE` on SQLite) |
+| `CQL::Migrator::Error` | migration failures |
+| `DB::Error` and subclasses | driver errors: constraint violations, lost connections |
+
+Azu does not translate CQL errors into HTTP responses. Rescue them in the endpoint (or a handler) and raise an
+`Azu::Response` error, for example `Azu::Response::NotFound` when `find` returns `nil`; see
+[Working with Databases](../../tutorials/working-with-databases.md).
 
 ## See Also
 

@@ -22,3 +22,15 @@ docs/explanation/concepts/contracts.md
 docs/explanation/architecture/type-safety.md
 docs/explanation/design-decisions/why-contracts.md
 docs/explanation/design-decisions/why-type-safety.md
+docs/how-to/database/create-models.md
+docs/how-to/database/define-schema.md
+docs/how-to/database/handle-transactions.md
+docs/how-to/database/run-migrations.md
+docs/how-to/database/query-data.md
+docs/how-to/validation/validate-models.md
+docs/how-to/performance/optimize-database-queries.md
+docs/reference/database/validations.md
+docs/reference/database/cql-api.md
+docs/reference/database/query-methods.md
+docs/reference/database-dashboard.md
+docs/tutorials/working-with-databases.md

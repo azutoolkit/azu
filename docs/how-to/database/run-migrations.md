@@ -2,221 +2,421 @@
 
 This guide shows you how to create and run database migrations with CQL.
 
+A migration is a class that subclasses `CQL::Migration(version)`, where the version is a unique integer, usually a
+timestamp (`YYYYMMDDHHMMSS`). Defining the class registers it with `CQL::Migrator`, which applies migrations in version
+order and records each one in the `cql_schema_migrations` table. The migration receives the schema as `schema`.
+
 ## Creating a Migration
 
-Create a migration file:
+Declare the table on the schema, then create it. Declaring it first is what makes `schema.users` available:
 
 ```crystal
-# db/migrations/001_create_users.cr
-class CreateUsers < CQL::Migration
+require "cql"
+
+# db/migrations/20240115103045_create_users.cr
+class CreateUsers < CQL::Migration(20240115103045_i64)
   def up
-    create_table :users do
+    schema.table :users do
       primary :id, Int64
       column :name, String
       column :email, String
       timestamps
     end
+    schema.users.create!
 
-    create_index :users, :email, unique: true
+    schema.alter :users do
+      create_index :index_users_on_email, [:email], unique: true
+    end
   end
 
   def down
-    drop_table :users
+    schema.users.drop!
   end
 end
 ```
 
+`schema.users.create!` runs `CREATE TABLE IF NOT EXISTS`; `drop!` runs `DROP TABLE`. Indexes declared inside the `table`
+block are not created (see [Define Schema](define-schema.md#indexes)), so create them with `create_index` as above.
+
 ## Migration Operations
+
+Changes to existing tables go through `schema.alter`. Each call inside the block is turned into SQL and run in one
+transaction when the block ends.
 
 ### Create Table
 
 ```crystal
-def up
-  create_table :posts do
-    primary :id, Int64
-    column :user_id, Int64
-    column :title, String
-    column :content, String
-    column :published, Bool, default: false
-    timestamps
+require "cql"
 
-    foreign_key :user_id, :users, :id
+class CreatePosts < CQL::Migration(20240116090000_i64)
+  def up
+    schema.table :posts do
+      primary :id, Int64
+      column :user_id, Int64
+      column :title, String
+      column :content, String
+      column :published, Bool, default: false
+      timestamps
+
+      foreign_key :user_id, references: :users, on_delete: :cascade
+    end
+    schema.posts.create!
+  end
+
+  def down
+    schema.posts.drop!
   end
 end
 ```
 
 ### Add Column
 
-```crystal
-def up
-  add_column :users, :bio, String?
-  add_column :users, :age, Int32, default: 0
-end
+`add_column` columns are nullable unless you pass `null: false` with a `default:`:
 
-def down
-  remove_column :users, :bio
-  remove_column :users, :age
+```crystal
+require "cql"
+
+class AddBioAndAgeToUsers < CQL::Migration(20240117090000_i64)
+  def up
+    schema.alter :users do
+      add_column :bio, String, null: true
+      add_column :age, Int32, null: false, default: 0
+    end
+  end
+
+  def down
+    schema.alter :users do
+      drop_column :bio
+      drop_column :age
+    end
+  end
 end
 ```
 
 ### Remove Column
 
 ```crystal
-def up
-  remove_column :users, :legacy_field
-end
+require "cql"
 
-def down
-  add_column :users, :legacy_field, String?
+class RemoveLegacyFieldFromUsers < CQL::Migration(20240118090000_i64)
+  def up
+    schema.alter :users do
+      drop_column :legacy_field
+    end
+  end
+
+  def down
+    schema.alter :users do
+      add_column :legacy_field, String, null: true
+    end
+  end
 end
 ```
 
 ### Rename Column
 
 ```crystal
-def up
-  rename_column :users, :name, :full_name
-end
+require "cql"
 
-def down
-  rename_column :users, :full_name, :name
+class RenameUsersNameToFullName < CQL::Migration(20240119090000_i64)
+  def up
+    schema.alter :users do
+      rename_column :name, :full_name
+    end
+  end
+
+  def down
+    schema.alter :users do
+      rename_column :full_name, :name
+    end
+  end
 end
 ```
 
-### Change Column
+### Change Column Type
+
+`change_column` takes the column name and its new type. SQLite cannot alter a column and raises
+`CQL::SQLiteUnsupportedFeatureError` (with the table-rebuild workaround in its message); PostgreSQL and MySQL support it:
 
 ```crystal
-def up
-  change_column :posts, :content, String, null: true
-end
+require "cql"
 
-def down
-  change_column :posts, :content, String, null: false
+class WidenPostsViews < CQL::Migration(20240120090000_i64)
+  def up
+    schema.alter :posts do
+      change_column :views, Int64
+    end
+  end
+
+  def down
+    schema.alter :posts do
+      change_column :views, Int32
+    end
+  end
 end
 ```
 
 ### Create Index
 
-```crystal
-def up
-  create_index :users, :email, unique: true
-  create_index :posts, [:user_id, :created_at]
-end
+`create_index` takes an index name, the columns and `unique:`; `drop_index` takes the name:
 
-def down
-  drop_index :users, :email
-  drop_index :posts, [:user_id, :created_at]
+```crystal
+require "cql"
+
+class AddPostIndexes < CQL::Migration(20240121090000_i64)
+  def up
+    schema.alter :posts do
+      create_index :index_posts_on_user_id_and_created_at, [:user_id, :created_at]
+      create_index :index_posts_on_title, [:title], unique: true
+    end
+  end
+
+  def down
+    schema.alter :posts do
+      drop_index :index_posts_on_user_id_and_created_at
+      drop_index :index_posts_on_title
+    end
+  end
 end
 ```
 
 ### Add Foreign Key
 
-```crystal
-def up
-  add_foreign_key :posts, :user_id, :users, :id
-end
+SQLite can only declare foreign keys in `CREATE TABLE`; adding or dropping one afterwards raises. Use this on
+PostgreSQL or MySQL:
 
-def down
-  remove_foreign_key :posts, :user_id
+```crystal
+require "cql"
+
+class AddAuthorToPosts < CQL::Migration(20240122090000_i64)
+  def up
+    schema.alter :posts do
+      foreign_key :user_id, references: :users, on_delete: :cascade, name: :fk_posts_user
+    end
+  end
+
+  def down
+    schema.alter :posts do
+      drop_foreign_key :fk_posts_user
+    end
+  end
 end
 ```
 
 ### Rename Table
 
 ```crystal
-def up
-  rename_table :posts, :articles
-end
+require "cql"
 
-def down
-  rename_table :articles, :posts
+class RenamePostsToArticles < CQL::Migration(20240123090000_i64)
+  def up
+    schema.alter :posts do
+      rename_table :articles
+    end
+  end
+
+  def down
+    schema.alter :articles do
+      rename_table :posts
+    end
+  end
 end
 ```
 
 ### Drop Table
 
 ```crystal
-def up
-  drop_table :legacy_data
-end
+require "cql"
 
-def down
-  create_table :legacy_data do
-    primary :id, Int64
-    column :data, String
+class DropLegacyData < CQL::Migration(20240124090000_i64)
+  def up
+    schema.legacy_data.drop!
+  end
+
+  def down
+    schema.table :legacy_data do
+      primary :id, Int64
+      column :data, String
+    end
+    schema.legacy_data.create!
   end
 end
 ```
 
 ## Running Migrations
 
-### Run All Pending
+`CQL::Migrator` is created from the schema. `schema.migrator(config)` is shorthand for `CQL::Migrator.new(schema, config)`.
+Require the migration files before running it, because each class registers itself when it is defined:
 
 ```crystal
-# In your application or CLI
-CQL::Migrator.new(AcmeDB).migrate
+require "cql"
+require "sqlite3"
+
+AppDB = CQL::Schema.define(:app, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+end
+
+class CreateUsers < CQL::Migration(20240115103045_i64)
+  def up
+    schema.table :users do
+      primary :id, Int64
+      column :name, String
+    end
+    schema.users.create!
+  end
+
+  def down
+    schema.users.drop!
+  end
+end
+
+migrator = AppDB.migrator(CQL::MigratorConfig.new(auto_sync: false))
+
+migrator.up                           # apply every pending migration
+migrator.up(steps: 1)                 # apply the next one only
+migrator.print_pending_migrations
+migrator.print_applied_migrations
 ```
 
-### Run from Command Line
+### Run from the Command Line
 
-```bash
-# Using a custom CLI tool
-crystal run src/cli.cr -- db:migrate
-```
-
-Example CLI:
+A small task file keeps the commands in your project (`crystal run src/tasks/db.cr -- migrate`):
 
 ```crystal
-# src/cli.cr
-require "./db/schema"
-require "./db/migrations/*"
+require "cql"
+require "sqlite3"
+
+AppDB = CQL::Schema.define(:app, adapter: CQL::Adapter::SQLite, uri: ENV.fetch("DATABASE_URL", "sqlite3://./db/development.db")) do
+end
+
+# In a project: require "../../db/migrations/*"
+class CreateUsers < CQL::Migration(20240115103045_i64)
+  def up
+    schema.table :users do
+      primary :id, Int64
+      column :name, String
+    end
+    schema.users.create!
+  end
+
+  def down
+    schema.users.drop!
+  end
+end
+
+migrator = AppDB.migrator(CQL::MigratorConfig.new(auto_sync: false))
 
 case ARGV[0]?
-when "db:migrate"
-  CQL::Migrator.new(AcmeDB).migrate
+when "migrate"
+  migrator.up
   puts "Migrations complete"
-when "db:rollback"
-  CQL::Migrator.new(AcmeDB).rollback
+when "rollback"
+  migrator.rollback(steps: (ARGV[1]? || "1").to_i)
   puts "Rollback complete"
-when "db:reset"
-  CQL::Migrator.new(AcmeDB).reset
+when "redo"
+  migrator.redo
+when "status"
+  migrator.print_applied_migrations
+  migrator.print_pending_migrations
+when "reset"
+  migrator.down
+  migrator.up
   puts "Database reset"
 else
-  puts "Usage: crystal run src/cli.cr -- [db:migrate|db:rollback|db:reset]"
+  puts "Usage: crystal run src/tasks/db.cr -- [migrate|rollback [steps]|redo|status|reset]"
 end
 ```
 
-### Rollback Last Migration
+The Azu CLI (`azu db:migrate`, `azu db:rollback`, `azu db:status`) wraps the same migrator; see the CLI's own
+documentation for its options.
+
+### Rollback
 
 ```crystal
-CQL::Migrator.new(AcmeDB).rollback
+require "cql"
+require "sqlite3"
+
+AppDB = CQL::Schema.define(:app, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+end
+
+class CreateUsers < CQL::Migration(20240115103045_i64)
+  def up
+    schema.table :users do
+      primary :id, Int64
+      column :name, String
+    end
+    schema.users.create!
+  end
+
+  def down
+    schema.users.drop!
+  end
+end
+
+migrator = AppDB.migrator(CQL::MigratorConfig.new(auto_sync: false))
+
+migrator.rollback                     # undo the last migration
+migrator.rollback(steps: 3)           # undo the last three
+migrator.redo                         # roll back the last one and apply it again
+migrator.down_to(20240117090000_i64)  # roll back everything newer than this version
+migrator.up_to(20240120090000_i64)    # apply up to and including this version
+migrator.down                         # roll back everything
 ```
 
-### Rollback Multiple
+`migrator.last` returns the most recent migration class, and `migrator.pending_migrations` /
+`migrator.applied_migrations` return the lists without printing them.
+
+## Schema File Synchronisation
+
+By default (`auto_sync: true`) the migrator regenerates a schema file after running migrations, from the live
+database. Configure where it writes and what it is called:
 
 ```crystal
-CQL::Migrator.new(AcmeDB).rollback(steps: 3)
+require "cql"
+require "sqlite3"
+
+AppDB = CQL::Schema.define(:app, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+end
+
+class CreateUsers < CQL::Migration(20240115103045_i64)
+  def up
+    schema.table :users do
+      primary :id, Int64
+      column :name, String
+    end
+    schema.users.create!
+  end
+
+  def down
+    schema.users.drop!
+  end
+end
+
+config = CQL::MigratorConfig.new(
+  schema_file_path: "src/db/schema.cr",
+  schema_name: :AppSchema,
+  schema_symbol: :app_schema,
+  auto_sync: true
+)
+
+AppDB.migrator(config).up
 ```
 
-### Reset Database
-
-```crystal
-# Rollback all and re-migrate
-CQL::Migrator.new(AcmeDB).reset
-```
+The generated file contains the database URI, so keep credentials out of it (read them from the environment) or turn
+`auto_sync` off. The default path is `src/schemas/app_schema.cr`.
 
 ## Migration Best Practices
 
-### Numbered Migrations
+### Version Numbers
 
-Name migrations with timestamps or sequence numbers:
+Use a timestamp so migrations from different branches do not collide. The version is the `Migration(...)` argument,
+the file name is only for humans:
 
-```
+```text
 db/migrations/
-├── 001_create_users.cr
-├── 002_create_posts.cr
-├── 003_add_bio_to_users.cr
-└── 004_create_comments.cr
+├── 20240115103045_create_users.cr
+├── 20240116090000_create_posts.cr
+├── 20240117090000_add_bio_and_age_to_users.cr
+└── 20240121090000_add_post_indexes.cr
 ```
 
 ### Reversible Migrations
@@ -224,60 +424,79 @@ db/migrations/
 Always implement both `up` and `down`:
 
 ```crystal
-class AddRoleToUsers < CQL::Migration
+require "cql"
+
+class AddRoleToUsers < CQL::Migration(20240125090000_i64)
   def up
-    add_column :users, :role, String, default: "user"
+    schema.alter :users do
+      add_column :role, String, null: false, default: "user"
+    end
   end
 
   def down
-    remove_column :users, :role
+    schema.alter :users do
+      drop_column :role
+    end
   end
 end
 ```
 
 ### Data Migrations
 
-Handle data in migrations carefully:
+`schema.exec` runs one SQL string without parameters. To bind values, use the connection with `exec_query`:
 
 ```crystal
-class BackfillUserSlugs < CQL::Migration
+require "cql"
+
+class BackfillUserSlugs < CQL::Migration(20240126090000_i64)
   def up
-    add_column :users, :slug, String?
+    schema.alter :users do
+      add_column :slug, String, null: true
+    end
 
     # Backfill existing records
-    AcmeDB.exec("UPDATE users SET slug = lower(replace(name, ' ', '-'))")
-
-    # Make non-nullable after backfill
-    change_column :users, :slug, String
+    schema.exec("UPDATE users SET slug = lower(replace(name, ' ', '-'))")
   end
 
   def down
-    remove_column :users, :slug
+    schema.alter :users do
+      drop_column :slug
+    end
   end
 end
 ```
 
 ### Batch Updates
 
-For large tables, update in batches:
+For large tables update in batches, binding the values through the connection:
 
 ```crystal
-def up
-  add_column :posts, :word_count, Int32, default: 0
+require "cql"
 
-  # Update in batches
-  offset = 0
-  batch_size = 1000
+class AddWordCountToPosts < CQL::Migration(20240127090000_i64)
+  def up
+    schema.alter :posts do
+      add_column :word_count, Int32, null: false, default: 0
+    end
 
-  loop do
-    result = AcmeDB.exec(<<-SQL, offset, batch_size)
-      UPDATE posts
-      SET word_count = length(content) - length(replace(content, ' ', '')) + 1
-      WHERE id IN (SELECT id FROM posts LIMIT ? OFFSET ?)
-    SQL
+    batch_size = 1000
+    loop do
+      updated = schema.exec_query do |connection|
+        connection.exec(<<-SQL, batch_size).rows_affected
+          UPDATE posts
+          SET word_count = length(content) - length(replace(content, ' ', '')) + 1
+          WHERE word_count = 0 AND id IN (SELECT id FROM posts WHERE word_count = 0 LIMIT ?)
+        SQL
+      end
 
-    break if result.rows_affected == 0
-    offset += batch_size
+      break if updated == 0
+    end
+  end
+
+  def down
+    schema.alter :posts do
+      drop_column :word_count
+    end
   end
 end
 ```
