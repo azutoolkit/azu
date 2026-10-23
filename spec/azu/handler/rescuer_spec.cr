@@ -40,6 +40,61 @@ describe Azu::Handler::Rescuer do
     end
   end
 
+  describe "unexpected errors rendered for the client" do
+    raising_handler = ->(_context : HTTP::Server::Context) { raise "boom" }
+
+    # The in-memory response is chunked: drop the framing around the JSON object.
+    json_object = ->(body : String) { JSON.parse(body[body.index('{').not_nil!..body.rindex('}').not_nil!]) }
+
+    it "renders the HTML error page in production without the message, backtrace or environment" do
+      handler = Azu::Handler::Rescuer.new
+      handler.next = raising_handler
+
+      context, io = create_context("GET", "/boom", HTTP::Headers{"Accept" => "text/html"})
+      with_azu_env(Azu::Environment::Production) { handler.call(context) }
+
+      body = get_response_body(context, io)
+      context.response.status_code.should eq(500)
+      context.response.headers["Content-Type"].should start_with("text/html")
+      body.should contain("<h1>500</h1>")
+      body.should_not contain("rescuer_spec.cr")
+      body.should_not contain("RuntimeError")
+    end
+
+    it "keeps the JSON backtrace out of production bodies" do
+      handler = Azu::Handler::Rescuer.new
+      handler.next = raising_handler
+
+      context, io = create_context("GET", "/boom", HTTP::Headers{"Accept" => "application/json"})
+      with_azu_env(Azu::Environment::Production) { handler.call(context) }
+
+      json = json_object.call(get_response_body(context, io))
+      json["Backtrace"].raw.should be_nil
+      json["Context"].raw.should be_nil
+    end
+
+    it "gives developers the original message and backtrace in the JSON body" do
+      handler = Azu::Handler::Rescuer.new
+      handler.next = raising_handler
+
+      context, io = create_context("GET", "/boom", HTTP::Headers{"Accept" => "application/json"})
+      with_azu_env(Azu::Environment::Development) { handler.call(context) }
+
+      backtrace = json_object.call(get_response_body(context, io))["Backtrace"].as_s
+      backtrace.should contain("boom")
+      backtrace.should contain("rescuer_spec.cr")
+    end
+  end
+
+  describe "error pages for developers" do
+    it "renders the request context in the debug page" do
+      context = Azu::ErrorContext.new(request_id: "req-1234", endpoint: "/boom", method: "GET")
+      error = Azu::Response::Error.new("boom", HTTP::Status::INTERNAL_SERVER_ERROR, [] of String, context)
+
+      with_azu_env(Azu::Environment::Development) { error.html }.should contain("req-1234")
+    end
+  end
+
   describe "normal request flow" do
     it "passes through successful requests" do
       handler = Azu::Handler::Rescuer.new
