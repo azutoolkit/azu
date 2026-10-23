@@ -26,12 +26,15 @@ module Azu::Response
       response.content_type = content_type
       response.headers["Cache-Control"] = "no-cache"
       response.headers["X-Accel-Buffering"] = "no"
-      return if context.request.method == "HEAD"
 
       begin
-        stream(context)
+        stream(context) unless context.request.method == "HEAD"
       rescue IO::Error | HTTP::Server::ClientError
         # The client closed the connection; there is nobody left to answer.
+      rescue ex
+        # Once the headers are out nothing can answer with an error page: log it and end the body.
+        raise ex unless response.@wrote_headers
+        Azu.current_config.log.error(exception: ex) { "#{self.class} failed while streaming" }
       ensure
         @on_close.try(&.call)
       end

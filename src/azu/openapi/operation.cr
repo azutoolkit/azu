@@ -34,12 +34,23 @@ module Azu::OpenAPI
       namespace.empty? ? [] of String : [namespace.last]
     end
 
-    # The media types a `Response::Negotiable` renders; none for any other response.
+    # The media types a `Response::Negotiable` (or a union of them) renders; none for any other response.
     private def self.negotiated_types(type : T.class) : Array(String) forall T
-      {% if T <= Azu::Response::Negotiable %}
-        T.formats.map(&.media_type)
-      {% else %}
-        [] of String
+      {% begin %}
+        {% types = T.union? ? T.union_types : [T] %}
+        {% if types.all? { |type| type <= Azu::Response::Negotiable } %}
+          {% if T.union? %}
+            formats = [] of Azu::Negotiation::Format
+            {% for type in types %}
+              formats.concat({{ type }}.formats)
+            {% end %}
+            formats.uniq.map(&.media_type)
+          {% else %}
+            T.formats.map(&.media_type)
+          {% end %}
+        {% else %}
+          [] of String
+        {% end %}
       {% end %}
     end
 

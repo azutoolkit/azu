@@ -6,9 +6,6 @@ module Azu
   # formats a response can render are matched against the media ranges the client lists, the best
   # `q` wins, and a more specific range beats a general one for the same format.
   module Negotiation
-    # The name of the query parameter that overrides the `Accept` header: `?format=json`.
-    QUERY_PARAMETER = "format"
-
     enum Format
       Html
       Json
@@ -64,10 +61,12 @@ module Azu
 
     # The format to answer with, or nil when the client accepts none of `formats`. `formats` is in
     # order of preference: the first is what a request without `Accept`, or with `*/*`, gets. A
-    # `?format=json` in the query string takes the place of the header.
+    # `?format=json` in the query string takes the place of the header (nil when the response lacks
+    # that format).
     def self.negotiate(formats : Array(Format), request : HTTP::Request) : Format?
-      if name = request.query_params[QUERY_PARAMETER]?
-        return Format.named?(name).try { |format| format if formats.includes?(format) }
+      if requested = requested_format(request)
+        return requested if formats.includes?(requested)
+        return
       end
 
       ranges = ranges(request.headers["Accept"]?)
@@ -88,6 +87,13 @@ module Azu
       response.headers.add("Vary", "Accept")
     end
 
+    # The format `?format=` names (the parameter is `Configuration#format_parameter`). A value that
+    # is not a format name, such as `?format=csv` meant for the endpoint, is left alone.
+    private def self.requested_format(request : HTTP::Request) : Format?
+      parameter = Azu.current_config.format_parameter || return
+      request.query_params[parameter]?.try { |name| Format.named?(name) }
+    end
+
     private def self.media_range(entry : String, position : Int32) : MediaRange?
       return if entry.blank?
 
@@ -95,7 +101,8 @@ module Azu
       type, _, subtype = media.media_type.partition('/')
       return if subtype.empty?
 
-      quality = (media["q"]?.try(&.to_f?) || 1.0).clamp(0.0, 1.0)
+      quality = media["q"]?.try(&.to_f?).try { |value| value if value.finite? } || 1.0
+      quality = quality.clamp(0.0, 1.0)
       MediaRange.new(type, subtype, quality, position)
     rescue MIME::Error
       nil

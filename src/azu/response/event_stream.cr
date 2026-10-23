@@ -146,6 +146,7 @@ module Azu::Response
       @producer.call(source)
     rescue ex
       Azu.current_config.log.error(exception: ex) { "Event stream producer failed" }
+      source.send(Event.new("The stream failed", event: "error"))
     ensure
       source.finish
     end

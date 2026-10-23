@@ -13,7 +13,7 @@ private def pick(accept : String?, formats = ALL, query : String = "") : String?
   Azu::Negotiation.negotiate(formats, request(accept, query)).try(&.media_type)
 end
 
-private struct NegotiatedPage
+struct NegSpecPage
   include Azu::Response::Negotiable
 
   def initialize(@name : String)
@@ -46,12 +46,12 @@ private struct JsonFirst
 end
 
 private struct ShowEndpoint
-  include Azu::Endpoint(Azu::Request, NegotiatedPage)
+  include Azu::Endpoint(Azu::Request, NegSpecPage)
 
   get "/neg-page"
 
-  def call : NegotiatedPage
-    NegotiatedPage.new("<Ada>")
+  def call : NegSpecPage
+    NegSpecPage.new("<Ada>")
   end
 end
 
@@ -66,6 +66,30 @@ private struct ApiEndpoint
 end
 
 private CREATED = [] of Int32
+
+struct NegSpecOther
+  include Azu::Response::Negotiable
+
+  def render_json : String
+    "{}"
+  end
+
+  def render_text : String
+    "x"
+  end
+end
+
+# A union of negotiable responses is checked against the formats all of them render.
+private struct EitherEndpoint
+  include Azu::Endpoint(Azu::Request, NegSpecPage | NegSpecOther)
+
+  post "/neg-either"
+
+  def call : NegSpecPage | NegSpecOther
+    CREATED << 2
+    NegSpecOther.new
+  end
+end
 
 private struct CreateEndpoint
   include Azu::Endpoint(Azu::Request, JsonFirst)
@@ -98,6 +122,7 @@ private def negotiating_app : Azu::App
     endpoint ShowEndpoint
     endpoint ApiEndpoint
     endpoint CreateEndpoint
+    endpoint EitherEndpoint
   end
   app
 end
@@ -153,6 +178,11 @@ describe Azu::Negotiation do
       pick("text/*").should eq "text/html"
     end
 
+    it "leaves a q that is not a finite number to the default instead of failing" do
+      Azu::Negotiation.ranges("text/html;q=nan, application/json;q=inf, application/xml;q=abc").map(&.quality).should eq [1.0, 1.0, 1.0]
+      pick("text/html;q=nan, application/json;q=0.5").should eq "text/html"
+    end
+
     it "answers nothing when no range matches" do
       pick("image/png").should be_nil
     end
@@ -160,20 +190,69 @@ describe Azu::Negotiation do
     it "lets ?format= replace the header" do
       pick("application/json", query: "?format=html").should eq "text/html"
       pick(nil, query: "?format=txt").should eq "text/plain"
-      pick(nil, query: "?format=yaml").should be_nil
+      pick("application/json", query: "?format=yaml").should eq "application/json"
       pick(nil, [Azu::Negotiation::Format::Html], query: "?format=json").should be_nil
     end
   end
 end
 
+describe "the format parameter" do
+  it "can be renamed or turned off, and ignores values that are not format names" do
+    config = Azu::CONFIG
+    original = config.format_parameter
+    begin
+      config.format_parameter = "as"
+      pick("application/json", query: "?format=html").should eq "application/json"
+      pick("application/json", query: "?as=html").should eq "text/html"
+
+      config.format_parameter = nil
+      pick("application/json", query: "?format=html").should eq "application/json"
+    ensure
+      config.format_parameter = original
+    end
+  end
+end
+
+private class BaseDocument
+  include Azu::Response::Negotiable
+
+  def render_json : String
+    "{}"
+  end
+end
+
+private class FullDocument < BaseDocument
+  def render_html : String
+    "<p>"
+  end
+end
+
+private module XmlRendering
+  def render_xml : String
+    "<x/>"
+  end
+end
+
+private struct MixedDocument
+  include Azu::Response::Negotiable
+  include XmlRendering
+end
+
 describe Azu::Response::Negotiable do
+  it "finds render methods inherited from a parent class or an included module" do
+    FullDocument.formats.should eq [Azu::Negotiation::Format::Html, Azu::Negotiation::Format::Json]
+    MixedDocument.formats.should eq [Azu::Negotiation::Format::Xml]
+    FullDocument.new.render_as(Azu::Negotiation::Format::Json).should eq "{}"
+    MixedDocument.new.render_as(Azu::Negotiation::Format::Xml).should eq "<x/>"
+  end
+
   it "lists the formats the type defines, preferred ones first" do
-    NegotiatedPage.formats.should eq [Azu::Negotiation::Format::Html, Azu::Negotiation::Format::Json, Azu::Negotiation::Format::Xml]
+    NegSpecPage.formats.should eq [Azu::Negotiation::Format::Html, Azu::Negotiation::Format::Json, Azu::Negotiation::Format::Xml]
     JsonFirst.formats.should eq [Azu::Negotiation::Format::Json, Azu::Negotiation::Format::Html]
   end
 
   it "renders in the first format when asked without a request, as any Response does" do
-    NegotiatedPage.new("x").render.should eq "<h1>x</h1>"
+    NegSpecPage.new("x").render.should eq "<h1>x</h1>"
   end
 
   describe "over the wire" do
@@ -222,6 +301,15 @@ describe Azu::Response::Negotiable do
       CREATED.should be_empty
       get(negotiating_app, "/neg-create", "application/json", "POST").status_code.should eq 200
       CREATED.should eq [1]
+    end
+
+    it "refuses a union of negotiable responses with what all members can render, before the endpoint runs" do
+      CREATED.clear
+
+      get(negotiating_app, "/neg-either", "text/html", "POST").status_code.should eq 406
+      CREATED.should be_empty
+      get(negotiating_app, "/neg-either", "application/json", "POST").status_code.should eq 200
+      CREATED.should eq [2]
     end
 
     it "answers 406 as plain JSON in the legacy error format" do

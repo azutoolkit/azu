@@ -72,7 +72,7 @@ module Azu
         begin
           enforce_contract
           negotiate_format
-        rescue ex : Response::Error
+        rescue ex : Azu::Response::Error
           ex.to_s(context)
           next
         end
@@ -82,10 +82,22 @@ module Azu
     end
 
     # Refuses a request the response type cannot be rendered for before `call` runs (406), when the
-    # type is known to be `Response::Negotiable`.
+    # type is known to be `Response::Negotiable`. For a union of them, the formats all members render;
+    # a union with a member that is not negotiable is only checked when the response is written.
     private def negotiate_format : Nil
-      {% if !Response.resolve.union? && Response.resolve <= Azu::Response::Negotiable %}
-        Negotiation.negotiate!(Response.formats, context.request)
+      {% begin %}
+        {% types = Response.resolve.union? ? Response.resolve.union_types : [Response.resolve] %}
+        {% if types.all? { |type| type <= Azu::Response::Negotiable } %}
+          {% if types.size == 1 %}
+            formats = Response.formats
+          {% else %}
+            formats = {{ types[0] }}.formats
+            {% for type in types[1..-1] %}
+              formats &= {{ type }}.formats
+            {% end %}
+          {% end %}
+          Negotiation.negotiate!(formats, context.request) unless formats.empty?
+        {% end %}
       {% end %}
     end
 
@@ -299,7 +311,7 @@ module Azu
 
           fields = Hash(String, Array(String)).new { |hash, key| hash[key] = [] of String }
           errors.each { |error| fields[error.field.to_s] << error.message }
-          raise Response::ValidationError.new(fields.to_h)
+          raise Azu::Response::ValidationError.new(fields.to_h)
         {% end %}
       end
 

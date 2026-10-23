@@ -99,7 +99,20 @@ producer fiber ends once the block returns. `on_close { ... }` on the response r
 (for releasing a subscription, say). A block that blocks on something other than the `Source` (a socket
 read) is only noticed when it comes back.
 
-An exception in the block is logged and ends the stream.
+An exception in the block is logged, an `event: error` is sent, and the stream ends; the client's
+`EventSource` reconnects, as it does after any end of stream, so a producer that fails at once will be
+retried at the client's `retry` interval.
+
+### Limits
+
+* A vanished client is noticed by a failing write, so it can take up to two heartbeats (the first write
+  after the close may still succeed) before the producer is told to stop and `on_close` runs. Lower
+  `heartbeat` to notice sooner.
+* A producer blocked on a channel of its own is not interrupted when the stream ends; read it with
+  `events.forward(channel)` or `select` on it together with `events.sleep`, or it stays until the channel
+  delivers.
+* Azu does not cap concurrent streams: each holds a connection and two fibers. Limit them in the endpoint
+  (a counter, or `Handler::Throttle`) if clients are not trusted.
 
 ## Plain streams
 
@@ -121,7 +134,8 @@ end
 ```
 
 The `Sink` is an `IO` that flushes every write. When the client goes away the next write raises, which
-ends the block, and `on_close` runs. Unlike an event stream, a `Stream` is not cut short by a shutdown (a
+ends the block, and `on_close` runs (for `HEAD` too, with no body). An exception from the block after the
+headers are sent is logged and ends the body; before that it propagates to the error handler. Unlike an event stream, a `Stream` is not cut short by a shutdown (a
 download in flight is allowed to finish within `shutdown_timeout`); a long running block checks
 `Azu.shutting_down?` itself.
 
