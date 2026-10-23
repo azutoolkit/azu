@@ -12,6 +12,11 @@ require "./dev_dashboard"
 
 module Azu
   module Dev
+    # Whether the configuration the code runs under has request monitoring on.
+    def self.monitoring? : Bool
+      Azu.current_config.performance_enabled?
+    end
+
     # Metrics of the configuration the code runs under, when it has request monitoring on.
     def self.metrics : PerformanceMetrics?
       config = Azu.current_config
@@ -19,18 +24,16 @@ module Azu
     end
   end
 
-  Instrumentation.cache_subscriber = ->(op : Instrumentation::CacheOperation) do
+  Instrumentation.on_cache(-> { Dev.monitoring? }) do |op|
     Dev.metrics.try do |metrics|
       metrics.record_cache(op.key, op.operation, op.store, op.duration_ms, op.hit, op.key_size, op.value_size, op.ttl, op.error)
     end
-    nil
   end
 
-  Instrumentation.component_subscriber = ->(event : Instrumentation::ComponentEvent) do
+  Instrumentation.on_component(-> { Dev.monitoring? }) do |event|
     Dev.metrics.try do |metrics|
       metrics.record_component(event.id, event.type, event.event, event.duration_ms, event.memory_before, event.memory_after, event.age)
     end
-    nil
   end
 
   Instrumentation.on_prepare do |config|

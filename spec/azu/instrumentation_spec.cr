@@ -1,32 +1,17 @@
 require "../spec_helper"
 
-# Runs the block with `Instrumentation` subscribers swapped for the given ones (`nil` for none),
-# so the specs behave the same whether or not `azu/dev` installed its own.
-private def with_subscribers(cache : Proc(Azu::Instrumentation::CacheOperation, Nil)? = nil,
-                             component : Proc(Azu::Instrumentation::ComponentEvent, Nil)? = nil, &)
-  previous_cache = Azu::Instrumentation.cache_subscriber
-  previous_component = Azu::Instrumentation.component_subscriber
-  Azu::Instrumentation.cache_subscriber = cache
-  Azu::Instrumentation.component_subscriber = component
-  begin
-    yield
-  ensure
-    Azu::Instrumentation.cache_subscriber = previous_cache
-    Azu::Instrumentation.component_subscriber = previous_component
-  end
-end
-
 describe Azu::Instrumentation do
   describe ".cache" do
     it "returns the block's value and reports nothing when nobody subscribed" do
-      with_subscribers do
+      Azu::Instrumentation.isolate do
         Azu::Instrumentation.cache("k", "get", "memory") { "value" }.should eq "value"
       end
     end
 
     it "reports the operation with its timing, size and ttl" do
       operations = [] of Azu::Instrumentation::CacheOperation
-      with_subscribers(cache: ->(op : Azu::Instrumentation::CacheOperation) { operations << op; nil }) do
+      Azu::Instrumentation.isolate do
+        Azu::Instrumentation.on_cache { |op| operations << op }
         Azu::Instrumentation.cache("k", "set", "memory", 1, 5, 10.seconds) { true }.should be_true
       end
 
@@ -37,7 +22,8 @@ describe Azu::Instrumentation do
 
     it "marks a get as a hit when the block returns a value and as a miss when it returns nil" do
       hits = [] of Bool?
-      with_subscribers(cache: ->(op : Azu::Instrumentation::CacheOperation) { hits << op.hit; nil }) do
+      Azu::Instrumentation.isolate do
+        Azu::Instrumentation.on_cache { |op| hits << op.hit }
         Azu::Instrumentation.cache("k", "get", "memory") { "value" }
         Azu::Instrumentation.cache("k", "get", "memory") { nil }
       end
@@ -46,7 +32,8 @@ describe Azu::Instrumentation do
 
     it "reports and re-raises an error from the block" do
       errors = [] of String?
-      with_subscribers(cache: ->(op : Azu::Instrumentation::CacheOperation) { errors << op.error; nil }) do
+      Azu::Instrumentation.isolate do
+        Azu::Instrumentation.on_cache { |op| errors << op.error }
         expect_raises(Exception, "boom") { Azu::Instrumentation.cache("k", "get", "memory") { raise "boom" } }
       end
       errors.should eq ["boom"]
@@ -55,14 +42,15 @@ describe Azu::Instrumentation do
 
   describe ".component" do
     it "returns the block's value and reports nothing when nobody subscribed" do
-      with_subscribers do
+      Azu::Instrumentation.isolate do
         Azu::Instrumentation.component("c1", "Counter", "mount", Time.utc) { 42 }.should eq 42
       end
     end
 
     it "reports the finished step" do
       events = [] of Azu::Instrumentation::ComponentEvent
-      with_subscribers(component: ->(event : Azu::Instrumentation::ComponentEvent) { events << event; nil }) do
+      Azu::Instrumentation.isolate do
+        Azu::Instrumentation.on_component { |event| events << event }
         Azu::Instrumentation.component("c1", "Counter", "refresh", 1.minute.ago) { :done }.should eq :done
       end
 
@@ -74,17 +62,72 @@ describe Azu::Instrumentation do
     end
   end
 
+  describe "subscribers" do
+    it "notifies every subscriber, so integrations do not replace each other" do
+      calls = [] of String
+      Azu::Instrumentation.isolate do
+        Azu::Instrumentation.on_cache { |_| calls << "apm" }
+        Azu::Instrumentation.on_cache { |_| calls << "dev" }
+        Azu::Instrumentation.cache("k", "get", "memory") { nil }
+      end
+      calls.should eq ["apm", "dev"]
+    end
+
+    it "does not time or report while a subscriber says it is disabled" do
+      called = false
+      asked = 0
+      Azu::Instrumentation.isolate do
+        Azu::Instrumentation.on_cache(-> { asked += 1; false }) { |_| called = true }
+        Azu::Instrumentation.on_component(-> { false }) { |_| called = true }
+        Azu::Instrumentation.cache("k", "get", "memory") { "v" }.should eq "v"
+        Azu::Instrumentation.component("c", "T", "mount", Time.utc) { 1 }.should eq 1
+      end
+      called.should be_false
+      asked.should be > 0
+    end
+
+    it "keeps the operation and its own exception when a subscriber raises" do
+      Azu::Instrumentation.isolate do
+        Azu::Instrumentation.on_cache(-> { raise "enabled broke" }) { |_| }
+        Azu::Instrumentation.on_cache { |_| raise "subscriber broke" }
+        Azu::Instrumentation.on_component { |_| raise "subscriber broke" }
+
+        Azu::Instrumentation.cache("k", "get", "memory") { "v" }.should eq "v"
+        Azu::Instrumentation.component("c", "T", "mount", Time.utc) { 2 }.should eq 2
+        expect_raises(Exception, "store failed") { Azu::Instrumentation.cache("k", "get", "memory") { raise "store failed" } }
+      end
+    end
+  end
+
   describe "lifecycle hooks" do
     it "runs prepare and finalize hooks for the configuration they are called with" do
       config = Azu::Configuration.new
       seen = [] of String
-      Azu::Instrumentation.on_prepare { |c| seen << "prepare" if c.same?(config) }
-      Azu::Instrumentation.on_finalize { |c| seen << "finalize" if c.same?(config) }
+      Azu::Instrumentation.isolate do
+        Azu::Instrumentation.on_prepare { |c| seen << "prepare" if c.same?(config) }
+        Azu::Instrumentation.on_finalize { |c| seen << "finalize" if c.same?(config) }
 
-      Azu::Instrumentation.prepare(config)
-      Azu::Instrumentation.finalize(config)
+        Azu::Instrumentation.prepare(config)
+        Azu::Instrumentation.finalize(config)
+      end
 
       seen.should eq ["prepare", "finalize"]
+    end
+
+    it "runs the remaining hooks when one raises" do
+      config = Azu::Configuration.new
+      ran = [] of String
+      Azu::Instrumentation.isolate do
+        Azu::Instrumentation.on_prepare { |_| raise "bad hook" }
+        Azu::Instrumentation.on_prepare { |_| ran << "second" }
+        Azu::Instrumentation.on_finalize { |_| raise "bad hook" }
+        Azu::Instrumentation.on_finalize { |_| ran << "last" }
+
+        Azu::Instrumentation.prepare(config)
+        Azu::Instrumentation.finalize(config)
+      end
+
+      ran.should eq ["second", "last"]
     end
   end
 
@@ -92,7 +135,8 @@ describe Azu::Instrumentation do
     it "reports its operations" do
       operations = [] of {String, String, Bool?}
       manager = Azu::Cache::Manager.new
-      with_subscribers(cache: ->(op : Azu::Instrumentation::CacheOperation) { operations << {op.operation, op.key, op.hit}; nil }) do
+      Azu::Instrumentation.isolate do
+        Azu::Instrumentation.on_cache { |op| operations << {op.operation, op.key, op.hit} }
         manager.fetch("answer") { "42" }.should eq "42"
         manager.fetch("answer") { "unused" }.should eq "42"
         manager.exists?("answer")
@@ -108,7 +152,7 @@ describe Azu::Instrumentation do
 
     it "works without any subscriber" do
       manager = Azu::Cache::Manager.new
-      with_subscribers do
+      Azu::Instrumentation.isolate do
         manager.set("k", "v").should be_true
         manager.get("k").should eq "v"
         manager.increment("n").should eq 1

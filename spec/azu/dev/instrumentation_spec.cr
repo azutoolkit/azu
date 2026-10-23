@@ -25,10 +25,26 @@ describe "azu/dev instrumentation" do
   it "records nothing while request monitoring is off" do
     config = Azu::Configuration.new
     config.performance_enabled = false
+    global = Azu::CONFIG.performance_monitor.try(&.metrics.recent_caches(100).size)
 
     Azu.with_config(config) { Azu::Cache::Manager.new.set("k", "v") }
 
     config.performance_monitor.should be_nil
+    Azu::CONFIG.performance_monitor.try(&.metrics.recent_caches(100).size).should eq global
+  end
+
+  it "gates subscribers on the current configuration's performance_enabled?" do
+    off = Azu::Configuration.new.tap { |config| config.performance_enabled = false }
+    reported = 0
+
+    Azu::Instrumentation.isolate do
+      Azu::Instrumentation.on_cache(-> { Azu::Dev.monitoring? }) { |_| reported += 1 }
+      manager = Azu::Cache::Manager.new
+      Azu.with_config(off) { manager.set("k", "v") }
+      reported.should eq 0
+      Azu.with_config(monitored_config) { manager.set("k", "v") }
+      reported.should eq 1
+    end
   end
 
   it "records component steps" do
