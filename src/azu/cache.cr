@@ -300,6 +300,7 @@ module Azu
       @client : Redis::PooledClient
       @default_ttl : Time::Span?
       @operation_timeout : Time::Span
+      @database : Int32
 
       def initialize(redis_url : String, pool_size : Int32 = 5, timeout : Time::Span = 5.seconds, @default_ttl : Time::Span? = nil, operation_timeout : Time::Span = 2.seconds)
         @client = Redis::PooledClient.new(
@@ -308,6 +309,7 @@ module Azu
           pool_timeout: timeout.total_seconds
         )
         @operation_timeout = operation_timeout
+        @database = URI.parse(redis_url).path.lstrip('/').to_i? || 0
       end
 
       def get(key : String) : String?
@@ -359,21 +361,8 @@ module Azu
       end
 
       def size : Int32
-        # Get database info as hash
-        info_hash = with_timeout("info", "size") { @client.info }
-        return 0 unless info_hash
-
-        # Look for db0 or current database keys count
-        if keyspace = info_hash["db0"]?
-          # Parse db0 value like "keys=123,expires=45"
-          if keyspace =~ /keys=(\d+)/
-            $1.to_i
-          else
-            0
-          end
-        else
-          0
-        end
+        keyspace = with_timeout("info", "size") { @client.info("keyspace") }["db#{@database}"]?
+        keyspace && keyspace =~ /keys=(\d+)/ ? $1.to_i : 0
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to get cache size" }
         0
@@ -391,7 +380,7 @@ module Azu
 
         # Set TTL if provided and key was just created
         if ttl && result == amount
-          with_timeout("expire", key) { @client.expire(key, ttl.total_seconds.to_i) }
+          expire(key, ttl)
         end
 
         result.to_i
@@ -412,7 +401,7 @@ module Azu
 
         # Set TTL if provided
         if ttl
-          with_timeout("expire", key) { @client.expire(key, ttl.total_seconds.to_i) }
+          expire(key, ttl)
         end
 
         result.to_i
@@ -501,10 +490,14 @@ module Azu
         end
       end
 
+      private def expire(key : String, ttl : Time::Span) : Int64
+        with_timeout("expire", key) { @client.expire(key, ttl.total_seconds.to_i) }
+      end
+
       # Timeout wrapper for Redis operations
       # Uses a done channel to prevent resource leaks from orphaned fibers
-      private def with_timeout(operation : String, key : String, &block)
-        channel = ::Channel(typeof(block.call)).new
+      private def with_timeout(operation : String, key : String, &block : -> T) : T forall T
+        channel = ::Channel(T).new
         done = ::Channel(Nil).new(1) # Buffered to prevent blocking
 
         # Spawn the operation
