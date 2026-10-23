@@ -8,6 +8,7 @@ require "schema"
 require "crinja"
 require "./azu/routable"
 require "./azu/router"
+require "./azu/router/**"
 require "./azu/cache"
 require "./azu/performance_metrics"
 require "./azu/query_store"
@@ -95,6 +96,15 @@ module Azu
   def self.spawn_scoped(name : String? = nil, &block : ->) : Fiber
     config = current_config
     spawn(name: name) { with_config(config, &block) }
+  end
+
+  # The path of `endpoint` in the app being served, with the prefix that app is mounted at. Links
+  # use it so the same endpoint answers with the right URL wherever it is mounted. `fallback`
+  # is returned as it is when the current router does not route the endpoint: the endpoint belongs
+  # to another app, whose prefix this one does not know.
+  def self.mounted_path(endpoint : Routable.class, fallback : String = "") : String
+    router = current_config.router
+    (path = router.path_of(endpoint)) ? router.mount_prefix + path : fallback
   end
 
   # Clear all fiber-local configurations

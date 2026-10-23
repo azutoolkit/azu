@@ -103,6 +103,7 @@ module Azu
       @path_cache = PathCache.new
       @method_cache = Hash(String, String).new
       @routes_registry = Array(Route).new
+      @paths = Hash(String, String).new
       precompute_method_cache
     end
 
@@ -112,25 +113,15 @@ module Azu
     record Route,
       endpoint : Routable,
       resource : String,
-      method : Azu::Method
-
-    class DuplicateRoute < Exception
+      method : Azu::Method do
+      # The path the route was declared with, without the method prefix the radix tree is keyed by.
+      def path : String
+        path = method.web_socket? ? resource.lchop("/ws") : resource.lchop("/#{method.to_s.downcase}")
+        path.empty? ? "/" : path
+      end
     end
 
-    # The Router::Builder class allows you to build routes more easily
-    #
-    # ```
-    # routes :web, "/test" do
-    #   get "/hello/", ExampleApp::HelloWorld
-    #   get "/hello/:name", ExampleApp::HtmlEndpoint
-    #   get "/hello/json", ExampleApp::JsonEndpoint
-    # end
-    # ```
-    class Builder
-      forward_missing_to @router
-
-      def initialize(@router : Router, @scope : String = "")
-      end
+    class DuplicateRoute < Exception
     end
 
     {% for method in RESOURCES %}
@@ -148,7 +139,39 @@ module Azu
       end
     {% end %}
 
-    # Adds scoped routes
+    # The path `endpoint` was last registered under, for building links to it. Nil when it is not routed here.
+    def path_of(endpoint : Routable.class) : String?
+      @paths[endpoint.name]?
+    end
+
+    # Where this router is mounted in another one; nil for a top-level router.
+    property mounted_as : Mount?
+
+    # What precedes every path of this router in the URLs clients see: the mount path, including
+    # the ones of the routers it is mounted into.
+    def mount_prefix : String
+      @mounted_as.try(&.prefix) || ""
+    end
+
+    # Serves `child` below `prefix`: requests under it reach the child's router, with the prefix
+    # removed, and run with the child's configuration. A router can be mounted once, because its
+    # links carry the prefix it is mounted at.
+    def mount(child : Configuration, at prefix : String) : Nil
+      prefix = prefix.rstrip('/')
+      raise ArgumentError.new("a mount path must start with / and name a sub path, got #{prefix.inspect}") unless prefix.starts_with?('/')
+      if existing = child.router.mounted_as
+        raise ArgumentError.new("app is already mounted at #{existing.prefix}; build one app per mount")
+      end
+
+      mount = Mount.new(self, child, prefix)
+      Azu::Method.each do |method|
+        add prefix, mount, method
+        add "#{prefix}/*mount_path", mount, method
+      end
+      child.router.mounted_as = mount
+    end
+
+    # Adds routes declared in the block, optionally below a path prefix.
     def routes(scope : String = "", &)
       with Builder.new(self, scope) yield
     end
@@ -190,10 +213,7 @@ module Azu
     # ws "/hi", ExampleApp::ExampleChannel
     # ```
     def ws(path : String, channel : Channel.class)
-      resource = "/ws#{path}"
-      route = Route.new(Channel::Upgrader.new(channel), resource, Azu::Method::WebSocket)
-      @routes_registry << route
-      @radix.add resource, route
+      add path, Channel::Upgrader.new(channel), Azu::Method::WebSocket
     end
 
     # Registers a route for a given path
@@ -203,10 +223,11 @@ module Azu
     # add path: '/endpoint',   endpoint: Handler.new, method: Azu::Method::Get
     # ```
     def add(path : Path, endpoint : Routable, method : Azu::Method = Azu::Method::Get)
-      resource = "/#{method.to_s.downcase}#{path}"
+      resource = method.web_socket? ? "/ws#{path}" : "/#{method.to_s.downcase}#{path}"
       route = Route.new(endpoint, resource, method)
-      @routes_registry << route
       @radix.add resource, route
+      @routes_registry << route
+      @paths[endpoint.class.name] = route.path
     rescue ex : Radix::Tree::DuplicateError
       raise DuplicateRoute.new("http_method: #{method}, path: #{path}, endpoint: #{endpoint}")
     end
@@ -329,3 +350,6 @@ module Azu
     end
   end
 end
+
+require "./router/builder"
+require "./router/mount"
