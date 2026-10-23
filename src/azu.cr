@@ -100,10 +100,11 @@ module Azu
 
   # The path of `endpoint` in the app being served, with the prefix that app is mounted at. Links
   # use it so the same endpoint answers with the right URL wherever it is mounted. `fallback`
-  # applies when the current router does not route the endpoint.
+  # is returned as it is when the current router does not route the endpoint: the endpoint belongs
+  # to another app, whose prefix this one does not know.
   def self.mounted_path(endpoint : Routable.class, fallback : String = "") : String
     router = current_config.router
-    router.mount_prefix + (router.path_of(endpoint) || fallback)
+    (path = router.path_of(endpoint)) ? router.mount_prefix + path : fallback
   end
 
   # Clear all fiber-local configurations

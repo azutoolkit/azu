@@ -11,6 +11,57 @@ private struct Link
   end
 end
 
+private struct LoginRequest
+  include Azu::Request
+
+  def initialize
+  end
+end
+
+private struct LoginResponse
+  include Azu::Response
+
+  def render
+    "login"
+  end
+end
+
+# Declared with the macro, so it is routed on the global app, not on the apps in these specs.
+private struct LoginEndpoint
+  include Azu::Endpoint(LoginRequest, LoginResponse)
+  get "/app_routes_login"
+
+  def call : LoginResponse
+    LoginResponse.new
+  end
+end
+
+private struct Raises
+  include Azu::Routable
+
+  def call(context : HTTP::Server::Context)
+    raise "boom"
+  end
+end
+
+private struct Query
+  include Azu::Routable
+
+  def call(context : HTTP::Server::Context)
+    context.response << "#{context.request.path}?#{context.request.query_params["a"]?}"
+    context
+  end
+end
+
+private struct ShowLogin
+  include Azu::Routable
+
+  def call(context : HTTP::Server::Context)
+    context.response << LoginEndpoint.path
+    context
+  end
+end
+
 private def fetch(app : Azu::App, path : String, method : String = "GET") : HTTP::Client::Response
   server = app.server
   address = server.bind_unused_port("127.0.0.1")
@@ -97,6 +148,42 @@ describe Azu::App do
       main.routes { mount middle, at: "/mid" }
 
       fetch(main, "/mid/leaf/ping").body.should eq "/mid/leaf/ping|/ping"
+    end
+
+    it "leaves links to endpoints of another app alone" do
+      admin = Azu::App.new
+      admin.routes { get "/login", ShowLogin }
+      main = Azu::App.new
+      main.routes { mount admin, at: "/admin" }
+
+      fetch(main, "/admin/login").body.should eq "/app_routes_login"
+    end
+
+    it "passes the query string and tolerates trailing slashes" do
+      child = Azu::App.new
+      child.routes { get "/q", Query }
+      main = Azu::App.new
+      main.routes { mount child, at: "/admin/" }
+
+      fetch(main, "/admin/q?a=1").body.should eq "/q?1"
+      fetch(main, "/admin/q/?a=2").body.should eq "/q/?2"
+    end
+
+    it "restores the request path when the child raises" do
+      child = Azu::App.new
+      child.routes { get "/boom", Raises }
+      main = Azu::App.new
+      main.routes { mount child, at: "/admin" }
+      request = HTTP::Request.new("GET", "/admin/boom")
+      context = HTTP::Server::Context.new(request, HTTP::Server::Response.new(IO::Memory.new))
+
+      expect_raises(Exception, "boom") { main.router.process(context) }
+      request.path.should eq "/admin/boom"
+      Azu.current_config.should be Azu::CONFIG
+    end
+
+    it "rejects a mount path that is not a sub path" do
+      expect_raises(ArgumentError) { Azu::App.new.routes { mount Azu::App.new, at: "/" } }
     end
 
     it "refuses to mount one app twice" do

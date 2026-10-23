@@ -36,7 +36,10 @@ end
 - `mount` serves another app below a prefix with that app's own router and configuration. An app can be
   mounted once; build one app per mount.
 - `Endpoint.path` includes the prefix the app is mounted at and the scope the route was declared in,
-  so links stay right wherever the endpoint is mounted.
+  so links stay right wherever the endpoint is mounted. A link to an endpoint another app routes is
+  returned without any prefix.
+- `Router#routes { }` now yields `Router::Builder`, which declares verbs, `ws`, `scope` and `mount`; it no
+  longer forwards other calls (`root`, `add`) to the router.
 
 ### 0.5.28
 

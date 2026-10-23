@@ -32,7 +32,7 @@ module Azu
       end
 
       def scope(prefix : Path, &) : Nil
-        with Builder.new(@router, prefixed(prefix)) yield
+        with Builder.new(@router, prefixed(prefix.rstrip('/'))) yield
       end
 
       def mount(app : App, at path : Path) : Nil
