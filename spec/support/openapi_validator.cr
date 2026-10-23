@@ -42,19 +42,27 @@ module OpenAPIValidator
   end
 
   private def self.check_operation(where, path, verb, operation : JSON::Any, shared, operation_ids, problems) : Nil
-    problems << "#{where}: responses is required" if operation["responses"]?.try(&.as_h?).try(&.empty?) != false
+    check_responses(where, operation, problems)
+    check_operation_id(where, operation, operation_ids, problems)
+    problems << "#{where}: #{verb} must not have a requestBody" if NO_BODY.includes?(verb) && operation["requestBody"]?
+    check_parameters(where, path, shared + (operation["parameters"]?.try(&.as_a) || [] of JSON::Any), problems)
+  end
 
-    operation["responses"]?.try(&.as_h?).try &.each_key do |status|
+  private def self.check_responses(where, operation : JSON::Any, problems) : Nil
+    responses = operation["responses"]?.try(&.as_h?)
+    problems << "#{where}: responses is required" if responses.nil? || responses.empty?
+    responses.try &.each_key do |status|
       problems << "#{where}: #{status} is not a status code" unless status == "default" || status.matches?(/\A[1-5](\d\d|XX)\z/)
     end
+  end
 
-    if id = operation["operationId"]?.try(&.as_s)
-      problems << "#{where}: operationId #{id} is not unique" unless operation_ids.add?(id)
-    end
+  private def self.check_operation_id(where, operation : JSON::Any, operation_ids, problems) : Nil
+    return unless id = operation["operationId"]?.try(&.as_s)
+    problems << "#{where}: operationId #{id} has characters other than letters, digits, . - _" unless id.matches?(/\A[\w.-]+\z/)
+    problems << "#{where}: operationId #{id} is not unique" unless operation_ids.add?(id)
+  end
 
-    problems << "#{where}: #{verb} must not have a requestBody" if NO_BODY.includes?(verb) && operation["requestBody"]?
-
-    parameters = shared + (operation["parameters"]?.try(&.as_a) || [] of JSON::Any)
+  private def self.check_parameters(where, path, parameters : Array(JSON::Any), problems) : Nil
     seen = Set(String).new
     parameters.each do |parameter|
       next if parameter["$ref"]?
@@ -64,7 +72,7 @@ module OpenAPIValidator
       problems << "#{where}: path parameter #{key} must be required" if parameter["in"]?.try(&.as_s) == "path" && parameter["required"]? != true
     end
 
-    declared = parameters.select { |parameter| parameter["in"]?.try(&.as_s) == "path" }.map { |parameter| parameter["name"].as_s }
+    declared = parameters.select { |parameter| parameter["in"]?.try(&.as_s) == "path" }.map(&.["name"].as_s)
     templated = path.scan(/\{([^}]+)\}/).map(&.[1])
     (templated - declared).each { |name| problems << "#{where}: path parameter #{name} is not declared" }
     (declared - templated).each { |name| problems << "#{where}: #{name} is declared but not in the path" }

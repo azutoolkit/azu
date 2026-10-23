@@ -62,8 +62,12 @@ module Azu::OpenAPI
       schema["not"] = Map{"enum" => forbidden.map { |element| scalar(element).as(Value) }}
     end
 
+    # Only a pattern that means the same to an ECMA-262 engine is written: `\A`, `\z` and `\Z` become `^` and
+    # `$`, and a pattern with options, named groups, inline flags or Crystal-only escapes is left out.
     def self.match(schema : Map, pattern : Regex) : Nil
-      schema["pattern"] = pattern.source
+      return unless pattern.options.none?
+      portable = Pattern.portable(pattern.source)
+      schema["pattern"] = portable if portable
     end
 
     # The options that carry no JSON Schema meaning, or none that can be told here, are ignored.
@@ -142,6 +146,47 @@ module Azu::OpenAPI
 
     private def self.scalar(value) : Value
       value.to_s
+    end
+  end
+end
+
+module Azu::OpenAPI::Constraints
+  # Translates the source of a Crystal regular expression to ECMA-262, or nil when it cannot.
+  module Pattern
+    ANCHORS     = {'A' => "^", 'z' => "$", 'Z' => "$"}
+    UNSUPPORTED = "hHRXGKaeQEpP"
+
+    def self.portable(source : String) : String?
+      result = String::Builder.new
+      index = 0
+      while index < source.size
+        if source[index] == '\\'
+          piece = escape(source[index + 1]?) || return
+          index += 2
+        else
+          return if unsupported_group?(source, index)
+          piece = source[index].to_s
+          index += 1
+        end
+        result << piece
+      end
+      result.to_s
+    end
+
+    private def self.escape(escaped : Char?) : String?
+      return unless escaped
+      return if UNSUPPORTED.includes?(escaped)
+      ANCHORS[escaped]? || "\\#{escaped}"
+    end
+
+    # Groups with a name, flags or other extensions, and POSIX classes, have no ECMA-262 form.
+    private def self.unsupported_group?(source : String, index : Int32) : Bool
+      following = source[index + 1]?
+      case source[index]
+      when '(' then following == '?' && !source[index + 2]?.in?(':', '=', '!')
+      when '[' then following == ':'
+      else          false
+      end
     end
   end
 end

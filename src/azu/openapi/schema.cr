@@ -12,6 +12,14 @@ module Azu::OpenAPI
   # type is described as `{}`, which allows anything: a schema that is too loose is better than a
   # wrong one.
   module Schema
+    # How the fields of a request are read: from a JSON body, or from a query string or form.
+    struct Body
+    end
+
+    # :ditto:
+    struct Form
+    end
+
     def self.of(type : T.class, components : Components) : Map forall T
       {% if T == Nil %}
         Map{"type" => "null"}
@@ -67,16 +75,22 @@ module Azu::OpenAPI
     # The object schema of the instance variables of `type`, with the constraints its `validate`
     # calls record. A variable is required unless its type is nilable or it has a default, or when a
     # `presence` or `required` validation says it must be there.
-    def self.object(type : T.class, components : Components) : Map forall T
+    #
+    # `Body` reads the instance variables the way `JSON::Serializable` does, `Form` the way
+    # `URI::Params::Serializable` does (the variable name is always the key). A field with a
+    # `converter:` or a JSON `root:` is described as `{}`: what it holds is not its type.
+    def self.object(type : T.class, components : Components, encoding : E.class = Body) forall T, E
       properties = Map.new
       required = [] of Value
       {% for ivar in T.instance_vars %}
-        {% field = ivar.annotation(JSON::Field) %}
-        {% unless field && field[:ignore] %}
-          {% key = (field && field[:key]) || ivar.name.stringify %}
-          property = of({{ivar.type}}, components)
+        {% form = E == Form %}
+        {% field = form ? ivar.annotation(URI::Params::Field) : ivar.annotation(JSON::Field) %}
+        {% unless field && (field[:ignore] || (form && field[:ignore_deserialize])) %}
+          {% key = (!form && field && field[:key]) || ivar.name.stringify %}
+          {% opaque = field && (field[:converter] || (!form && field[:root])) %}
+          property = {% if opaque %}Map.new{% else %}of({{ivar.type}}, components){% end %}
           must_exist = {{!ivar.type.nilable? && !ivar.has_default_value?}}
-          {% if T.has_constant?("SCHEMA_VALIDATIONS") %}
+          {% if T.type_vars.empty? && T.has_constant?("SCHEMA_VALIDATIONS") %}
             {% for name, options in T.constant("SCHEMA_VALIDATIONS") %}
               {% if name.stringify == ivar.name.stringify %}
                 {% for predicate, expected in options %}

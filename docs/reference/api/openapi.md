@@ -60,7 +60,7 @@ puts document.to_json(pretty: true)
 
 # Serve it at GET /openapi.json
 handler = Azu::OpenAPI::Handler.new(app, info: info)
-server = app.server([handler] of HTTP::Handler)
+server = app.server([*app.default_handlers, handler] of HTTP::Handler)
 ```
 
 ## What the document contains
@@ -80,14 +80,24 @@ the same bytes and a document can be compared or committed.
 - **Request fields.** For `GET`, `DELETE`, `HEAD`, `OPTIONS` and `TRACE` the fields of the request
   that are not in the path are query parameters. For `POST`, `PUT` and `PATCH` they are a `requestBody`
   offered as `application/json` and as `application/x-www-form-urlencoded`, because Azu parses both.
+  The two differ where Azu's parsing does. A JSON body is read alone: the path and the query string are
+  not merged into it, so a field named like a path parameter is also in the JSON schema (and required
+  there if the request requires it) as well as being declared as a path parameter. A form is read together
+  with the path and the query string, so the form schema leaves path-named fields out. The keys follow
+  the parser: `@[JSON::Field(key:)]` renames a field in the JSON body only; query parameters and form
+  fields always use the variable name.
 - **Response.** If the response type includes `JSON::Serializable` the `200` response carries its schema
   as `application/json`.
 - **Errors.** An operation with request fields adds `400` and `422`; one with a path parameter adds `404`.
   They reference shared `components`: `Azu.ValidationProblem` is the RFC 7807 `application/problem+json`
   body that `Response::ValidationError` writes, and `Azu.Error` is the body the other `Response::Error`
-  classes write for a client that accepts JSON.
+  classes write for a client that accepts JSON (`Status` is the underscored `HTTP::Status` member name,
+  such as `not_found`). The document follows the `error_format` the app has when it is built: with
+  `Legacy` the 422 is `application/json` and `Azu.LegacyValidationError` replaces the problem schema.
 - **Components.** Every `JSON::Serializable` type becomes a named schema under `components.schemas`, named
-  after its type (`Shop::Address` is `Shop.Address`) and referenced with `$ref`. Recursive types work.
+  after its type (`Shop::Address` is `Shop.Address`; a generic `Page(Shop::User)` is `Page.Shop.User`, since
+  component names allow only letters, digits, `.`, `-` and `_`) and referenced with `$ref`. Recursive
+  types work. `operationId` uses the same naming.
 - Security schemes, summaries and descriptions are left out: Azu cannot read them from the code.
 
 ## Types
@@ -126,16 +136,36 @@ The options of `validate` are read from the request type:
 | `exclude: [..]` | `not: {enum: [..]}` |
 | `match: /re/` | `pattern` |
 
-Custom validators added with `Schema::Validation.use` are code and cannot be described. Regular
-expressions are passed through as written: Crystal's PCRE2 syntax is close to, but not the same as, the
-ECMA-262 dialect JSON Schema asks for.
+Custom validators added with `Schema::Validation.use` are code and cannot be described, and the
+validations of a generic type (`Page(T)`) are not read.
+
+A `match` pattern is written only when it means the same in ECMA-262, the dialect JSON Schema uses:
+`\A` becomes `^` and `\z` and `\Z` become `$`. A pattern with options (`/i`, `/m`, `/x`), named groups,
+inline flags or other group extensions, POSIX classes (`[[:alpha:]]`) or Crystal-only escapes (`\h`,
+`\R`, `\p{..}` and the like) is left out rather than written wrongly. Crystal's `^` and `$` also match at
+line breaks, which an ECMA-262 pattern without the `m` flag does not, so a multi-line value can differ.
 
 ## Serving the document
 
 `Azu::OpenAPI::Handler.new(app, info:, path: "/openapi.json", servers: [])` is an opt-in `HTTP::Handler`
 like `Handler::HealthCheck`: it answers `GET` and `HEAD` at `path` with JSON and passes every other
 request on. The document is built by the first request and kept, so routes added after that do not
-show up. There is no documentation UI; point Swagger UI, Redoc or any other tool at the URL.
+show up. There is no documentation UI; point Swagger UI, Redoc or any other tool at the URL. Pass the handler
+after the default ones, as above: a server built from `[handler]` alone has no request id, error pages or
+security headers.
+
+The handler describes the `App` it is given, nothing else, and its cache never invalidates: build a new
+handler to pick up routes added later. `path: "/"` serves the document at the root.
+
+## Securing the document
+
+The document is a map of your application: every route, the names of its parameters, the validation rules
+and the mounted apps. Treat it like source code you would show to a client.
+
+- Add the handler only where you mean to publish it, for example behind `config.env.development?` or a
+  setting, not unconditionally in production.
+- Put it after your authentication and authorisation handlers when the API is not public.
+- A Swagger UI served from another origin needs CORS (`Azu::Handler::CORS`) on the document's path.
 
 ## Limits
 
@@ -144,9 +174,16 @@ show up. There is no documentation UI; point Swagger UI, Redoc or any other tool
 - A `render` that does not write the type's own `to_json` makes the document wrong; Azu cannot check it.
 - Hand written `Routable` and `HTTP::Handler` routes have no operation and are left out. So are WebSocket
   channels.
-- Only the default error format is described. With `error_format = Legacy`, the 422 body differs.
+- The status of a successful response is assumed to be `200`: an endpoint's status is set while it runs,
+  so the document cannot know about a `201` or `204`.
+- Query parameters of `POST`, `PUT` and `PATCH` are not described. Azu reads them only for form bodies
+  (merged into the form), not for JSON ones.
+- `@[JSON::Field(ignore:)]` and `@[URI::Params::Field(ignore:)]` leave a field out. A field with
+  `converter:` (or JSON `root:`) is described as `{}`, since its type is not what it holds. `emit_null`
+  and `ignore_serialize` are not considered.
+- Nested objects in query parameters and forms use the schema of the JSON object; how a client encodes
+  them (`a[b]=1`) is up to it.
 - An explicit JSON `null` for a nilable field is accepted by Azu but not advertised in the schema.
-- Nested objects in query parameters are described by their schema; how a client encodes them is up to it.
 - The routes are read when the document is built. Endpoints declared with the verb macros (`get "/path"`
   inside an endpoint) are registered on `Azu::App.default`, so pass that app.
 

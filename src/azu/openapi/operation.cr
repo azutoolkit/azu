@@ -8,6 +8,7 @@ module Azu::OpenAPI
     operation_id : String,
     tags : Array(String),
     request_schema : Map?,
+    form_schema : Map?,
     response_schema : Map?,
     components : Components do
     # The operation of an endpoint of type `endpoint` with the given request and response types.
@@ -16,9 +17,10 @@ module Azu::OpenAPI
     def self.of(endpoint : E.class, request : Req.class, response : Res.class) : Operation forall E, Req, Res
       components = Components.new
       new(
-        operation_id: E.name.gsub("::", "."),
+        operation_id: OpenAPI.identifier(E.name),
         tags: tags_of(E.name),
         request_schema: described?(Req) ? Schema.object(Req, components) : nil,
+        form_schema: described?(Req) ? Schema.object(Req, components, Schema::Form) : nil,
         response_schema: described?(Res) ? Schema.of(Res, components) : nil,
         components: components,
       )

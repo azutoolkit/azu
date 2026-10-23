@@ -9,7 +9,7 @@ module Azu::OpenAPI
     # A `$ref` to the schema of `type_name`, building it with the block the first time. The name is
     # taken before the block runs, so a type that refers to itself terminates.
     def reference(type_name : String, & : -> Map) : Map
-      name = type_name.gsub("::", ".")
+      name = OpenAPI.identifier(type_name)
       unless @schemas.has_key?(name)
         @schemas[name] = Map.new
         @schemas[name] = yield

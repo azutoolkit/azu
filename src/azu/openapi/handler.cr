@@ -13,7 +13,8 @@ module Azu::OpenAPI
   class Handler
     include HTTP::Handler
 
-    def initialize(@app : App, *, @info : Info, @path : String = "/openapi.json", @servers : Array(Server) = [] of Server)
+    def initialize(@app : App, *, @info : Info, path : String = "/openapi.json", @servers : Array(Server) = [] of Server)
+      @path = path.rstrip('/')
       @lock = Mutex.new
       @json = nil.as(String?)
     end

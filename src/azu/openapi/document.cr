@@ -40,6 +40,8 @@ module Azu::OpenAPI
       @operation_ids = Set(String).new
       @problems = Set(String).new
       @mounts_seen = Set(UInt64).new
+      @templates = Hash(String, String).new
+      @legacy = @app.config.error_format.legacy?.as(Bool)
     end
 
     def build : Document
@@ -79,15 +81,21 @@ module Azu::OpenAPI
     private def add_route(route : Router::Route, prefix : String, endpoint : Routable) : Nil
       return unless operation = endpoint.openapi_operation
 
-      path = template(full_path(prefix, route.path))
+      path = canonical(template(full_path(prefix, route.path)))
       item = (@paths[path] ||= Map.new).as(Map)
       item[route.method.to_s.downcase] = operation_object(route.method, path, operation)
       @components.merge(operation.components)
     end
 
-    # `/users/:id` and `/files/*path` are `/users/{id}` and `/files/{path}`.
+    # `/users/:id` and `/files/*path` are `/users/{id}` and `/files/{path}`; a colon inside a segment
+    # (`/users:search`) is literal.
     private def template(path : String) : String
-      path.gsub(/[:*](\w+)/) { "{#{$1}}" }
+      path.gsub(/\/[:*](\w+)/) { "/{#{$1}}" }
+    end
+
+    # Templates that differ only in the names of their parameters are one path in OpenAPI.
+    private def canonical(path : String) : String
+      @templates[path.gsub(/\{\w+\}/, "{}")] ||= path
     end
 
     private def full_path(prefix : String, path : String) : String
@@ -97,22 +105,29 @@ module Azu::OpenAPI
 
     private def operation_object(method : Method, path : String, operation : Operation) : Map
       names = path_parameter_names(path)
-      fields = operation.request_schema
       object = Map{"operationId" => unique_id(operation.operation_id)}
       object["tags"] = operation.tags.map(&.as(Value)) unless operation.tags.empty?
 
-      parameters = names.map { |name| path_parameter(name, fields).as(Value) }
-      if fields
-        remaining = without(fields, names)
-        if NO_BODY.includes?(method)
-          parameters.concat query_parameters(remaining)
-        elsif body = request_body(remaining)
-          object["requestBody"] = body
-        end
-      end
+      parameters = names.map { |name| path_parameter(name, operation.form_schema).as(Value) }
+      add_request(object, parameters, method, names, operation)
       object["parameters"] = parameters unless parameters.empty?
-      object["responses"] = responses(operation, !fields.nil?, !names.empty?)
+      object["responses"] = responses(operation, !operation.request_schema.nil?, !names.empty?)
       object
+    end
+
+    # Query parameters for a method without a body. For the others Azu reads a JSON body, or a form
+    # into which the path and the query string are merged: the JSON body must carry the path-named
+    # fields itself, the form need not.
+    private def add_request(object : Map, parameters : Array(Value), method : Method, names : Array(String), operation : Operation) : Nil
+      return unless json = operation.request_schema
+      return unless form = operation.form_schema
+
+      form = without(form, names)
+      if NO_BODY.includes?(method)
+        parameters.concat query_parameters(form)
+      elsif body = request_body(json, form)
+        object["requestBody"] = body
+      end
     end
 
     private def path_parameter_names(path : String) : Array(String)
@@ -140,13 +155,14 @@ module Azu::OpenAPI
       end
     end
 
-    # Azu reads a JSON body as well as a urlencoded form into the same request.
-    private def request_body(fields : Map) : Map?
-      return if fields["properties"].as(Map).empty?
-      media = -> { Map{"schema" => fields} }
+    private def request_body(json : Map, form : Map) : Map?
+      return if json["properties"].as(Map).empty?
       Map{
-        "required" => fields.has_key?("required"),
-        "content"  => Map{"application/json" => media.call, "application/x-www-form-urlencoded" => media.call},
+        "required" => json.has_key?("required"),
+        "content"  => Map{
+          "application/json"                  => Map{"schema" => json},
+          "application/x-www-form-urlencoded" => Map{"schema" => form},
+        },
       }
     end
 
@@ -198,12 +214,12 @@ module Azu::OpenAPI
       schemas = @components.schemas.dup
       all_problems = Problems.schemas
       @problems.each do |name|
-        schema = name == Problems::VALIDATION_FAILED ? Problems::VALIDATION : Problems::ERROR
+        schema = name == Problems::VALIDATION_FAILED ? Problems.validation_schema(@legacy) : Problems::ERROR
         schemas[schema] = all_problems[schema]
       end
       components["schemas"] = schemas unless schemas.empty?
       unless @problems.empty?
-        shared = Problems.responses
+        shared = Problems.responses(@legacy)
         components["responses"] = @problems.each_with_object(Map.new) { |name, responses| responses[name] = shared[name] }
       end
       components

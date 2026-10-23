@@ -10,6 +10,12 @@ module Azu
     # A JSON object.
     alias Map = Hash(String, Value)
 
+    # A type name as a component name or operation id: `Shop::Page(Shop::User)` is `Shop.Page.Shop.User`,
+    # since component names are limited to letters, digits, `.`, `-` and `_`.
+    def self.identifier(type_name : String) : String
+      type_name.gsub(/[^a-zA-Z0-9_-]+/, ".").strip('.')
+    end
+
     # `value` as JSON with the keys of every object sorted, so the same app always yields the same bytes.
     def self.encode(value : Value, pretty : Bool = false) : String
       String.build do |io|
