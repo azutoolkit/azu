@@ -1,275 +1,285 @@
 # Configuration Options Reference
 
-Complete reference for all Azu configuration options.
+Every option of `Azu::Configuration`, with its type, default and environment variable. Defaults are read when the
+configuration object is built, which for the global one happens when `azu` is required, so set environment
+variables before that (or assign in code).
 
 ## Configuring Azu
 
+A module that includes `Azu` gets `configure`, which yields the global configuration, `Azu::CONFIG`:
+
 ```crystal
-Azu.configure do |config|
-  # Set options here
+require "azu"
+
+module MyApp
+  include Azu
+
+  configure do |config|
+    config.port = 8080
+    config.env = Azu::Environment::Production
+    config.shutdown_timeout = 10.seconds
+  end
 end
 ```
 
-## Server Options
-
-### port
-
-HTTP server port.
+`Azu::CONFIG` is also what `Azu::App.default.config` returns. An app of your own has its own configuration:
 
 ```crystal
-config.port = 8080
+require "azu"
+
+app = Azu::App.new
+app.config.port = 4100
+app.config.env = Azu::Environment::Test
 ```
 
-- **Type:** `Int32`
-- **Default:** `4000`
-- **Environment:** `PORT`
+Code running inside a request sees the configuration of the app that serves it through `Azu.current_config`.
 
-### host
+## Server
 
-Bind address.
+| Option | Type | Default | Environment |
+|---|---|---|---|
+| `port` | `Int32` | `4000` | `PORT` |
+| `host` | `String` | `"0.0.0.0"` | `HOST` |
+| `port_reuse?` | `Bool` | `true` | `PORT_REUSE` (`"true"` enables) |
+| `shutdown_timeout` | `Time::Span` | `30.seconds` | `SHUTDOWN_TIMEOUT` (seconds, never below 0) |
+
+`port_reuse` sets `SO_REUSEPORT` on the listener, which lets several processes share one port. On SIGTERM or SIGINT
+`start` stops accepting connections and waits up to `shutdown_timeout` for requests in flight; new requests on open
+connections get `503` with `Retry-After: 1`.
 
 ```crystal
-config.host = "0.0.0.0"
+require "azu"
+
+Azu::CONFIG.port = 8080
+Azu::CONFIG.port_reuse = false
 ```
 
-- **Type:** `String`
-- **Default:** `"0.0.0.0"`
-- **Environment:** `HOST`
+### TLS
 
-### ssl
+| Option | Type | Default | Environment |
+|---|---|---|---|
+| `ssl_cert` | `String` | `""` | `SSL_CERT` |
+| `ssl_key` | `String` | `""` | `SSL_KEY` |
+| `ssl_ca` | `String` | `""` | `SSL_CA` |
+| `ssl_mode` | `String` | `"none"` | `SSL_MODE` (OpenSSL `verify_mode`) |
 
-SSL/TLS configuration.
+`tls?` is true when both `ssl_cert` and `ssl_key` are set, and `start` then binds with TLS.
+(`SecurityHeaders` in the default stack sends HSTS exactly then.) There is no `ssl` or `reuse_port` option.
 
 ```crystal
-config.ssl = {
-  cert: "/path/to/cert.pem",
-  key: "/path/to/key.pem"
-}
+require "azu"
+
+Azu::CONFIG.ssl_cert = "/etc/ssl/app.pem"
+Azu::CONFIG.ssl_key = "/etc/ssl/app.key"
 ```
-
-- **Type:** `NamedTuple(cert: String, key: String)?`
-- **Default:** `nil`
-- **Environment:** `SSL_CERT`, `SSL_KEY`
-
-### reuse_port
-
-Enable SO_REUSEPORT for multiple processes.
-
-```crystal
-config.reuse_port = true
-```
-
-- **Type:** `Bool`
-- **Default:** `false`
 
 ## Environment
 
-### env
-
-Application environment.
+`env` is an `Azu::Environment` (`Build`, `Development`, `Test`, `Integration`, `Acceptance`, `Pipeline`, `Staging`,
+`Production`), read from `CRYSTAL_ENV` (case-insensitive) and `Development` when unset. An unknown value raises
+`ArgumentError: Unknown enum Azu::Environment value` when the configuration is built. `AZU_ENV` is not read.
+What each environment changes is on the [environments page](environments.md).
 
 ```crystal
-config.env = Azu::Environment::Production
-```
+require "azu"
 
-- **Type:** `Azu::Environment`
-- **Default:** `Development`
-- **Values:** `Development`, `Test`, `Production`
-- **Environment:** `AZU_ENV`
+Azu::CONFIG.env = Azu::Environment::Production
+puts Azu::CONFIG.env.production?
+```
 
 ## Logging
 
-### log.level
+| Option | Type | Default |
+|---|---|---|
+| `log` | `Log` | `Log.for("Azu")` |
 
-Log severity level.
-
-```crystal
-config.log.level = Log::Severity::Info
-```
-
-- **Type:** `Log::Severity`
-- **Default:** `Debug` (development), `Info` (production)
-- **Values:** `Trace`, `Debug`, `Info`, `Notice`, `Warn`, `Error`, `Fatal`
-
-### log.backend
-
-Custom log backend.
+`log` is the logger the framework writes to (request lines of `Handler::Logger`, cache and upload messages). The
+level and the backend belong to Crystal's `Log`: there is no `log.level` or `log.backend` option. Set them with
+`Log.setup`, or call `Azu.setup_logging` for Azu's format at `Debug`. See
+[How to Add Logging](../../how-to/middleware/add-logging.md).
 
 ```crystal
-config.log.backend = Log::IOBackend.new(File.new("app.log", "a"))
+require "azu"
+
+Azu::CONFIG.log = Log.for("my_app")
 ```
 
-- **Type:** `Log::Backend`
-- **Default:** `Log::IOBackend.new(STDOUT)`
+## Templates
 
-## Template Options
+| Option | Type | Default | Environment |
+|---|---|---|---|
+| `template_hot_reload?` | `Bool` | `true` for `development`, `test` and `pipeline`, else `false` | `TEMPLATE_HOT_RELOAD` |
+| `templates.path` | `Array(String)` | the working directory's `../../templates` | `TEMPLATES_PATH` (comma separated) |
+| `templates.error_path` | `String` | Azu's own error templates | `ERROR_TEMPLATE` |
 
-### template_path
-
-Directory for template files.
+The default template path is a leftover that resolves relative to the working directory, so set `TEMPLATES_PATH`
+or add your directory. `templates.path = "..."` **adds** a directory to the list:
 
 ```crystal
-config.template_path = "./views"
+require "azu"
+
+Azu::CONFIG.templates.path = "./public/templates"
+Azu::CONFIG.template_hot_reload = false
 ```
 
-- **Type:** `String`
-- **Default:** `"./views"`
+With hot reload on, `templates` re-reads template files that changed (it checks at most once a second). Hot reload
+off does not mean templates are cached: a template whose file was rewritten rendered the new content with it off
+as well.
 
-### template_hot_reload
+## Request Contracts
 
-Reload templates on each request.
+| Option | Type | Default |
+|---|---|---|
+| `error_format` | `Azu::ErrorFormat` | `Problem` |
+
+`Problem` answers a failed contract with RFC 7807 `application/problem+json`; `Legacy` keeps the pre-0.6 body.
+There is no `max_request_size` or `request_timeout` option; the size of uploaded files is limited below.
+
+## Uploads
+
+| Option | Type | Default | Environment |
+|---|---|---|---|
+| `upload.max_file_size` | `UInt64` | 10 MB | `UPLOAD_MAX_FILE_SIZE` (bytes) |
+| `upload.temp_dir` | `String` | `Dir.tempdir` | `UPLOAD_TEMP_DIR` |
+| `upload.buffer_size` | `Int32` | 8192 | `UPLOAD_BUFFER_SIZE` |
+| `upload.cleanup_interval` | `Time::Span` | 1 hour | `UPLOAD_CLEANUP_INTERVAL` (seconds) |
+| `upload.max_temp_age` | `Time::Span` | 24 hours | `UPLOAD_MAX_TEMP_AGE` (seconds) |
+
+`start` creates the temp directory and starts the task that deletes `azu_upload_*` files older than `max_temp_age`.
+
+## WebSockets
+
+| Option | Type | Default | Environment |
+|---|---|---|---|
+| `websocket.allowed_origins` | `Array(String)` | `[]` (own origin only) | `WEBSOCKET_ALLOWED_ORIGINS` (comma separated, `"*"` allows all) |
+| `websocket.max_message_size` | `Int32` | 1 MB | `WEBSOCKET_MAX_MESSAGE_SIZE` |
+| `websocket.ping_interval` | `Time::Span?` | 30 seconds | `WEBSOCKET_PING_INTERVAL` (seconds, `0` disables) |
+
+Spark live views have their own `spark` section (`SPARK_*` variables, `Azu::Spark.configure`), described in
+[Spark live views](../../explanation/spark-live-views.md).
+
+## Cache
+
+`cache` is the manager (`Azu.cache`), built on first use from `cache_config`, which is where you configure it.
+Assigning a store (`config.cache = ...`) is not possible.
+
+| Option | Type | Default | Environment |
+|---|---|---|---|
+| `cache_config.enabled?` | `Bool` | `true` | `CACHE_ENABLED` |
+| `cache_config.store` | `String` | `"memory"` (`"redis"`, `"null"`) | `CACHE_STORE` |
+| `cache_config.max_size` | `Int32` | 1000 | `CACHE_MAX_SIZE` |
+| `cache_config.default_ttl` | `Int32` (seconds) | 3600 | `CACHE_DEFAULT_TTL` |
+| `cache_config.key_prefix` | `String` | `"azu"` | `CACHE_KEY_PREFIX` |
+| `cache_config.cache_cleanup_interval` | `Int32` (seconds) | 300 | `CACHE_CLEANUP_INTERVAL` |
+| `cache_config.redis_url` | `String` | `"redis://localhost:6379/0"` | `CACHE_REDIS_URL` |
+| `cache_config.redis_pool_size` | `Int32` | 5 | `CACHE_REDIS_POOL_SIZE` |
+| `cache_config.redis_timeout` | `Int32` (seconds) | 5 | `CACHE_REDIS_TIMEOUT` |
+| `cache_config.redis_operation_timeout` | `Int32` (seconds) | 2 | `CACHE_REDIS_OPERATION_TIMEOUT` |
+| `cache_config.cache_connection_retries` | `Int32` | 3 | `CACHE_CONNECTION_RETRIES` |
+| `cache_config.cache_connection_retry_delay` | `Int32` (seconds) | 1 | `CACHE_CONNECTION_RETRY_DELAY` |
+
+`compress?`, `serialize?` and the `file_cache_*` options exist and are read from `CACHE_COMPRESS`, `CACHE_SERIALIZE`,
+`CACHE_FILE_PATH` and `CACHE_FILE_PERMISSIONS`, but nothing uses them yet. Settings changed after the first use of
+`Azu.cache` do not rebuild the store. See the [cache reference](../api/cache.md).
 
 ```crystal
-config.template_hot_reload = true
+require "azu"
+
+Azu::CONFIG.cache_config.store = "memory"
+Azu::CONFIG.cache_config.max_size = 5_000
+Azu::CONFIG.cache_config.default_ttl = 600
 ```
 
-- **Type:** `Bool`
-- **Default:** `true` (development), `false` (production)
+## i18n
 
-## Cache Options
+| Option | Type | Default | Environment |
+|---|---|---|---|
+| `i18n.load_path` | `Array(String)` | `["locales"]` | `I18N_LOAD_PATH` (comma separated) |
+| `i18n.default_locale` | `String` | `"en"` | `I18N_DEFAULT_LOCALE` |
+| `i18n.available_locales` | `Array(String)` | detected from files | `I18N_AVAILABLE_LOCALES` |
+| `i18n.fallback_locale` | `String?` | `nil` | `I18N_FALLBACK_LOCALE` |
+| `i18n.raise_on_missing?` | `Bool` | `false` | `I18N_RAISE_ON_MISSING` |
+| `i18n.missing_key_format` | `String` | `"[missing: %{key}]"` | `I18N_MISSING_KEY_FORMAT` |
 
-### cache
+The settings are applied to the process-wide `Helpers::I18n` when the configuration is built (and only when one of
+the load paths exists), so to change them later use the setters of `Azu::Helpers::I18n` (`default_locale=`, `fallback_locale=`, ...).
 
-Cache store instance.
+## Assets
 
-```crystal
-config.cache = Azu::Cache::RedisStore.new(url: ENV["REDIS_URL"])
-```
+| Option | Type | Default | Environment |
+|---|---|---|---|
+| `assets.prefix` | `String` | `"/assets"` | `ASSETS_PREFIX` |
+| `assets.path` | `String` | `"public/assets"` | `ASSETS_PATH` |
+| `assets.fingerprint?` | `Bool` | `true` | `ASSETS_FINGERPRINT` |
+| `assets.manifest_path` | `String` | `"public/assets/manifest.json"` | `ASSETS_MANIFEST_PATH` |
+| `assets.cache_max_age` | `Int32` (seconds) | 31 536 000 | `ASSETS_CACHE_MAX_AGE` |
+| `assets.integrity?` | `Bool` | `false` | `ASSETS_INTEGRITY` |
 
-- **Type:** `Azu::Cache::Store`
-- **Default:** `Azu::Cache::MemoryStore.new`
+## Database
 
-## Router Options
+Only the instrumentation of `azu/cql` is configured here; the connection is CQL's.
 
-### router.path_cache_size
+| Option | Type | Default | Environment |
+|---|---|---|---|
+| `database.uri` | `String?` | `nil` | `DATABASE_URL` |
+| `database.lazy_connect?` | `Bool` | `true` | `AZU_DB_LAZY` |
+| `database.instrument?` | `Bool` | `true` | `AZU_DB_INSTRUMENT` |
+| `database.n_plus_one_threshold` | `Int32` | 3 | `AZU_DB_N_PLUS_ONE_THRESHOLD` |
+| `database.slow_query_ms` | `Float64` | 50.0 | `AZU_DB_SLOW_QUERY_MS` |
+| `database.playground?` | `Bool` | `true` | `AZU_DB_PLAYGROUND` |
 
-Number of paths to cache.
+See the [database dashboard](../database-dashboard.md).
 
-```crystal
-config.router.path_cache_size = 1000
-```
+## Performance Tooling (`require "azu/dev"`)
 
-- **Type:** `Int32`
-- **Default:** `1000`
+After `require "azu/dev"`, `Configuration` also has `performance_enabled?` (`PERFORMANCE_MONITORING=true`),
+`performance_profiling_enabled?` (`PERFORMANCE_PROFILING`) and `performance_memory_monitoring?`
+(`PERFORMANCE_MEMORY_MONITORING`); the last two default to on in `Development`. Without the require these
+methods do not exist.
 
-### router.path_cache_enabled
+## Introspection
 
-Enable path caching.
-
-```crystal
-config.router.path_cache_enabled = true
-```
-
-- **Type:** `Bool`
-- **Default:** `true`
-
-## Request Options
-
-### max_request_size
-
-Maximum request body size.
-
-```crystal
-config.max_request_size = 10 * 1024 * 1024  # 10 MB
-```
-
-- **Type:** `Int32`
-- **Default:** `8 * 1024 * 1024` (8 MB)
-
-### request_timeout
-
-Request timeout.
-
-```crystal
-config.request_timeout = 30.seconds
-```
-
-- **Type:** `Time::Span`
-- **Default:** `60.seconds`
+`handlers` holds the array given to `start`, for the development dashboard to draw. Assigning it does not change
+what the server runs. `router` is the app's `Azu::Router`.
 
 ## Environment Variables
 
-Azu reads these environment variables:
+Every variable Azu reads is in the tables above. `AZU_ENV`, `REDIS_URL` and `SECRET_KEY` are not read: the Redis
+URL is `CACHE_REDIS_URL`, and the signing secret of Spark live views is `SPARK_SECRET`.
 
-| Variable | Config Option | Description |
-|----------|--------------|-------------|
-| `PORT` | `port` | Server port |
-| `HOST` | `host` | Bind address |
-| `AZU_ENV` | `env` | Environment |
-| `SSL_CERT` | `ssl.cert` | SSL certificate path |
-| `SSL_KEY` | `ssl.key` | SSL key path |
-| `REDIS_URL` | Cache URL | Redis connection |
-| `DATABASE_URL` | Database | DB connection |
+| Variable | Option |
+|---|---|
+| `CRYSTAL_ENV` | `env` |
+| `PORT`, `HOST`, `PORT_REUSE`, `SHUTDOWN_TIMEOUT` | `port`, `host`, `port_reuse?`, `shutdown_timeout` |
+| `SSL_CERT`, `SSL_KEY`, `SSL_CA`, `SSL_MODE` | TLS |
+| `TEMPLATE_HOT_RELOAD`, `TEMPLATES_PATH`, `ERROR_TEMPLATE` | templates |
+| `CACHE_*` | `cache_config` |
+| `UPLOAD_*`, `WEBSOCKET_*`, `I18N_*`, `ASSETS_*`, `AZU_DB_*`, `DATABASE_URL`, `SPARK_*` | the matching section |
 
-## Environment-Based Configuration
+## Per-Environment Configuration
 
-```crystal
-Azu.configure do |config|
-  # Common settings
-  config.port = ENV.fetch("PORT", "4000").to_i
-
-  case ENV.fetch("AZU_ENV", "development")
-  when "production"
-    config.env = Azu::Environment::Production
-    config.log.level = Log::Severity::Info
-    config.template_hot_reload = false
-    config.cache = Azu::Cache::RedisStore.new(url: ENV["REDIS_URL"])
-
-  when "test"
-    config.env = Azu::Environment::Test
-    config.log.level = Log::Severity::Warn
-    config.port = 4001
-
-  else # development
-    config.env = Azu::Environment::Development
-    config.log.level = Log::Severity::Debug
-    config.template_hot_reload = true
-    config.cache = Azu::Cache::MemoryStore.new
-  end
-end
-```
-
-## Complete Example
+Read the environment first, then adjust:
 
 ```crystal
-Azu.configure do |config|
-  # Server
-  config.port = ENV.fetch("PORT", "8080").to_i
-  config.host = ENV.fetch("HOST", "0.0.0.0")
-  config.reuse_port = true
+require "azu"
 
-  # Environment
-  config.env = Azu::Environment::Production
+module MyApp
+  include Azu
 
-  # SSL
-  if ENV["SSL_CERT"]? && ENV["SSL_KEY"]?
-    config.ssl = {
-      cert: ENV["SSL_CERT"],
-      key: ENV["SSL_KEY"]
-    }
+  configure do |config|
+    config.port = ENV.fetch("PORT", "4000").to_i
+
+    case config.env
+    when .production?
+      config.template_hot_reload = false
+      config.cache_config.store = "redis"
+      config.cache_config.redis_url = ENV.fetch("CACHE_REDIS_URL", "redis://localhost:6379/0")
+    when .test?
+      config.port = 4001
+    else
+      config.template_hot_reload = true
+    end
   end
-
-  # Logging
-  config.log.level = Log::Severity::Info
-  config.log.backend = JsonLogBackend.new(STDOUT)
-
-  # Templates
-  config.template_path = "./views"
-  config.template_hot_reload = false
-
-  # Cache
-  config.cache = Azu::Cache::RedisStore.new(
-    url: ENV["REDIS_URL"],
-    pool_size: 10,
-    namespace: "myapp:production"
-  )
-
-  # Router
-  config.router.path_cache_size = 2000
-
-  # Request limits
-  config.max_request_size = 20 * 1024 * 1024
-  config.request_timeout = 30.seconds
 end
 ```
 
@@ -277,3 +287,4 @@ end
 
 - [Environments Reference](environments.md)
 - [Core Reference](../api/core.md)
+- [Cache Reference](../api/cache.md)

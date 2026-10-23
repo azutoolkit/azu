@@ -1,258 +1,292 @@
 # How to Create Custom Middleware
 
-This guide shows you how to create custom middleware handlers in Azu.
+This guide shows how to write your own handlers. A handler is any class that includes `HTTP::Handler` and
+implements `call(context)`; Azu has no base class of its own. Before writing one, check
+[the built-in handlers](../../reference/handlers/built-in.md): request ids, logging, error pages, security
+headers, static files, CORS, CSRF, rate limiting, compression and health checks already exist.
 
 ## Basic Handler
 
-Create a handler by extending `Azu::Handler::Base`:
-
 ```crystal
-class TimingHandler < Azu::Handler::Base
-  def call(context)
+class TimingHandler
+  include HTTP::Handler
+
+  def call(context : HTTP::Server::Context)
     start = Time.instant
 
     call_next(context)
 
-    duration = Time.instant - start
-    context.response.headers["X-Response-Time"] = "#{duration.total_milliseconds.round(2)}ms"
+    elapsed = Time.instant - start
+    context.response.headers["X-Response-Time"] = "#{elapsed.total_milliseconds.round(2)}ms"
   end
 end
 ```
+
+`call_next(context)` runs the rest of the chain and the endpoint. Code before it sees the request, code after it
+sees the response.
+
+A header set after `call_next` is lost once the response has started to leave the server, which happens for a large
+body (a 100 000 byte body lost the header above in a test), a `flush` or a stream. Anything you can decide before
+the endpoint runs belongs before `call_next`; `X-Response-Time` is best effort.
 
 ## Register the Handler
 
-Add your handler to the application pipeline:
+Pass the handlers to `start`, outermost first. The router (and with it every endpoint) always comes last, so
+endpoints are not listed:
 
 ```crystal
+module MyApp
+  include Azu
+end
+
+class TimingHandler
+  include HTTP::Handler
+
+  def call(context : HTTP::Server::Context)
+    call_next(context)
+  end
+end
+
 MyApp.start [
-  TimingHandler.new,          # First in chain
-  Azu::Handler::Rescuer.new,
+  Azu::Handler::RequestId.new,
+  TimingHandler.new,
   Azu::Handler::Logger.new,
-  # ... endpoints
-]
+  Azu::Handler::Rescuer.new,
+] of HTTP::Handler
 ```
+
+An array you pass replaces the default stack (`RequestId`, `Logger`, `Rescuer`, `SecurityHeaders`, `Static`), so list
+the ones you still want. To extend the default stack instead, build on it:
+
+```crystal
+module MyApp
+  include Azu
+end
+
+class TimingHandler
+  include HTTP::Handler
+
+  def call(context : HTTP::Server::Context)
+    call_next(context)
+  end
+end
+
+handlers = Azu::App.default.default_handlers
+handlers.insert(1, TimingHandler.new)
+MyApp.start handlers
+```
+
+`default_handlers` returns new instances each call, because a handler instance can be in one chain only.
 
 ## Authentication Handler
 
+Answer failures by raising an `Azu::Response::Error`: `Rescuer` (keep it **before** this handler in the array)
+renders it as JSON, HTML or text according to the request's `Accept` header, with the right status code:
+
 ```crystal
-class AuthHandler < Azu::Handler::Base
-  EXCLUDED_PATHS = ["/", "/login", "/health"]
+class TokenAuthHandler
+  include HTTP::Handler
 
-  def call(context)
-    path = context.request.path
+  PUBLIC_PATHS = ["/", "/login", "/health"]
 
-    if EXCLUDED_PATHS.includes?(path)
-      return call_next(context)
+  def initialize(@tokens : Hash(String, Int64))
+  end
+
+  def call(context : HTTP::Server::Context)
+    # Never trust a header the client may have sent itself.
+    context.request.headers.delete("X-User-ID")
+    return call_next(context) if PUBLIC_PATHS.includes?(context.request.path)
+
+    user_id = bearer_token(context).try { |token| @tokens[token]? }
+    raise Azu::Response::AuthenticationError.new unless user_id
+
+    context.request.headers["X-User-ID"] = user_id.to_s
+    call_next(context)
+  end
+
+  private def bearer_token(context : HTTP::Server::Context) : String?
+    context.request.headers["Authorization"]?.try do |header|
+      header.lchop?("Bearer ")
     end
+  end
+end
+```
 
-    token = extract_token(context)
+In an array: `[RequestId.new, Rescuer.new, TokenAuthHandler.new({"s3cret" => 42_i64})]`. A request without the token
+was answered `401`; with `Authorization: Bearer s3cret` the endpoint saw `X-User-ID: 42`, and a forged `X-User-ID: 1`
+sent without a token was answered `401` too. An endpoint reads the value with
+`context.request.headers["X-User-ID"]?`.
 
-    if token && valid_token?(token)
-      # Store user in context for later use
-      context.request.headers["X-User-ID"] = user_id_from_token(token).to_s
-      call_next(context)
-    else
+To answer without `Rescuer`, or with your own body, write the response yourself and return without
+calling `call_next`:
+
+```crystal
+class ApiKeyHandler
+  include HTTP::Handler
+
+  def initialize(@key : String)
+  end
+
+  def call(context : HTTP::Server::Context)
+    unless context.request.headers["X-Api-Key"]? == @key
       context.response.status_code = 401
       context.response.content_type = "application/json"
       context.response.print({error: "Unauthorized"}.to_json)
-    end
-  end
-
-  private def extract_token(context) : String?
-    auth = context.request.headers["Authorization"]?
-    return nil unless auth
-
-    if auth.starts_with?("Bearer ")
-      auth[7..]
-    else
-      nil
-    end
-  end
-
-  private def valid_token?(token : String) : Bool
-    Token.valid?(token)
-  end
-
-  private def user_id_from_token(token : String) : Int64
-    Token.decode(token)["user_id"].as_i64
-  end
-end
-```
-
-## CORS Handler
-
-```crystal
-class CorsHandler < Azu::Handler::Base
-  def initialize(
-    @allowed_origins = ["*"],
-    @allowed_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    @allowed_headers = ["Content-Type", "Authorization"],
-    @max_age = 86400
-  )
-  end
-
-  def call(context)
-    origin = context.request.headers["Origin"]?
-
-    if origin && allowed_origin?(origin)
-      set_cors_headers(context, origin)
-    end
-
-    # Handle preflight
-    if context.request.method == "OPTIONS"
-      context.response.status_code = 204
       return
     end
 
     call_next(context)
   end
-
-  private def allowed_origin?(origin : String) : Bool
-    @allowed_origins.includes?("*") || @allowed_origins.includes?(origin)
-  end
-
-  private def set_cors_headers(context, origin)
-    headers = context.response.headers
-    headers["Access-Control-Allow-Origin"] = origin
-    headers["Access-Control-Allow-Methods"] = @allowed_methods.join(", ")
-    headers["Access-Control-Allow-Headers"] = @allowed_headers.join(", ")
-    headers["Access-Control-Max-Age"] = @max_age.to_s
-  end
 end
 ```
 
-## Rate Limiting Handler
+## Use the Built-in Handler First
+
+These are commonly written by hand and exist already:
+
+| You want | Use |
+|---|---|
+| Allow another origin to call the API | `Azu::Handler::CORS.new(origins: [...] of (String \| Regex))`, which also answers preflight requests |
+| Limit requests per client | `Azu::Handler::Throttle.new(interval: 5, duration: 900, threshold: 100, blacklist: [] of String, whitelist: [] of String)` |
+| A request id on every request and response | `Azu::Handler::RequestId.new` |
+| Gzip or deflate responses | `Azu::Handler::Compression.new`, after `Static` |
+| Security headers | `Azu::Handler::SecurityHeaders.new` |
+| A `/health` probe | `Azu::Handler::HealthCheck.new` |
+
+Compressing in your own handler after `call_next` does not work: `context.response.output` is the connection, not a
+buffer holding the body. `Compression` wraps the output before the rest of the chain runs.
+
+## A Handler with a Block
+
+A handler that decides per request can take a block:
 
 ```crystal
-class RateLimitHandler < Azu::Handler::Base
-  def initialize(
-    @limit = 100,
-    @window = 1.minute
-  )
-  end
+class ConditionalHandler
+  include HTTP::Handler
 
-  def call(context)
-    client_id = get_client_id(context)
-    key = "ratelimit:#{client_id}"
-
-    current = increment_counter(key)
-
-    context.response.headers["X-RateLimit-Limit"] = @limit.to_s
-    context.response.headers["X-RateLimit-Remaining"] = Math.max(0, @limit - current).to_s
-
-    if current > @limit
-      context.response.status_code = 429
-      context.response.content_type = "application/json"
-      context.response.print({error: "Too many requests"}.to_json)
-      return
-    end
-
-    call_next(context)
-  end
-
-  private def get_client_id(context) : String
-    context.request.headers["X-Forwarded-For"]? ||
-      context.request.remote_address.to_s
-  end
-
-  private def increment_counter(key : String) : Int32
-    count = Azu.cache.increment(key)
-    Azu.cache.expire(key, @window) if count == 1
-    count
-  end
-end
-```
-
-## Request ID Handler
-
-```crystal
-class RequestIdHandler < Azu::Handler::Base
-  def call(context)
-    request_id = context.request.headers["X-Request-ID"]? || generate_id
-
-    # Set on request for logging
-    context.request.headers["X-Request-ID"] = request_id
-
-    # Include in response
-    context.response.headers["X-Request-ID"] = request_id
-
-    call_next(context)
-  end
-
-  private def generate_id : String
-    UUID.random.to_s
-  end
-end
-```
-
-## Compression Handler
-
-```crystal
-class CompressionHandler < Azu::Handler::Base
-  MIN_SIZE = 1024  # Only compress responses > 1KB
-
-  def call(context)
-    call_next(context)
-
-    return unless should_compress?(context)
-
-    body = context.response.output.to_s
-    return if body.bytesize < MIN_SIZE
-
-    compressed = Compress::Gzip.compress(body)
-
-    context.response.headers["Content-Encoding"] = "gzip"
-    context.response.output = IO::Memory.new(compressed)
-  end
-
-  private def should_compress?(context) : Bool
-    accept = context.request.headers["Accept-Encoding"]?
-    return false unless accept
-
-    accept.includes?("gzip")
-  end
-end
-```
-
-## Conditional Handler
-
-Skip handler based on conditions:
-
-```crystal
-class ConditionalHandler < Azu::Handler::Base
   def initialize(&@condition : HTTP::Server::Context -> Bool)
   end
 
-  def call(context)
+  def call(context : HTTP::Server::Context)
     if @condition.call(context)
-      # Do something
+      context.response.headers["X-Api-Version"] = "1"
     end
 
     call_next(context)
   end
 end
 
-# Usage
-ConditionalHandler.new { |ctx| ctx.request.path.starts_with?("/api") }
+ConditionalHandler.new { |context| context.request.path.starts_with?("/api") }
+```
+
+## Wrapping Other Handlers
+
+Because a handler is just an object, one handler can run another only for some requests. The wrapped handler
+must be given the rest of the chain:
+
+```crystal
+class OnlyFor
+  include HTTP::Handler
+
+  def initialize(@prefix : String, @handler : HTTP::Handler)
+  end
+
+  def call(context : HTTP::Server::Context)
+    if context.request.path.starts_with?(@prefix)
+      @handler.next = self.next
+      @handler.call(context)
+    else
+      call_next(context)
+    end
+  end
+end
+
+OnlyFor.new("/api", Azu::Handler::Throttle.new(interval: 5, duration: 60, threshold: 20, blacklist: [] of String, whitelist: [] of String))
 ```
 
 ## Handler Ordering
 
-Order matters - handlers execute in sequence:
+Order matters; what each position means was checked by running it (see
+[the middleware concept](../../explanation/concepts/middleware.md#ordering-best-practices)):
 
 ```crystal
+module MyApp
+  include Azu
+end
+
 MyApp.start [
-  RequestIdHandler.new,       # First: Add request ID
-  TimingHandler.new,          # Track timing
-  CorsHandler.new,            # Handle CORS
-  RateLimitHandler.new,       # Enforce limits
-  AuthHandler.new,            # Authenticate
-  Azu::Handler::Logger.new,   # Log requests
-  Azu::Handler::Rescuer.new,  # Handle errors
-  # ... endpoints
-]
+  Azu::Handler::RequestId.new,                        # ids first: logs and errors carry them
+  Azu::Handler::Logger.new,                           # outside Rescuer: logs the final status
+  Azu::Handler::Rescuer.new,                          # errors raised below become responses
+  Azu::Handler::SecurityHeaders.new,
+  Azu::Handler::CORS.new(origins: ["https://app.example.com"] of (String | Regex)), # before authentication
+  Azu::Handler::Static.new(fallthrough: true),        # public files need no authentication
+  Azu::Handler::Throttle.new(interval: 5, duration: 900, threshold: 100, blacklist: [] of String, whitelist: [] of String),
+] of HTTP::Handler
+```
+
+## Testing a Handler
+
+Serve it on a free port and send real requests through it:
+
+```crystal
+require "spec"
+require "azu"
+require "http/client"
+
+class StampHandler
+  include HTTP::Handler
+
+  def call(context : HTTP::Server::Context)
+    context.response.headers["X-Stamp"] = "yes"
+    call_next(context)
+  end
+end
+
+struct PingResponse
+  include Azu::Response
+
+  def render
+    "pong"
+  end
+end
+
+struct PingEndpoint
+  include Azu::Endpoint(Azu::Request, PingResponse)
+
+  get "/ping"
+
+  def call : PingResponse
+    PingResponse.new
+  end
+end
+
+def serve(handlers : Array(HTTP::Handler), &)
+  server = Azu::App.default.server(handlers)
+  address = server.bind_unused_port("127.0.0.1")
+  spawn { server.listen }
+  Fiber.yield
+  begin
+    yield HTTP::Client.new(address.address, address.port)
+  ensure
+    server.close
+  end
+end
+
+describe StampHandler do
+  it "adds its header and lets the endpoint answer" do
+    serve([StampHandler.new] of HTTP::Handler) do |client|
+      response = client.get("/ping")
+
+      response.status_code.should eq 200
+      response.body.should eq "pong"
+      response.headers["X-Stamp"].should eq "yes"
+    end
+  end
+end
 ```
 
 ## See Also
 
 - [Add Logging](add-logging.md)
+- [Built-in handlers](../../reference/handlers/built-in.md)

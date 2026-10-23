@@ -1,331 +1,240 @@
 # Performance Design
 
-This document explains the performance-oriented design decisions in Azu and how they contribute to high throughput and low latency.
+This document describes what Azu does to keep requests cheap, what it does not do, and how to measure your own
+application. It contains only properties that were read in the source or measured, and says how each number was
+obtained.
 
-## Design Principles
+## What Azu Builds On
 
-Azu's performance design follows these principles:
+Azu is compiled by Crystal to native code. Method calls on concrete types are resolved at compile time, and generics
+(`Endpoint(Request, Response)`) are specialized per type, so there is no reflection on the request path. The HTTP
+server, the connection handling (a fiber per connection) and the non-blocking I/O are Crystal's standard library;
+Azu adds the handlers, router and endpoint layer on top.
 
-1. **Zero-cost abstractions** - High-level code compiles to efficient machine code
-2. **Minimal allocations** - Reduce garbage collection pressure
-3. **Cache-friendly** - Optimize for CPU cache hits
-4. **Async I/O** - Never block on I/O operations
+## Router
 
-## Crystal's Performance Foundation
+Routes live in a radix tree (the `radix` shard), keyed by method and path. A lookup walks the tree by path segment.
 
-Azu benefits from Crystal's performance characteristics:
+### The Path Cache
 
-### LLVM Compilation
+Before the lookup the router builds the string it searches for (`"/get/users/42"`, or `"/ws/chat"` for an
+upgrade). That string is cached per `method:path` in a hash guarded by a mutex:
 
-```
-Crystal Source → Crystal Compiler → LLVM IR → Machine Code
-                                        ↓
-                              Optimized native binary
-```
-
-Crystal compiles to LLVM IR, benefiting from decades of optimization work.
-
-### Stack Allocation
-
-Value types (structs) are stack-allocated:
-
-```crystal
-struct UserResponse
-  include Azu::Response
-
-  def initialize(@user : User)
-  end
-end
+```text
+GET /users/42  →  cache key "GET:/users/42"  →  lookup string "/get/users/42"
 ```
 
-`UserResponse` instances:
-- Allocated on stack when possible
-- No GC overhead for short-lived objects
-- Cache-friendly memory layout
-
-### No Runtime Reflection
-
-Types are resolved at compile time:
-- No runtime type checking overhead
-- Method calls are direct, not looked up
-- Generics compile to specialized code
-
-## Router Performance
-
-The router uses a radix tree for O(k) route matching:
-
-### Radix Tree Structure
-
-```
-            /
-           users
-          /     \
-        GET    :id
-         |    /    \
-      Index GET  DELETE
-```
-
-Characteristics:
-- Path lookup is O(k) where k = path length
-- Shared prefixes stored once
-- No regex matching for static segments
-
-### Path Caching
-
-Frequently accessed paths are cached:
-
-```crystal
-# Router maintains LRU cache
-PathCache = LRUCache(String, RouteMatch).new(1000)
-
-def find(method, path)
-  key = "#{method}:#{path}"
-
-  if cached = PathCache.get(key)
-    return cached
-  end
-
-  match = tree.find(path)
-  PathCache.set(key, match)
-  match
-end
-```
+The cache holds the **lookup string**, not the matched route, and it is bounded at 1000 entries with **no
+eviction**: once it is full, new paths are simply not added. A site with more than 1000 distinct URLs (an id per
+page) stops adding entries after the thousandth and builds the string for the rest on each request. Routes with
+parameters are therefore cached per distinct path, not per route.
 
 ## Request Processing
 
-### Minimal Parsing
-
-Request bodies are parsed lazily:
-
-```crystal
-# Body not parsed until accessed
-def call
-  # If you never access the request body,
-  # it's never parsed
-  headers["Accept"]  # Just header access, no body parsing
-end
-```
-
-### Streaming Bodies
-
-Large bodies can be streamed:
-
-```crystal
-def call
-  # Stream without loading entire body
-  request.body.each_chunk do |chunk|
-    process(chunk)
-  end
-end
-```
-
-## Handler Pipeline
-
-### Direct Dispatch
-
-Handlers use direct method calls, not dynamic dispatch:
-
-```crystal
-# Compile-time known handler chain
-handlers = [Rescuer.new, Logger.new, MyEndpoint.new]
-
-# At runtime: direct calls
-handlers[0].call(context)
-  → handlers[1].call(context)
-    → handlers[2].call(context)
-```
-
-### No Middleware Allocation
-
-Handler instances are created once at startup:
-
-```crystal
-MyApp.start [
-  Azu::Handler::Rescuer.new,  # Created once
-  Azu::Handler::Logger.new,   # Reused for all requests
-  MyEndpoint.new,
-]
-```
+- **The request is parsed once per call**, before `call`, because the contract is enforced before the endpoint
+  runs. Parsing is not lazy: an endpoint with a request type always pays for parsing and validation, even when
+  `call` never reads the request. An endpoint declared with the bare `Azu::Request` module has no contract and
+  skips it.
+- **Endpoints are copied per call.** The router holds one endpoint value per route; a `struct` endpoint is copied for
+  every request, so the instance variables `call` sets (the context, the params) belong to that request. A `class`
+  endpoint is one object shared by all concurrent requests, and its params and context are overwritten by the next
+  request that arrives while the first one waits. Three simultaneous requests to a class endpoint that slept in
+  `call` all saw the params of the last one. Declare endpoints as `struct`s.
+- **Handlers are created once.** The handler array is built at startup and every request goes through the same
+  instances, so handler state is shared by all requests (use `Atomic` or `Mutex`).
 
 ## Response Generation
 
-### Pre-computed Headers
+An endpoint returns an object whose `render` produces the body; it is written to the connection by `<<`. Small
+bodies are buffered by the standard library and written when the endpoint returns, large ones leave while they are
+written. `Static` sends files with a weak `ETag` derived from the file's modification time, answers `304` to a matching
+`If-None-Match`, serves byte ranges, and gzips or deflates compressible types larger than 860 bytes when the client
+accepts it. `Compression` gives other responses the
+standard library's gzip.
 
-Common headers are pre-computed:
+## Templates
 
-```crystal
-CONTENT_TYPE_JSON = "application/json"
-CONTENT_TYPE_HTML = "text/html; charset=utf-8"
-
-# No string allocation per request
-response.headers["Content-Type"] = CONTENT_TYPE_JSON
-```
-
-### Efficient JSON Serialization
-
-Crystal's JSON serialization is compile-time generated:
+`Azu::Templates` loads a template through Crinja on each render. Template files are **not** compiled once and kept:
+with `template_hot_reload` off, a template file that was rewritten rendered its new content on the next load.
+Hot reload only adds a check (at most once a second) that rebuilds the loader. If rendering is a hot spot, cache the
+rendered fragment:
 
 ```crystal
-struct User
-  include JSON::Serializable
+require "azu"
 
-  property id : Int64
-  property name : String
-end
-
-# Compiles to direct field access, no reflection
-user.to_json  # Efficient serialization
-```
-
-## Template Caching
-
-Templates are compiled and cached:
-
-```crystal
-# Development: optional hot-reload
-# Production: compiled once, cached forever
-
-if config.template_hot_reload
-  template = compile_template(path)
-else
-  template = TemplateCache.fetch(path) { compile_template(path) }
-end
-```
-
-## Component Pooling
-
-Frequently used components are pooled:
-
-```crystal
-class ComponentPool
-  MAX_SIZE = 50
-
-  @pool = [] of Component
-
-  def acquire : Component
-    @pool.pop? || Component.new
-  end
-
-  def release(component : Component)
-    if @pool.size < MAX_SIZE
-      component.reset
-      @pool << component
-    end
+def sidebar_html(user_id : Int64) : String
+  Azu.cache.fetch("sidebar:#{user_id}", 5.minutes) do
+    "<aside>rendered once per user and five minutes</aside>"
   end
 end
 ```
 
-Benefits:
-- Reduced allocation overhead
-- Faster component instantiation
-- Bounded memory usage
+## Caching
 
-## Fiber-Based Concurrency
+`Azu.cache` is a memory store with LRU eviction by default (or Redis); `fetch` computes a missing value once even
+when many fibers ask for it at the same time. See [the cache reference](../../reference/api/cache.md). Neither components nor
+HTTP contexts are pooled; there is no pooling code in the framework.
 
-Crystal uses fibers for lightweight concurrency:
+## Concurrency
+
+Every connection runs in a fiber, scheduled cooperatively by Crystal. A fiber yields on I/O (sockets, `sleep`, channel
+operations), so a request waiting on a socket does not block the others, and CPU-bound work in an endpoint does
+block the thread it runs on. Move heavy computation to a background job, or `spawn` it and answer
+earlier. The upload, cache cleanup and heartbeat tasks are fibers of the same process.
+
+## Measured
+
+Numbers below come from `crystal run --release` (Crystal 1.22.0) on a 4-core virtual machine that was running other
+containers at the same time, so treat them as an order of magnitude, not as a benchmark of Azu on dedicated
+hardware. The program is this one; it was run three times (the first time as an earlier copy of the same loops):
 
 ```crystal
-# Each request runs in a fiber
-# Thousands of fibers can run concurrently
+require "azu"
+require "http/client"
 
-spawn do
-  handle_request(request)
+struct PingResponse
+  include Azu::Response
+
+  def render
+    "pong"
+  end
 end
+
+struct PingEndpoint
+  include Azu::Endpoint(Azu::Request, PingResponse)
+
+  get "/ping"
+
+  def call : PingResponse
+    PingResponse.new
+  end
+end
+
+struct UserPostEndpoint
+  include Azu::Endpoint(Azu::Request, PingResponse)
+
+  get "/users/:id/posts/:post_id"
+
+  def call : PingResponse
+    PingResponse.new
+  end
+end
+
+def context_for(path : String) : HTTP::Server::Context
+  HTTP::Server::Context.new(HTTP::Request.new("GET", path), HTTP::Server::Response.new(IO::Memory.new))
+end
+
+# 1. The router and the endpoint, without a socket.
+router = Azu::App.default.router
+runs = 200_000
+["/ping", "/users/42/posts/7"].each do |path|
+  1_000.times { router.process(context_for(path)) }
+  started = Time.instant
+  runs.times do
+    context = context_for(path)
+    router.process(context)
+    context.response.close
+  end
+  puts "router.process #{path}: #{((Time.instant - started).total_microseconds / runs).round(2)} µs per request"
+end
+
+# 2. The default handler stack (without the request log) over a loopback socket, one keep-alive client.
+app = Azu::App.default
+server = app.server(app.default_handlers.reject(&.is_a?(Azu::Handler::Logger)))
+address = server.bind_unused_port("127.0.0.1")
+spawn { server.listen }
+Fiber.yield
+client = HTTP::Client.new(address.address, address.port)
+1_000.times { client.get("/ping") }
+requests = 20_000
+started = Time.instant
+requests.times { client.get("/ping") }
+elapsed = Time.instant - started
+puts "loopback GET /ping: #{(elapsed.total_microseconds / requests).round(1)} µs per request (#{(requests / elapsed.total_seconds).round} requests/s)"
+server.close
 ```
 
-Fiber characteristics:
-- ~8KB stack (vs ~1MB for threads)
-- No OS thread overhead
-- Cooperative scheduling
+| Measurement | Range over three runs |
+|---|---|
+| `router.process` for `/ping`, including building the context and writing the response into memory | 7.5 to 13.2 µs per request |
+| `router.process` for `/users/42/posts/7` (two parameters) | 9.2 to 13.0 µs per request |
+| One keep-alive client, loopback socket, default handlers without `Logger`, request and response parsing by the standard library included | 21.7 to 25.2 µs per request (about 40 000 to 46 000 requests per second) |
 
-## I/O Optimization
+The loopback figure is one sequential client: it measures latency per request, not the throughput of a loaded
+server, and it includes the client's own work. Requests that parse a body, render a template or query a database
+cost what that work costs; measure those in your own application.
 
-### Non-Blocking I/O
+## Measuring Your Application
 
-All I/O operations are non-blocking:
+With `require "azu/dev"`, `Azu::Handler::PerformanceMonitor` records every request that passes through it
+(endpoint, status, processing time, memory) and `metrics.aggregate_stats` summarizes them:
 
 ```crystal
-# This doesn't block the thread
-response = HTTP::Client.get(url)
+require "azu"
+require "azu/dev"
+require "http/client"
 
-# While waiting, other fibers run
+struct PingResponse
+  include Azu::Response
+
+  def render
+    "pong"
+  end
+end
+
+struct PingEndpoint
+  include Azu::Endpoint(Azu::Request, PingResponse)
+
+  get "/ping"
+
+  def call : PingResponse
+    PingResponse.new
+  end
+end
+
+monitor = Azu::Handler::PerformanceMonitor.new
+server = Azu::App.default.server([Azu::Handler::RequestId.new, monitor] of HTTP::Handler)
+address = server.bind_unused_port("127.0.0.1")
+spawn { server.listen }
+Fiber.yield
+
+client = HTTP::Client.new(address.address, address.port)
+50.times { client.get("/ping") }
+server.close
+
+stats = monitor.metrics.aggregate_stats
+puts "requests: #{stats.total_requests}"
+puts "errors:   #{stats.error_requests}"
+puts "average:  #{stats.avg_response_time.round(3)} ms"
+puts "p95:      #{stats.p95_response_time.round(3)} ms"
 ```
 
-### Connection Pooling
+In an application put the monitor in the handler array of `start`; `Azu::Handler::DevDashboard` shows the same data
+in the browser during development. Cache operations are observable with `Azu::Instrumentation.on_cache` (see the
+[cache reference](../../reference/api/cache.md#observing-the-cache)), and the database tab of the dashboard lists
+slow queries and N+1 patterns (see [Database dashboard](../../reference/database-dashboard.md)).
 
-Database and HTTP connections are pooled:
-
-```crystal
-# Database connections reused
-AcmeDB = CQL::Schema.define(..., pool_size: 20)
-
-# HTTP clients maintain connection pools
-HTTP::Client.new(host, pool: true)
-```
-
-## Benchmarks
-
-Typical performance characteristics:
-
-| Metric | Value |
-|--------|-------|
-| Requests/sec | 100k+ (simple endpoint) |
-| Latency (p50) | <1ms |
-| Latency (p99) | <5ms |
-| Memory per request | <1KB |
+Without `require "azu/dev"` none of this is loaded: core calls `Azu::Instrumentation`, which costs a nil check until
+something subscribes.
 
 ## Profiling
 
-Use Crystal's profiling tools:
+Build with `--release` before measuring anything, and use the profiler of your platform on the binary:
 
 ```bash
-# CPU profiling
-crystal build --release src/app.cr
+crystal build --release src/app.cr -o app
 perf record -g ./app
 perf report
-
-# Memory profiling
-crystal build --release -D gc_stats src/app.cr
-./app  # Prints GC statistics
 ```
 
-## Best Practices
+## Practical Rules
 
-1. **Use structs for value objects**
-   ```crystal
-   struct Point  # Stack allocated
-     property x : Int32
-     property y : Int32
-   end
-   ```
-
-2. **Avoid string concatenation in loops**
-   ```crystal
-   # Bad
-   result = ""
-   items.each { |i| result += i.to_s }
-
-   # Good
-   result = String.build do |io|
-     items.each { |i| io << i }
-   end
-   ```
-
-3. **Cache computed values**
-   ```crystal
-   def expensive_computation
-     @cached_result ||= compute_value
-   end
-   ```
-
-4. **Use batch operations**
-   ```crystal
-   # Instead of individual inserts
-   users.each { |u| u.save }
-
-   # Use bulk insert
-   User.insert_all(users)
-   ```
+1. **Declare endpoints as `struct`s** (see above).
+2. **Paginate and limit** what an endpoint reads; the work of an endpoint is usually its database access, which the
+   dashboard's database tab shows per request.
+3. **Cache rendered or computed values** with `Azu.cache.fetch`, and give every entry a TTL.
+4. **Build strings with `String.build`** instead of `+=` in loops.
+5. **Keep CPU-bound work out of request fibers.**
 
 ## See Also
 

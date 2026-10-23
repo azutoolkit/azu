@@ -1,250 +1,255 @@
 # How to Set Up Redis Cache
 
-This guide shows you how to configure and use Redis for caching in Azu.
+This guide shows how to make `Azu.cache` use Redis, so several processes or servers share one cache that survives
+restarts.
+
+> **Known issue in this checkout.** The Redis store does not work against a running Redis. Every `RedisStore`
+> command that returns a value (`get`, `exists?`, `delete`, `increment`, `size`, `ping`, `info`) returns `nil`, `false`
+> or `0` even though the command reaches the server, so `Azu.cache` with `store = "redis"` fails its start-up
+> `ping` and [falls back to a disabled cache](#what-happens-when-redis-is-unreachable). Writes (`set`, `set_multi`,
+> `clear`) do arrive in Redis. This was found by running the examples below against Redis 7.0.15; the code in the
+> rest of this guide is **type-checked only**, which is why it describes the intended behaviour. Use the
+> [memory cache](setup-memory-cache.md) until this is fixed.
 
 ## Prerequisites
 
-Add the Redis shard to your `shard.yml`:
-
-```yaml
-dependencies:
-  redis:
-    github: stefanwille/crystal-redis
-    version: ~> 2.9.0
-```
-
-Run `shards install`.
+A running Redis. Azu depends on the `redis` shard (`stefanwille/crystal-redis ~> 2.9.0`) itself, so `shards install`
+already fetched it; your app does not list it again.
 
 ## Basic Setup
 
-Configure the Redis cache store:
+Select the store and the URL before the first use of `Azu.cache`:
 
 ```crystal
-require "redis"
+require "azu"
 
-Azu.configure do |config|
-  config.cache = Azu::Cache::RedisStore.new(
-    url: ENV.fetch("REDIS_URL", "redis://localhost:6379/0")
-  )
+module MyApp
+  include Azu
+
+  configure do |config|
+    config.cache_config.store = "redis"
+    config.cache_config.redis_url = ENV.fetch("CACHE_REDIS_URL", "redis://localhost:6379/0")
+  end
 end
 ```
 
+The same settings can come from the environment, with no code: `CACHE_STORE=redis` and
+`CACHE_REDIS_URL=redis://localhost:6379/0`. There is no `config.cache = RedisStore.new(...)` and no `REDIS_URL`
+variable.
+
+## What Happens When Redis Is Unreachable
+
+When the manager is built it pings Redis. If the ping fails, it retries `cache_connection_retries` times (3), waiting
+`cache_connection_retry_delay` seconds (1) and doubling the wait after each attempt. If every attempt fails, the
+error is logged and **the cache is disabled**: `Azu.cache` becomes a `NullStore`, `set` returns `false`, `get`
+returns `nil` and `fetch` runs its block every time. The application keeps serving and never raises because
+Redis is down. Against a closed port the first use of `Azu.cache` took 3.0 seconds (1 s + 2 s of waiting between the
+three attempts), logged the failure, and every call afterwards behaved as an always-missing cache. Restart the
+process after Redis is back to use it again.
+
+A `RedisStore` built directly, or a command that fails after start-up, is logged and swallowed the same way: `get`
+returns `nil`, `set` and `delete` return `false`.
+
 ## Using the Redis Cache
+
+The API is the same as for the memory cache; see the [cache reference](../../reference/api/cache.md).
 
 ### Store and Retrieve Values
 
 ```crystal
-# Store a value
-Azu.cache.set("user:1", user.to_json)
+require "azu"
+require "json"
 
-# Store with expiration
-Azu.cache.set("session:abc", session_data, expires_in: 30.minutes)
+Azu.cache.set("user:1", {id: 1, name: "Ada"}.to_json)
 
-# Retrieve
+# with a time to live
+Azu.cache.set("session:abc", "data", 30.minutes)
+
 data = Azu.cache.get("user:1")
 ```
+
+`Azu.cache` prefixes every key with `key_prefix` (`azu:` by default), so `"user:1"` is meant to be stored as
+`azu:user:1`. A TTL is stored with `SETEX` in whole seconds (a 30 minute TTL read back from Redis as 1799 seconds).
+Without one, `cache_config.default_ttl` (an hour) applies.
 
 ### Fetch Pattern
 
 ```crystal
-user_json = Azu.cache.fetch("user:#{id}", expires_in: 1.hour) do
-  User.find(id).to_json
+require "azu"
+
+user_json = Azu.cache.fetch("user:1", 1.hour) do
+  %({"id":1,"name":"Ada"})
 end
 ```
 
 ### Delete Keys
 
 ```crystal
-# Single key
-Azu.cache.delete("user:1")
+require "azu"
 
-# Pattern-based deletion
-Azu.cache.delete_matched("user:*")
+Azu.cache.delete("user:1")
 ```
 
-### Increment/Decrement
+There is no pattern deletion (`delete_matched`). To drop a group of keys, delete the known keys, use a version in the
+key name, or remove them from `redis-cli` with `--scan --pattern`.
+
+### Increment and Decrement
 
 ```crystal
-# Increment a counter
-Azu.cache.increment("page_views:home")
-Azu.cache.increment("api_calls:user:1", by: 1)
+require "azu"
 
-# Decrement
+Azu.cache.increment("page_views:home")    # => 1, then 2, ...
+Azu.cache.increment("api_calls:user:1", 1, 1.minute)
 Azu.cache.decrement("available_slots")
 ```
 
-## Connection Pool
+`increment(key, amount = 1, ttl = nil)` uses Redis `INCR` / `INCRBY` and is meant to return the new value, or `nil`
+if Redis failed. In this checkout the counter is incremented in Redis but the call returns `nil` and no TTL is set
+(see the known issue above).
 
-Use connection pooling for better performance:
+## Connection Pool and Timeouts
 
 ```crystal
-Azu.configure do |config|
-  config.cache = Azu::Cache::RedisStore.new(
-    url: ENV["REDIS_URL"],
-    pool_size: 10,
-    pool_timeout: 5.seconds
-  )
-end
+require "azu"
+
+Azu::CONFIG.cache_config.redis_pool_size = 10        # connections
+Azu::CONFIG.cache_config.redis_timeout = 5           # seconds to wait for a free connection
+Azu::CONFIG.cache_config.redis_operation_timeout = 2 # seconds per command
 ```
 
-## Redis Configuration Options
+The same settings come from `CACHE_REDIS_POOL_SIZE`, `CACHE_REDIS_TIMEOUT` and `CACHE_REDIS_OPERATION_TIMEOUT`.
+
+## A Store of Your Own
+
+`Azu::Cache::RedisStore` can be created directly, for example for a second Redis that does not go through
+`Azu.cache`:
 
 ```crystal
-Azu::Cache::RedisStore.new(
-  url: "redis://localhost:6379/0",
+require "azu"
+
+store = Azu::Cache::RedisStore.new(
+  "redis://localhost:6379/1",
   pool_size: 10,
-  pool_timeout: 5.seconds,
+  timeout: 5.seconds,
   default_ttl: 1.hour,
-  namespace: "myapp",
-  ssl: false,
-  password: ENV["REDIS_PASSWORD"]?
+  operation_timeout: 2.seconds,
 )
+
+store.set("key", "value", 5.minutes)
+puts store.get("key")
 ```
 
-## Namespacing
+The store has no key prefix; the `Cache::Manager` adds it. A password or TLS goes in the URL
+(`rediss://:password@host:6380/0`). There is no `namespace:`, `ssl:` or `password:` option.
 
-Use namespaces to organize and isolate cache data:
+## Key Prefixes
+
+Separate applications or environments that share a Redis with `key_prefix` (`CACHE_KEY_PREFIX`):
 
 ```crystal
-# Production namespace
-config.cache = Azu::Cache::RedisStore.new(
-  url: ENV["REDIS_URL"],
-  namespace: "myapp:production"
-)
+require "azu"
 
-# Test namespace
-config.cache = Azu::Cache::RedisStore.new(
-  url: ENV["REDIS_URL"],
-  namespace: "myapp:test"
-)
+Azu::CONFIG.cache_config.key_prefix = "myapp:production"
 ```
 
-Keys are automatically prefixed:
-- `user:1` becomes `myapp:production:user:1`
+`Azu.cache.clear` runs `FLUSHDB`, which removes **every** key of the Redis database, not only keys with your prefix.
+Use a database (`/1`) that only the cache uses if you call `clear`.
 
 ## Caching Complex Objects
 
-Serialize objects for caching:
-
 ```crystal
-# Cache a user with associations
-def cache_user(user : User)
-  data = {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    posts: user.posts.map { |p| {id: p.id, title: p.title} }
-  }
-  Azu.cache.set("user:#{user.id}:full", data.to_json, expires_in: 15.minutes)
+require "azu"
+require "json"
+
+struct UserSummary
+  include JSON::Serializable
+
+  getter id : Int64
+  getter name : String
+  getter post_titles : Array(String)
+
+  def initialize(@id, @name, @post_titles)
+  end
 end
 
-# Retrieve
-def get_cached_user(id : Int64)
-  json = Azu.cache.get("user:#{id}:full")
-  JSON.parse(json) if json
+def cache_user_summary(summary : UserSummary) : Nil
+  Azu.cache.set("user:#{summary.id}:summary", summary.to_json, 15.minutes)
+end
+
+def cached_user_summary(id : Int64) : UserSummary?
+  Azu.cache.get("user:#{id}:summary").try { |json| UserSummary.from_json(json) }
 end
 ```
 
-## Cache-Aside Pattern
+## Cache-Aside in an Endpoint
 
 ```crystal
+require "azu"
+
+struct ProductPage
+  include Azu::Response
+
+  def initialize(@json : String)
+  end
+
+  def render
+    @json
+  end
+end
+
 struct ProductEndpoint
-  include Azu::Endpoint(EmptyRequest, ProductResponse)
+  include Azu::Endpoint(Azu::Request, ProductPage)
 
   get "/products/:id"
 
-  def call : ProductResponse
-    product_id = params["id"]
+  def call : ProductPage
+    content_type "application/json"
+    id = params["id"]
 
-    # Try cache first
-    cached = Azu.cache.get("product:#{product_id}")
-    return ProductResponse.from_json(cached) if cached
-
-    # Cache miss - load from database
-    product = Product.find(product_id.to_i64)
-    response = ProductResponse.new(product)
-
-    # Store in cache
-    Azu.cache.set("product:#{product_id}", response.to_json, expires_in: 1.hour)
-
-    response
-  end
-end
-```
-
-## Write-Through Caching
-
-Update cache when data changes:
-
-```crystal
-class Product
-  include CQL::Model(Product, Int64)
-
-  after_save :update_cache
-  after_destroy :remove_from_cache
-
-  private def update_cache
-    Azu.cache.set("product:#{id}", to_json, expires_in: 1.hour)
-  end
-
-  private def remove_from_cache
-    Azu.cache.delete("product:#{id}")
-  end
-end
-```
-
-## Rate Limiting with Redis
-
-Implement rate limiting:
-
-```crystal
-class RateLimiter
-  def self.allowed?(key : String, limit : Int32, window : Time::Span) : Bool
-    current = Azu.cache.increment("ratelimit:#{key}")
-
-    if current == 1
-      # Set expiration on first request
-      Azu.cache.expire("ratelimit:#{key}", window)
+    json = Azu.cache.fetch("product:#{id}", 1.hour) do
+      {id: id, name: "Product #{id}"}.to_json
     end
 
-    current <= limit
+    ProductPage.new(json)
   end
-end
-
-# Usage in endpoint
-def call
-  unless RateLimiter.allowed?(client_ip, limit: 100, window: 1.minute)
-    raise Azu::Response::TooManyRequests.new
-  end
-
-  # Process request...
 end
 ```
+
+## Invalidate on Write
+
+Delete the key in the code that changes the data:
+
+```crystal
+require "azu"
+
+def update_product(id : Int64, name : String) : Nil
+  # ... update the database ...
+  Azu.cache.delete("product:#{id}")
+end
+```
+
+## Rate Limiting
+
+Use `Azu::Handler::Throttle` for per-client request limits; it keeps its counters in process and needs no cache.
 
 ## Session Storage
 
-Store sessions in Redis:
-
 ```crystal
-class SessionStore
+require "azu"
+require "json"
+
+module SessionStore
   def self.create(user_id : Int64) : String
     session_id = Random::Secure.hex(32)
-    Azu.cache.set(
-      "session:#{session_id}",
-      {user_id: user_id, created_at: Time.utc}.to_json,
-      expires_in: 24.hours
-    )
+    Azu.cache.set("session:#{session_id}", {user_id: user_id}.to_json, 24.hours)
     session_id
   end
 
-  def self.get(session_id : String) : Int64?
-    data = Azu.cache.get("session:#{session_id}")
-    return nil unless data
-
-    JSON.parse(data)["user_id"].as_i64
+  def self.user_id(session_id : String) : Int64?
+    Azu.cache.get("session:#{session_id}").try { |json| JSON.parse(json)["user_id"].as_i64 }
   end
 
-  def self.destroy(session_id : String)
+  def self.destroy(session_id : String) : Nil
     Azu.cache.delete("session:#{session_id}")
   end
 end
@@ -252,30 +257,28 @@ end
 
 ## Health Check
 
-Verify Redis connectivity:
+`Azu.cache.ping` returns `"PONG"` when Redis answers and `nil` otherwise (and for any other store). Hand it to the
+health handler:
 
 ```crystal
-struct HealthEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Json)
+require "azu"
 
-  get "/health"
-
-  def call
-    redis_ok = begin
-      Azu.cache.set("health_check", "ok", expires_in: 1.second)
-      true
-    rescue
-      false
-    end
-
-    json({
-      status: redis_ok ? "healthy" : "degraded",
-      redis: redis_ok
-    })
-  end
-end
+health = Azu::Handler::HealthCheck.new(
+  checks: {"redis" => -> { Azu.cache.ping == "PONG" }} of String => Azu::Handler::HealthCheck::Check
+)
 ```
+
+Use it in the handler array of `start`; `/health` answers `200`, or `503 {"status":"unavailable","failing":["redis"]}`.
+With the known issue above it answers `503` even when Redis is up (checked).
+`Azu.cache.redis_info` returns the parsed `INFO` of the server.
+
+## What Was Checked
+
+The code blocks were **type-checked only**. Against a real Redis 7.0.15 and a closed port the following was run:
+the fall-back to a disabled cache (3.0 s, `NullStore`), writes of a directly built `RedisStore` (keys, whole-second
+TTLs, `set_multi`, no key prefix) and the failing reads and `ping` described in the known issue.
 
 ## See Also
 
 - [Set Up Memory Cache](setup-memory-cache.md)
+- [Cache reference](../../reference/api/cache.md)

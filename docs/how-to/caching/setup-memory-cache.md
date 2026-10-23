@@ -1,190 +1,238 @@
 # How to Set Up Memory Cache
 
-This guide shows you how to configure and use in-memory caching in Azu.
+This guide shows how to use the in-process cache. The memory store is the default: with no configuration
+`Azu.cache` already stores up to 1000 entries for an hour each, evicting the least recently used. It lives in the
+memory of one process, so each process of a deployment has its own copy (use [Redis](setup-redis-cache.md) to
+share).
 
 ## Basic Setup
 
-Configure the memory cache store:
+Set the options before the first use of `Azu.cache`; the store is built on first use and later changes do not
+rebuild it:
 
 ```crystal
-Azu.configure do |config|
-  config.cache = Azu::Cache::MemoryStore.new
+require "azu"
+
+module MyApp
+  include Azu
+
+  configure do |config|
+    config.cache_config.store = "memory"
+    config.cache_config.max_size = 10_000        # entries
+    config.cache_config.default_ttl = 3600       # seconds
+    config.cache_config.cache_cleanup_interval = 300 # seconds
+    config.cache_config.key_prefix = "myapp"
+  end
 end
 ```
+
+The same options come from the environment: `CACHE_STORE`, `CACHE_MAX_SIZE`, `CACHE_DEFAULT_TTL`,
+`CACHE_CLEANUP_INTERVAL`, `CACHE_KEY_PREFIX`. There is no `config.cache = MemoryStore.new(...)`.
 
 ## Using the Cache
 
 ### Store and Retrieve Values
 
-```crystal
-# Store a value
-Azu.cache.set("user:1", user.to_json)
+Values are strings. Serialize objects yourself:
 
-# Retrieve a value
-json = Azu.cache.get("user:1")
-if json
-  user = User.from_json(json)
+```crystal
+require "azu"
+require "json"
+
+Azu.cache.set("user:1", {id: 1, name: "Ada"}.to_json)
+
+if json = Azu.cache.get("user:1")
+  user = JSON.parse(json)
+  puts user["name"]
 end
 
-# With expiration (TTL)
-Azu.cache.set("session:abc123", session_data, expires_in: 30.minutes)
+# with a time to live
+Azu.cache.set("session:abc123", "data", 30.minutes)
 ```
+
+An entry that has outlived its TTL is never returned, even before the background cleanup removes it
+(a 100 ms TTL returned the value before the deadline and `nil` after it).
 
 ### Fetch Pattern
 
-Use fetch to get or compute a value:
+`fetch` returns the cached value, or runs the block, stores its result and returns it:
 
 ```crystal
-user = Azu.cache.fetch("user:#{id}", expires_in: 1.hour) do
-  User.find(id).to_json
+require "azu"
+
+report = Azu.cache.fetch("report:daily", 1.hour) do
+  "expensive report"
 end
+puts report
 ```
+
+Two fibers asking for the same missing key at the same moment compute it once; the second waits for the first.
 
 ### Delete Keys
 
 ```crystal
-# Delete a single key
+require "azu"
+
 Azu.cache.delete("user:1")
 
-# Delete multiple keys
-["user:1", "user:2", "user:3"].each do |key|
-  Azu.cache.delete(key)
-end
+["user:1", "user:2", "user:3"].each { |key| Azu.cache.delete(key) }
 ```
+
+There is no pattern deletion. To invalidate a group of keys, delete each key you know, or put a version in the
+key (`"users:v#{version}:list"`) and bump it.
 
 ### Check Existence
 
 ```crystal
+require "azu"
+
 if Azu.cache.exists?("user:1")
-  # Key exists
+  puts "cached"
 end
 ```
 
 ### Clear All
 
 ```crystal
-# Clear entire cache
+require "azu"
+
 Azu.cache.clear
 ```
 
 ## Caching in Endpoints
 
+Cache the rendered body of an expensive endpoint and answer from it:
+
 ```crystal
-struct UserEndpoint
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+require "azu"
 
-  get "/users/:id"
+struct ProductPage
+  include Azu::Response
 
-  def call : UserResponse
-    user_id = params["id"]
-    cache_key = "user:#{user_id}"
+  def initialize(@json : String)
+  end
 
-    cached = Azu.cache.get(cache_key)
-    if cached
-      return UserResponse.from_json(cached)
+  def render
+    @json
+  end
+end
+
+struct ProductEndpoint
+  include Azu::Endpoint(Azu::Request, ProductPage)
+
+  get "/products/:id"
+
+  def call : ProductPage
+    content_type "application/json"
+    id = params["id"]
+
+    json = Azu.cache.fetch("product:#{id}", 10.minutes) do
+      {id: id, name: "Product #{id}", loaded_at: Time.utc.to_rfc3339}.to_json
     end
 
-    user = User.find(user_id.to_i64)
-    response = UserResponse.new(user)
-
-    Azu.cache.set(cache_key, response.to_json, expires_in: 10.minutes)
-
-    response
+    ProductPage.new(json)
   end
 end
 ```
 
-## Cache Configuration Options
+Requesting `/products/7` twice returned the same `loaded_at` both times (the block ran once), and `/products/8`
+computed its own entry.
+
+## How Eviction Works
+
+When the store holds `max_size` entries and a new key arrives, the entry that was read or written longest ago is
+removed. Reading a key counts as using it:
 
 ```crystal
-Azu.configure do |config|
-  config.cache = Azu::Cache::MemoryStore.new(
-    max_size: 10_000,           # Maximum number of entries
-    default_ttl: 1.hour,        # Default expiration
-    cleanup_interval: 5.minutes # How often to clean expired entries
-  )
-end
+require "azu"
+
+store = Azu::Cache::MemoryStore.new(max_size: 3, default_ttl: 1.hour, cleanup_interval: 1.minute)
+store.set("a", "1")
+store.set("b", "2")
+store.set("c", "3")
+store.get("a")      # "a" is now the most recently used
+store.set("d", "4") # evicts "b"
+puts store.get("b").inspect # => nil
+puts store.get("a")         # => 1
 ```
 
 ## Namespacing Keys
 
-Organize cache keys with namespaces:
+Use one helper per kind of key so the format lives in one place:
 
 ```crystal
 module CacheKeys
-  def self.user(id)
+  def self.user(id : Int64) : String
     "users:#{id}"
   end
 
-  def self.user_posts(user_id)
+  def self.user_posts(user_id : Int64) : String
     "users:#{user_id}:posts"
-  end
-
-  def self.post(id)
-    "posts:#{id}"
   end
 end
 
-# Usage
-Azu.cache.set(CacheKeys.user(user.id), user.to_json)
+puts CacheKeys.user(1_i64)
 ```
 
 ## Cache Invalidation
 
-Invalidate related cache entries:
+Invalidate where the data changes. Azu has no model callbacks of its own, so do it in the code that writes
+(a service, an endpoint, or your ORM's callbacks):
 
 ```crystal
-class User
-  include CQL::Model(User, Int64)
+require "azu"
 
-  after_save :invalidate_cache
-  after_destroy :invalidate_cache
-
-  private def invalidate_cache
-    Azu.cache.delete("user:#{id}")
-    Azu.cache.delete("user:#{id}:posts")
-    Azu.cache.delete("users:list")
-  end
+def rename_user(id : Int64, name : String) : Nil
+  # ... update the database ...
+  Azu.cache.delete("users:#{id}")
+  Azu.cache.delete("users:#{id}:posts")
 end
 ```
 
 ## Thread Safety
 
-The memory cache is thread-safe by default:
+The store is protected by a mutex, so any number of fibers can use `Azu.cache` at the same time.
+
+## Observing the Cache
+
+`stats` reports the size of the store:
 
 ```crystal
-# Safe to use from multiple fibers
-spawn { Azu.cache.set("key1", "value1") }
-spawn { Azu.cache.set("key2", "value2") }
-spawn { Azu.cache.get("key1") }
-```
+require "azu"
 
-## Cache Statistics
-
-Monitor cache performance:
-
-```crystal
 stats = Azu.cache.stats
-puts "Hits: #{stats.hits}"
-puts "Misses: #{stats.misses}"
-puts "Hit rate: #{stats.hit_rate}%"
-puts "Size: #{stats.size} entries"
+puts stats["size"]      # entries
+puts stats["max_size"]  # limit
 ```
 
-## When to Use Memory Cache
+Its `hit_rate` is how full the store is, not a measured hit rate; Azu does not count hits and misses. To count them,
+subscribe to the cache operations:
+
+```crystal
+require "azu"
+
+hits = Atomic(Int32).new(0)
+misses = Atomic(Int32).new(0)
+
+Azu::Instrumentation.on_cache do |operation|
+  next unless operation.operation == "get"
+  (operation.hit ? hits : misses).add(1)
+end
+```
+
+## When to Use the Memory Cache
 
 **Good for:**
-- Single server deployments
-- Session data
-- Frequently accessed, rarely changed data
-- Development and testing
+- A single process or a single server
+- Data that is cheap to rebuild on a restart
+- Development and tests
 
 **Consider Redis for:**
-- Multi-server deployments
-- Shared state across processes
-- Persistence requirements
-- Large cache sizes
+- Several processes or servers that must see the same cache
+- A cache that survives restarts
+- More entries than one process should hold
 
 ## See Also
 
 - [Set Up Redis Cache](setup-redis-cache.md)
+- [Cache reference](../../reference/api/cache.md)
