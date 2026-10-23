@@ -64,3 +64,48 @@ class WsProbe
     @socket.close
   end
 end
+
+# Opens a socket against a server running the Spark connection and plays the client side.
+class SparkSpecClient
+  getter probe : WsProbe
+  getter root_id : String
+  getter token : String
+  @next_id = 0_i64
+
+  def initialize(port : Int32, page : String, origin : String? = nil)
+    @root_id = page.match!(/data-spark-id='([^']+)'/)[1]
+    @token = page.match!(/data-spark-token='([^']+)'/)[1]
+    @probe = WsProbe.new(port, "/spark", origin: origin || "http://127.0.0.1:#{port}")
+  end
+
+  def frame(timeout : Time::Span = 2.seconds) : JSON::Any?
+    @probe.receive(timeout).try { |text| JSON.parse(text) }
+  end
+
+  def send_frame(type : String, **fields) : Int64
+    id = (@next_id += 1)
+    @probe.send({v: 1, type: type, id: id}.merge(fields).to_json)
+    id
+  end
+
+  def join(snapshot : String? = nil, params : Hash(String, String) = {} of String => String) : Int64
+    send_frame("join", token: @token, snapshot: snapshot, params: params)
+  end
+
+  def event(name : String, target : String = @root_id, **payload) : Int64
+    send_frame("event", target: target, event: name, payload: payload)
+  end
+
+  # Reads frames until one of *type* arrives.
+  def await(type : String) : JSON::Any
+    5.times do
+      frame = self.frame || break
+      return frame if frame["type"].as_s == type
+    end
+    raise "no #{type} frame arrived"
+  end
+
+  def close : Nil
+    @probe.close
+  end
+end

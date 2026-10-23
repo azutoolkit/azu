@@ -35,51 +35,6 @@ module SparkConnectionSpec
       end
     end
   end
-
-  # Opens a socket against a server running the Spark connection and plays the client side.
-  class Client
-    getter probe : WsProbe
-    getter root_id : String
-    getter token : String
-    @next_id = 0_i64
-
-    def initialize(port : Int32, page : String, origin : String? = nil)
-      @root_id = page.match!(/data-spark-id='([^']+)'/)[1]
-      @token = page.match!(/data-spark-token='([^']+)'/)[1]
-      @probe = WsProbe.new(port, "/spark", origin: origin || "http://127.0.0.1:#{port}")
-    end
-
-    def frame(timeout : Time::Span = 2.seconds) : JSON::Any?
-      @probe.receive(timeout).try { |text| JSON.parse(text) }
-    end
-
-    def send_frame(type : String, **fields) : Int64
-      id = (@next_id += 1)
-      @probe.send({v: 1, type: type, id: id}.merge(fields).to_json)
-      id
-    end
-
-    def join(snapshot : String? = nil, params : Hash(String, String) = {} of String => String) : Int64
-      send_frame("join", token: @token, snapshot: snapshot, params: params)
-    end
-
-    def event(name : String, target : String = @root_id, **payload) : Int64
-      send_frame("event", target: target, event: name, payload: payload)
-    end
-
-    # Reads frames until one of *type* arrives.
-    def await(type : String) : JSON::Any
-      5.times do
-        frame = self.frame || break
-        return frame if frame["type"].as_s == type
-      end
-      raise "no #{type} frame arrived"
-    end
-
-    def close : Nil
-      @probe.close
-    end
-  end
 end
 
 private def page(**props) : String
@@ -110,7 +65,7 @@ describe Azu::Spark::Connection do
   describe "joining and events" do
     it "greets, mounts the view from its token and applies events" do
       with_spark do |port|
-        client = SparkConnectionSpec::Client.new(port, page(start: 10))
+        client = SparkSpecClient.new(port, page(start: 10))
 
         hello = client.frame.not_nil!
         hello["type"].as_s.should eq "hello"
@@ -136,7 +91,7 @@ describe Azu::Spark::Connection do
 
     it "hands the page parameters to mount" do
       with_spark do |port|
-        client = SparkConnectionSpec::Client.new(port, page)
+        client = SparkSpecClient.new(port, page)
         client.join(params: {"plus" => "5"})
 
         client.await("diff")["patches"][0]["html"].as_s.should contain "count=5"
@@ -144,19 +99,19 @@ describe Azu::Spark::Connection do
       end
     end
 
-    it "ignores a snapshot that was issued for another page" do
+    it "refuses a snapshot that was issued for another page" do
       with_spark do |port|
-        first = SparkConnectionSpec::Client.new(port, page)
+        first = SparkSpecClient.new(port, page)
         first.join
         first.await("diff")
         first.event("increment")
         snapshot = first.await("diff")["snapshots"][first.root_id].as_s
         first.close
 
-        other = SparkConnectionSpec::Client.new(port, page)
+        other = SparkSpecClient.new(port, page)
         other.join(snapshot: snapshot)
 
-        other.await("diff")["patches"][0]["html"].as_s.should contain "count=0"
+        other.await("error")["code"].as_s.should eq "invalid_snapshot"
         other.close
       end
     end
@@ -164,14 +119,14 @@ describe Azu::Spark::Connection do
     it "restores persisted state when the same page reconnects with its snapshot" do
       with_spark do |port|
         same_page = page
-        first = SparkConnectionSpec::Client.new(port, same_page)
+        first = SparkSpecClient.new(port, same_page)
         first.join
         first.await("diff")
         3.times { first.event("increment") }
         snapshot = 3.times.map { first.await("diff")["snapshots"][first.root_id].as_s }.to_a.last
         first.close
 
-        second = SparkConnectionSpec::Client.new(port, same_page)
+        second = SparkSpecClient.new(port, same_page)
         second.join(snapshot: snapshot)
 
         second.await("diff")["patches"][0]["html"].as_s.should contain "count=3"
@@ -181,7 +136,7 @@ describe Azu::Spark::Connection do
 
     it "delivers PubSub broadcasts as diffs" do
       with_spark do |port|
-        client = SparkConnectionSpec::Client.new(port, page)
+        client = SparkSpecClient.new(port, page)
         client.join
         client.await("reply")
 
@@ -194,7 +149,7 @@ describe Azu::Spark::Connection do
 
     it "answers heartbeats" do
       with_spark do |port|
-        client = SparkConnectionSpec::Client.new(port, page)
+        client = SparkSpecClient.new(port, page)
         id = client.send_frame("heartbeat")
 
         client.await("heartbeat")["id"].as_i64.should eq id
@@ -206,7 +161,7 @@ describe Azu::Spark::Connection do
   describe "errors" do
     it "reports malformed frames, bad tokens and unknown events with codes only the protocol defines" do
       with_spark do |port|
-        client = SparkConnectionSpec::Client.new(port, page)
+        client = SparkSpecClient.new(port, page)
         client.frame # hello
 
         client.probe.send("not json")
@@ -239,13 +194,13 @@ describe Azu::Spark::Connection do
 
     it "refuses to join twice with the same view and rejects views whose mount refuses" do
       with_spark do |port|
-        client = SparkConnectionSpec::Client.new(port, page)
+        client = SparkSpecClient.new(port, page)
         client.join
         client.await("reply")
         client.join
         client.await("error")["code"].as_s.should eq "bad_request"
 
-        banned = SparkConnectionSpec::Client.new(port, Azu::Spark.render(SparkConnectionSpec::Counter, session: {"role" => "banned"}))
+        banned = SparkSpecClient.new(port, Azu::Spark.render(SparkConnectionSpec::Counter, session: {"role" => "banned"}))
         banned.join
         banned.await("error")["code"].as_s.should eq "rejected"
         client.close
@@ -258,7 +213,7 @@ describe Azu::Spark::Connection do
         {Azu::Environment::Development => true, Azu::Environment::Production => false}.each do |env, visible|
           with_spark_env(env) do
             with_spark_secret("an explicit secret for the spec") do
-              client = SparkConnectionSpec::Client.new(port, page)
+              client = SparkSpecClient.new(port, page)
               client.join
               client.await("reply")
 
@@ -279,8 +234,8 @@ describe Azu::Spark::Connection do
   describe "isolation between clients" do
     it "does not let a client address components of another connection" do
       with_spark do |port|
-        alice = SparkConnectionSpec::Client.new(port, page)
-        bob = SparkConnectionSpec::Client.new(port, page)
+        alice = SparkSpecClient.new(port, page)
+        bob = SparkSpecClient.new(port, page)
         [alice, bob].each do |client|
           client.join
           client.await("reply")
@@ -299,8 +254,8 @@ describe Azu::Spark::Connection do
     it "keeps serving client B when client A disconnects" do
       with_spark do |port|
         baseline = Azu::Spark.connection_count
-        alice = SparkConnectionSpec::Client.new(port, page)
-        bob = SparkConnectionSpec::Client.new(port, page)
+        alice = SparkSpecClient.new(port, page)
+        bob = SparkSpecClient.new(port, page)
         [alice, bob].each do |client|
           client.join
           client.await("reply")
@@ -322,7 +277,7 @@ describe Azu::Spark::Connection do
       with_spark do |port|
         backend = Azu::PubSub.backend.as(Azu::PubSub::Memory)
         baseline = backend.subscriber_count
-        client = SparkConnectionSpec::Client.new(port, page)
+        client = SparkSpecClient.new(port, page)
         client.join
         client.await("reply")
         backend.subscriber_count.should eq baseline + 1
@@ -339,7 +294,7 @@ describe Azu::Spark::Connection do
       with_spark do |port|
         Azu::Spark.config.events_per_second = 1.0
         Azu::Spark.config.event_burst = 3
-        client = SparkConnectionSpec::Client.new(port, page)
+        client = SparkSpecClient.new(port, page)
         client.frame # hello
         20.times { client.send_frame("heartbeat") }
 
@@ -357,7 +312,7 @@ describe Azu::Spark::Connection do
     it "closes connections that send oversized frames" do
       with_spark do |port|
         Azu::Spark.config.max_message_size = 128
-        client = SparkConnectionSpec::Client.new(port, page)
+        client = SparkSpecClient.new(port, page)
         client.frame # hello
 
         client.probe.send("x" * 2000)
@@ -370,7 +325,7 @@ describe Azu::Spark::Connection do
     it "disconnects idle clients" do
       with_spark do |port|
         Azu::Spark.config.idle_timeout = 100.milliseconds
-        client = SparkConnectionSpec::Client.new(port, page)
+        client = SparkSpecClient.new(port, page)
         client.frame # hello
 
         client.frame(2.seconds).should be_nil
@@ -384,7 +339,7 @@ describe Azu::Spark::Connection do
         view = page
         Azu::Spark.config.max_components = 0
         begin
-          client = SparkConnectionSpec::Client.new(port, view)
+          client = SparkSpecClient.new(port, view)
           client.join
           client.await("error")["code"].as_s.should eq "limit_exceeded"
           client.close
@@ -399,7 +354,7 @@ describe Azu::Spark::Connection do
     it "refuses cross-site WebSocket upgrades" do
       with_spark do |port|
         expect_raises(Socket::Error, /403/) do
-          SparkConnectionSpec::Client.new(port, page, origin: "https://evil.example")
+          SparkSpecClient.new(port, page, origin: "https://evil.example")
         end
       end
     end
@@ -408,7 +363,7 @@ describe Azu::Spark::Connection do
   describe "shutdown" do
     it "closes every connection with a service restart code" do
       with_spark do |port|
-        client = SparkConnectionSpec::Client.new(port, page)
+        client = SparkSpecClient.new(port, page)
         client.join
         client.await("reply")
 
