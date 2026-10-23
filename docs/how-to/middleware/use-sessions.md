@@ -5,8 +5,8 @@ Azu has no session store of its own. It reads sessions through a small seam, `Az
 memory or Redis store), session fixation protection through `authenticate`, and a flash that belongs to the
 session. Azu has no dependency on the shard; you add it to your own `shard.yml`.
 
-The snippets below need the `session` shard, so this page is not compile-checked
-(`docs/.checked`); `reference/handlers/built-in.md` has the part that needs no shard.
+The snippets below need the `session` shard, which the docs check does not install, so their blocks are marked
+`<!-- skip -->`; `reference/handlers/built-in.md` has the part that needs no shard.
 
 ## Set it up
 

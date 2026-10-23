@@ -24,8 +24,9 @@ end
 
 ## Endpoints, requests and responses
 
-Endpoints are structs, so every request gets its own instance. A `class` endpoint is one object shared by all
-concurrent requests and must not keep per-request state in instance variables.
+Endpoints are structs, so every request gets its own copy. A `class` endpoint is also served on a copy per request,
+which means state it keeps in its own instance variables does not carry over between requests: use a struct, and
+keep shared state somewhere explicit (a cache, a database).
 
 ```crystal
 struct UserRequest

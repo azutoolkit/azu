@@ -19,11 +19,8 @@ These are areas where work is wanted. Open an issue before starting anything lar
 
 ### Correctness and performance
 
-- Make `class` endpoints safe for concurrent requests (struct endpoints already are; see
-  [Create an Endpoint](../how-to/endpoints/create-endpoint.md)).
-- Make the router path cache a real bounded cache.
 - Cache compiled templates (they are read again on every render today).
-- Fix the Redis cache store so reads return values.
+- Resolve template and error-page paths relative to the application, not the working directory.
 - Measure before optimizing: [Performance Design](../explanation/architecture/performance-design.md) explains
   how the numbers on that page were taken.
 

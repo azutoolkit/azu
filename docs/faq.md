@@ -270,10 +270,9 @@ const ws = new WebSocket("ws://localhost:4000/websocket");
 
 **Solutions:**
 
-1. Validation runs before `call` for any endpoint whose request type declares `validate` rules, and answers `422`
-   through `Azu::Handler::Rescuer`. If you pass your own handler array to `start`, include `Rescuer`, otherwise the
-   client gets a bare `500`. Endpoints declared with the bare `Azu::Request` module have no contract and are not
-   validated.
+1. Validation runs before `call` for any endpoint whose request type declares `validate` rules, and the endpoint answers
+   `422` itself (a body it cannot parse answers `400`), with or without `Rescuer` in the stack. Endpoints declared with
+   the bare `Azu::Request` module have no contract and are not validated.
 
 2. Check the rule syntax:
 
