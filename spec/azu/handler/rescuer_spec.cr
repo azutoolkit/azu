@@ -61,6 +61,21 @@ describe Azu::Handler::Rescuer do
       body.should_not contain("RuntimeError")
     end
 
+    {"text/html", "application/json", "application/xml", "text/plain"}.each do |accept|
+      it "keeps the exception message out of the #{accept} body in production and shows it in development" do
+        handler = Azu::Handler::Rescuer.new
+        handler.next = ->(_context : HTTP::Server::Context) { raise "password authentication failed for user x" }
+
+        context, io = create_context("GET", "/boom", HTTP::Headers{"Accept" => accept})
+        with_azu_env(Azu::Environment::Production) { handler.call(context) }
+        get_response_body(context, io).should_not contain("password authentication")
+
+        context, io = create_context("GET", "/boom", HTTP::Headers{"Accept" => accept})
+        with_azu_env(Azu::Environment::Development) { handler.call(context) }
+        get_response_body(context, io).should contain("password authentication")
+      end
+    end
+
     it "keeps the JSON backtrace out of production bodies" do
       handler = Azu::Handler::Rescuer.new
       handler.next = raising_handler
@@ -301,7 +316,7 @@ describe Azu::Handler::Rescuer do
       handler.next = error_handler
 
       context, io = create_context("GET", "/test")
-      handler.call(context)
+      with_azu_env(Azu::Environment::Development) { handler.call(context) }
 
       context.response.status_code.should eq(500)
       io.rewind
@@ -397,7 +412,7 @@ describe Azu::Handler::Rescuer do
       handler.next = error_handler
 
       context, io = create_context("GET", "/test")
-      handler.call(context)
+      with_azu_env(Azu::Environment::Development) { handler.call(context) }
 
       io.rewind
       response_content = io.gets_to_end
