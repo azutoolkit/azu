@@ -6,29 +6,30 @@ Complete reference for Azu's built-in error types.
 
 ### Azu::Response::Error
 
-Base class for all HTTP errors.
+Base class for all HTTP errors. It is an `Exception` and an `Azu::Response`. Raise it from an endpoint and
+`Azu::Handler::Rescuer` writes it to the client with its status.
 
 ```crystal
-class Azu::Response::Error < Exception
-  getter status : Int32
-  getter message : String
-  getter context : ErrorContext?
-
-  def initialize(@message : String, @status : Int32 = 500, @context : ErrorContext? = nil)
-  end
-end
+error = Azu::Response::Error.new("Payment failed", HTTP::Status::BAD_REQUEST, ["card declined"])
+error.status_code # => 400
+error.title       # => "Payment failed"
 ```
 
 **Properties:**
-- `status : Int32` - HTTP status code
-- `message : String` - Error message
+- `status : HTTP::Status` - HTTP status (`status_code` is the number)
+- `title : String` - Short title
+- `detail : String` - Longer explanation
+- `source : String` - What the error is about, such as a path
+- `errors : Array(String)` - Individual messages
 - `context : ErrorContext?` - Additional context
+- `error_id : String` - Unique id of this error, sent as `X-Error-ID`
+- `fingerprint : String` - Stable hash of class, title, detail and source, sent as `X-Error-Fingerprint`
 
 ## Client Errors (4xx)
 
 ### BadRequest (400)
 
-Invalid request from client.
+Invalid request from client. Also raised when a request body cannot be parsed into the request type.
 
 ```crystal
 raise Azu::Response::BadRequest.new("Invalid JSON")
@@ -37,194 +38,157 @@ raise Azu::Response::BadRequest.new("Missing required field: email")
 
 **Usage:** Malformed requests, invalid data formats
 
-### Unauthorized (401)
+### AuthenticationError (401)
 
 Authentication required.
 
 ```crystal
-raise Azu::Response::Unauthorized.new
-raise Azu::Response::Unauthorized.new("Invalid token")
+raise Azu::Response::AuthenticationError.new
+raise Azu::Response::AuthenticationError.new("Invalid token")
 ```
 
 **Usage:** Missing or invalid authentication
 
-### Forbidden (403)
+### AuthorizationError (403)
 
 Access denied despite authentication.
 
 ```crystal
-raise Azu::Response::Forbidden.new
-raise Azu::Response::Forbidden.new("Admin access required")
+raise Azu::Response::AuthorizationError.new
+raise Azu::Response::AuthorizationError.new("Admin access required")
 ```
 
 **Usage:** Authenticated but not authorized
 
+### Forbidden (403)
+
+An `AuthorizationError` with a fixed message, "The server understood the request but refuses to authorize it."
+
+```crystal
+raise Azu::Response::Forbidden.new
+```
+
 ### NotFound (404)
 
-Resource not found.
+Resource not found. The argument is the path, which is kept in `source`.
 
 ```crystal
 raise Azu::Response::NotFound.new("/users/123")
-raise Azu::Response::NotFound.new("User not found")
 ```
 
-**Usage:** Resource doesn't exist
+**Usage:** Resource doesn't exist. The router raises it for paths no route matches.
 
-### MethodNotAllowed (405)
-
-HTTP method not supported.
+### TimeoutError (408)
 
 ```crystal
-raise Azu::Response::MethodNotAllowed.new(["GET", "POST"])
+raise Azu::Response::TimeoutError.new("Upstream did not answer in time")
 ```
 
-**Usage:** Wrong HTTP method for endpoint
+### PayloadTooLarge (413)
 
-### Conflict (409)
-
-Request conflicts with current state.
+The request body is larger than the server accepts. Raised for bodies and uploads over the configured limits.
 
 ```crystal
-raise Azu::Response::Conflict.new("Email already registered")
-raise Azu::Response::Conflict.new("Resource version mismatch")
+raise Azu::Response::PayloadTooLarge.new
 ```
-
-**Usage:** Duplicate records, version conflicts
-
-### Gone (410)
-
-Resource permanently deleted.
-
-```crystal
-raise Azu::Response::Gone.new("This API endpoint has been removed")
-```
-
-**Usage:** Deprecated resources
-
-### UnprocessableEntity (422)
-
-Validation failed.
-
-```crystal
-raise Azu::Response::UnprocessableEntity.new("Validation failed")
-```
-
-**Usage:** Invalid but well-formed requests
 
 ### ValidationError (422)
 
-Validation error with details.
+Validation error with the failing fields. The router raises it for you when a request breaks its contract.
 
 ```crystal
-raise Azu::Response::ValidationError.new([
-  {field: "email", message: "is invalid"},
-  {field: "name", message: "is required"}
-])
+raise Azu::Response::ValidationError.new({
+  "email" => ["is invalid"],
+  "name"  => ["is required"],
+})
+
+raise Azu::Response::ValidationError.new("email", "is invalid")
 ```
 
 **Properties:**
-- `errors : Array(NamedTuple(field: String, message: String))`
+- `field_errors : Hash(String, Array(String))`
+- `add_field_error(field, message)` adds one more
 
-**JSON Response:**
+**JSON Response** (`application/problem+json`):
+
 ```json
 {
-  "error": "Validation failed",
-  "details": [
-    {"field": "email", "message": "is invalid"},
-    {"field": "name", "message": "is required"}
-  ]
+  "type": "about:blank",
+  "title": "Validation Error",
+  "status": 422,
+  "detail": "The request could not be processed due to validation errors.",
+  "errors": {
+    "email": ["is invalid"],
+    "name": ["is required"]
+  }
 }
 ```
 
-### TooManyRequests (429)
+With `config.error_format = Azu::ErrorFormat::Legacy` the body keeps its pre-0.6 shape (`FieldErrors`, `ErrorId`,
+`Fingerprint`, ...).
 
-Rate limit exceeded.
+### RateLimitError (429)
+
+Rate limit exceeded. When `retry_after` (seconds) is given, the response carries a `Retry-After` header.
 
 ```crystal
-raise Azu::Response::TooManyRequests.new
-raise Azu::Response::TooManyRequests.new("Rate limit exceeded. Try again in 60 seconds.")
+raise Azu::Response::RateLimitError.new
+raise Azu::Response::RateLimitError.new(60)
 ```
 
 **Usage:** Rate limiting
 
 ## Server Errors (5xx)
 
-### InternalServerError (500)
-
-Unexpected server error.
+### DatabaseError (500)
 
 ```crystal
-raise Azu::Response::InternalServerError.new
-raise Azu::Response::InternalServerError.new("Database connection failed")
+raise Azu::Response::DatabaseError.new
+raise Azu::Response::DatabaseError.new("Database connection failed")
 ```
 
-**Usage:** Unhandled exceptions
+**Usage:** Failed database operations. Unhandled exceptions are turned into a generic 500 `Error` by `Rescuer`.
 
-### NotImplemented (501)
+### ExternalServiceError (502)
 
-Feature not implemented.
+A service this one depends on failed. The first argument is the service name.
 
 ```crystal
-raise Azu::Response::NotImplemented.new("This feature is coming soon")
+raise Azu::Response::ExternalServiceError.new("Payments", "Payment gateway error")
 ```
 
-**Usage:** Placeholder for future features
+**Usage:** Proxy/gateway errors, failing third-party APIs
 
-### BadGateway (502)
+## Statuses Without a Class
 
-Invalid response from upstream.
+There is no class for 405, 409, 410, 501, 503 and 504. Build an `Azu::Response::Error` with the status, or define a
+subclass (see [Creating Custom Errors](#creating-custom-errors)):
 
 ```crystal
-raise Azu::Response::BadGateway.new("Payment gateway error")
+raise Azu::Response::Error.new("Conflict", HTTP::Status::CONFLICT, ["Email already registered"])
+raise Azu::Response::Error.new("Service Unavailable", HTTP::Status::SERVICE_UNAVAILABLE, [] of String)
 ```
 
-**Usage:** Proxy/gateway errors
-
-### ServiceUnavailable (503)
-
-Service temporarily unavailable.
-
-```crystal
-raise Azu::Response::ServiceUnavailable.new("Database maintenance in progress")
-raise Azu::Response::ServiceUnavailable.new("High traffic, please retry")
-```
-
-**Usage:** Maintenance, overload
-
-### GatewayTimeout (504)
-
-Upstream timeout.
-
-```crystal
-raise Azu::Response::GatewayTimeout.new("Payment service timeout")
-```
-
-**Usage:** External service timeouts
+Inside an endpoint, `error("Email already registered", 409)` builds the same object.
 
 ## ErrorContext
 
-Additional context for debugging.
+`Azu::ErrorContext` carries request details for debugging. Every field is optional.
 
 ```crystal
-struct ErrorContext
-  property request_id : String?
-  property path : String?
-  property method : String?
-  property user_id : Int64?
-  property timestamp : Time
-
-  def self.from_http_context(context : HTTP::Server::Context, request_id : String? = nil)
-    new(
-      request_id: request_id,
-      path: context.request.path,
-      method: context.request.method,
-      timestamp: Time.utc
-    )
-  end
-end
+context = Azu::ErrorContext.new(request_id: "req-123", user_id: "42")
+raise Azu::Response::Forbidden.new(context)
 ```
 
+**Properties:** `timestamp`, `request_id`, `user_id`, `session_id`, `ip_address`, `user_agent`, `referer`,
+`endpoint`, `method`, `params` and `headers`.
+
+`ErrorContext.from_http_context(context, request_id)` fills the request fields from an `HTTP::Server::Context`.
+Context is shown to clients only in the development environment.
+
 ## Creating Custom Errors
+
+Subclass `Azu::Response::Error`, pass the title, status and messages to `super`, and set `detail` for the explanation:
 
 ```crystal
 class InsufficientFundsError < Azu::Response::Error
@@ -232,71 +196,63 @@ class InsufficientFundsError < Azu::Response::Error
   getter available : Float64
 
   def initialize(@required : Float64, @available : Float64)
-    super("Insufficient funds: need $#{@required}, have $#{@available}", 422)
+    super(
+      title: "Insufficient Funds",
+      status: HTTP::Status::UNPROCESSABLE_ENTITY,
+      errors: [] of String
+    )
+    @detail = "Insufficient funds: need $#{@required}, have $#{@available}"
   end
 end
 
-class RateLimitError < Azu::Response::Error
-  getter retry_after : Int32
-
-  def initialize(@retry_after : Int32)
-    super("Rate limit exceeded", 429)
-  end
-
-  def headers : Hash(String, String)
-    {"Retry-After" => @retry_after.to_s}
+class ConflictError < Azu::Response::Error
+  def initialize(detail : String)
+    super(title: "Conflict", status: HTTP::Status::CONFLICT, errors: [] of String)
+    @detail = detail
   end
 end
+
+raise InsufficientFundsError.new(100.0, 25.0)
 ```
 
 ## Error Response Format
 
-Default JSON format:
+`Rescuer` writes an error in the format the `Accept` header asks for: HTML (an error page), JSON, XML or plain
+text. The JSON body is:
 
 ```json
 {
-  "error": "Error message here"
+  "Status": "unprocessable_entity",
+  "Link": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422",
+  "Title": "Insufficient Funds",
+  "Detail": "Insufficient funds: need $100.0, have $25.0",
+  "Source": "",
+  "Errors": [],
+  "ErrorId": "4f2a...",
+  "Fingerprint": "9c1b...",
+  "Context": null,
+  "Backtrace": null,
+  "Timestamp": "2026-10-22T09:15:30Z"
 }
 ```
 
-With details:
-
-```json
-{
-  "error": "Validation failed",
-  "details": [
-    {"field": "email", "message": "is invalid"}
-  ]
-}
-```
-
-Development mode:
-
-```json
-{
-  "error": "Error message",
-  "backtrace": ["file.cr:10", "file.cr:5"]
-}
-```
+In development, `Context` and `Backtrace` are filled in. Validation failures use the problem+json body shown above
+unless `error_format` is `Legacy`.
 
 ## HTTP Status Codes Summary
 
 | Code | Name | Class |
 |------|------|-------|
 | 400 | Bad Request | `BadRequest` |
-| 401 | Unauthorized | `Unauthorized` |
-| 403 | Forbidden | `Forbidden` |
+| 401 | Unauthorized | `AuthenticationError` |
+| 403 | Forbidden | `AuthorizationError`, `Forbidden` |
 | 404 | Not Found | `NotFound` |
-| 405 | Method Not Allowed | `MethodNotAllowed` |
-| 409 | Conflict | `Conflict` |
-| 410 | Gone | `Gone` |
-| 422 | Unprocessable Entity | `UnprocessableEntity` |
-| 429 | Too Many Requests | `TooManyRequests` |
-| 500 | Internal Server Error | `InternalServerError` |
-| 501 | Not Implemented | `NotImplemented` |
-| 502 | Bad Gateway | `BadGateway` |
-| 503 | Service Unavailable | `ServiceUnavailable` |
-| 504 | Gateway Timeout | `GatewayTimeout` |
+| 408 | Request Timeout | `TimeoutError` |
+| 413 | Payload Too Large | `PayloadTooLarge` |
+| 422 | Unprocessable Entity | `ValidationError` |
+| 429 | Too Many Requests | `RateLimitError` |
+| 500 | Internal Server Error | `Error`, `DatabaseError` |
+| 502 | Bad Gateway | `ExternalServiceError` |
 
 ## See Also
 

@@ -1,235 +1,307 @@
 # Router Reference
 
-The router handles HTTP request routing using a radix tree for high performance.
+The router handles HTTP request routing using a radix tree.
 
 ## Route Registration
 
-Routes are automatically registered when defining endpoints:
+### Verb macros
+
+Routes declared with a verb macro inside an endpoint are registered on the router of `Azu::App.default`
+when the type is defined:
 
 ```crystal
-struct MyEndpoint
-  include Azu::Endpoint(EmptyRequest, MyResponse)
+struct MyResponse
+  include Azu::Response
 
-  get "/path"  # Registers GET /path
+  def render
+    "hello"
+  end
+end
+
+struct MyEndpoint
+  include Azu::Endpoint(Azu::Request, MyResponse)
+
+  get "/path" # Registers GET /path
 
   def call : MyResponse
-    # Handle request
+    MyResponse.new
   end
 end
 ```
 
+### Explicit routes
+
+An app can also declare its routes in one place with `routes`. The block yields a `Router::Builder` with the verbs
+(`get`, `post`, `put`, `patch`, `delete`, `options`, `head`, `connect`, `trace`), `ws`, `scope` and `mount`. A
+route points at an endpoint class or at an instance of any `Azu::Routable` (an endpoint or an `HTTP::Handler`).
+
+```crystal
+struct UsersEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  def call : Azu::Response::Empty
+    Azu::Response::Empty.new
+  end
+end
+
+app = Azu::App.new
+app.routes do
+  get "/users/:id", UsersEndpoint
+  post "/users", UsersEndpoint
+
+  scope "/api" do
+    get "/users", UsersEndpoint # GET /api/users
+  end
+end
+
+# Router#routes does the same on a router you already hold
+app.router.routes("/v2") do
+  get "/users", UsersEndpoint # GET /v2/users
+end
+
+# mount serves another app below a prefix
+admin = Azu::App.new
+admin.routes { get "/users", UsersEndpoint }
+app.routes { mount admin, at: "/admin" } # GET /admin/users
+```
+
+### Mounting another app
+
+`mount` serves another app below a prefix. Requests under the prefix reach that app's router, with the prefix
+removed, and run with that app's configuration. An app can be mounted once, so build one app per mount.
+`Endpoint.path` includes the prefix the app is mounted at and the scope the route was declared in, so links stay
+right wherever the endpoint is mounted.
+
 ## Route Patterns
 
-### Static Routes
+A static segment matches itself, a segment that starts with `:` captures its value under that name, and a segment
+that starts with `*` captures the rest of the path.
 
 ```crystal
-get "/"
-get "/users"
-get "/api/v1/health"
-```
+struct UsersEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
 
-### Dynamic Parameters
+  def call : Azu::Response::Empty
+    Azu::Response::Empty.new
+  end
+end
 
-```crystal
-get "/users/:id"           # Single parameter
-get "/posts/:id/comments"  # Parameter in middle
-get "/:category/:slug"     # Multiple parameters
-```
-
-### Wildcard Routes
-
-```crystal
-get "/files/*path"  # Captures rest of path
+app = Azu::App.new
+app.routes do
+  get "/", UsersEndpoint
+  get "/api/v1/health", UsersEndpoint      # Static
+  get "/users/:id", UsersEndpoint          # Single parameter
+  get "/posts/:id/comments", UsersEndpoint # Parameter in middle
+  get "/:category/:slug", UsersEndpoint    # Multiple parameters
+  get "/files/*path", UsersEndpoint        # Captures rest of path
+end
 ```
 
 ## HTTP Methods
 
 | Method | Macro | Description |
 |--------|-------|-------------|
-| GET | `get` | Retrieve resource |
+| GET | `get` | Retrieve resource (also answers `HEAD`) |
 | POST | `post` | Create resource |
 | PUT | `put` | Replace resource |
 | PATCH | `patch` | Update resource |
 | DELETE | `delete` | Remove resource |
 | OPTIONS | `options` | Get options |
 | HEAD | `head` | Get headers only |
+| CONNECT | `connect` | Establish a tunnel |
+| TRACE | `trace` | Loop back the request |
+
+HTML forms can only `GET` or `POST`, so a `POST` may ask to be handled as `PUT`, `PATCH` or `DELETE` with a `_method`
+field (form body or query string) or the `X-HTTP-Method-Override` header. Only `POST` is overridable and only to
+those three verbs.
+
+Trailing slashes are ignored: `/users/` matches the route `/users`.
 
 ## Route Matching
 
-Routes are matched in order of specificity:
-1. Exact static matches
-2. Parameterized routes
-3. Wildcard routes
+The radix tree tries static segments before parameters, and parameters before wildcards. With `/users`,
+`/users/:id` and `/users/*rest` declared, `/users` matches the first, `/users/123` the second and
+`/users/123/posts/456` the third.
 
-```crystal
-get "/users"          # Matches /users exactly
-get "/users/:id"      # Matches /users/123
-get "/users/*rest"    # Matches /users/123/posts/456
-```
+Declaring the same method and path twice raises `Azu::Router::DuplicateRoute`.
 
 ## Accessing Route Parameters
 
-```crystal
-get "/users/:id/posts/:post_id"
+Route parameters are read with `params`, next to query and form values:
 
-def call
-  user_id = params["id"]        # => "123"
-  post_id = params["post_id"]   # => "456"
+```crystal
+struct PostEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  get "/users/:id/posts/:post_id"
+
+  def call : Azu::Response::Empty
+    user_id = params["id"]      # => "123"
+    post_id = params["post_id"] # => "456"
+    Azu::Response::Empty.new
+  end
 end
 ```
 
 ### Wildcard Parameters
 
 ```crystal
-get "/files/*path"
+struct DocsEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
 
-def call
-  path = params["path"]  # => "docs/readme.md"
-end
-```
+  get "/docs/*path"
 
-## Route Constraints
-
-### Custom Constraints
-
-```crystal
-# Only match numeric IDs
-get "/users/:id" do
-  constraint :id, /^\d+$/
-end
-```
-
-## Router Configuration
-
-### Path Caching
-
-Enable path caching for performance:
-
-```crystal
-Azu.configure do |config|
-  config.router.path_cache_size = 1000  # Cache 1000 paths
+  def call : Azu::Response::Empty
+    path = params["path"] # => "docs/readme.md" for /docs/docs/readme.md
+    Azu::Response::Empty.new
+  end
 end
 ```
 
 ## Router API
 
-### routes
+### route_info
 
-Get all registered routes.
+Lists the registered routes.
 
 ```crystal
-Azu.router.routes.each do |route|
-  puts "#{route.method} #{route.path}"
+Azu::App.default.router.route_info.each do |route|
+  puts "#{route["method"]} #{route["path"]} -> #{route["handler"]}"
 end
 ```
 
-### find
+### path_of
 
-Find a route for a request.
+The path an endpoint was registered under, for building links. `nil` when the router does not route it.
 
 ```crystal
-route = Azu.router.find("GET", "/users/123")
-route.handler  # => Handler
-route.params   # => {"id" => "123"}
+struct PathEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  get "/path"
+
+  def call : Azu::Response::Empty
+    Azu::Response::Empty.new
+  end
+end
+
+Azu::App.default.router.path_of(PathEndpoint) # => "/path"
+```
+
+### Path Caching
+
+The router caches the radix lookup key of the first 1000 distinct `METHOD:path` pairs. `clear_path_cache`
+empties it:
+
+```crystal
+Azu::App.default.router.clear_path_cache
 ```
 
 ## Route Groups
 
-Organize routes with common prefixes:
+Organize routes with common prefixes with `scope`, or declare the full path in each endpoint:
 
 ```crystal
-# Define multiple endpoints with shared prefix
-struct ApiV1::UsersIndex
-  include Azu::Endpoint(EmptyRequest, UsersResponse)
-  get "/api/v1/users"
-end
+struct ApiV1UsersIndex
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
 
-struct ApiV1::UsersShow
-  include Azu::Endpoint(EmptyRequest, UserResponse)
-  get "/api/v1/users/:id"
+  get "/api/v1/users"
+
+  def call : Azu::Response::Empty
+    Azu::Response::Empty.new
+  end
 end
 ```
-
-## Performance
-
-The router uses a radix tree (Radix) for O(k) route matching where k is the path length.
-
-### Benchmarks
-
-- Static routes: ~150ns
-- Dynamic routes: ~200ns
-- Wildcard routes: ~250ns
-
-### Optimization Tips
-
-1. Put most common routes first in handler chain
-2. Enable path caching for repeated paths
-3. Use static paths when possible
 
 ## Error Handling
 
 ### Not Found
 
-When no route matches:
-
-```crystal
-# Handler::Rescuer returns 404
-{
-  "error": "Not Found",
-  "path": "/unknown"
-}
-```
-
-### Method Not Allowed
-
-When path matches but method doesn't:
-
-```crystal
-# Returns 405 with Allow header
-{
-  "error": "Method Not Allowed",
-  "allowed": ["GET", "POST"]
-}
-```
+When no route matches, the router answers `404` with an `Azu::Response::NotFound`, rendered as HTML, JSON, XML or
+plain text according to the `Accept` header. The JSON body has the `Status`, `Title`, `Detail` and `Source` (the
+path) fields.
 
 ## Complete Example
 
 ```crystal
+struct UsersResponse
+  include Azu::Response
+
+  def render
+    "[]"
+  end
+end
+
+struct UserResponse
+  include Azu::Response
+
+  def render
+    "{}"
+  end
+end
+
+struct CreateUserRequest
+  include Azu::Request
+
+  getter name : String
+
+  def initialize(@name = "")
+  end
+
+  validate name, presence: true
+end
+
 # User CRUD endpoints
 struct UsersIndex
-  include Azu::Endpoint(EmptyRequest, UsersResponse)
+  include Azu::Endpoint(Azu::Request, UsersResponse)
+
   get "/users"
+
+  def call : UsersResponse
+    UsersResponse.new
+  end
 end
 
 struct UsersShow
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+  include Azu::Endpoint(Azu::Request, UserResponse)
+
   get "/users/:id"
+
+  def call : UserResponse
+    UserResponse.new
+  end
 end
 
 struct UsersCreate
   include Azu::Endpoint(CreateUserRequest, UserResponse)
-  post "/users"
-end
 
-struct UsersUpdate
-  include Azu::Endpoint(UpdateUserRequest, UserResponse)
-  put "/users/:id"
+  post "/users"
+
+  def call : UserResponse
+    UserResponse.new
+  end
 end
 
 struct UsersDelete
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Empty)
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
   delete "/users/:id"
+
+  def call : Azu::Response::Empty
+    status 204
+    Azu::Response::Empty.new
+  end
 end
 
 # Nested routes
 struct UserPosts
-  include Azu::Endpoint(EmptyRequest, PostsResponse)
-  get "/users/:user_id/posts"
-end
+  include Azu::Endpoint(Azu::Request, UsersResponse)
 
-struct UserPostShow
-  include Azu::Endpoint(EmptyRequest, PostResponse)
-  get "/users/:user_id/posts/:id"
+  get "/users/:user_id/posts"
+
+  def call : UsersResponse
+    UsersResponse.new
+  end
 end
 ```
 

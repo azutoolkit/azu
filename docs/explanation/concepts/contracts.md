@@ -38,6 +38,9 @@ struct CreateUserRequest
 
   getter name : String
   getter email : String
+
+  def initialize(@name = "", @email = "")
+  end
 end
 ```
 
@@ -61,8 +64,8 @@ struct CreateUserRequest
   def initialize(@name = "", @email = "", @age = nil)
   end
 
-  validate name, presence: true, length: {min: 2}
-  validate email, presence: true, format: /@/
+  validate name, presence: true, size: 2..100
+  validate email, presence: true, match: /@/
 end
 ```
 
@@ -75,16 +78,26 @@ end
 
 ### Parsing
 
-Request contracts automatically parse:
+Request contracts are built from:
 - JSON bodies (`application/json`)
-- Form data (`application/x-www-form-urlencoded`)
-- Multipart forms (`multipart/form-data`)
+- Form data (`application/x-www-form-urlencoded`) and the query string
+
+Uploaded files of multipart forms are read from `params.files` in the endpoint rather than from the contract.
 
 ## Response Contracts
 
 Response contracts define what endpoints return:
 
 ```crystal
+struct User
+  getter id : Int64
+  getter name : String
+  getter email : String
+
+  def initialize(@id, @name, @email)
+  end
+end
+
 struct UserResponse
   include Azu::Response
 
@@ -93,9 +106,9 @@ struct UserResponse
 
   def render
     {
-      id: @user.id,
-      name: @user.name,
-      email: @user.email
+      id:    @user.id,
+      name:  @user.name,
+      email: @user.email,
     }.to_json
   end
 end
@@ -109,15 +122,18 @@ end
 
 ### Return Type Enforcement
 
-The compiler ensures you return the declared type:
+The compiler ensures you return the declared type. This endpoint does not compile, which is the point:
 
+<!-- skip -->
 ```crystal
 struct MyEndpoint
-  include Azu::Endpoint(Request, UserResponse)
+  include Azu::Endpoint(Azu::Request, UserResponse)
+
+  get "/mine"
 
   def call : UserResponse
     # Must return UserResponse
-    "string"  # Compile error!
+    "string" # Compile error!
   end
 end
 ```
@@ -132,10 +148,13 @@ Contracts document the API:
 struct SearchRequest
   include Azu::Request
 
-  getter query : String           # Search term
-  getter page : Int32 = 1         # Page number
-  getter per_page : Int32 = 20    # Results per page
-  getter sort : String = "date"   # Sort field
+  getter query : String         # Search term
+  getter page : Int32 = 1       # Page number
+  getter per_page : Int32 = 20  # Results per page
+  getter sort : String = "date" # Sort field
+
+  def initialize(@query = "")
+  end
 end
 ```
 
@@ -146,6 +165,14 @@ Reading the request tells you exactly what the API accepts.
 Validations run before your code:
 
 ```crystal
+struct OrderItem
+  include JSON::Serializable
+  include URI::Params::Serializable
+
+  property product_id : Int64
+  property quantity : Int32
+end
+
 struct CreateOrderRequest
   include Azu::Request
 
@@ -153,30 +180,47 @@ struct CreateOrderRequest
   getter shipping_address : String
   getter payment_method : String
 
-  validate items, presence: true
-  validate shipping_address, presence: true
-  validate payment_method, inclusion: {in: ["card", "paypal", "bank"]}
-
-  def validate
-    super
-    if items.empty?
-      errors << Error.new(:items, "must have at least one item")
-    end
+  def initialize(@items = [] of OrderItem, @shipping_address = "", @payment_method = "")
   end
+
+  validate items, presence: true, message: "must have at least one item"
+  validate shipping_address, presence: true
+  validate payment_method, in: %w(card paypal bank)
 end
 ```
 
-Invalid requests are rejected before reaching your endpoint.
+Invalid requests are rejected before reaching your endpoint: the router answers `422` with the failing fields
+(see [Handle Validation Errors](../../how-to/validation/handle-validation-errors.md)).
 
 ### 3. Type Safety
 
 Types are enforced at compile time:
 
 ```crystal
-def call
-  # age is Int32?, not String
-  if age = create_user_request.age
-    validate_age(age)  # Compiler knows it's Int32
+struct AgeRequest
+  include Azu::Request
+
+  getter age : Int32?
+
+  def initialize(@age = nil)
+  end
+end
+
+struct AgeEndpoint
+  include Azu::Endpoint(AgeRequest, Azu::Response::Empty)
+
+  post "/age"
+
+  def call : Azu::Response::Empty
+    # age is Int32?, not String
+    if age = age_request.age
+      check_age(age) # Compiler knows it's Int32
+    end
+    Azu::Response::Empty.new
+  end
+
+  private def check_age(age : Int32) : Bool
+    age >= 18
   end
 end
 ```
@@ -185,15 +229,20 @@ end
 
 Changing contracts triggers compile errors:
 
+<!-- skip -->
 ```crystal
 # Before
 struct UserResponse
+  include Azu::Response
+
   def initialize(@user : User)
   end
 end
 
 # After - add required field
 struct UserResponse
+  include Azu::Response
+
   def initialize(@user : User, @permissions : Array(String))
   end
 end
@@ -206,8 +255,16 @@ end
 For endpoints without body data:
 
 ```crystal
+struct UserResponse
+  include Azu::Response
+
+  def render
+    "user"
+  end
+end
+
 struct GetUserEndpoint
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+  include Azu::Endpoint(Azu::Request, UserResponse)
 
   get "/users/:id"
 
@@ -215,6 +272,7 @@ struct GetUserEndpoint
     # No request body to parse
     # Use params for route parameters
     id = params["id"]
+    UserResponse.new
   end
 end
 ```
@@ -223,12 +281,12 @@ For endpoints without response body:
 
 ```crystal
 struct DeleteUserEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Empty)
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
 
   delete "/users/:id"
 
-  def call
-    User.find(params["id"]).destroy
+  def call : Azu::Response::Empty
+    # delete the user here
     status 204
     Azu::Response::Empty.new
   end
@@ -237,11 +295,14 @@ end
 
 ## Composition
 
-Contracts can reference other types:
+Contracts can reference other types. A nested type includes both `JSON::Serializable` and `URI::Params::Serializable`,
+because a contract is built from JSON and from form input, and an endpoint that uses the contract does not compile
+without both:
 
 ```crystal
 struct OrderItem
   include JSON::Serializable
+  include URI::Params::Serializable
   property product_id : Int64
   property quantity : Int32
 end
@@ -251,6 +312,9 @@ struct CreateOrderRequest
 
   getter items : Array(OrderItem)
   getter notes : String?
+
+  def initialize(@items = [] of OrderItem, @notes = nil)
+  end
 end
 ```
 
@@ -262,14 +326,28 @@ For API versioning, create separate contracts:
 module V1
   struct UserResponse
     include Azu::Response
+
+    def initialize(@name : String)
+    end
+
     # V1 format
+    def render
+      {name: @name}.to_json
+    end
   end
 end
 
 module V2
   struct UserResponse
     include Azu::Response
+
+    def initialize(@name : String, @email : String)
+    end
+
     # V2 format with additional fields
+    def render
+      {name: @name, email: @email}.to_json
+    end
   end
 end
 ```
@@ -277,19 +355,19 @@ end
 ## Best Practices
 
 1. **One contract per use case**
-   ```crystal
+   ```text
    struct CreateUserRequest    # For creation
    struct UpdateUserRequest    # For updates (might have optional fields)
    ```
 
 2. **Use meaningful names**
-   ```crystal
+   ```text
    struct SearchProductsRequest  # Clear purpose
    struct ProductListResponse    # Clear output
    ```
 
 3. **Keep contracts focused**
-   ```crystal
+   ```text
    # Good: focused response
    struct UserResponse
      def initialize(@user : User)

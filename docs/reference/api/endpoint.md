@@ -5,282 +5,399 @@ Endpoints handle HTTP requests with type-safe request and response contracts.
 ## Including Endpoint
 
 ```crystal
-struct MyEndpoint
-  include Azu::Endpoint(RequestType, ResponseType)
+struct PingResponse
+  include Azu::Response
+
+  def render
+    "pong"
+  end
+end
+
+struct PingEndpoint
+  include Azu::Endpoint(Azu::Request, PingResponse)
+
+  get "/ping"
+
+  def call : PingResponse
+    PingResponse.new
+  end
 end
 ```
 
 **Type Parameters:**
-- `RequestType` - Request contract type (must include `Azu::Request`)
-- `ResponseType` - Response type (must include `Azu::Response`)
+- `Request` - Request contract type: a struct that includes `Azu::Request`, or the bare `Azu::Request` module for an endpoint with no contract to validate
+- `Response` - Response type (must include `Azu::Response`)
+
+An endpoint is a plain struct (or class). It is not an `HTTP::Handler`: it is `Azu::Routable`, and the router dispatches to it.
 
 ## HTTP Method Macros
 
-### get
-
-Define a GET endpoint.
+`get`, `post`, `put`, `patch`, `delete`, `head`, `options`, `connect` and `trace` register the endpoint with the
+router of `Azu::App.default` when the struct is defined. A `get` route also answers `HEAD`.
 
 ```crystal
-get "/path"
-get "/users/:id"
-get "/search"
+struct NoContent
+  include Azu::Response
+
+  def render
+  end
+end
+
+struct ListUsersEndpoint
+  include Azu::Endpoint(Azu::Request, NoContent)
+
+  get "/users"
+
+  def call : NoContent
+    NoContent.new
+  end
+end
+
+struct CreateUserEndpoint
+  include Azu::Endpoint(Azu::Request, NoContent)
+
+  post "/users"
+
+  def call : NoContent
+    NoContent.new
+  end
+end
+
+struct UpdateUserEndpoint
+  include Azu::Endpoint(Azu::Request, NoContent)
+
+  put "/users/:id"
+
+  def call : NoContent
+    NoContent.new
+  end
+end
+
+struct PatchUserEndpoint
+  include Azu::Endpoint(Azu::Request, NoContent)
+
+  patch "/users/:id"
+
+  def call : NoContent
+    NoContent.new
+  end
+end
+
+struct DeleteUserEndpoint
+  include Azu::Endpoint(Azu::Request, NoContent)
+
+  delete "/users/:id"
+
+  def call : NoContent
+    NoContent.new
+  end
+end
 ```
 
-### post
+Each struct declares one route: the path is remembered per type for `Endpoint.path`, so give an endpoint one verb macro.
 
-Define a POST endpoint.
-
-```crystal
-post "/users"
-post "/login"
-```
-
-### put
-
-Define a PUT endpoint.
+To register an endpoint on an app of your own instead, route it explicitly (see [Router Reference](router.md)):
 
 ```crystal
-put "/users/:id"
-```
+struct StatusEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
 
-### patch
+  def call : Azu::Response::Empty
+    Azu::Response::Empty.new
+  end
+end
 
-Define a PATCH endpoint.
-
-```crystal
-patch "/users/:id"
-```
-
-### delete
-
-Define a DELETE endpoint.
-
-```crystal
-delete "/users/:id"
-```
-
-### options
-
-Define an OPTIONS endpoint.
-
-```crystal
-options "/users"
-```
-
-### head
-
-Define a HEAD endpoint.
-
-```crystal
-head "/users/:id"
+app = Azu::App.new
+app.routes { get "/status", StatusEndpoint }
 ```
 
 ## Instance Methods
 
+The helpers below are private methods of the endpoint, available inside `call`.
+
 ### call
 
-Handle the request. Must be implemented.
+Handle the request. Must be implemented. The returned response is rendered into the HTTP response body.
 
 ```crystal
-def call : ResponseType
-  # Handle request and return response
+struct ShowEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  get "/show"
+
+  def call : Azu::Response::Empty
+    # Handle request and return response
+    Azu::Response::Empty.new
+  end
 end
 ```
 
-**Returns:** `ResponseType`
+**Returns:** the response type given to `Azu::Endpoint`
 
 ### params
 
-Access route and query parameters.
+Access route, query and form parameters. Looks in the form body first, then route parameters, then the query string.
 
 ```crystal
-def call
-  id = params["id"]          # Route parameter
-  page = params["page"]?     # Optional query parameter
+struct SearchEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  get "/users/:id"
+
+  def call : Azu::Response::Empty
+    id = params["id"]       # raises KeyError when missing
+    page = params["page"]?  # String?
+    tags = params.fetch_all("tag")
+    params.query            # HTTP::Params
+    params.path             # Hash(String, String)
+    params.form             # HTTP::Params
+    params.files            # uploaded files
+    params.to_h             # Hash(String, String)
+    Azu::Response::Empty.new
+  end
 end
 ```
 
-**Returns:** `Hash(String, String)`
+**Returns:** `Azu::Params`
 
-### headers
+### header
 
-Access request headers.
+Read the request headers, or set a response header.
 
 ```crystal
-def call
-  auth = headers["Authorization"]?
-  content_type = headers["Content-Type"]?
+struct HeadersEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  get "/headers"
+
+  def call : Azu::Response::Empty
+    auth = header["Authorization"]?   # request header
+    header "X-Custom", "value"        # response header
+    Azu::Response::Empty.new
+  end
 end
 ```
 
-**Returns:** `HTTP::Headers`
+**Returns:** `HTTP::Headers` (reading) or sets the header (two arguments)
 
 ### context
 
 Access the full HTTP context.
 
 ```crystal
-def call
-  context.request   # HTTP::Request
-  context.response  # HTTP::Server::Response
+struct ContextEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  get "/context"
+
+  def call : Azu::Response::Empty
+    context.request  # HTTP::Request
+    context.response # HTTP::Server::Response
+    Azu::Response::Empty.new
+  end
 end
 ```
 
 **Returns:** `HTTP::Server::Context`
 
-### request
+### method
 
-Access the HTTP request.
+The HTTP method of the request as an `Azu::Method`.
+
+### cookies
+
+Read request cookies with `cookies`, and add a cookie to the response by passing an `HTTP::Cookie`.
 
 ```crystal
-def call
-  method = request.method
-  path = request.path
-  body = request.body
+struct CookieEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  get "/cookie"
+
+  def call : Azu::Response::Empty
+    session = cookies["session"]?
+    cookies HTTP::Cookie.new("seen", "1", http_only: true)
+    Azu::Response::Empty.new
+  end
 end
 ```
 
-**Returns:** `HTTP::Request`
+### content_type
 
-### response
-
-Access the HTTP response.
+Set the content type of the response.
 
 ```crystal
-def call
-  response.headers["X-Custom"] = "value"
-  response.status_code = 201
+struct TextEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  get "/text"
+
+  def call : Azu::Response::Empty
+    content_type "text/plain"
+    Azu::Response::Empty.new
+  end
 end
 ```
-
-**Returns:** `HTTP::Server::Response`
 
 ### status
 
 Set the response status code.
 
 ```crystal
-def call
-  status 201  # Created
-  status 204  # No Content
+struct CreatedEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  post "/created"
+
+  def call : Azu::Response::Empty
+    status 201 # Created
+    Azu::Response::Empty.new
+  end
 end
 ```
 
 **Parameters:**
-- `code : Int32` - HTTP status code
+- `status : Int32` - HTTP status code
+
+### error
+
+Build an `Azu::Response::Error` for the given message and status. Return it or raise it.
+
+```crystal
+struct FailingEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  get "/failing"
+
+  def call : Azu::Response::Empty
+    raise error("Something went wrong", 400, ["details"])
+  end
+end
+```
+
+### CSRF helpers
+
+`csrf_token`, `csrf_tag` and `csrf_metatag` return the token of the current request, the hidden input
+tag and the meta tag. They need the `Azu::Handler::CSRF` handler in the chain.
 
 ## Request Access
 
-Access the typed request via generated method:
+The validated request is available through a method named after the request type. It is parsed once
+per call, and a request that breaks its validations never reaches `call` (see [Request Reference](request.md)):
 
 ```crystal
-struct CreateUserEndpoint
+struct CreateUserRequest
+  include Azu::Request
+
+  getter name : String
+  getter email : String
+
+  def initialize(@name = "", @email = "")
+  end
+
+  validate name, presence: true
+  validate email, presence: true
+end
+
+struct UserResponse
+  include Azu::Response
+
+  def initialize(@name : String)
+  end
+
+  def render
+    {name: @name}.to_json
+  end
+end
+
+struct SignupEndpoint
   include Azu::Endpoint(CreateUserRequest, UserResponse)
 
   post "/users"
 
   def call : UserResponse
     # Access request via snake_case method name
-    create_user_request.name
     create_user_request.email
+    UserResponse.new(create_user_request.name)
   end
 end
 ```
 
-Method name is derived from request type: `CreateUserRequest` → `create_user_request`
+The method name is derived from the request type: `CreateUserRequest` becomes `create_user_request`, and
+`create_user_request_contract` is an alias for it.
 
-## Response Helpers
+## Redirects
 
-### json
+### redirect
 
-Return JSON response.
-
-```crystal
-def call
-  json({message: "Hello", count: 42})
-end
-```
-
-### text
-
-Return plain text response.
+Redirect to another URL. The endpoint returns `Azu::Response::Empty`.
 
 ```crystal
-def call
-  text "Hello, World!"
-end
-```
+struct OldDashboardEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
 
-### html
+  get "/old-dashboard"
 
-Return HTML response.
-
-```crystal
-def call
-  html "<h1>Hello</h1>"
-end
-```
-
-### redirect_to
-
-Redirect to another URL.
-
-```crystal
-def call
-  redirect_to "/dashboard"
-  redirect_to "/login", status: 301  # Permanent
+  def call : Azu::Response::Empty
+    redirect to: "/dashboard", status: 302
+  end
 end
 ```
 
 **Parameters:**
-- `url : String` - Redirect URL
-- `status : Int32 = 302` - HTTP status code
+- `to : String` - Redirect URL
+- `status : Int32 = 301` - HTTP status code
 
 ## Route Parameters
 
 ### Path Parameters
 
 ```crystal
-get "/users/:id"
-get "/users/:user_id/posts/:post_id"
+struct PostEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
 
-def call
-  user_id = params["user_id"]
-  post_id = params["post_id"]
+  get "/users/:user_id/posts/:post_id"
+
+  def call : Azu::Response::Empty
+    user_id = params["user_id"]
+    post_id = params["post_id"]
+    Azu::Response::Empty.new
+  end
 end
 ```
 
 ### Wildcard Parameters
 
 ```crystal
-get "/files/*path"
+struct FilesEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
 
-def call
-  path = params["path"]  # Captures rest of path
+  get "/files/*path"
+
+  def call : Azu::Response::Empty
+    path = params["path"] # Captures the rest of the path
+    Azu::Response::Empty.new
+  end
 end
 ```
 
 ## Complete Example
 
 ```crystal
-struct UserEndpoint
-  include Azu::Endpoint(EmptyRequest, UserResponse)
+struct User
+  getter id : Int64
+  getter name : String
+  getter email : String
 
-  get "/users/:id"
+  def initialize(@id, @name, @email)
+  end
 
-  def call : UserResponse
-    user_id = params["id"].to_i64
-    user = User.find?(user_id)
-
-    unless user
-      raise Azu::Response::NotFound.new("/users/#{user_id}")
-    end
-
-    UserResponse.new(user)
+  def self.find?(id : Int64) : User?
+    new(id, "Ada", "ada@example.com") if id == 1
   end
 end
 
-struct UserResponse
+struct ShowUserResponse
   include Azu::Response
 
   def initialize(@user : User)
@@ -288,10 +405,24 @@ struct UserResponse
 
   def render
     {
-      id: @user.id,
-      name: @user.name,
-      email: @user.email
+      id:    @user.id,
+      name:  @user.name,
+      email: @user.email,
     }.to_json
+  end
+end
+
+struct ShowUserEndpoint
+  include Azu::Endpoint(Azu::Request, ShowUserResponse)
+
+  get "/users/:id"
+
+  def call : ShowUserResponse
+    user_id = params["id"].to_i64
+    user = User.find?(user_id) || raise Azu::Response::NotFound.new("/users/#{user_id}")
+
+    content_type "application/json"
+    ShowUserResponse.new(user)
   end
 end
 ```

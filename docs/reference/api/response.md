@@ -24,8 +24,15 @@ end
 Return the response body as a string.
 
 ```crystal
-def render : String
-  {id: @user.id, name: @user.name}.to_json
+struct UserNameResponse
+  include Azu::Response
+
+  def initialize(@id : Int64, @name : String)
+  end
+
+  def render : String
+    {id: @id, name: @name}.to_json
+  end
 end
 ```
 
@@ -33,66 +40,84 @@ end
 
 ## Built-in Response Types
 
-### Azu::Response::Json
+Azu ships one response type for endpoints that send no body. Everything else is a response struct of your own
+that includes `Azu::Response`; set the content type in the endpoint with `content_type`.
 
-JSON response with automatic content type.
+### JSON, text and HTML
+
+The body is whatever `render` returns, and the endpoint sets the content type:
 
 ```crystal
-struct MyEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Json)
+struct DataResponse
+  include Azu::Response
+
+  def initialize(@message : String, @count : Int32)
+  end
+
+  def render
+    {message: @message, count: @count}.to_json
+  end
+end
+
+struct DataEndpoint
+  include Azu::Endpoint(Azu::Request, DataResponse)
 
   get "/data"
 
-  def call
-    json({message: "Hello", count: 42})
+  def call : DataResponse
+    content_type "application/json"
+    DataResponse.new("Hello", 42)
   end
 end
-```
 
-### Azu::Response::Text
+struct TextResponse
+  include Azu::Response
 
-Plain text response.
+  def initialize(@text : String)
+  end
 
-```crystal
+  def render
+    @text
+  end
+end
+
 struct HealthEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Text)
+  include Azu::Endpoint(Azu::Request, TextResponse)
 
   get "/health"
 
-  def call
-    text "OK"
+  def call : TextResponse
+    content_type "text/plain"
+    TextResponse.new("OK")
   end
 end
-```
 
-### Azu::Response::Html
-
-HTML response.
-
-```crystal
 struct PageEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Html)
+  include Azu::Endpoint(Azu::Request, TextResponse)
 
   get "/page"
 
-  def call
-    html "<h1>Welcome</h1>"
+  def call : TextResponse
+    content_type "text/html"
+    TextResponse.new("<h1>Welcome</h1>")
   end
 end
 ```
 
+For HTML pages rendered from templates, include `Azu::Templates::Renderable` in the response and call
+`view "users/show.html", {...}`.
+
 ### Azu::Response::Empty
 
-No content response (204).
+A response with no body. Set the status in the endpoint.
 
 ```crystal
 struct DeleteEndpoint
-  include Azu::Endpoint(EmptyRequest, Azu::Response::Empty)
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
 
   delete "/items/:id"
 
-  def call
-    Item.find(params["id"]).destroy
+  def call : Azu::Response::Empty
     status 204
     Azu::Response::Empty.new
   end
@@ -103,58 +128,92 @@ end
 
 ### Azu::Response::Error
 
-Base class for error responses.
+Base class for error responses. It is an `Exception` and an `Azu::Response`. Raise it, or one of its subclasses, from
+an endpoint and `Azu::Handler::Rescuer` renders it with the status and in the format the `Accept` header asks for
+(HTML, JSON, XML or plain text).
+
+Properties are `status`, `title`, `detail`, `source`, `errors`, `context`, `error_id` and `fingerprint`;
+`status_code` is the numeric status.
 
 ```crystal
-class Azu::Response::Error < Exception
-  getter status : Int32
-  getter message : String
-
-  def initialize(@message : String, @status : Int32 = 500)
-  end
-end
+error = Azu::Response::Error.new("Payment failed", HTTP::Status::BAD_REQUEST, ["card declined"])
+error.status_code # => 400
+error.detail      # => "Payment failed"
 ```
 
 ### Built-in Errors
 
 | Class | Status | Usage |
 |-------|--------|-------|
-| `BadRequest` | 400 | Invalid request |
-| `Unauthorized` | 401 | Authentication required |
-| `Forbidden` | 403 | Access denied |
+| `BadRequest` | 400 | Invalid request, or a body that cannot be parsed |
+| `AuthenticationError` | 401 | Authentication required |
+| `AuthorizationError` | 403 | Insufficient permissions |
+| `Forbidden` | 403 | Access denied (an `AuthorizationError`) |
 | `NotFound` | 404 | Resource not found |
-| `MethodNotAllowed` | 405 | HTTP method not allowed |
-| `Conflict` | 409 | Resource conflict |
-| `UnprocessableEntity` | 422 | Validation failed |
-| `TooManyRequests` | 429 | Rate limit exceeded |
-| `InternalServerError` | 500 | Server error |
-| `ServiceUnavailable` | 503 | Service unavailable |
+| `TimeoutError` | 408 | Request timeout |
+| `PayloadTooLarge` | 413 | Request body too large |
+| `ValidationError` | 422 | Request contract broken |
+| `RateLimitError` | 429 | Rate limit exceeded (sends `Retry-After`) |
+| `DatabaseError` | 500 | Database operation failed |
+| `ExternalServiceError` | 502 | A service this one depends on is unavailable |
 
 ### Using Error Responses
 
 ```crystal
-def call
-  user = User.find?(params["id"])
-  raise Azu::Response::NotFound.new("/users/#{params["id"]}") unless user
+struct FindUserEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
 
-  UserResponse.new(user)
+  get "/users/:id"
+
+  def call : Azu::Response::Empty
+    id = params["id"]
+    raise Azu::Response::NotFound.new("/users/#{id}") if id == "0"
+
+    raise Azu::Response::AuthenticationError.new unless header["Authorization"]?
+
+    Azu::Response::Empty.new
+  end
 end
 ```
 
 ### ValidationError
 
-Special error for validation failures.
+Answers `422` with the failing fields. The router raises it for you when a request breaks its contract, and
+you can raise it yourself for checks the contract cannot express.
 
 ```crystal
-raise Azu::Response::ValidationError.new([
-  {field: "email", message: "is invalid"},
-  {field: "name", message: "is required"}
-])
+raise Azu::Response::ValidationError.new({
+  "email" => ["is invalid"],
+  "name"  => ["is required"],
+})
+
+raise Azu::Response::ValidationError.new("email", "is invalid")
 ```
+
+By default the body is RFC 7807 `application/problem+json`:
+
+```json
+{"type": "about:blank", "title": "Validation Error", "status": 422,
+ "detail": "The request could not be processed due to validation errors.",
+ "errors": {"email": ["is invalid"], "name": ["is required"]}}
+```
+
+Set `config.error_format = Azu::ErrorFormat::Legacy` to keep the pre-0.6 body (`FieldErrors`, `ErrorId`, ...)
+for one more minor release.
 
 ## Custom Response Example
 
 ```crystal
+struct User
+  getter id : Int64
+  getter name : String
+  getter email : String
+  getter created_at : Time?
+
+  def initialize(@id, @name, @email, @created_at = nil)
+  end
+end
+
 struct UserResponse
   include Azu::Response
 
@@ -199,14 +258,28 @@ end
 
 ## Response with Headers
 
-Set custom headers in your endpoint:
+Set custom headers in your endpoint with `header key, value`:
 
 ```crystal
-def call
-  response.headers["X-Custom-Header"] = "value"
-  response.headers["Cache-Control"] = "max-age=3600"
+struct MyResponse
+  include Azu::Response
 
-  MyResponse.new(data)
+  def render
+    "data"
+  end
+end
+
+struct CachedEndpoint
+  include Azu::Endpoint(Azu::Request, MyResponse)
+
+  get "/cached"
+
+  def call : MyResponse
+    header "X-Custom-Header", "value"
+    header "Cache-Control", "max-age=3600"
+
+    MyResponse.new
+  end
 end
 ```
 
@@ -215,56 +288,98 @@ end
 Set custom status codes:
 
 ```crystal
-def call
-  status 201  # Created
-  UserResponse.new(user)
+struct MyResponse
+  include Azu::Response
+
+  def render
+    "data"
+  end
 end
 
-def call
-  status 202  # Accepted
-  TaskResponse.new(task)
+struct CreateTaskEndpoint
+  include Azu::Endpoint(Azu::Request, MyResponse)
+
+  post "/tasks"
+
+  def call : MyResponse
+    status 201 # Created
+    MyResponse.new
+  end
+end
+
+struct QueueTaskEndpoint
+  include Azu::Endpoint(Azu::Request, MyResponse)
+
+  post "/queue"
+
+  def call : MyResponse
+    status 202 # Accepted
+    MyResponse.new
+  end
 end
 ```
 
 ## Streaming Responses
 
-For large responses:
+For large responses, write to the HTTP response from the endpoint and return `Azu::Response::Empty`:
 
 ```crystal
-def call
-  response.content_type = "application/json"
-  response.headers["Transfer-Encoding"] = "chunked"
+struct StreamEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
 
-  response.print "["
-  users.each_with_index do |user, i|
-    response.print "," if i > 0
-    response.print user.to_json
-    response.flush
+  get "/stream"
+
+  def call : Azu::Response::Empty
+    out = context.response
+    out.content_type = "application/json"
+
+    out.print "["
+    3.times do |i|
+      out.print "," if i > 0
+      out.print({id: i}.to_json)
+      out.flush
+    end
+    out.print "]"
+
+    Azu::Response::Empty.new
   end
-  response.print "]"
 end
 ```
 
 ## Content Negotiation
 
-Return different formats based on Accept header:
+Errors are negotiated for you from the `Accept` header. For your own responses, read the header in the endpoint and
+let the response choose the format:
 
 ```crystal
-def call
-  case accept_type
-  when "application/json"
-    json(data)
-  when "text/html"
-    html(render_html(data))
-  when "text/plain"
-    text(data.to_s)
-  else
-    json(data)
+struct NegotiatedResponse
+  include Azu::Response
+
+  def initialize(@data : Hash(String, String), @accept : String)
+  end
+
+  def render
+    case @accept
+    when "text/html"
+      "<dl>#{@data.map { |key, value| "<dt>#{HTML.escape(key)}</dt><dd>#{HTML.escape(value)}</dd>" }.join}</dl>"
+    when "text/plain"
+      @data.map { |key, value| "#{key}: #{value}" }.join("\n")
+    else
+      @data.to_json
+    end
   end
 end
 
-private def accept_type
-  headers["Accept"]?.try(&.split(",").first) || "application/json"
+struct NegotiatedEndpoint
+  include Azu::Endpoint(Azu::Request, NegotiatedResponse)
+
+  get "/negotiated"
+
+  def call : NegotiatedResponse
+    accept = header["Accept"]?.try(&.split(",").first) || "application/json"
+    content_type accept
+    NegotiatedResponse.new({"name" => "Ada"}, accept)
+  end
 end
 ```
 

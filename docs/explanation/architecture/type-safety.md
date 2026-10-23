@@ -20,7 +20,7 @@ You might deploy this code and only discover the bug when a user hits it.
 
 Crystal catches errors at compile time:
 
-```crystal
+```text
 # This won't compile - typo caught immediately
 user.to_josn  # Error: undefined method 'to_josn' for User
 
@@ -33,12 +33,34 @@ user.to_json
 Azu uses generics to enforce types:
 
 ```crystal
+struct CreateUserRequest
+  include Azu::Request
+
+  getter name : String
+
+  def initialize(@name = "")
+  end
+end
+
+struct UserResponse
+  include Azu::Response
+
+  def initialize(@name : String)
+  end
+
+  def render
+    {name: @name}.to_json
+  end
+end
+
 struct CreateUserEndpoint
   include Azu::Endpoint(CreateUserRequest, UserResponse)
   #                     ↑ Input type       ↑ Output type
 
-  def call : UserResponse  # ← Must return this type
-    # ...
+  post "/users"
+
+  def call : UserResponse # ← Must return this type
+    UserResponse.new(create_user_request.name)
   end
 end
 ```
@@ -50,12 +72,15 @@ The compiler ensures:
 
 ### What Happens If You Return Wrong Type
 
+This endpoint does not compile, which is the point:
+
+<!-- skip -->
 ```crystal
 def call : UserResponse
   if user = find_user
     UserResponse.new(user)
   else
-    "Not found"  # Error: expected UserResponse, got String
+    "Not found" # Error: expected UserResponse, got String
   end
 end
 ```
@@ -70,30 +95,49 @@ Request contracts define expected input:
 struct CreateUserRequest
   include Azu::Request
 
-  getter name : String      # Required string
-  getter email : String     # Required string
-  getter age : Int32?       # Optional integer
+  getter name : String  # Required string
+  getter email : String # Required string
+  getter age : Int32?   # Optional integer
+
+  def initialize(@name = "", @email = "", @age = nil)
+  end
 end
 ```
 
 Benefits:
 - Clear documentation of expected input
-- Automatic parsing into correct types
+- Automatic parsing into correct types: input that cannot be converted is answered with `400`
 - Validation runs before your code
 
 ### Accessing Request Data
 
 ```crystal
-def call : UserResponse
-  # Type is known - no nil checks needed
-  name = create_user_request.name  # String, not String?
+struct CreateUserRequest
+  include Azu::Request
 
-  # Optional fields are nil-able
-  if age = create_user_request.age
-    validate_age(age)
+  getter name : String
+  getter age : Int32?
+
+  def initialize(@name = "", @age = nil)
   end
+end
 
-  # ...
+struct CreateUserEndpoint
+  include Azu::Endpoint(CreateUserRequest, Azu::Response::Empty)
+
+  post "/users"
+
+  def call : Azu::Response::Empty
+    # Type is known - no nil checks needed
+    name = create_user_request.name # String, not String?
+
+    # Optional fields are nil-able
+    if age = create_user_request.age
+      age + 1 # age is an Int32 here
+    end
+
+    Azu::Response::Empty.new
+  end
 end
 ```
 
@@ -102,6 +146,15 @@ end
 Responses define output shape:
 
 ```crystal
+struct User
+  getter id : Int64
+  getter name : String
+  getter email : String
+
+  def initialize(@id, @name, @email)
+  end
+end
+
 struct UserResponse
   include Azu::Response
 
@@ -110,9 +163,9 @@ struct UserResponse
 
   def render
     {
-      id: @user.id,        # Int64
-      name: @user.name,    # String
-      email: @user.email   # String
+      id:    @user.id,    # Int64
+      name:  @user.name,  # String
+      email: @user.email, # String
     }.to_json
   end
 end
@@ -127,14 +180,28 @@ The compiler verifies:
 Route parameters are always strings, but conversion is explicit:
 
 ```crystal
-get "/users/:id"
+struct UserResponse
+  include Azu::Response
 
-def call : UserResponse
-  # params["id"] is String
-  id = params["id"].to_i64  # Explicit conversion to Int64
+  def initialize(@id : Int64)
+  end
 
-  user = User.find(id)
-  UserResponse.new(user)
+  def render
+    {id: @id}.to_json
+  end
+end
+
+struct ShowUserEndpoint
+  include Azu::Endpoint(Azu::Request, UserResponse)
+
+  get "/users/:id"
+
+  def call : UserResponse
+    # params["id"] is String
+    id = params["id"].to_i64 # Explicit conversion to Int64
+
+    UserResponse.new(id)
+  end
 end
 ```
 
@@ -143,53 +210,131 @@ end
 Crystal's nil-safety prevents null pointer errors:
 
 ```crystal
-def call : UserResponse
-  user = User.find?(params["id"])
+struct User
+  getter name : String
 
-  # user is User? (might be nil)
-  user.name  # Error: undefined method 'name' for Nil
+  def initialize(@name)
+  end
 
-  # Must handle nil case
-  if user
-    UserResponse.new(user)
-  else
-    raise Azu::Response::NotFound.new("/users/#{params["id"]}")
+  def self.find?(id : String) : User?
+    new("Ada") if id == "1"
+  end
+end
+
+struct UserResponse
+  include Azu::Response
+
+  def initialize(@user : User)
+  end
+
+  def render
+    @user.name
+  end
+end
+
+struct ShowUserEndpoint
+  include Azu::Endpoint(Azu::Request, UserResponse)
+
+  get "/users/:id"
+
+  def call : UserResponse
+    user = User.find?(params["id"])
+
+    # user is User? (might be nil), so `user.name` here would not compile:
+    # undefined method 'name' for Nil
+
+    # Must handle nil case
+    if user
+      UserResponse.new(user)
+    else
+      raise Azu::Response::NotFound.new("/users/#{params["id"]}")
+    end
   end
 end
 ```
 
 ## Union Types
 
-Handle multiple cases explicitly:
+Handle multiple cases explicitly. When an endpoint answers with more than one response type, declare the union as its
+response type:
 
 ```crystal
-def call : Azu::Response
-  case action
-  when "create"
-    CreateResponse.new(create_item)
-  when "delete"
-    status 204
-    Azu::Response::Empty.new
-  else
-    raise Azu::Response::BadRequest.new("Unknown action")
+struct CreateResponse
+  include Azu::Response
+
+  def render
+    {created: true}.to_json
+  end
+end
+
+struct ItemEndpoint
+  include Azu::Endpoint(Azu::Request, CreateResponse | Azu::Response::Empty)
+
+  post "/items/:action"
+
+  def call : CreateResponse | Azu::Response::Empty
+    case params["action"]
+    when "create"
+      CreateResponse.new
+    when "delete"
+      status 204
+      Azu::Response::Empty.new
+    else
+      raise Azu::Response::BadRequest.new("Unknown action")
+    end
   end
 end
 ```
 
-## Generic Handlers
+## Generic Helpers
 
-Create reusable, type-safe handlers:
+Create reusable, type-safe helpers with generics:
 
 ```crystal
-class CacheHandler(T) < Azu::Handler::Base
-  def call(context)
-    key = cache_key(context)
+struct Profile
+  include JSON::Serializable
 
+  getter name : String
+
+  def initialize(@name)
+  end
+end
+
+class JsonCache(T)
+  def initialize(@ttl : Time::Span = 5.minutes)
+  end
+
+  # Returns a T whether it comes from the cache or from the block
+  def fetch(key : String, & : -> T) : T
     if cached = Azu.cache.get(key)
       return T.from_json(cached)
     end
 
-    call_next(context)
+    value = yield
+    Azu.cache.set(key, value.to_json, ttl: @ttl)
+    value
+  end
+end
+
+struct ProfileResponse
+  include Azu::Response
+
+  def initialize(@profile : Profile)
+  end
+
+  def render
+    @profile.to_json
+  end
+end
+
+struct ProfileEndpoint
+  include Azu::Endpoint(Azu::Request, ProfileResponse)
+
+  get "/profile"
+
+  def call : ProfileResponse
+    profile = JsonCache(Profile).new.fetch("profile") { Profile.new("Ada") }
+    ProfileResponse.new(profile)
   end
 end
 ```
@@ -198,13 +343,11 @@ end
 
 Crystal's error messages help identify issues:
 
-```
+```text
 Error: no overload matches 'User.find' with types (String)
 
 Overloads are:
  - User.find(id : Int64)
-
-Did you mean to convert the argument?
 ```
 
 ## Trade-offs
@@ -225,31 +368,41 @@ Did you mean to convert the argument?
 ## Best Practices
 
 1. **Be explicit about types**
-   ```crystal
+   ```text
    def call : UserResponse  # Always specify return type
    ```
 
 2. **Use meaningful type aliases**
-   ```crystal
+   ```text
    alias UserId = Int64
    alias Email = String
    ```
 
 3. **Handle all cases**
+
+   `case ... in` on an enum is checked for exhaustiveness: leaving out a member is a compile error.
+
    ```crystal
-   case status
-   when .pending?
-     # ...
-   when .active?
-     # ...
-   when .archived?
-     # ...
+   enum Status
+     Pending
+     Active
+     Archived
    end
-   # Compiler warns if case not exhaustive
+
+   def label(status : Status) : String
+     case status
+     in .pending?
+       "Pending"
+     in .active?
+       "Active"
+     in .archived?
+       "Archived"
+     end
+   end
    ```
 
 4. **Leverage union types for flexibility**
-   ```crystal
+   ```text
    def find(id : Int64 | String)
      # Accept either type
    end
