@@ -44,6 +44,7 @@ module Azu
     def call(context : HTTP::Server::Context)
       @context = context
       @params = Params(Request).new(context.request)
+      @request_object = nil
 
       # Set endpoint name header for performance monitoring
       endpoint_name = self.class.name.split("::").last

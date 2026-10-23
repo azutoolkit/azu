@@ -48,6 +48,10 @@ request breaks them: the router answers `422` before `call`, and the parsed requ
   `{"type": "about:blank", "title": "Validation Error", "status": 422, "detail": "...", "errors": {"name": ["must be present"]}}`.
 - To keep the pre-0.6 body (`FieldErrors`, `ErrorId`, ...) for one more minor release, set
   `config.error_format = Azu::ErrorFormat::Legacy`.
+- The request is parsed before `call` even when the endpoint never reads it, so a body that cannot be parsed
+  into the request type (for example a missing non-nilable field on a GET) answers `400` before `call`.
+  Endpoints that validate by hand (`if signup_request.valid?` then re-render a form) no longer get to run
+  for invalid input; declare such an endpoint with a request type without validations.
 - Endpoints declared with the bare `Azu::Request` module have no contract and are not affected.
 
 ### 0.5.28

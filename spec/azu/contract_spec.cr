@@ -35,6 +35,16 @@ module ContractSpec
       SignupResponse.new "reached"
     end
   end
+
+  # One instance serves every request, so nothing parsed for one request may reach the next.
+  class SharedSignupEndpoint
+    include Azu::Endpoint(SignupRequest, SignupResponse)
+
+    def call : SignupResponse
+      content_type "application/json"
+      SignupResponse.new signup_request.name
+    end
+  end
 end
 
 private def post(app : Azu::App, body : String, accept : String = "application/json") : HTTP::Client::Response
@@ -65,6 +75,15 @@ describe "request contracts" do
     body["status"].should eq 422
     body["errors"]["name"].should eq ["must be present"]
     body["errors"].as_h.has_key?("email").should be_false
+  end
+
+  it "does not carry a parsed request from one call to the next on a shared endpoint instance" do
+    app = Azu::App.new
+    app.routes { post "/signup", ContractSpec::SharedSignupEndpoint }
+
+    post(app, %({"name": "first", "email": "a@b.c"})).body.should contain "first"
+    post(app, %({"name": "", "email": "a@b.c"})).status_code.should eq 422
+    post(app, %({"name": "third", "email": "a@b.c"})).body.should contain "third"
   end
 
   it "lets a valid request through" do
