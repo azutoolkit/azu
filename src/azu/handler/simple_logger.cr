@@ -7,11 +7,15 @@ module Azu
     class SimpleLogger
       include HTTP::Handler
 
-      getter log : ::Log
       getter async_logger : AsyncLogging::AsyncLogger
 
-      def initialize(@log : ::Log = CONFIG.log)
+      # Without an explicit log, the log of the app serving the request (`Azu.current_config`).
+      def initialize(@log : ::Log? = nil)
         @async_logger = AsyncLogging::AsyncLogger.new("azu.http")
+      end
+
+      def log : ::Log
+        @log || Azu.current_config.log
       end
 
       def call(context : HTTP::Server::Context)
