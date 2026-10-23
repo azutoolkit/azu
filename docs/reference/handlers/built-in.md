@@ -244,10 +244,13 @@ class AppSession
   property csrf_token : String? = nil
 end
 
-app_session = AppSession.new
+# One session per visitor, looked up from the request (here a header; a real app uses its session library)
+sessions = Hash(String, AppSession).new { |hash, id| hash[id] = AppSession.new }
+session_of = ->(context : HTTP::Server::Context) { sessions[context.request.headers["X-Session-Id"]? || ""] }
+
 Azu.session_adapter = Azu::SessionAdapter.new(
-  csrf_token: ->(context : HTTP::Server::Context) { app_session.csrf_token },
-  store_csrf_token: ->(context : HTTP::Server::Context, token : String) { app_session.csrf_token = token; nil },
+  csrf_token: ->(context : HTTP::Server::Context) { session_of.call(context).csrf_token },
+  store_csrf_token: ->(context : HTTP::Server::Context, token : String) { session_of.call(context).csrf_token = token; nil },
 )
 
 csrf = Azu::Handler::CSRF.new(
@@ -256,9 +259,11 @@ csrf = Azu::Handler::CSRF.new(
 )
 ```
 
-(A real app looks the session up from the `context` instead of closing over one object.) The session store is
+The adapter must return the token of the session of *that request*: a single shared session object would give
+every visitor the same token. Put the session handler before `CSRF` in the chain.
 used by `SynchronizerToken` only; `SignedDoubleSubmit` and `DoubleSubmit` are cookie patterns by definition.
-Without an adapter, `SessionTokenStore` raises `Azu::SessionAdapter::NotConfigured`.
+Issuing a token without an adapter raises `Azu::SessionAdapter::NotConfigured`; validating a request when the
+adapter or the session is unavailable answers `403`. An empty stored token counts as none.
 
 Tokens are issued by calling `token(context)`, which also sets the cookie on that response, usually from the
 endpoint that renders the form:

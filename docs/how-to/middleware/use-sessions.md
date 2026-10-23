@@ -51,9 +51,17 @@ Azu.session_adapter = Azu::SessionAdapter.new(
 )
 ```
 
-Without an adapter, `flash` and `session` in templates are empty. Azu no longer reads a `_session` or
-`_flash` cookie: any client can write one, and nothing signed it. A template then shows messages with
-`{{ flash.notice }}` as before.
+Install the adapter once at boot, before serving: it lives on the configuration of the app
+(`Azu.session_adapter=` sets it on the current one; an `Azu::App` has its own).
+
+Without an adapter, `flash` in templates is empty. Azu no longer reads a `_session` or `_flash` cookie: any
+client can write one, and nothing signed it. A template shows messages with `{{ flash.notice }}` as before.
+
+`session` is deliberately not given to templates: a session holds identifiers and tokens that a template has no
+business printing. Pass what a page needs through its response object, or give the adapter's `session:` proc an
+allowlist (`->(context : HTTP::Server::Context) { {"name" => context.session.name.to_s} }`) and read it as
+`TemplateContext#session`. Flash values are user-influenced text, and `.jinja` templates are not autoescaped:
+write `{{ flash.notice | e }}`.
 
 ## Use it in endpoints
 
@@ -70,12 +78,20 @@ struct Sessions::CreateEndpoint
       return redirect to: "/login", status: 303
     end
 
-    # A new session id on every privilege change
-    Session.session.authenticate { |session| session.user_id = user.id }
+    # A new session id and a new CSRF token on every privilege change: clearing the token makes the
+    # next form regenerate it
+    Session.session.authenticate do |session|
+      session.user_id = user.id
+      session.csrf_token = nil
+    end
     redirect to: "/account", status: 303
   end
 end
 ```
+
+Use the store with `Azu::Handler::CSRF.new(strategy: Azu::Handler::CSRF::Strategy::SynchronizerToken,
+token_store: Azu::Handler::CSRF::SessionTokenStore.new)`, placed **after** `Session::SessionHandler` in the
+handler chain. If the session is missing or unreadable, the request is refused with 403.
 
 `context.session` and `context.flash` work only in the request's own fiber, behind the session handler. A
 WebSocket channel or a `spawn`ed fiber has no session and gets `Session::Web::MissingSession`.
