@@ -53,9 +53,18 @@ end
 ## Magic Number Validation
 
 Check the file signature (magic number), the first bytes of the content, for the true file type. Read from the temp file
-and rewind so that the file can be read again afterwards:
+and rewind so that the file can be read again afterwards. The `MagicNumber` module is the first part of the example in
+the next section.
+
+## Comprehensive File Validation
+
+Combine the checks. A failure raises `Azu::Response::ValidationError`, which `Azu::Handler::Rescuer` answers with `422`
+and the field name. The endpoint validates, then keeps the file under a name you chose, and removes the temp file on
+every path:
 
 ```crystal
+require "uuid"
+
 module MagicNumber
   SIGNATURES = {
     jpeg: Bytes[0xFF, 0xD8, 0xFF],
@@ -84,14 +93,7 @@ module MagicNumber
     detect(io) == :pdf
   end
 end
-```
 
-## Comprehensive File Validation
-
-Combine the checks. A failure raises `Azu::Response::ValidationError`, which `Azu::Handler::Rescuer` answers
-with `422` and the field name:
-
-```crystal
 module SecureFileValidator
   record Kind, extensions : Array(String), content_types : Array(String), signature : Proc(IO, Bool)
 
@@ -124,14 +126,6 @@ module SecureFileValidator
     raise Azu::Response::ValidationError.new(field, message)
   end
 end
-```
-
-## Use it in an Endpoint
-
-Validate, then keep the file under a name you chose. Remove the temp file on every path:
-
-```crystal
-require "uuid"
 
 struct AvatarResponse
   include Azu::Response
@@ -167,8 +161,8 @@ struct AvatarEndpoint
 end
 ```
 
-A file that is too large never gets here: it is refused with `413` while it is being received. To allow a smaller limit
-for one endpoint, check `upload.size` and raise `Azu::Response::PayloadTooLarge`.
+A file that is too large never gets to the endpoint: it is refused with `413` while it is being received. To allow a
+smaller limit for one endpoint, check `upload.size` and raise `Azu::Response::PayloadTooLarge`.
 
 ## Security Considerations
 

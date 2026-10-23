@@ -81,7 +81,7 @@ end
 ## Multiple File Uploads
 
 `params.files` is keyed by field name, so one field name holds one file: if several parts share a name, the last
-one wins. Give each file input its own name (`photo1`, `photo2`) and iterate:
+one wins, and the temp file of the replaced one is left for the background cleanup. Give each file input its own name (`photo1`, `photo2`) and iterate:
 
 ```crystal
 struct MultiUploadResponse
