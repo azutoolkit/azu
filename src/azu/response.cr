@@ -188,6 +188,10 @@ module Azu
       def render
       end
 
+      def json_content_type : String
+        "application/json"
+      end
+
       def to_s(context : HTTP::Server::Context)
         context.response.status_code = status_code
         context.response.headers["X-Error-ID"] = error_id
@@ -201,7 +205,7 @@ module Azu
                           context.response.content_type = "text/html"
                           html(context)
                         when .includes?("json")
-                          context.response.content_type = "application/json"
+                          context.response.content_type = json_content_type
                           json
                         when .includes?("xml")
                           context.response.content_type = "application/xml"
@@ -307,7 +311,18 @@ module Azu
         @errors = build_error_messages
       end
 
+      # RFC 7807 problem details, unless the app asks for the legacy body.
       def json
+        return legacy_json if Azu.current_config.error_format.legacy?
+
+        {type: "about:blank", title: title, status: status_code, detail: detail, errors: field_errors}.to_json
+      end
+
+      def json_content_type : String
+        Azu.current_config.error_format.legacy? ? super : "application/problem+json"
+      end
+
+      private def legacy_json : String
         {
           Status:      status,
           Title:       title,

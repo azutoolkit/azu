@@ -41,6 +41,15 @@ end
 - `Router#routes { }` now yields `Router::Builder`, which declares verbs, `ws`, `scope` and `mount`; it no
   longer forwards other calls (`root`, `add`) to the router.
 
+**Request contracts are enforced.** An endpoint whose request type has validations no longer runs when the
+request breaks them: the router answers `422` before `call`, and the parsed request is built once per call.
+
+- The body is RFC 7807 `application/problem+json`:
+  `{"type": "about:blank", "title": "Validation Error", "status": 422, "detail": "...", "errors": {"name": ["must be present"]}}`.
+- To keep the pre-0.6 body (`FieldErrors`, `ErrorId`, ...) for one more minor release, set
+  `config.error_format = Azu::ErrorFormat::Legacy`.
+- Endpoints declared with the bare `Azu::Request` module have no contract and are not affected.
+
 ### 0.5.28
 
 **No breaking changes.** This version includes documentation improvements.

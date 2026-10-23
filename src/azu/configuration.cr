@@ -1,3 +1,4 @@
+require "./error_format"
 require "log"
 require "http/server/handler"
 require "openssl"
@@ -63,6 +64,9 @@ module Azu
     property ssl_mode : String = ENV.fetch("SSL_MODE", "none")
 
     getter router : Router = Router.new
+
+    # The shape of validation failures: RFC 7807 `application/problem+json`, or the pre-0.6 body.
+    property error_format : ErrorFormat = ErrorFormat::Problem
 
     # The middleware pipeline handed to `Azu.start`, in execution order. Recorded
     # for introspection only (the development dashboard draws it).
