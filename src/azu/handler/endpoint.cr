@@ -40,6 +40,11 @@ module Azu
     # ```
     abstract def call : Response
 
+    # The operation the OpenAPI document describes this endpoint with, built from `Request` and `Response`.
+    def openapi_operation : OpenAPI::Operation?
+      OpenAPI::Operation.of(self.class, Request, Response)
+    end
+
     # :nodoc:
     #
     # The router holds one instance per route. A struct is copied on dispatch; a class is copied here, so
