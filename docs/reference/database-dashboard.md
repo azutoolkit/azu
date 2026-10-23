@@ -68,8 +68,8 @@ CQL's types are also reachable under the Azu namespace (`Azu::CQL::Schema`,
 
 ## CQL on PostgreSQL: things to know
 
-* Build records with `User.new(...)` and `save!`. `User.create!(...)` reads the new id back with `last_insert_id`, which
-  PostgreSQL does not provide in current CQL (the insert succeeds, then the lookup of id 0 fails).
+* `User.create!(...)` needs a CQL release that includes the PostgreSQL fix (cql#13, newer than 0.0.536 on `master`).
+  Older releases insert the row and then fail looking up id 0; build records with `User.new(...)` and `save!` there.
 * Use `Model(Int64)` with `primary :id, Int64`, and `class` for models.
 * Declare real indexes with `schema.alter(:users) { create_index :users_email, [:email], unique: true }`. `index:` inside
   `schema.table` emits no SQL.

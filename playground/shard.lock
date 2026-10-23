@@ -2,7 +2,7 @@ version: 2.0
 shards:
   azu:
     path: ..
-    version: 0.5.58
+    version: 0.5.60
 
   backtracer:
     git: https://github.com/sija/backtracer.cr.git
@@ -10,7 +10,7 @@ shards:
 
   cql:
     git: https://github.com/azutoolkit/cql.git
-    version: 0.0.536+git.commit.e893bc234bebe0e4de45c00fd8dfde8a8a3c5e35
+    version: 0.0.541
 
   crinja:
     git: https://github.com/straight-shoota/crinja.git
