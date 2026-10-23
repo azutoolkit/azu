@@ -41,7 +41,19 @@ module Azu
     abstract def call : Response
 
     # :nodoc:
+    #
+    # The router holds one instance per route. A struct is copied on dispatch; a class is copied here, so
+    # concurrent requests never share the per-request state (`@context`, `@params`, `@request_object`).
     def call(context : HTTP::Server::Context)
+      {% if @type.class? %}
+        dup.serve(context)
+      {% else %}
+        serve(context)
+      {% end %}
+    end
+
+    # :nodoc:
+    protected def serve(context : HTTP::Server::Context)
       @context = context
       @params = Params(Request).new(context.request)
       @request_object = nil
