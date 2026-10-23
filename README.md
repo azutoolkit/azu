@@ -133,7 +133,7 @@ graph TB
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.5.52
+    version: ~> 0.5.73
 ```
 
 Azu needs Crystal 1.19.1 or newer (`crystal: ">= 1.19.1"`).
@@ -688,7 +688,7 @@ MyApp.start [
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.5.52
+    version: ~> 0.5.73
   joobq:
     github: azutoolkit/joobq
     version: ~> 0.4.2
