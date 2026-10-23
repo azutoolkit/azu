@@ -137,6 +137,18 @@ module Azu
       end
     {% end %}
 
+    # Registers `handler` for the verb named by a string (one of `RESOURCES`), as the verb methods do.
+    def register(verb : String, path : Router::Path, handler : Routable)
+      {% begin %}
+        case verb
+        {% for method in RESOURCES %}
+        when {{method}} then {{method.id}}(path, handler)
+        {% end %}
+        else raise ArgumentError.new("unknown HTTP verb #{verb.inspect}")
+        end
+      {% end %}
+    end
+
     # The path `endpoint` was last registered under, for building links to it. Nil when it is not routed here.
     def path_of(endpoint : Routable.class) : String?
       @paths[endpoint.name]?

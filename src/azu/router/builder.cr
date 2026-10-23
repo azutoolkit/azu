@@ -27,6 +27,16 @@ module Azu
         end
       {% end %}
 
+      # Registers every route the verb macros declared inside `type`, below this builder's prefix. The
+      # same endpoint type can be registered on several apps, each with its own prefix:
+      #
+      # ```
+      # app.routes { scope("/v1") { endpoint UsersEndpoint } }
+      # ```
+      def endpoint(type : T.class) : Nil forall T
+        type.routes.each { |(verb, path)| @router.register verb, prefixed(path), type.new }
+      end
+
       def ws(path : Path, channel : Channel.class) : Nil
         @router.ws prefixed(path), channel
       end

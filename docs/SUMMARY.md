@@ -80,6 +80,7 @@
 - [Configure Production](how-to/deployment/configure-production.md)
 - [Deploy with Docker](how-to/deployment/deploy-with-docker.md)
 - [Scale Horizontally](how-to/deployment/scale-horizontally.md)
+- [Shut Down Gracefully](how-to/deployment/graceful-shutdown.md)
 
 ### Error Handling
 

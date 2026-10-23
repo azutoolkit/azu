@@ -45,7 +45,8 @@ Code running inside a request sees the configuration of the app that serves it t
 
 `port_reuse` sets `SO_REUSEPORT` on the listener, which lets several processes share one port. On SIGTERM or SIGINT
 `start` stops accepting connections and waits up to `shutdown_timeout` for requests in flight; new requests on open
-connections get `503` with `Retry-After: 1`.
+connections get `503` with `Retry-After: 1`, open WebSockets are closed with 1001 (going away) and streaming handlers
+see `Azu.shutting_down?`; see [Shut Down Gracefully](../../how-to/deployment/graceful-shutdown.md).
 
 ```crystal
 require "azu"

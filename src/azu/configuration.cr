@@ -61,7 +61,14 @@ module Azu
     property ssl_ca : String = ENV.fetch("SSL_CA", "")
     property ssl_mode : String = ENV.fetch("SSL_MODE", "none")
 
-    getter router : Router = Router.new
+    @router = Router.new
+
+    # The router of this configuration. The global `Azu::CONFIG` first takes the routes the endpoint
+    # macros declared since it was last read (see `DeclaredEndpoints`).
+    def router : Router
+      DeclaredEndpoints.apply_to(@router) if same?(CONFIG)
+      @router
+    end
 
     # How template helpers and the session CSRF token store reach the session library (see `SessionAdapter`).
     property session_adapter : SessionAdapter? = nil

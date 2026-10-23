@@ -252,7 +252,8 @@ spec:
 On `SIGTERM` an instance stops accepting connections and waits for requests in flight, up to
 `SHUTDOWN_TIMEOUT` seconds (30 by default), before it exits. Set the grace period of the orchestrator above it
 (`terminationGracePeriodSeconds: 45` above, `docker stop -t 40`), and let the load balancer's health check take the
-instance out of rotation. WebSocket connections are not waited for: clients must reconnect.
+instance out of rotation. Open WebSockets are sent a close frame with code 1001 when the stop begins, so clients
+reconnect to another instance; see [Shut Down Gracefully](graceful-shutdown.md).
 
 ## WebSocket Scaling
 
