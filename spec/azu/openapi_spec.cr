@@ -810,3 +810,63 @@ module ConstraintSpec
     }
     JSON
 end
+
+# Validation arguments that are constants or computed: whatever the constraints cannot read at
+# compile time is left out of the schema, and never stops a program that does not use OpenAPI from compiling.
+module NonLiteralSpec
+  def self.limit : Int32
+    10
+  end
+
+  struct Request
+    include Azu::Request
+
+    EMAIL   = /\A[^@\s]+@[^@\s]+\z/
+    MIN     = 3
+    LENGTHS = 2..8
+    ALLOWED = %w(a b)
+    OUTER   = Regex.new("x")
+
+    getter email : String = ""
+    getter age : Int32 = 5
+    getter name : String = "ab"
+    getter kind : String = "a"
+    getter code : String = "x"
+    getter count : Int32 = 1
+    getter total : Int32 = 1
+
+    validate email, match: EMAIL, message: "Enter a valid email address."
+    validate age, gte: MIN, lte: NonLiteralSpec.limit
+    validate name, size: LENGTHS
+    validate kind, in: ALLOWED
+    validate code, match: OUTER
+    validate count, gt: Request::MIN
+    validate total, lt: (MIN + 1)
+
+    def initialize
+    end
+  end
+
+  struct Endpoint
+    include Azu::Endpoint(Request, OpenAPISpec::Text)
+
+    def call : OpenAPISpec::Text
+      OpenAPISpec::Text.new
+    end
+  end
+end
+
+describe "validations with constants and computed arguments" do
+  it "reads constants of the request, and leaves out what it cannot read" do
+    operation = NonLiteralSpec::Endpoint.new.openapi_operation.not_nil!
+    properties = JSON.parse(Azu::OpenAPI.encode(operation.request_schema))["properties"]
+
+    properties["email"].should eq JSON.parse(%({"type": "string", "pattern": "^[^@\\\\s]+@[^@\\\\s]+$"}))
+    properties["age"].should eq JSON.parse(%({"type": "integer", "format": "int32", "minimum": 3}))
+    properties["name"].should eq JSON.parse(%({"type": "string", "minLength": 2, "maxLength": 8}))
+    properties["kind"].should eq JSON.parse(%({"type": "string", "enum": ["a", "b"]}))
+    properties["code"].should eq JSON.parse(%({"type": "string"}))
+    properties["count"].should eq JSON.parse(%({"type": "integer", "format": "int32"}))
+    properties["total"].should eq JSON.parse(%({"type": "integer", "format": "int32"}))
+  end
+end
