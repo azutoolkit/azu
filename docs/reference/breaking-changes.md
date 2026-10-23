@@ -6,6 +6,15 @@ This document lists breaking changes between Azu versions and migration guides.
 
 ### Unreleased (0.6 work)
 
+Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
+
+**The global shim is deprecated.** `include Azu`, `configure` and `start` still work, and log one warning per
+process (at the first call, not when requiring azu) that names `Azu::App`.
+
+**Per-app leftovers.** Building a configuration no longer applies its `i18n` settings to the process-wide
+`Helpers::I18n` (`I18nConfiguration#apply` does, called when an app builds its server). `Handler::Logger`,
+`SimpleLogger` and `Throttle` log to the app serving the request unless given `log:`, and resolve it on every call.
+
 **Requiring `azu` no longer starts anything.** Before, `require "azu"` set the root `Log` level to `Debug`
 with Azu's formatter, created the upload temp directory and started seven background fibers.
 
