@@ -42,6 +42,7 @@ src/azu/
 ├── app.cr              # Azu::App: an app as a value (config + router), App.default wraps the global CONFIG
 ├── routable.cr         # Azu::Routable: what the router dispatches to (endpoints, upgraders, plain handlers)
 ├── router.cr           # Radix-tree routing with path caching
+├── openapi/            # Azu::OpenAPI: OpenAPI 3.1 document from Endpoint contracts + Handler (docs/reference/api/openapi.md)
 ├── endpoint.cr         # Type-safe request handlers
 ├── request.cr          # Request contracts with validation
 ├── response.cr         # Response objects & error classes

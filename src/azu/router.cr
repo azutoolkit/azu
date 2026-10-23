@@ -323,6 +323,11 @@ module Azu
       @path_cache.clear
     end
 
+    # The routes declared here, in declaration order. Mounted apps appear as the mount's own routes.
+    def registered_routes : Array(Route)
+      @routes_registry.dup
+    end
+
     # Get route information for development tools
     # Build array of routes from the routes registry
     def route_info : Array(Hash(String, String))

@@ -6,6 +6,7 @@ README.md
 docs/tutorials/getting-started.md
 docs/reference/api/core.md
 docs/reference/api/endpoint.md
+docs/reference/api/openapi.md
 docs/reference/api/request.md
 docs/reference/api/response.md
 docs/reference/api/router.md

@@ -109,6 +109,13 @@ keeps today's behaviour exactly: it is used as given and nothing is added to it.
   served, so keep only public files in it. HSTS follows `config.tls?`; behind a TLS-terminating proxy pass
   your own `SecurityHeaders.new(hsts: true)`.
 
+**OpenAPI 3.1 generation** (additive). `Azu::OpenAPI.document(app, info)` builds the document from the
+`Endpoint(Request, Response)` contracts at the time you call it, and `Azu::OpenAPI::Handler` serves it as JSON
+(opt-in, like `HealthCheck`). See [the reference](api/openapi.md). `Azu::Routable` gains a default
+`openapi_operation` that returns nil, `Router#registered_routes` and `Router::Mount#child` are new readers.
+Nothing changes for an app that does not call it. A custom `Routable` that already defines a method named
+`openapi_operation` is the only possible clash.
+
 **Graceful shutdown** (behaviour fix). On SIGTERM or SIGINT, `start` stops accepting connections and waits for
 the requests in flight, up to `config.shutdown_timeout` (`SHUTDOWN_TIMEOUT` seconds, default 30), before it
 shuts the rest down. Before, it exited as soon as the listener closed. The restart branch of the server loop
