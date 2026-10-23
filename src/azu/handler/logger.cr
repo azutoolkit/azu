@@ -6,9 +6,12 @@ module Azu
     class Logger
       include HTTP::Handler
 
-      getter log : ::Log
+      # Without an explicit log, the log of the app serving the request (`Azu.current_config`).
+      def initialize(@log : ::Log? = nil)
+      end
 
-      def initialize(@log : ::Log = CONFIG.log)
+      def log : ::Log
+        @log || Azu.current_config.log
       end
 
       def call(context : HTTP::Server::Context)
@@ -33,7 +36,7 @@ module Azu
               remote_address
             end
 
-          @log.info { message(addr, req, res, elapsed_text) }
+          log.info { message(addr, req, res, elapsed_text) }
         end
       end
 

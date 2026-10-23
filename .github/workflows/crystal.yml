@@ -91,9 +91,15 @@ jobs:
 
   # Documentation examples must compile: the docs are only as good as the code they show. Only the
   # files listed in docs/.checked are enforced; the list grows as the docs are brought up to date.
+  # The list is split over four runners (`--shard i/4` takes every 4th file), which together cover it all.
   docs:
+    name: docs (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     container:
       image: crystallang/crystal:latest
     steps:
@@ -103,7 +109,7 @@ jobs:
         run: shards install
 
       - name: Compile the documented examples
-        run: crystal run scripts/check_docs.cr -- $(grep -v '^#' docs/.checked)
+        run: crystal run scripts/check_docs.cr -- --shard ${{ matrix.shard }}/4 $(grep -v '^#' docs/.checked)
 
   # The same suite on the newest Crystal, so a release of the language never breaks the framework
   # unnoticed. The job above (the oldest supported version) is the one that gates a release.

@@ -8,7 +8,7 @@ Response objects define how endpoint results are rendered to clients.
 struct MyResponse
   include Azu::Response
 
-  def initialize(@data : MyData)
+  def initialize(@data : Hash(String, String))
   end
 
   def render
