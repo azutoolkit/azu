@@ -62,6 +62,7 @@
 
 - [Create Custom Middleware](how-to/middleware/create-custom-middleware.md)
 - [Add Logging](how-to/middleware/add-logging.md)
+- [Use Sessions](how-to/middleware/use-sessions.md)
 
 ### Templates
 

@@ -7,6 +7,9 @@ module Azu
     class Mount
       include Routable
 
+      # The configuration of the app served below the mount path.
+      getter child : Configuration
+
       def initialize(@parent : Router, @child : Configuration, @at : String)
       end
 

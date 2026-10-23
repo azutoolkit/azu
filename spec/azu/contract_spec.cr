@@ -47,8 +47,8 @@ module ContractSpec
   end
 end
 
-private def post(app : Azu::App, body : String, accept : String = "application/json") : HTTP::Client::Response
-  server = app.server([Azu::Handler::Rescuer.new] of HTTP::Handler)
+private def post(app : Azu::App, body : String, accept : String = "application/json", handlers : Array(HTTP::Handler) = [Azu::Handler::Rescuer.new] of HTTP::Handler) : HTTP::Client::Response
+  server = app.server(handlers)
   address = server.bind_unused_port("127.0.0.1")
   spawn { server.listen }
   Fiber.yield
@@ -75,6 +75,16 @@ describe "request contracts" do
     body["status"].should eq 422
     body["errors"]["name"].should eq ["must be present"]
     body["errors"].as_h.has_key?("email").should be_false
+  end
+
+  it "answers 422 and 400 on its own when no Rescuer is in the handler stack" do
+    bare = [] of HTTP::Handler
+
+    invalid = post(signup_app, %({"name": "", "email": "a@b.c"}), handlers: bare)
+    invalid.status_code.should eq 422
+    JSON.parse(invalid.body)["errors"]["name"].should eq ["must be present"]
+
+    post(signup_app, "{nope", handlers: bare).status_code.should eq 400
   end
 
   it "does not carry a parsed request from one call to the next on a shared endpoint instance" do

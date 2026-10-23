@@ -83,19 +83,25 @@ module Azu
         @fingerprint = generate_fingerprint
       end
 
-      def initialize(@title, @status, @errors, @context = nil)
+      def initialize(@title, @status, @errors, @context = nil, cause : Exception? = nil)
+        super(@title, cause)
         @detail = @title
         @fingerprint = generate_fingerprint
       end
 
+      # Only `Response::Error`s carry messages meant for clients. What any other exception says
+      # ("password authentication failed for user x") reaches a client in development only.
       def self.from_exception(ex, status = 500, context : ErrorContext? = nil)
+        http_status = HTTP::Status.from_value(status)
+        developer = Azu.current_config.env.development?
         error = new(
-          ex.message || "Error",
-          HTTP::Status.from_value(status),
+          developer ? (ex.message || "Error") : http_status.description.to_s,
+          http_status,
           [] of String,
-          context
+          context,
+          ex
         )
-        error.detail = ex.cause.to_s || "A server error occurred"
+        error.detail = developer ? ex.cause.to_s : error.title
         error
       end
 
@@ -117,10 +123,10 @@ module Azu
           detail:      detail,
           source:      source,
           errors:      errors,
-          backtrace:   inspect_with_backtrace,
+          backtrace:   debug_backtrace,
           error_id:    error_id,
           fingerprint: fingerprint,
-          context:     context,
+          context:     debug_context.try(&.to_h),
           timestamp:   Time.utc.to_rfc3339,
         }
       end

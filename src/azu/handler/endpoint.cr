@@ -40,8 +40,25 @@ module Azu
     # ```
     abstract def call : Response
 
+    # The operation the OpenAPI document describes this endpoint with, built from `Request` and `Response`.
+    def openapi_operation : OpenAPI::Operation?
+      OpenAPI::Operation.of(self.class, Request, Response)
+    end
+
     # :nodoc:
+    #
+    # The router holds one instance per route. A struct is copied on dispatch; a class is copied here, so
+    # concurrent requests never share the per-request state (`@context`, `@params`, `@request_object`).
     def call(context : HTTP::Server::Context)
+      {% if @type.class? %}
+        dup.serve(context)
+      {% else %}
+        serve(context)
+      {% end %}
+    end
+
+    # :nodoc:
+    protected def serve(context : HTTP::Server::Context)
       @context = context
       @params = Params(Request).new(context.request)
       @request_object = nil
@@ -52,7 +69,12 @@ module Azu
 
       RequestContext.scope(context) do |info|
         info.endpoint = endpoint_name
-        enforce_contract
+        begin
+          enforce_contract
+        rescue ex : Response::Error
+          ex.to_s(context)
+          next
+        end
         context.response << call.render
       end
       context
@@ -242,7 +264,8 @@ module Azu
       {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
 
       # A request that breaks its contract never reaches `call`: it is answered with a 422 listing
-      # the failing fields (and a 400 when the body cannot be parsed at all). An endpoint declared
+      # the failing fields (and a 400 when the body cannot be parsed at all), rendered by the endpoint
+      # itself so that it holds without a `Rescuer` in the handler stack. An endpoint declared
       # with the bare `Azu::Request` module has no contract to enforce.
       private def enforce_contract : Nil
         {% unless Request.stringify == "Azu::Request" %}

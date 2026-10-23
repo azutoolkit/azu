@@ -65,6 +65,17 @@ Other changes:
   `src/azu/handler/{dev_dashboard,performance_monitor}.cr` and `src/azu/components/dev_dashboard*` are under
   `src/azu/dev/`. Require `azu/dev`, not the files.
 
+**Template helpers no longer read `_session` and `_flash` cookies.** `Helpers::TemplateContext#session` and
+`#flash` decoded an unsigned Base64 JSON cookie that no session library writes, so any client could forge
+its session or flash. They now read through `Azu.session_adapter` (`Azu::SessionAdapter`, additive and opt-in,
+no dependency on a session shard) and are empty without one. With the `session` shard (`require "session/azu"`)
+install an adapter once at boot; see `docs/how-to/middleware/use-sessions.md`. Apps that wrote those cookies
+themselves must move to a session store.
+
+**CSRF token stores** (additive). `Handler::CSRF.new(token_store:)` chooses where the `SynchronizerToken` strategy
+keeps its token: `CookieTokenStore` (default, unchanged) or `SessionTokenStore`, which uses
+`Azu.session_adapter` so the token never reaches the client as a cookie.
+
 **Routes can belong to an app** (additive; the endpoint macros keep registering on `Azu::App.default`).
 
 <!-- skip -->
@@ -89,14 +100,16 @@ end
   longer forwards other calls (`root`, `add`) to the router.
 
 **Request contracts are enforced.** An endpoint whose request type has validations no longer runs when the
-request breaks them: the router answers `422` before `call`, and the parsed request is built once per call.
+request breaks them: the endpoint answers `422` before `call` (by itself, whether or not a `Rescuer` is in the handler stack),
+and the parsed request is built once per call.
 
 - The body is RFC 7807 `application/problem+json`:
   `{"type": "about:blank", "title": "Validation Error", "status": 422, "detail": "...", "errors": {"name": ["must be present"]}}`.
 - To keep the pre-0.6 body (`FieldErrors`, `ErrorId`, ...) for one more minor release, set
   `config.error_format = Azu::ErrorFormat::Legacy`.
 - The request is parsed before `call` even when the endpoint never reads it, so a body that cannot be parsed
-  into the request type (for example a missing non-nilable field on a GET) answers `400` before `call`.
+  into the request type (for example a missing non-nilable field on a GET) answers `400` before `call`, also
+  without a `Rescuer`.
   Endpoints that validate by hand (`if signup_request.valid?` then re-render a form) no longer get to run
   for invalid input; declare such an endpoint with a request type without validations.
 - Endpoints declared with the bare `Azu::Request` module have no contract and are not affected.
@@ -118,6 +131,13 @@ keeps today's behaviour exactly: it is used as given and nothing is added to it.
   served, so keep only public files in it. HSTS follows `config.tls?`; behind a TLS-terminating proxy pass
   your own `SecurityHeaders.new(hsts: true)`.
 
+**OpenAPI 3.1 generation** (additive). `Azu::OpenAPI.document(app, info)` builds the document from the
+`Endpoint(Request, Response)` contracts at the time you call it, and `Azu::OpenAPI::Handler` serves it as JSON
+(opt-in, like `HealthCheck`). See [the reference](api/openapi.md). `Azu::Routable` gains a default
+`openapi_operation` that returns nil, `Router#registered_routes` and `Router::Mount#child` are new readers.
+Nothing changes for an app that does not call it. A custom `Routable` that already defines a method named
+`openapi_operation` is the only possible clash.
+
 **Graceful shutdown** (behaviour fix). On SIGTERM or SIGINT, `start` stops accepting connections and waits for
 the requests in flight, up to `config.shutdown_timeout` (`SHUTDOWN_TIMEOUT` seconds, default 30), before it
 shuts the rest down. Before, it exited as soon as the listener closed. The restart branch of the server loop
@@ -126,6 +146,35 @@ shuts the rest down. Before, it exited as soon as the listener closed. The resta
 Requests that arrive on connections that stay open after the listener closed get `503` with `Connection: close`.
 Streaming responses (SSE) count as in flight until the client disconnects, and only `App.default` is
 drained by `start`. WebSocket sockets are not waited for.
+
+**Fixes** (behaviour changes that make the code do what it documented):
+
+- `class` endpoints are request-safe. The router holds one instance per route and a class was shared by
+  concurrent requests, so a request that waited (database, service) could read the parameters of a later
+  one. Each request now runs on a copy (`dup`) of the registered instance, as structs always did: state an
+  endpoint object keeps in its own instance variables no longer carries over from one request to the next.
+- `Cache::RedisStore` returns values: `get`, `exists?`, `delete`, `increment`, `size` and `ping` always
+  answered `nil`/`false`/`0`, and the start-up check turned `store = "redis"` into a `NullStore` after its
+  retries. `size` counts the keys of the database in the URL (it only looked at `db0`).
+- `Handler::CORS` no longer keeps the request's `Origin` in the shared handler, so overlapping requests on
+  parallel threads cannot answer with each other's `Access-Control-Allow-Origin`.
+  API change: `Handler::Origin` (the struct behind `CORS`) is stateless now. `#request_origin` and
+  `#origin_header?` are removed, `#match?(request)` became `#match?(origin : String)`, and `#of(request)`
+  returns the request's `Origin` (or `X-Origin`) header. Code that called these directly must pass the
+  origin around itself.
+- `Cache::MemoryStore#increment` sets the expiry when the counter is created (it was renewed on every call,
+  so a counter hit more often than its TTL never expired) and evicts the least recently used key when a new
+  counter would exceed `max_size`. `MemoryStore#stats["hit_rate"]` is a real hit rate (hits / lookups); it
+  used to be the fill percentage. The router's `path_cache.stats` now calls its figure `fill_percent`.
+- The HTML error page renders in production for unexpected exceptions (it raised "can't wrap
+  Azu::ErrorContext" and the client got a bare `500`). The development JSON `Backtrace` shows the original
+  exception's message and backtrace instead of ` (Azu::Response::Error)`. Production bodies still carry no
+  backtrace, request context or environment, and for exceptions that are not `Response::Error` they now
+  carry a generic title and detail ("Internal Server Error") instead of the exception's message (which could
+  name a database host or user); the message stays in the log and in development bodies.
+- `Cache::RedisStore#increment` / `#decrement` set the TTL in one atomic Lua script, only when the key has
+  none; `decrement` used to renew it on every call.
+- Not changed: Azu does not cache templates (`Templates#load` asks Crinja each time).
 
 ### 0.5.28
 

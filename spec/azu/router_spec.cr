@@ -442,6 +442,7 @@ describe Azu::Router do
       final_stats = router.path_cache.stats
       final_stats[:size].should eq(5) # Should have 5 entries
       final_stats[:max_size].should eq(1000)
+      final_stats[:fill_percent].should eq(0.5) # how full it is: nothing counts hits
 
       # Test cache hits by making the same requests again
       (1..5).each do |i|

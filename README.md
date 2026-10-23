@@ -61,6 +61,7 @@ curl http://localhost:4000/hello/Crystal
 - **Real-Time**: WebSocket channels and live components with client-server synchronization
 - **Performance**: High-performance routing with LRU cache and path optimization
 - **Developer Experience**: Comprehensive error handling, content negotiation, and flexible middleware
+- **OpenAPI 3.1**: The document is generated from your `Endpoint(Request, Response)` contracts and validations, and `Azu::OpenAPI::Handler` serves it (see [docs/reference/api/openapi.md](docs/reference/api/openapi.md))
 
 ## 🚀 Key Features
 

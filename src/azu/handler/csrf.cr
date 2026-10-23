@@ -37,6 +37,43 @@ module Azu
         DoubleSubmit
       end
 
+      # Where the SynchronizerToken strategy keeps the token it compares a request against.
+      abstract class TokenStore
+        abstract def read(context : HTTP::Server::Context) : String?
+        abstract def write(context : HTTP::Server::Context, token : String) : Nil
+      end
+
+      # The default: a cookie of the handler (`cookie_name`, `cookie_max_age`, ...). The client holds
+      # the token, so this is not a synchronizer in the strict sense; prefer `SessionTokenStore`.
+      class CookieTokenStore < TokenStore
+        def initialize(@handler : CSRF)
+        end
+
+        def read(context : HTTP::Server::Context) : String?
+          @handler.cookie_token(context)
+        end
+
+        def write(context : HTTP::Server::Context, token : String) : Nil
+          @handler.set_token_cookie(context, token)
+        end
+      end
+
+      # Keeps the token in the server-side session, through `Azu.session_adapter`
+      # (`csrf_token` and `store_csrf_token`). Raises `SessionAdapter::NotConfigured` without one.
+      class SessionTokenStore < TokenStore
+        def read(context : HTTP::Server::Context) : String?
+          adapter.csrf_token(context)
+        end
+
+        def write(context : HTTP::Server::Context, token : String) : Nil
+          adapter.store_csrf_token(context, token)
+        end
+
+        private def adapter : SessionAdapter
+          Azu.session_adapter || raise SessionAdapter::NotConfigured.new
+        end
+      end
+
       # Instance-level configuration properties
       property strategy : Strategy
       property secret_key : String
@@ -46,6 +83,12 @@ module Azu
       property cookie_max_age : Int32
       property cookie_same_site : HTTP::Cookie::SameSite
       property? secure_cookies : Bool
+      # Used by the SynchronizerToken strategy; the cookie-based strategies always use their cookie.
+      setter token_store : TokenStore?
+
+      def token_store : TokenStore
+        @token_store ||= CookieTokenStore.new(self)
+      end
 
       # Default instance for backward compatibility
       @@default_instance : CSRF? = nil
@@ -82,6 +125,7 @@ module Azu
         @cookie_max_age : Int32 = COOKIE_MAX_AGE,
         @cookie_same_site : HTTP::Cookie::SameSite = COOKIE_SAME_SITE,
         @secure_cookies : Bool = true,
+        @token_store : TokenStore? = nil,
       )
         # Use provided secret_key, or shared secret key if available and not empty,
         # otherwise generate a new one
@@ -296,7 +340,7 @@ module Azu
 
       private def validate_synchronizer_token(context : HTTP::Server::Context) : Bool
         request_token = extract_token_from_request(context)
-        session_token = extract_token_from_cookie(context)
+        session_token = token_store.read(context)
 
         return false unless request_token && session_token
 
@@ -305,12 +349,12 @@ module Azu
       end
 
       private def generate_synchronizer_token(context : HTTP::Server::Context) : String
-        # Generate or retrieve existing token from cookie
-        if existing_token = extract_token_from_cookie(context)
+        # Generate or retrieve existing token from the token store
+        if existing_token = token_store.read(context)
           existing_token
         else
           new_token = Random::Secure.urlsafe_base64(TOKEN_LENGTH)
-          set_token_cookie(context, new_token)
+          token_store.write(context, new_token)
           new_token
         end
       end
@@ -422,12 +466,18 @@ module Azu
 
       # Extract token from cookie
       private def extract_token_from_cookie(context : HTTP::Server::Context) : String?
+        cookie_token(context)
+      end
+
+      # :nodoc:
+      def cookie_token(context : HTTP::Server::Context) : String?
         cookies = HTTP::Cookies.from_client_headers(context.request.headers)
         cookies[@cookie_name]?.try(&.value)
       end
 
       # Set CSRF token cookie
-      private def set_token_cookie(context : HTTP::Server::Context, token : String)
+      # :nodoc:
+      def set_token_cookie(context : HTTP::Server::Context, token : String)
         cookie = HTTP::Cookie.new(
           name: @cookie_name,
           value: token,
