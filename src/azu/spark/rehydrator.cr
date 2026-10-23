@@ -25,6 +25,7 @@ module Azu
         unless member.type == component.class.name
           raise InvalidSnapshot.new("snapshot of #{id} was taken from #{member.type}, not #{component.class.name}")
         end
+        raise InvalidSnapshot.new("state of #{id} is not an object") unless member.state.as_h?
         component.__spark_restore(member.state)
       rescue JSON::ParseException | JSON::SerializableError
         Log.for("Azu::Spark").warn { "State snapshot of #{component.class.name} no longer fits its declaration" }

@@ -38,6 +38,10 @@ module Azu
       property heartbeat_interval : Time::Span = ENV.fetch("SPARK_HEARTBEAT_INTERVAL", "20").to_i.seconds
       property idle_timeout : Time::Span = ENV.fetch("SPARK_IDLE_TIMEOUT", "60").to_i.seconds
 
+      # How long a state snapshot may wait for its reconnect. Shorter than `token_ttl` on purpose:
+      # persisted state is visible to, and replayable by, the browser until it expires.
+      property snapshot_ttl : Time::Span = ENV.fetch("SPARK_SNAPSHOT_TTL", "3600").to_i.seconds
+
       # Largest signed state snapshot (bytes) handed to the client for reconnects
       property max_snapshot_size : Int32 = ENV.fetch("SPARK_MAX_SNAPSHOT_SIZE", "4096").to_i
 

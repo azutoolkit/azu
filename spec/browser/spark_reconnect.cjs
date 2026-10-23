@@ -90,7 +90,70 @@ function ready(deadline) {
   });
 }
 
-// ---- scenarios ------------------------------------------------------------------------
+// ---- scenarios ---
+
+// The client against a scripted socket: what is sent when, with no server involved.
+async function scriptedSocket(browser) {
+  const page = await (await browser.newContext()).newPage();
+  await page.route("http://test.local/", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<div data-spark-root data-spark-id="r" data-spark-token="t"><div data-spark-id="r~c">
+      <input id="a" name="a" spark-change="field"><input id="b" name="b" spark-change="field"></div></div>
+      <script src="/azu_spark.js"></script>`,
+  }));
+  const script = await new Promise((resolve, reject) => http.get(`${URL_}_spark/azu_spark.js`, (res) => {
+    let body = "";
+    res.on("data", (chunk) => (body += chunk)).on("end", () => resolve(body));
+  }).on("error", reject));
+  await page.route("http://test.local/azu_spark.js", (route) => route.fulfill({ contentType: "text/javascript", body: script }));
+  await page.addInitScript(() => {
+    window.__sent = [];
+    window.FakeWS = class {
+      constructor() { this.readyState = 1; window.__ws = this; window.__sockets = (window.__sockets || 0) + 1; }
+      send(text) { window.__sent.push(JSON.parse(text)); }
+      close() {}
+    };
+    Object.assign(FakeWS, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
+    window.WebSocket = FakeWS;
+    window.__frame = (frame) => window.__ws.onmessage({ data: JSON.stringify({ v: 1, ...frame }) });
+  });
+  await page.goto("http://test.local/");
+  await page.waitForFunction(() => window.__ws);
+  const sent = (type) => page.evaluate((t) => window.__sent.filter((m) => m.type === t), type);
+  const frame = (f) => page.evaluate((x) => window.__frame(x), f);
+
+  await frame({ type: "hello", heartbeat: 20000, max_size: 65536 });
+  const [join] = await sent("join");
+  await frame({ type: "reply", id: join.id });
+  await frame({ type: "diff", seq: 1, patches: [], events: [], snapshots: { r: "token-1" } });
+
+  // The connection is lost; two different inputs change while offline.
+  await page.evaluate(() => window.__ws.onclose({ code: 1006 }));
+  for (const [id, value] of [["a", "first"], ["b", "second"]]) {
+    await page.fill(`#${id}`, value);
+  }
+  await page.fill("#a", "first again");
+  assert.strictEqual(await page.evaluate(() => AzuSpark.queued), 2, "one queued event per control, the newer value replacing the older");
+
+  // Reconnect: the server refuses the snapshot. Nothing may be sent before the page has rejoined.
+  await page.waitForFunction(() => window.__sockets === 2, null, { timeout: 5000 });
+  await frame({ type: "hello", heartbeat: 20000, max_size: 65536 });
+  let joins = await sent("join");
+  assert.strictEqual(joins.length, 2);
+  assert.strictEqual(joins[1].snapshot, "token-1");
+  assert.strictEqual((await sent("event")).length, 0, "no event ahead of the join");
+  await frame({ type: "error", id: joins[1].id, code: "invalid_snapshot", message: "x" });
+  joins = await sent("join");
+  assert.strictEqual(joins.length, 3, "rejoins without the snapshot");
+  assert.strictEqual(joins[2].snapshot, undefined);
+  assert.strictEqual((await sent("event")).length, 0, "still no event while the rejoin is unanswered");
+  await frame({ type: "reply", id: joins[2].id });
+  const events = await sent("event");
+  assert.deepStrictEqual(events.map((e) => e.payload.value).sort(), ["first again", "second"]);
+  assert.strictEqual(events.length, 2, "both fields delivered, none lost");
+  await page.close();
+}
+
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -172,6 +235,9 @@ async function main() {
     await page.click("#inc");
     await page.waitForFunction(() => document.querySelector("#count").textContent === "Clicks: 14");
     console.log("ok   waits for the browser to come back online");
+
+    await scriptedSocket(browser);
+    console.log("ok   queue keeps one event per control and waits for the rejoin after a refused snapshot");
   } finally {
     if (browser) await browser.close();
     proxy.server.close();

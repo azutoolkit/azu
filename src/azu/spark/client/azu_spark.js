@@ -71,7 +71,8 @@
 
   // Sends *entry* (a queued or fresh event) now; false when there is no open socket.
   function send(entry) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    // Not before the server greeted us and every page root has rejoined: earlier, the target does not exist yet.
+    if (!ws || ws.readyState !== WebSocket.OPEN || !hello || joining.size > 0) return false;
     var id = ++nextId;
     entry.message.id = id;
     if (transmit(entry.message)) pending.set(id, { undo: entry.undo, sentAt: Date.now() });
@@ -98,6 +99,10 @@
       release(queue.shift());
       emit("error", { code: "queue_full", message: "too many events while offline" });
     }
+  }
+
+  function joinsSettled() {
+    if (joining.size === 0) flushQueue();
   }
 
   function flushQueue() {
@@ -230,10 +235,10 @@
         emit("open", { attempts: attempts });
         startHeartbeat();
         joinRoots();
-        flushQueue();
+        joinsSettled();
         break;
       case "diff": applyDiff(message); break;
-      case "reply": joining.delete(message.id); settle(message.id); break;
+      case "reply": joining.delete(message.id); settle(message.id); joinsSettled(); break;
       case "redirect": navigate(message.to, message.replace); break;
       case "heartbeat": break;
       case "error": failed(message); break;
@@ -272,6 +277,7 @@
       joined.delete(root);
       joinRoots();
     }
+    joinsSettled();
     if (message.code === "invalid_token" || message.code === "rejected") {
       // The page can never join (expired token, refused by mount): stop retrying until reload.
       emit("expired", { code: message.code });
@@ -318,8 +324,16 @@
     return /^data:/.test(scheme) && !(name === "src" && /^data:image\/(png|gif|jpe?g|webp|avif);/.test(scheme));
   }
 
+  // SVG animation can set href (and event handler attributes) to a script URL after sanitising.
+  function animatesLink(node) {
+    return /^(animate|set)$/i.test(node.nodeName) && /^(href|xlink:href|on)/i.test(node.getAttribute("attributeName") || "");
+  }
+
   function sanitize(root) {
     Array.prototype.forEach.call(root.querySelectorAll(BLOCKED_ELEMENTS), function (node) { node.remove(); });
+    Array.prototype.forEach.call(root.querySelectorAll("animate,set"), function (node) { if (animatesLink(node)) node.remove(); });
+    // The content of a nested <template> is a separate fragment that querySelectorAll does not enter.
+    Array.prototype.forEach.call(root.querySelectorAll("template"), function (node) { sanitize(node.content); });
     Array.prototype.forEach.call(root.querySelectorAll("*"), function (node) {
       Array.prototype.slice.call(node.attributes).forEach(function (attr) {
         var name = attr.name.toLowerCase();
@@ -406,6 +420,15 @@
 
   // ---- requests ---------------------------------------------------------------------------
 
+  // Identifies a control among the others of a component that raise the same event.
+  var controlIds = new WeakMap();
+  var controlCount = 0;
+
+  function controlKey(element) {
+    if (!controlIds.has(element)) controlIds.set(element, element.getAttribute("name") || element.id || "#" + (++controlCount));
+    return controlIds.get(element);
+  }
+
   function push(element, event, payload, loading, coalesce) {
     var undo = loading ? loading() : null;
     var target = element.closest("[data-spark-id]");
@@ -425,7 +448,7 @@
     var targetId = target.getAttribute("data-spark-id");
     var entry = {
       message: { v: PROTOCOL, type: "event", target: targetId, event: event, payload: payload },
-      undo: undo, key: coalesce ? targetId + "|" + event : null, at: Date.now()
+      undo: undo, key: coalesce ? targetId + "|" + event + "|" + controlKey(element) : null, at: Date.now()
     };
     if (send(entry)) return;
     if (stopped) {
@@ -606,7 +629,7 @@
     window.addEventListener("offline", function () { clearTimeout(reconnectTimer); drop("offline"); });
     document.addEventListener("visibilitychange", function () {
       if (document.visibilityState !== "visible" || stopped) return;
-      if (!ws) { attempts = 0; connect(); } else if (ws.readyState === WebSocket.OPEN) probe();
+      if (!ws) connect(); // keep the backoff: a server that is down is not hit harder by tab switching else if (ws.readyState === WebSocket.OPEN) probe();
     });
     window.addEventListener("pageshow", function (event) { if (event.persisted) { stopped = false; attempts = 0; connect(); } });
     window.addEventListener("pagehide", function () { stopped = true; if (ws) ws.close(1000, "page closed"); });
