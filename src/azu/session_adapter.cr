@@ -13,13 +13,18 @@ module Azu
   # )
   # ```
   #
-  # Every reader is optional; one that is not given answers empty (`nil` for the CSRF token).
+  # Every reader is optional; one that is not given answers empty (`nil` for the CSRF token). The two
+  # CSRF procs go together: giving only one raises `ArgumentError`, because a token that can be read but
+  # never stored (or the reverse) would make every request fail validation without saying why.
+  #
+  # The adapter belongs to a configuration (`Configuration#session_adapter`, per `Azu::App`);
+  # `Azu.session_adapter=` sets it on the current one. Set it once at boot, before serving.
   struct SessionAdapter
     alias Values = Hash(String, String)
 
     class NotConfigured < Exception
       def initialize
-        super("no session adapter: set Azu.session_adapter (see Azu::SessionAdapter) before using the session CSRF token store")
+        super("no session adapter with a CSRF token: set Azu.session_adapter (see Azu::SessionAdapter) before using the session CSRF token store")
       end
     end
 
@@ -29,6 +34,12 @@ module Azu
       @csrf_token : Proc(HTTP::Server::Context, String?)? = nil,
       @store_csrf_token : Proc(HTTP::Server::Context, String, Nil)? = nil,
     )
+      raise ArgumentError.new("csrf_token and store_csrf_token must be given together") unless @csrf_token.nil? == @store_csrf_token.nil?
+    end
+
+    # Whether the CSRF token can be read and stored through this adapter.
+    def csrf? : Bool
+      !@csrf_token.nil?
     end
 
     def session(context : HTTP::Server::Context) : Values
@@ -48,13 +59,12 @@ module Azu
     end
   end
 
-  @@session_adapter : SessionAdapter? = nil
-
+  # The session adapter of the current configuration (`Azu.current_config`).
   def self.session_adapter : SessionAdapter?
-    @@session_adapter
+    current_config.session_adapter
   end
 
   def self.session_adapter=(adapter : SessionAdapter?) : SessionAdapter?
-    @@session_adapter = adapter
+    current_config.session_adapter = adapter
   end
 end
