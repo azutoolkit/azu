@@ -384,4 +384,24 @@ describe Azu::Handler::DevDashboard do
       end
     end
   end
+
+  describe "behind the CSRF handler" do
+    # dashboard.js posts the playground SQL with `X-Requested-With: azu-dashboard` and no CSRF token
+    it "reaches the playground whichever handler is listed first, but still refuses other tokenless posts" do
+      csrf = Azu::Handler::CSRF.new
+      csrf.next = Azu::Handler::DevDashboard.new("/custom-dashboard")
+
+      headers = HTTP::Headers{"X-Requested-With" => "azu-dashboard", "Content-Type" => "application/json"}
+      context, io = create_context_with_remote_addr("POST", "/custom-dashboard/sql", headers: headers)
+      csrf.call(context)
+      body = get_response_body(context, io)
+      body.should_not contain("CSRF token validation failed")
+      context.response.status_code.should_not eq 403
+
+      other, other_io = create_context_with_remote_addr("POST", "/custom-dashboard/other", headers: headers)
+      csrf.call(other)
+      other.response.status_code.should eq 403
+      get_response_body(other, other_io).should contain("CSRF token validation failed")
+    end
+  end
 end
