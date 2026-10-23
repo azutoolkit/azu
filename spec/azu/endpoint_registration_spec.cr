@@ -1,5 +1,5 @@
 require "../spec_helper"
-require "http/client"
+require "../../src/azu/testing/testing"
 
 private struct Hello
   include Azu::Response
@@ -32,16 +32,8 @@ private struct Greeter
   end
 end
 
-private def get(app : Azu::App, path : String, method : String = "GET") : HTTP::Client::Response
-  server = app.server
-  address = server.bind_unused_port("127.0.0.1")
-  spawn { server.listen }
-  Fiber.yield
-  begin
-    HTTP::Client.exec(method, "http://#{address.address}:#{address.port}#{path}")
-  ensure
-    server.close
-  end
+private def get(app : Azu::App, path : String, method : String = "GET") : Azu::Testing::Response
+  Azu::Testing::Client.new(app, [] of HTTP::Handler).request(method, path)
 end
 
 describe "endpoint registration" do

@@ -197,9 +197,15 @@ module Azu
     # An `HTTP::Server` for this app. It is not bound or started: call `bind_tcp`/`listen` on it, or
     # `bind_unused_port` in specs.
     def server(handlers : Array(HTTP::Handler) = [] of HTTP::Handler) : HTTP::Server
+      HTTP::Server.new(dispatcher(handlers)).tap { |server| @server = server }
+    end
+
+    # The first handler of the chain `server` serves, ending in the router: calling it with a context
+    # handles a request without a socket (this is what `Azu::Testing::Client` does).
+    def dispatcher(handlers : Array(HTTP::Handler) = [] of HTTP::Handler) : HTTP::Handler
       @config.i18n.apply
       router # takes the declared endpoints now, so a duplicate route fails at boot, not on a request
-      HTTP::Server.new(chain(handlers)) { |context| router.process(context) }.tap { |server| @server = server }
+      HTTP::Server.build_middleware(chain(handlers), ->(context : HTTP::Server::Context) { router.process(context) })
     end
   end
 end

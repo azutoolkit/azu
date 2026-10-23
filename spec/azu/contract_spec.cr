@@ -1,5 +1,5 @@
 require "../spec_helper"
-require "http/client"
+require "../../src/azu/testing/testing"
 
 module ContractSpec
   struct SignupRequest
@@ -47,16 +47,8 @@ module ContractSpec
   end
 end
 
-private def post(app : Azu::App, body : String, accept : String = "application/json", handlers : Array(HTTP::Handler) = [Azu::Handler::Rescuer.new] of HTTP::Handler) : HTTP::Client::Response
-  server = app.server(handlers)
-  address = server.bind_unused_port("127.0.0.1")
-  spawn { server.listen }
-  Fiber.yield
-  begin
-    HTTP::Client.new(address.address, address.port).post("/signup", HTTP::Headers{"Content-Type" => "application/json", "Accept" => accept}, body)
-  ensure
-    server.close
-  end
+private def post(app : Azu::App, body : String, accept : String = "application/json", handlers : Array(HTTP::Handler) = [Azu::Handler::Rescuer.new] of HTTP::Handler) : Azu::Testing::Response
+  Azu::Testing::Client.new(app, handlers).post("/signup", headers: {"Content-Type" => "application/json", "Accept" => accept}, body: body)
 end
 
 private def signup_app : Azu::App
