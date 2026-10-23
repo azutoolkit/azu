@@ -47,6 +47,9 @@ module Azu
     property log : Log = Log.for("Azu")
 
     property port : Int32 = ENV.fetch("PORT", "4000").to_i
+
+    # How long a stopping server waits for requests in flight before giving up on them.
+    property shutdown_timeout : Time::Span = Math.max(ENV["SHUTDOWN_TIMEOUT"]?.try(&.to_i?) || 30, 0).seconds
     property? port_reuse : Bool = ENV.fetch("PORT_REUSE", "true") == "true"
     property host : String = ENV.fetch("HOST", "0.0.0.0")
     property env : Environment = Environment.parse(ENV.fetch("CRYSTAL_ENV", "development"))

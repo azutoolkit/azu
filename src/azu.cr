@@ -180,25 +180,20 @@ module Azu
         Signal::{{ signal.id }}.trap do
           Signal::{{ signal.id }}.reset
           log.info { "Shutting down server" }
+          Azu::App.default.begin_shutdown
           server.close
         end
       {% end %}
 
-      loop do
-        begin
-          log.info { server_info }
-          server.listen
-          break
-        rescue e
-          if e == Errno
-            log.info(exception: e) { "Restarting server..." }
-          else
-            log.error(exception: e) { "Server failed to start!" }
-            break
-          end
-        end
+      begin
+        log.info { server_info }
+        server.listen
+      rescue e
+        log.error(exception: e) { "Server failed to start!" }
       end
 
+      app = Azu::App.default
+      log.warn { "Shutdown timeout: requests still in flight were dropped" } unless app.drain
       Azu.shutdown
     end
 
