@@ -53,4 +53,3 @@ Good first contributions are listed on the GitHub issue tracker. Typical ones:
 
 - [Development Setup](setup.md) - Set up your development environment
 - [Code Standards](standards.md) - Learn coding guidelines
-- [Contributing Guidelines](contributing.md) - General contributing information
