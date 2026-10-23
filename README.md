@@ -11,19 +11,181 @@
 ```crystal
 require "azu"
 
-# Define a type-safe endpoint
-struct HelloEndpoint
-  include Azu::Endpoint
+module Hello
+  include Azu
 
-  get "/hello/:name"
+  # One class per route: the verb line is the route, `params` is the validated input.
+  class Greet < Azu::Endpoint
+    get "/hello/:name"
 
-  def call
-    response.body("Hello, #{request.param("name")}!")
+    params do
+      param :name, String, required: true, min_length: 2
+      param :shout, Bool, default: false
+    end
+
+    def call
+      greeting = "Hello, #{params.name}!"
+      render({greeting: params.shout ? greeting.upcase : greeting})
+    end
   end
 end
 
-# Start the server
-Azu.start
+Hello.start # RequestId + Rescuer + Logger by default
+```
+
+```console
+$ curl localhost:4000/hello/Ana?shout=true
+{"greeting":"HELLO, ANA!"}
+$ curl -H 'Accept: application/json' localhost:4000/hello/A
+{"Status":"unprocessable_entity","FieldErrors":{"name":["is too short (minimum is 2)"]},...}
+```
+
+A complete app with a JSON API, a live Spark component, a live validated form and a chat
+channel fits in one file: see [`playground/app.cr`](playground/app.cr) and run it with
+`crystal run playground/app.cr`.
+
+## The Azu DSL at a glance
+
+### Endpoints
+
+```crystal
+class CreateUser < Azu::Endpoint
+  post "/users", as: :users               # route (+ optional name for url_for)
+
+  params do                               # typed, validated before `call`
+    param :email, String, required: true, format: :email
+    param :name, String, min_length: 2
+    param :age, Int32, min: 18, default: 30
+    param :role, String, in: %w(member admin), default: "member"
+  end
+
+  before_action :authenticate!            # guards; rendering here stops the request
+  rescue_from(User::Taken) { |ex| render :conflict, errors: [ex.message] }
+
+  def call
+    user = User.create!(**params.to_named_tuple)
+    render :created, user                 # 201 + JSON
+  end
+
+  private def authenticate!
+    render :unauthorized, errors: ["Sign in first"] unless session[:user_id]?
+  end
+end
+```
+
+| You write | You get |
+| --- | --- |
+| `get "/users/:id", as: :user` | the route, and `url_for(:user, id: 1)` / `{{ url_for("user", id=1) }}` |
+| `params do param :x, Type, ... end` | a typed struct from path, query, form **or** JSON; 422 with field errors; compile-time errors for typos |
+| `render :created, user` | status by name, JSON body (`serializer:`, `errors:`, `template:`, `html:` also work) |
+| `head :no_content`, `redirect_to "/", notice: "Saved"` | status-only responses, redirects with flash |
+| `session[:user_id] = "1"`, `flash[:notice]` | signed-cookie session (`SECRET_KEY_BASE`) and one-request flash |
+| `before_action`, `after_action`, `rescue_from` | hooks and exception mapping |
+| `cache_for 5.minutes` | cached `GET` responses |
+| `send_data`, `send_file` | downloads |
+
+Whatever `call` returns is rendered if nothing was rendered explicitly: an `Azu::Response`, a
+`String`, a `Hash`/`NamedTuple`/`Array` or a `JSON::Serializable`.
+
+`param` options: `required`, `default`, `min_length`, `max_length`, `min`, `max`,
+`format` (`:email :url :uuid :slug :alpha :alphanumeric :digits :date :ipv4` or a `Regex`),
+`in`, `message`.
+
+The contract-first style (`include Azu::Action(Request, Response)` with a `Response` object) is
+still available; it is the former `Azu::Endpoint(Request, Response)` module, see
+[Migrating](docs/reference/breaking-changes.md).
+
+### Routes, middleware and configuration
+
+```crystal
+MyApp.routes do
+  root Home.new
+  get "/health", Health, as: :health
+
+  namespace "/api" do
+    resources "/users", index: ListUsers, show: ShowUser, create: CreateUser,
+      update: UpdateUser, destroy: DeleteUser   # GET/POST /api/users, GET/PATCH/PUT/DELETE /api/users/:id
+  end
+end
+
+MyApp.configure do |config|
+  config.handlers do                            # the middleware stack, in order
+    use Azu::Handler::RequestId.new
+    use Azu::Handler::Rescuer.new
+    use_if config.production?, Azu::Handler::Throttle.new
+  end
+  config.production { config.template_hot_reload = false }
+end
+```
+
+### Live components (Spark)
+
+```crystal
+class Counter
+  include Azu::Component
+
+  prop heading : String = "Count"   # given once: Counter.mount(heading: "Hits")
+  state count : Int32 = 0           # assigning a new value re-renders, once per event
+
+  on :increment { self.count += 1 }
+  on(:set) { |event| self.count = event.value.to_i }
+
+  def content
+    div do
+      h2 { text "#{heading}: #{count}" }
+      button(spark_click: :increment) { text "+" }
+      input(type: "number", value: count, spark_change: :set)
+    end
+  end
+end
+```
+
+```crystal
+# in an endpoint or layout
+render html: %(#{Counter.mount.render} #{Azu::Spark.javascript_tag})
+Azu::Spark.ws "/spark"   # once, at boot
+```
+
+| Markup | Meaning |
+| --- | --- |
+| `spark_click: :event`, `spark_change:`, `spark_input:`, `spark_keydown:` | send the event to `on :event` |
+| `form(spark_submit: :save)` | on submit, all fields arrive as one payload (no page reload) |
+| `spark_value: "x"`, `spark_debounce: 300`, `spark_key: "Enter"`, `spark_target: "id"` | payload value, debounce (ms), key filter, other component |
+
+More: `on :save, SignupForm do |form| ... end` parses the payload into a contract and
+`form_errors(form)` turns its validation errors into a state; `assign count: 0, label: "x"`;
+`changed!` after in-place mutation; `after_mount { every(1.second) { ... } }`;
+`defer { slow_work }`; `subscribe "room"` + `Azu::Spark.broadcast("room", "event", data)`.
+The browser script has no dependencies, keeps focus and typed text across updates, and reconnects.
+
+### Channels
+
+```crystal
+class Chat < Azu::Channel
+  ws "/chat"
+
+  def on_connect                       # every hook is optional
+    send({type: "welcome"})
+  end
+
+  def on_message(message : String)
+    broadcast message, except_me: true # all open Chat connections
+  end
+end
+
+Chat.broadcast("Server restarting")    # from anywhere, e.g. an endpoint
+# join "room" / broadcast "room", message / leave "room" for subsets
+```
+
+### Testing
+
+```crystal
+require "azu/testing"
+
+client = Azu::Test::Client.new          # real router + handlers, in-process, keeps cookies
+response = client.post "/users", json: {email: "ana@example.com", name: "Ana"}
+response.status.should eq HTTP::Status::CREATED
+response.json["email"].as_s.should eq "ana@example.com"
 ```
 
 ## Key Features
@@ -857,327 +1019,63 @@ My App{% endblock %} {% block content %}
 
 ### 10. Live Components
 
-Create interactive components with real-time updates:
+Components keep their state on the server and update the page over a WebSocket. See
+[Live components (Spark)](#live-components-spark) above for the complete DSL; a larger example:
 
 ```crystal
-# src/components/user_counter_component.cr
-class UserCounterComponent
-  include Azu::Component
-
-  property count : Int32 = 0
-  property user_id : Int64
-
-  def initialize(@user_id : Int64)
-    @count = User.count.to_i
-  end
-
-  def content
-    div(class: "bg-white p-4 rounded-lg shadow-md") do
-      h3(class: "text-lg font-semibold mb-2") { text "Total Users" }
-      div(class: "flex items-center justify-between") do
-        span(class: "text-3xl font-bold text-blue-600") { text @count.to_s }
-        button(
-          class: "bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded",
-          onclick: "refresh_count"
-        ) { text "Refresh" }
-      end
-    end
-  end
-
-  def on_event(name, data)
-    case name
-    when "refresh_count"
-      @count = User.count.to_i
-      refresh # Automatically updates the client
-    end
-  end
-end
-
 # src/components/chat_component.cr
 class ChatComponent
   include Azu::Component
 
-  property messages : Array(Hash(String, String)) = [] of Hash(String, String)
-  property current_user : String = "Anonymous"
+  prop room : String
+  state messages : Array(String) = [] of String
 
-  def initialize(@current_user : String)
+  after_mount do
+    subscribe "chat:#{room}"           # receive Azu::Spark.broadcast("chat:general", "message", ...)
+  end
+
+  on :message do |event|
+    self.messages = messages.last(49) + [event.value]
+  end
+
+  on :send do |event|
+    Azu::Spark.broadcast("chat:#{room}", "message", event["text"])
   end
 
   def content
-    div(class: "bg-white rounded-lg shadow-md") do
-      div(class: "p-4 border-b") do
-        h3(class: "text-lg font-semibold") { text "Live Chat" }
-      end
-
-      div(class: "h-64 overflow-y-auto p-4 space-y-2") do
-        @messages.each do |message|
-          div(class: "flex space-x-2") do
-            span(class: "font-semibold text-blue-600") { text "#{message["user"]}:" }
-            span { text message["text"] }
-          end
-        end
-      end
-
-      div(class: "p-4 border-t") do
-        form(onsubmit: "send_message", class: "flex space-x-2") do
-          input(
-            type: "text",
-            name: "message",
-            placeholder: "Type a message...",
-            class: "flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-          )
-          button(
-            type: "submit",
-            class: "bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
-          ) { text "Send" }
-        end
-      end
-    end
-  end
-
-  def on_event(name, data)
-    case name
-    when "send_message"
-      if message_text = data["message"]?.try(&.as_s)
-        unless message_text.empty?
-          @messages << {
-            "user" => @current_user,
-            "text" => message_text,
-            "timestamp" => Time.utc.to_s
-          }
-          refresh
-
-          # Broadcast to other connected clients
-          broadcast("new_message", {
-            "user" => @current_user,
-            "text" => message_text
-          })
-        end
-      end
-    when "receive_message"
-      if user = data["user"]?.try(&.as_s)
-        if text = data["text"]?.try(&.as_s)
-          @messages << {
-            "user" => user,
-            "text" => text,
-            "timestamp" => Time.utc.to_s
-          }
-          refresh
-        end
+    div do
+      ul { messages.each { |message| li { text message } } }
+      form(spark_submit: :send, spark_reset: nil) do
+        input(name: "text", autocomplete: "off")
+        button(type: "submit") { text "Send" }
       end
     end
   end
 end
+
+# In a page: ChatComponent.mount(room: "general").render
 ```
 
 ### 11. WebSocket Channels
 
-Create real-time communication channels:
+Channels handle raw WebSocket connections. Every hook is optional, `broadcast` reaches all open
+connections of the channel class, and rooms address a subset:
 
 ```crystal
-# src/channels/chat_channel.cr
-class ChatChannel < Azu::Channel
-  SUBSCRIBERS = [] of HTTP::WebSocket
-
-  ws "/chat"
-
-  def on_connect
-    SUBSCRIBERS << socket.not_nil!
-    user_count = SUBSCRIBERS.size
-
-    # Notify all clients about new user
-    broadcast_to_all("user_joined", {
-      "message" => "A user joined the chat",
-      "user_count" => user_count
-    })
-
-    # Send current user count to new connection
-    send_to_socket("connection_established", {
-      "message" => "Welcome to the chat!",
-      "user_count" => user_count
-    })
-  end
-
-  def on_message(message : String)
-    begin
-      data = JSON.parse(message)
-      event_type = data["type"]?.try(&.as_s) || "message"
-
-      case event_type
-      when "chat_message"
-        handle_chat_message(data)
-      when "typing_start"
-        handle_typing_start(data)
-      when "typing_stop"
-        handle_typing_stop(data)
-      else
-        send_error("Unknown message type: #{event_type}")
-      end
-    rescue JSON::ParseError
-      send_error("Invalid JSON format")
-    rescue ex
-      send_error("Error processing message: #{ex.message}")
-    end
-  end
-
-  def on_close(code, message)
-    SUBSCRIBERS.delete(socket)
-    user_count = SUBSCRIBERS.size
-
-    # Notify remaining users
-    broadcast_to_all("user_left", {
-      "message" => "A user left the chat",
-      "user_count" => user_count
-    })
-  end
-
-  private def handle_chat_message(data)
-    username = data["username"]?.try(&.as_s) || "Anonymous"
-    text = data["text"]?.try(&.as_s) || ""
-
-    return if text.empty?
-
-    # Validate message length
-    if text.size > 500
-      send_error("Message too long (max 500 characters)")
-      return
-    end
-
-    # Broadcast message to all subscribers
-    message_data = {
-      "type" => "chat_message",
-      "username" => username,
-      "text" => text,
-      "timestamp" => Time.utc.to_unix_ms
-    }
-
-    broadcast_to_all("new_message", message_data)
-  end
-
-  private def handle_typing_start(data)
-    username = data["username"]?.try(&.as_s) || "Anonymous"
-
-    broadcast_to_others("user_typing", {
-      "username" => username,
-      "typing" => true
-    })
-  end
-
-  private def handle_typing_stop(data)
-    username = data["username"]?.try(&.as_s) || "Anonymous"
-
-    broadcast_to_others("user_typing", {
-      "username" => username,
-      "typing" => false
-    })
-  end
-
-  private def broadcast_to_all(event : String, data)
-    message = {
-      "event" => event,
-      "data" => data
-    }.to_json
-
-    SUBSCRIBERS.each do |subscriber|
-      begin
-        subscriber.send(message)
-      rescue ex
-        # Remove disconnected subscribers
-        SUBSCRIBERS.delete(subscriber)
-      end
-    end
-  end
-
-  private def broadcast_to_others(event : String, data)
-    message = {
-      "event" => event,
-      "data" => data
-    }.to_json
-
-    SUBSCRIBERS.each do |subscriber|
-      next if subscriber == socket # Skip current socket
-
-      begin
-        subscriber.send(message)
-      rescue ex
-        SUBSCRIBERS.delete(subscriber)
-      end
-    end
-  end
-
-  private def send_to_socket(event : String, data)
-    message = {
-      "event" => event,
-      "data" => data
-    }.to_json
-
-    socket.not_nil!.send(message)
-  rescue ex
-    # Handle send error
-  end
-
-  private def send_error(error_message : String)
-    send_to_socket("error", {"message" => error_message})
-  end
-end
-
 # src/channels/notification_channel.cr
 class NotificationChannel < Azu::Channel
-  @@user_sockets = {} of String => HTTP::WebSocket
-
-  ws "/notifications/:user_id"
+  ws "/notifications"
 
   def on_connect
-    user_id = path_params["user_id"]
-    @@user_sockets[user_id] = socket.not_nil!
-
-    # Send any pending notifications
-    send_pending_notifications(user_id)
+    join "ops"
   end
 
   def on_message(message : String)
-    # Handle ping/pong for connection keep-alive
-    if message == "ping"
-      socket.not_nil!.send("pong")
-    end
-  end
-
-  def on_close(code, message)
-    # Remove user socket from tracking
-    user_id = path_params["user_id"]
-    @@user_sockets.delete(user_id)
-  end
-
-  # Class method to send notification to specific user
-  def self.notify_user(user_id : String, notification : Hash(String, String | Int32))
-    if socket = @@user_sockets[user_id]?
-      begin
-        message = {
-          "type" => "notification",
-          "data" => notification
-        }.to_json
-
-        socket.send(message)
-      rescue ex
-        # Remove disconnected socket
-        @@user_sockets.delete(user_id)
-      end
-    end
-  end
-
-  private def send_pending_notifications(user_id : String)
-    # This would typically fetch from a database
-    # For demo purposes, sending a welcome notification
-    notification = {
-      "id" => 1,
-      "title" => "Welcome!",
-      "message" => "You are now connected to real-time notifications",
-      "type" => "info"
-    }
-
-    send_to_socket("notification", notification)
+    broadcast "ops", message              # to the members of a room
   end
 end
+
+NotificationChannel.broadcast("Deploy finished")   # from an endpoint or a job
 ```
 
 ### 12. Custom Middleware
@@ -1806,63 +1704,8 @@ Each component follows Azu's type-safe patterns and integrates seamlessly with t
 
 ## 🔌 Real-Time Features
 
-### WebSocket Channels
-
-```crystal
-class ChatChannel < Azu::Channel
-  ws "/chat"
-
-  def on_connect
-    broadcast("user_joined", {user: current_user.name})
-  end
-
-  def on_message(message : String)
-    data = JSON.parse(message)
-    broadcast("message", {
-      user: current_user.name,
-      text: data["text"],
-      timestamp: Time.utc
-    })
-  end
-
-  def on_close(code, message)
-    broadcast("user_left", {user: current_user.name})
-  end
-end
-```
-
-### Live Components
-
-```crystal
-class CounterComponent
-  include Azu::Component
-
-  property count = 0
-
-  def content
-    div do
-      h2 { text "Count: #{@count}" }
-      button(onclick: "increment") { text "+" }
-      button(onclick: "decrement") { text "-" }
-    end
-  end
-
-  def on_event(name, data)
-    case name
-    when "increment"
-      @count += 1
-      refresh # Automatically updates the client
-    when "decrement"
-      @count -= 1
-      refresh
-    end
-  end
-end
-
-# In your template
-<%= CounterComponent.mount.render %>
-<%= Azu::Spark.javascript_tag %>
-```
+Channels, live components and `Azu::Spark.broadcast` are covered in
+[The Azu DSL at a glance](#the-azu-dsl-at-a-glance); `playground/app.cr` runs all of them.
 
 ## 🛡️ Error Handling
 

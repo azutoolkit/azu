@@ -125,8 +125,17 @@ jobs:
           REDIS_HOST: redis
           REDIS_PORT: 6379
 
+      - name: Run endpoint DSL tests
+        run: crystal spec spec/azu/endpoint_dsl_spec.cr spec/azu/endpoint_errors_spec.cr spec/azu/endpoint_spec.cr --fail-fast
+        env:
+          CRYSTAL_ENV: pipeline
+          PORT_REUSE: false
+
+      - name: Build the getting-started demo
+        run: crystal build playground/app.cr -o /tmp/azu_demo
+
       - name: Run WebSocket and component tests
-        run: crystal spec spec/azu/websocket_spec.cr spec/azu/channel_spec.cr spec/azu/component_spec.cr spec/azu/spark_spec.cr --fail-fast
+        run: crystal spec spec/azu/websocket_spec.cr spec/azu/channel_spec.cr spec/azu/channel_dsl_spec.cr spec/azu/component_spec.cr spec/azu/component_dsl_spec.cr spec/azu/spark_spec.cr --fail-fast
         env:
           CRYSTAL_ENV: pipeline
           CRYSTAL_LOG_SOURCES: "*"

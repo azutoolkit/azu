@@ -30,11 +30,14 @@ module Azu
     # Raises `ArgumentError` naming the known routes when *name* is unknown, so a
     # typo is easy to spot.
     def self.path(name : Symbol | String, **params) : String
-      pattern = pattern?(name) || raise ArgumentError.new(
+      expand(pattern?(name) || raise(unknown(name)), **params)
+    end
+
+    private def self.unknown(name : Symbol | String) : ArgumentError
+      ArgumentError.new(
         "Unknown route :#{name}. Known routes: #{known.map { |n| ":#{n}" }.join(", ")}. " \
         "Register one with `get \"/path\", as: :#{name}`."
       )
-      expand(pattern, **params)
     end
 
     # Names of every registered route.
@@ -45,8 +48,14 @@ module Azu
     # Replaces each `:key` in *pattern* with the URL-encoded value.
     # Longer keys are replaced first so `:id` never clobbers `:identifier`.
     def self.expand(pattern : String, **params) : String
-      pairs = [] of Tuple(String, String)
-      params.each { |key, value| pairs << {key.to_s, value.to_s} }
+      values = Hash(String, String).new
+      params.each { |key, value| values[key.to_s] = value.to_s }
+      expand(pattern, values)
+    end
+
+    # Same as above for params only known at run time (e.g. from a template).
+    def self.expand(pattern : String, params : Hash(String, String)) : String
+      pairs = params.to_a
       pairs.sort_by! { |pair| -pair[0].size }
 
       url = pattern
@@ -54,6 +63,11 @@ module Azu
         url = url.gsub(Regex.new(":#{Regex.escape(pair[0])}(?![A-Za-z0-9_])"), URI.encode_path_segment(pair[1]))
       end
       url
+    end
+
+    # Looks the route up by name and expands it with run-time *params*.
+    def self.path(name : Symbol | String, params : Hash(String, String)) : String
+      expand(pattern?(name) || raise(unknown(name)), params)
     end
 
     # Forgets every named route. Intended for specs.

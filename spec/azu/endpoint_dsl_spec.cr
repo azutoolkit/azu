@@ -446,3 +446,13 @@ describe Azu::Test::Client do
     response.json["FieldErrors"]["email"][0].as_s.should eq "is invalid"
   end
 end
+
+describe "url_for in templates" do
+  it "expands named routes with run-time params" do
+    Azu::Routes.register(:tpl_user, "/tpl/users/:id/posts/:post_id")
+    Azu::Routes.path(:tpl_user, {"id" => "4", "post_id" => "9"}).should eq "/tpl/users/4/posts/9"
+
+    template = Azu::CONFIG.templates.crinja.from_string(%({{ url_for("tpl_user", id=4, post_id=9) }}))
+    template.render.should eq "/tpl/users/4/posts/9"
+  end
+end

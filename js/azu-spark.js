@@ -7,6 +7,7 @@
 //
 //   spark-click | spark-change | spark-input | spark-keydown   event name to send
 //   spark-submit                                              on <form>: sends all fields
+//                          (spark-change / spark-input on a <form> also send all fields)
 //   spark-value="x"        value to send for buttons and links
 //   spark-key="Enter"      only react to this key (with spark-keydown)
 //   spark-debounce="300"   milliseconds to wait after the last input event
@@ -160,6 +161,14 @@ function morphNode(from, to) {
     return;
   }
 
+  // What the server rendered last time, before the attributes are brought up to date.
+  const before = {
+    value: from.getAttribute('value'),
+    checked: from.hasAttribute('checked'),
+    text: from.nodeName === 'TEXTAREA' ? from.textContent : null,
+    selected: from.nodeName === 'SELECT' ? selectedSignature(from) : null,
+  };
+
   Array.from(from.attributes).forEach((attribute) => {
     if (!to.hasAttribute(attribute.name)) from.removeAttribute(attribute.name);
   });
@@ -169,31 +178,42 @@ function morphNode(from, to) {
     }
   });
 
-  syncFormControl(from, to);
+  syncFormControl(from, to, before);
   if (!from.hasAttribute('spark-ignore') && from.nodeName !== 'TEXTAREA') {
     morphChildren(from, to);
   }
 }
 
-function syncFormControl(from, to) {
-  // Never overwrite what the user is typing in the focused control.
+function selectedSignature(select) {
+  return Array.from(select.options).map((option) => (option.hasAttribute('selected') ? '1' : '0')).join('');
+}
+
+// A form control belongs to the user until the server *changes* what it renders for it:
+// markup without a `value` never clobbers what was typed, and the focused control is
+// never touched.
+function syncFormControl(from, to, before) {
   if (from === document.activeElement) return;
 
   switch (from.nodeName) {
     case 'INPUT':
       if (from.type === 'checkbox' || from.type === 'radio') {
-        from.checked = to.hasAttribute('checked');
-      } else if (from.type !== 'file') {
+        if (before.checked !== to.hasAttribute('checked')) from.checked = to.hasAttribute('checked');
+      } else if (from.type !== 'file' && before.value !== to.getAttribute('value')) {
         from.value = to.getAttribute('value') ?? '';
       }
       break;
     case 'TEXTAREA':
-      from.value = to.textContent;
+      if (before.text !== to.textContent) {
+        from.textContent = to.textContent;
+        from.value = to.textContent;
+      }
       break;
     case 'SELECT':
-      Array.from(from.options).forEach((option, index) => {
-        option.selected = to.options[index]?.hasAttribute('selected') || false;
-      });
+      if (before.selected !== selectedSignature(to)) {
+        Array.from(from.options).forEach((option, index) => {
+          option.selected = to.options[index]?.hasAttribute('selected') || false;
+        });
+      }
       break;
     default:
   }
@@ -234,8 +254,14 @@ function emit(element, name, data) {
 }
 
 function dispatch(element, name, type) {
-  const payload = { value: valueOf(element) };
-  if (element.name) payload.name = element.name;
+  // On a <form>, spark-change / spark-input send every field of the form.
+  let payload;
+  if (element.tagName === 'FORM') {
+    payload = formFields(element);
+  } else {
+    payload = { value: valueOf(element) };
+    if (element.name) payload.name = element.name;
+  }
 
   const delay = parseInt(element.getAttribute('spark-debounce') || '0', 10);
   if (delay > 0 && type === 'input') {

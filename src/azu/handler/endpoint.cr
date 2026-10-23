@@ -25,7 +25,7 @@ module Azu
   #   end
   #
   #   def call
-  #     user = User.create!(params.to_h)
+  #     user = User.create!(**params.to_named_tuple)
   #     render :created, user
   #   end
   # end
@@ -503,18 +503,22 @@ module Azu
     # render :ok, user, serializer: UserSerializer           # UserSerializer.new(user).to_json
     # render :unprocessable_entity, errors: {email: ["bad"]} # 422, {"errors": ...}
     # render template: "users/show.jinja", user: user        # 200, HTML from a template
+    # render html: "<h1>Hello</h1>"                          # 200, HTML string
     # render :ok, "pong"                                     # text
     # render :ok, MyPage.new                                 # any Azu::Response
     # ```
     #
     # *status* is a Symbol such as `:created` or `:not_found`, an `HTTP::Status` or an Int.
     # An unknown Symbol raises with the list of valid names.
-    private def render(status : Symbol | HTTP::Status | Int32, object = nil, *, serializer = nil, errors = nil, template : String? = nil, **locals) : Nil
+    private def render(status : Symbol | HTTP::Status | Int32, object = nil, *, serializer = nil, errors = nil, template : String? = nil, html : String? = nil, **locals) : Nil
       raise DoubleRenderError.new if @rendered
       code = status_for(status)
       context.response.status = code
 
-      if template
+      if html
+        default_content_type "text/html; charset=utf-8"
+        context.response << html
+      elsif template
         default_content_type "text/html; charset=utf-8"
         context.response << view(template, locals)
       elsif !errors.nil?
@@ -532,6 +536,10 @@ module Azu
 
     private def render(*, template : String, **locals) : Nil
       render(:ok, **locals, template: template)
+    end
+
+    private def render(*, html : String) : Nil
+      render(:ok, html: html)
     end
 
     # Sends only a status and headers.

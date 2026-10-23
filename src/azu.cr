@@ -109,8 +109,8 @@ module Azu
     #   end
     # end
     # ```
-    def self.routes(scope : String = "", &block)
-      config.router.routes(scope, &block)
+    def self.routes(scope : String = "", &)
+      with Azu::Router::Builder.new(config.router, scope) yield
     end
 
     # Starts the server with the stack declared in `configure { handlers { ... } }`, or

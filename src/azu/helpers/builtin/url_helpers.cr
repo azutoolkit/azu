@@ -12,6 +12,7 @@ module Azu
       # </nav>
       #
       # {{ button_to("Delete", "/posts/1", method="delete", confirm="Are you sure?") }}
+      # {{ link_to("Profile", url_for("user", id=current_user.id)) }}
       # {{ mail_to("support@example.com", "Contact Us") }}
       # ```
       module UrlHelpers
@@ -24,6 +25,17 @@ module Azu
           register_current_page
           register_active_class
           register_back_url
+          register_url_for
+        end
+
+        # `url_for("user", id=42)` expands a named route (`get "/users/:id", as: :user`).
+        private def self.register_url_for : Nil
+          func = Crinja.function({name: nil}, :url_for) do
+            params = Hash(String, String).new
+            arguments.kwargs.each { |key, value| params[key] = value.to_s unless key == "name" }
+            Azu::Routes.path(arguments["name"].to_s, params)
+          end
+          Registry.register_function(:url_for, func)
         end
 
         private def self.register_link_to : Nil

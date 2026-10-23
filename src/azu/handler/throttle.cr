@@ -80,7 +80,8 @@ module Azu
       @tracker : Hash(String, RequestTracker)
       @mutex : Mutex
 
-      def initialize(@interval, @duration, @threshold, @blacklist, @whitelist)
+      # Every argument is optional: `Throttle.new(threshold: 30)`.
+      def initialize(@interval : Int32 = 5, @duration : Int32 = 900, @threshold : Int32 = 100, @blacklist : Array(String) = [] of String, @whitelist : Array(String) = [] of String)
         @tracker = Hash(String, RequestTracker).new
         @mutex = Mutex.new
       end
