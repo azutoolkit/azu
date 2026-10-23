@@ -7,6 +7,7 @@ require "./connection_info"
 require "./entry"
 require "./instrumentation"
 require "./registry"
+require "./rehydrator"
 require "./token"
 require "./update"
 
@@ -35,7 +36,7 @@ module Azu
         @pushes = [] of Update::Push
         @redirect = nil.as(Update::Redirect?)
         @claims = {} of String => Hash(String, String)
-        @restore = {} of String => JSON::Any
+        @rehydrator = Rehydrator.new(@config)
         @sent_snapshots = {} of String => String
         @expanding = false
       end
@@ -52,9 +53,14 @@ module Azu
       # from a previous connection restores the persisted state of its components.
       def start(component : Component, id : String, claims : Hash(String, String), params : Params, snapshot : String? = nil) : Update
         @claims[id] = claims
-        load_snapshot(id, snapshot)
+        @rehydrator.load(snapshot, id, claims)
         mount(component, id, nil, params)
         flush
+      rescue ex
+        leave(id)
+        raise ex
+      ensure
+        @rehydrator.clear
       end
 
       # Mounts *component* as a root without a connection and returns it wrapped in its element,
@@ -186,7 +192,7 @@ module Azu
         @registry.add(entry)
         begin
           Instrumentation.measure(entry, "mount") { component.mount(socket, params) }
-          restore_state(entry)
+          @rehydrator.restore(component, id)
         rescue ex
           @registry.delete(id)
           entry.retire
@@ -257,22 +263,6 @@ module Azu
         "#{component.__spark_open("data-spark-slot": nil)}#{component.__spark_close}"
       end
 
-      private def load_snapshot(root_id : String, snapshot : String?) : Nil
-        return unless snapshot
-        claims = Token.verify("snapshot", snapshot, @config.secret)
-        return unless claims["root"]?.try(&.as_s?) == root_id
-        claims["components"].as_h.each { |id, state| @restore[id] = state }
-      rescue ex : InvalidToken
-        Log.for("Azu::Spark").debug { "Ignoring unusable state snapshot: #{ex.message}" }
-      end
-
-      private def restore_state(entry : Entry) : Nil
-        return unless state = @restore.delete(entry.id)
-        entry.component.__spark_restore(state)
-      rescue ex : JSON::ParseException | JSON::SerializableError
-        Log.for("Azu::Spark").warn { "State snapshot of #{entry.component.class.name} no longer fits its declaration" }
-      end
-
       # Signed snapshots for the roots rendered in this flush whose persisted state changed.
       private def snapshots(roots : Set(String)) : Hash(String, String)
         roots.each_with_object({} of String => String) do |root_id, tokens|
@@ -282,17 +272,17 @@ module Azu
       end
 
       private def snapshot_token(root_id : String) : String?
-        components = {} of String => JSON::Any
+        members = {} of String => Snapshot::Member
         @registry.entries.each do |entry|
           next unless entry.root_id == root_id
-          entry.component.__spark_snapshot.try { |state| components[entry.id] = state }
+          entry.component.__spark_snapshot.try { |state| members[entry.id] = Snapshot::Member.new(entry.component.class.name, state) }
         end
-        return if components.empty?
+        return if members.empty?
 
-        encoded = components.to_json
+        encoded = members.to_json
         return if @sent_snapshots[root_id]? == encoded
-        token = Token.sign("snapshot", JSON.parse({root: root_id, components: components}.to_json), @config.token_ttl, @config.secret)
-        if token.bytesize > @config.max_snapshot_size
+        token = Snapshot.sign(root_id, @claims[root_id]? || {} of String => String, members, @config.token_ttl, @config.secret, @config.max_snapshot_size)
+        unless token
           Log.for("Azu::Spark").warn { "Persisted state of #{root_id} exceeds #{@config.max_snapshot_size} bytes and was not saved" }
           return
         end

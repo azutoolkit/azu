@@ -227,11 +227,11 @@ describe Azu::Spark::Component do
       end
     end
 
-    it "ignores a snapshot that was issued for another view" do
+    it "refuses a tampered snapshot" do
       snapshot = Azu::Spark::Testing.mount(SparkComponentSpec::Counter, &.trigger("increment").snapshot)
 
-      Azu::Spark::Testing.mount(SparkComponentSpec::Counter, snapshot: snapshot.try { |token| tampered(token) }) do |view|
-        view.component.count.should eq 0
+      expect_raises(Azu::Spark::InvalidSnapshot, /signature/) do
+        Azu::Spark::Testing.mount(SparkComponentSpec::Counter, snapshot: snapshot.try { |token| tampered(token) }) { }
       end
     end
   end

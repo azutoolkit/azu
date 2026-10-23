@@ -15,6 +15,14 @@ module Azu
       end
     end
 
+    # The state snapshot sent with a join is malformed, tampered with, expired, too large or was
+    # issued for another page, session or component class. The client drops it and joins afresh.
+    class InvalidSnapshot < Error
+      def code : String
+        "invalid_snapshot"
+      end
+    end
+
     # Raised from `mount` (see `Socket#reject!`) to refuse a connection.
     class Rejected < Error
       def code : String

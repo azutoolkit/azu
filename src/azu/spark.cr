@@ -39,10 +39,16 @@ module Azu
       router.get(config.assets_path, Client::Asset.new)
     end
 
+    # URL of the client script, versioned by content hash: the app serves it with a year long
+    # immutable cache lifetime, and a new release of the script has a new URL.
+    def self.asset_path : String
+      "#{config.assets_path}?v=#{Client::VERSION}"
+    end
+
     # The `<script>` tag that loads the client from this application (no inline code, so it
     # works under a strict Content-Security-Policy).
     def self.script_tag : String
-      %(<script src="#{config.assets_path}?v=#{Client::VERSION}" data-spark-path="#{config.path}" defer></script>)
+      %(<script src="#{asset_path}" data-spark-path="#{config.path}" defer></script>)
     end
 
     # Renders the mountable component *type* for an HTML page: the full initial markup plus a

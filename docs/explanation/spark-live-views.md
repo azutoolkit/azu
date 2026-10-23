@@ -85,8 +85,9 @@ subscriptions and timers end with the component or connection.
 
 `azu_spark.js` opens one WebSocket per page (`Azu::Spark.config.path`, default `/spark`),
 joins every `[data-spark-root]` component with its signed token, forwards DOM events declared by
-the bindings, patches the DOM with the HTML the server sends, heartbeats, and reconnects with the
-last signed state snapshot.
+the bindings, patches the DOM with the HTML the server sends, heartbeats, and reconnects with
+backoff and the last signed state snapshot, so the page continues where it was. See
+[Spark client and reconnects](../reference/spark-client.md).
 
 ## Security model
 
@@ -97,7 +98,8 @@ last signed state snapshot.
   (`token_ttl`). Production and staging refuse to start without an explicit secret.
 - **Per-connection ownership.** Each connection has its own component registry
   (`max_components`); events can only address components that connection joined or rendered.
-  Reconnect snapshots are signed and size limited.
+  Reconnect snapshots are signed, expiring, size limited and bound to the page, its session claims
+  and the component classes; anything else is refused with `invalid_snapshot`.
 - **Limits.** Frame size (`max_message_size`), event rate (`events_per_second` / `event_burst`)
   and idle timeout are enforced per connection.
 - **The client applies server HTML, on purpose.** A live view works by sending rendered HTML
