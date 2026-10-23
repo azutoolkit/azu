@@ -267,13 +267,14 @@ describe "Azu Error Handling" do
       error.field_errors["name"].should eq(["is required"])
     end
 
-    it "generates JSON with field errors" do
+    it "generates problem+json with field errors" do
       field_errors = {"email" => ["is invalid"]}
       error = Azu::Response::ValidationError.new(field_errors)
       json = error.json
       parsed = JSON.parse(json)
 
-      parsed["FieldErrors"]["email"].should eq(["is invalid"])
+      parsed["errors"]["email"].should eq(["is invalid"])
+      parsed["status"].should eq 422
     end
   end
 

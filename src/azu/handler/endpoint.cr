@@ -44,6 +44,7 @@ module Azu
     def call(context : HTTP::Server::Context)
       @context = context
       @params = Params(Request).new(context.request)
+      @request_object = nil
 
       # Set endpoint name header for performance monitoring
       endpoint_name = self.class.name.split("::").last
@@ -51,6 +52,7 @@ module Azu
 
       RequestContext.scope(context) do |info|
         info.endpoint = endpoint_name
+        enforce_contract
         context.response << call.render
       end
       context
@@ -239,18 +241,37 @@ module Azu
 
       {% request_name = Request.stringify.split("::").last.underscore.downcase.id %}
 
+      # A request that breaks its contract never reaches `call`: it is answered with a 422 listing
+      # the failing fields (and a 400 when the body cannot be parsed at all). An endpoint declared
+      # with the bare `Azu::Request` module has no contract to enforce.
+      private def enforce_contract : Nil
+        {% unless Request.stringify == "Azu::Request" %}
+          errors = contract.errors
+          return if errors.empty?
+
+          fields = Hash(String, Array(String)).new { |hash, key| hash[key] = [] of String }
+          errors.each { |error| fields[error.field.to_s] << error.message }
+          raise Response::ValidationError.new(fields.to_h)
+        {% end %}
+      end
+
       def {{request_name}} : Request
-        params.typed_request
+        contract
       end
 
       def {{request_name}}_contract : Request
-        params.typed_request
+        contract
       end
     end
 
     # Sets the content type for a response
     private def content_type(type : String)
       context.response.content_type = type
+    end
+
+    # The request contract, parsed once per call.
+    private def contract : Request
+      @request_object ||= params.typed_request
     end
 
     # Gets requests parameters
