@@ -63,6 +63,9 @@ module Azu
 
     getter router : Router = Router.new
 
+    # How template helpers and the session CSRF token store reach the session library (see `SessionAdapter`).
+    property session_adapter : SessionAdapter? = nil
+
     # The shape of validation failures: RFC 7807 `application/problem+json`, or the pre-0.6 body.
     property error_format : ErrorFormat = ErrorFormat::Problem
 
