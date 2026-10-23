@@ -283,8 +283,8 @@ end
 ## Shutdown
 
 When the app shuts down (`SIGTERM`, `SIGINT`, `App#stop`) every open channel socket is sent a close frame
-with code 1001 (going away) at once; `on_close` runs with that code when the peer answers, and the app waits for
-that within `shutdown_timeout`. A socket accepted during shutdown is closed without `on_connect`. `Azu.start` then
+with code 1001 (going away) at once; `on_close` runs with the code the peer answers with (normally the same 1001), and the app waits for
+that within `shutdown_timeout`. A socket that registers after shutdown began is closed without `on_connect`; one that registered just before still runs it and is then closed. `Azu.start` then
 closes Spark connections and the PubSub backend. See [Shut Down Gracefully](../../how-to/deployment/graceful-shutdown.md).
 
 ## See also
