@@ -1,14 +1,15 @@
 require "../../spec_helper"
 require "http/client"
+require "../../support/integration_helpers"
 require "sqlite3"
 require "../../../src/azu/cql"
 
 module ContractBridgeSpec
-  DB_FILE = File.join(Dir.tempdir, "azu_cql_contract_bridge_spec.db")
+  DB_FILE = File.tempname("azu_cql_contract_bridge", ".db")
 
   def self.build_schema : CQL::Schema
     File.delete?(DB_FILE)
-    schema = Azu::CQL.schema(:contract_bridge, "sqlite3://#{DB_FILE}?busy_timeout=5000", lazy: false) do
+    schema = Azu::CQL.schema(:contract_bridge, "sqlite3://#{DB_FILE}?busy_timeout=5000&foreign_keys=1", lazy: false) do
       table :people do
         primary :id, Int64
         column :name, String
@@ -60,6 +61,36 @@ module ContractBridgeSpec
     getter bio : String?
 
     map_to Person, except: [:bio], rename: {name: :full_name}
+  end
+
+  # A plain (non-CQL) target whose constructor takes the server-set columns, to test the by-name guard.
+  class Plain
+    getter id : Int64?
+    getter created_at : Time?
+    getter name : String
+    property role : String = "user"
+
+    def initialize(@name : String, @id : Int64? = nil, @created_at : Time? = nil)
+    end
+  end
+
+  struct Sneaky
+    include Azu::Request
+
+    getter name : String
+    getter id : Int64? = 99
+    getter created_at : Time? = Time.utc(2000, 1, 1)
+    getter role : String = "admin"
+  end
+
+  struct Collides
+    include Azu::Request
+
+    getter full_name : String
+    getter name : String = "other"
+    getter email : String
+
+    map_to Person, rename: {name: :full_name}
   end
 
   struct PersonResponse
@@ -176,6 +207,8 @@ module ContractBridgeSpec
   end
 end
 
+include IntegrationHelpers
+
 describe "contract <-> model bridge" do
   before_each { ContractBridgeSpec::SCHEMA.exec("DELETE FROM people") }
 
@@ -191,6 +224,17 @@ describe "contract <-> model bridge" do
       request = ContractBridgeSpec::Renamed.from_json(%({"full_name":"Grace","email":"g@x.io","bio":"skipped"}))
       person = request.to_model(ContractBridgeSpec::Person)
       {person.name, person.bio}.should eq({"Grace", nil})
+    end
+
+    it "never copies id and created_at into constructor arguments either, unless only: names them" do
+      request = ContractBridgeSpec::Sneaky.from_json(%({"name":"Eve","id":99,"created_at":"2000-01-01T00:00:00Z","role":"admin"}))
+      plain = request.to_model(ContractBridgeSpec::Plain)
+      {plain.id, plain.created_at, plain.role}.should eq({nil, nil, "admin"}) # role is mass-assigned: see only:
+    end
+
+    it "does not let a field named like a renamed attribute overwrite it" do
+      request = ContractBridgeSpec::Collides.from_json(%({"full_name":"Grace","name":"other","email":"g@x.io"}))
+      request.to_model(ContractBridgeSpec::Person).name.should eq "Grace"
     end
 
     it "builds a response, formatting Time as RFC 3339 and keeping nils" do
@@ -243,6 +287,24 @@ describe "contract <-> model bridge" do
         ContractBridgeSpec.post(base, "/people/500", "Bob").status_code.should eq 500
         ContractBridgeSpec.names.should be_empty
       end
+    end
+
+    it "discards the buffered success when the commit fails, so the error page stands alone" do
+      file = File.tempname("azu_cql_commit_failure", ".db") # its own database: a failed commit leaves SQLite's connection mid-transaction
+      schema = Azu::CQL.schema(:commit_failure, "sqlite3://#{file}?foreign_keys=1", lazy: false) { table(:parents) { primary :id, Int64 } }
+      schema.build
+      schema.exec("CREATE TABLE kids (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parents(id) DEFERRABLE INITIALLY DEFERRED)")
+      orphan = ->(context : HTTP::Server::Context) do
+        schema.exec("INSERT INTO kids (parent_id) VALUES (404)") # fails only at commit
+        context.response.print "SUCCESS-BODY"
+      end
+      handler = Azu::CQL::Middleware.new(schema, transaction: true)
+      handler.next = orphan
+      context, io = create_context("POST", "/orphan")
+      expect_raises(Exception) { handler.call(context) }
+      context.response.close
+      io.to_s.should_not contain "SUCCESS-BODY"
+      File.delete?(file)
     end
 
     it "keeps the write of a failing request when it is not transactional" do
@@ -328,7 +390,10 @@ private def compile_error(fields : String) : String
     CR
   search_path = [File.expand_path("../../../src", __DIR__), File.expand_path("../../../lib", __DIR__), `crystal env CRYSTAL_PATH`.strip].join(':')
   error = IO::Memory.new
-  status = Process.run("crystal", ["build", "--no-codegen", "--no-color", program], env: {"CRYSTAL_PATH" => search_path}, output: IO::Memory.new, error: error)
+  process = Process.new("crystal", ["build", "--no-codegen", "--no-color", program], env: {"CRYSTAL_PATH" => search_path}, output: Process::Redirect::Close, error: Process::Redirect::Pipe)
+  spawn { sleep 5.minutes; process.terminate rescue nil } # a stuck compiler must not hang the suite
+  IO.copy(process.error, error)
+  status = process.wait
   fail "the program compiled" if status.success?
   error.to_s
 ensure

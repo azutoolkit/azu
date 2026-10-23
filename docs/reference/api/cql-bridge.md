@@ -90,7 +90,10 @@ server = app.server(handlers)
 * every `initialize` argument is read from the request reader of the same name; the constructor that consumes the
   most arguments and needs nothing the request lacks is used;
 * the remaining request fields are assigned through the model's setters (`property`); request fields the model has no
-  setter for are ignored, and `id`, `created_at` and `updated_at` are never copied unless named in `only:`;
+  setter for are ignored, and `id`, `created_at` and `updated_at` are never copied (as constructor arguments or
+  setters) unless named in `only:`;
+* a field named like a renamed attribute never overwrites the renamed value (`rename: {name: :full_name}` ignores a
+  request field `name`);
 * a required constructor argument the request cannot provide, a nilable field into a non-nilable one, and types that
   are not convertible are **compile errors** that name both sides, for example
   `cannot map SignUp#email (Int32) to Person#email (String)`.
@@ -101,6 +104,26 @@ Types convert when no information is lost: identical or narrower, `T` to `T?`, `
 To customize, declare the mapping in the request: `map_to Person, only: [...], except: [...], rename: {name: :full_name}`
 (`rename` maps a model attribute to the request field it reads). It defines `to_model(Person.class)` for that model
 and takes precedence over the default.
+
+### Mass assignment: list the fields with `only:`
+
+Matching is by name, so **every request field that the model has a setter or constructor argument for is copied**,
+including `role`, `admin`, `user_id` or `password_digest` if the request declares them. The request struct is the
+allow-list, which is safe as long as it only declares what a client may set; when the request is shared with other
+code, or the model has sensitive attributes, state the list explicitly. Declare it once next to the request:
+
+<!-- skip -->
+```crystal
+struct UpdateProfile
+  include Azu::Request
+
+  getter name : String
+  getter bio : String?
+  getter role : String = "user" # declared for another use: must not reach the model
+
+  map_to Person, only: [:name, :bio]
+end
+```
 
 ## Model to response
 
@@ -118,10 +141,12 @@ the same names for the common predicates, so a rule copies between them:
 | Predicate | Azu request (schema shard) | CQL model |
 | --- | --- | --- |
 | `presence`, `required`, `eq`, `in`, `exclude`, `match`, `size` (Int or Range) | yes | yes |
-| `gt`, `gte`, `lt`, `lte`, `confirmation`, `accept`, `on: :context` | no | yes |
+| `gt`, `gte`, `lt`, `lte` (numbers, `Time`) | yes | yes |
+| `confirmation`, `accept`, `on: :context` | no | yes |
 | `message:` | one message for the attribute | one message for the attribute |
 
-Differences that cannot be reconciled without changing the shards: CQL predicates return false for `nil` (so a
+Differences that cannot be reconciled without changing the shards (the schema shard has no `confirmation`, `accept`
+or `on:`; its `gt`/`gte`/`lt`/`lte` take `Int`, `Float` and `Time`): CQL predicates return false for `nil` (so a
 nilable attribute fails `size`/`match` instead of raising), the schema shard's do not (use a non-nilable request
 field); and `{min:, max:}` size options exist in neither, use a Range (`size: 2..50`). Both report errors as
 `{field : Symbol, message : String}`.
@@ -150,12 +175,23 @@ server = app.server(handlers)
   transaction CQL reports to `Azu::QueryStore` through `Azu::CQL::Instrumentor` carries the request id and shows up
   tagged in the dashboard. `Azu::Instrumentation` is not involved: its hooks cover the cache, components and app
   prepare/finalize, while SQL is observed through `CQL::Telemetry`.
-* With `transaction: true` the rest of the chain runs in one CQL transaction. It commits when the response status is
-  below `rollback_from` (400 by default) and rolls back on an exception or a status at or above it. Place it after the
-  `Rescuer` (the exception keeps propagating and is rendered there) and after anything that must not be rolled back.
-  Transactions are tied to the serving fiber, so concurrent requests never share one.
+* With `transaction: true` the rest of the chain runs in one CQL transaction on one connection (held for the whole
+  request, even one that never queries). It commits when the response status is below `rollback_from` (400 by
+  default) and rolls back on an exception or a status at or above it. Rolling back by status writes nothing to the log
+  (CQL only warns for its own `DB::Rollback`), but it also drops writes the handler meant to keep on a 4xx, such as a
+  failed-login counter: record those outside the request transaction, or set `rollback_from: 500`.
+* Place it after `Rescuer` (the exception keeps propagating and is rendered there) and after `Static` and any health
+  or metrics handler (they should not hold a connection). Do not use it for streaming or WebSocket routes: the
+  transaction would stay open as long as the stream does.
+* **No nesting.** `Schema#transaction` (so `Model.transaction` too) opens a *second* connection from the pool, not a
+  savepoint, so a transaction started inside a request the middleware already wrapped is independent of it (on SQLite
+  it contends for the write lock). Do not open another one inside a transactional request; CQL cannot be asked
+  whether a transaction is active, so the middleware cannot detect it.
+* Transactions are tied to the serving fiber, so concurrent requests never share one.
 * Without `transaction`, CQL keeps checking out a pooled connection per statement; only the tagging applies.
 * Escaping `CQL::RecordInvalid`, `CQL::ValidationError` and the model validation error become 422s.
 
-The response is written after the commit, but bytes already flushed by a streaming response cannot be taken back
-if a later commit fails.
+If the commit itself fails, the middleware discards the body the handler buffered (while headers have not been sent)
+before re-raising, so the `Rescuer`'s error page is not appended to a success body. A response already flushed, which
+Crystal does once the body exceeds its output buffer (about 8 KB), cannot be taken back: for large bodies the client
+may see the success status and a truncated reply.
