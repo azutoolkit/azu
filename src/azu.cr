@@ -159,6 +159,12 @@ module Azu
       CONFIG
     end
 
+    # Starts with `Azu::App#default_handlers`. Pass an array to choose the handlers yourself: it is
+    # used exactly as given and nothing is added to it.
+    def self.start
+      start Azu::App.default.default_handlers
+    end
+
     def self.start(handlers : Array(HTTP::Handler))
       Azu.prepare
       config.handlers = handlers.map(&.as(HTTP::Handler))

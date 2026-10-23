@@ -54,6 +54,16 @@ request breaks them: the router answers `422` before `call`, and the parsed requ
   for invalid input; declare such an endpoint with a request type without validations.
 - Endpoints declared with the bare `Azu::Request` module have no contract and are not affected.
 
+**A default handler stack** (additive). `MyApp.start` without arguments serves
+`RequestId, Logger, Rescuer, SecurityHeaders, Static` (`Azu::App#default_handlers`). Passing an array
+keeps today's behaviour exactly: it is used as given and nothing is added to it.
+
+- `Handler::SecurityHeaders`: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`; HSTS and a
+  `Content-Security-Policy` only when asked for (`hsts: true`, `content_security_policy: "..."`). Headers
+  the application already set are left alone.
+- `Handler::Compression`: gzip/deflate, the standard library's `HTTP::CompressHandler`.
+- `Handler::HealthCheck`: `GET /health` answers `200`, or `503` naming failing checks, without reaching the router.
+
 ### 0.5.28
 
 **No breaking changes.** This version includes documentation improvements.

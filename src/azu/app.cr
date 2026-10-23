@@ -67,6 +67,19 @@ module Azu
       [Scope.new(self)] of HTTP::Handler + handlers
     end
 
+    # The handlers `Azu.start` uses when none are given: a request id, request logging, error pages,
+    # security headers and static files from `public/` (falling through to the router). Fresh
+    # instances on every call, since a handler can be in one chain only.
+    def default_handlers : Array(HTTP::Handler)
+      [
+        Handler::RequestId.new,
+        Handler::Logger.new(@config.log),
+        Handler::Rescuer.new,
+        Handler::SecurityHeaders.new(hsts: @config.tls?),
+        Handler::Static.new(fallthrough: true),
+      ] of HTTP::Handler
+    end
+
     # An `HTTP::Server` for this app. It is not bound or started: call `bind_tcp`/`listen` on it, or
     # `bind_unused_port` in specs.
     def server(handlers : Array(HTTP::Handler) = [] of HTTP::Handler) : HTTP::Server
