@@ -3,12 +3,13 @@ require "file_utils"
 
 # Requiring a library must not start work. These specs run child programs, so state set up by other
 # specs cannot hide a leak: one requires only the standard library (the baseline), the other
-# requires azu, and the two must look the same from the outside.
+# requires azu, and the two must look the same from the outside. The main fiber is not reported: the
+# runtime lists it only sometimes, and it is not something requiring a library can start.
 
 private REPORT = <<-CR
   Fiber.yield
   names = [] of String
-  Fiber.each { |fiber| names << fiber.name.to_s }
+  Fiber.each { |fiber| names << fiber.name.to_s unless fiber.name == "main" }
   puts "REPORT:" + {fibers: names.sort, upload_dir: Dir.exists?(ENV["UPLOAD_TEMP_DIR"]), log_level: Log.for("").level.to_s}.to_json
 CR
 
