@@ -184,21 +184,16 @@ module Azu
         end
       {% end %}
 
-      loop do
-        begin
-          log.info { server_info }
-          server.listen
-          break
-        rescue e
-          if e == Errno
-            log.info(exception: e) { "Restarting server..." }
-          else
-            log.error(exception: e) { "Server failed to start!" }
-            break
-          end
-        end
+      begin
+        log.info { server_info }
+        server.listen
+      rescue e
+        log.error(exception: e) { "Server failed to start!" }
       end
 
+      app = Azu::App.default
+      log.info { "Waiting for requests in flight" }
+      log.warn { "Shutdown timeout: requests still in flight were dropped" } unless app.drain
       Azu.shutdown
     end
 

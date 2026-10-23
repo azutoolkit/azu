@@ -71,6 +71,12 @@ keeps today's behaviour exactly: it is used as given and nothing is added to it.
   served, so keep only public files in it. HSTS follows `config.tls?`; behind a TLS-terminating proxy pass
   your own `SecurityHeaders.new(hsts: true)`.
 
+**Graceful shutdown** (behaviour fix). On SIGTERM or SIGINT, `start` stops accepting connections and waits for
+the requests in flight, up to `config.shutdown_timeout` (`SHUTDOWN_TIMEOUT` seconds, default 30), before it
+shuts the rest down. Before, it exited as soon as the listener closed. The restart branch of the server loop
+(`e == Errno`) could never run and is gone: a failure of the listener is logged and `start` returns.
+`Azu::App#stop(timeout)` does the same from code and specs (bind the server on `bind_unused_port`).
+
 ### 0.5.28
 
 **No breaking changes.** This version includes documentation improvements.

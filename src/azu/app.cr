@@ -1,3 +1,4 @@
+require "wait_group"
 require "http/server"
 
 module Azu
@@ -31,6 +32,9 @@ module Azu
       @@default ||= new(CONFIG)
     end
 
+    @server : HTTP::Server?
+    @in_flight = WaitGroup.new
+
     def initialize(@config : Configuration = Configuration.new)
     end
 
@@ -52,8 +56,40 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context)
-        Azu.with_config(@app.config) { call_next(context) }
+        @app.track { Azu.with_config(@app.config) { call_next(context) } }
       end
+    end
+
+    # Counts a request as in flight while the block runs, so `stop` can wait for it.
+    def track(&)
+      @in_flight.add
+      begin
+        yield
+      ensure
+        @in_flight.done
+      end
+    end
+
+    # Waits until every request in flight has finished, or `timeout` has passed. True when none is left.
+    def drain(timeout : Time::Span = @config.shutdown_timeout) : Bool
+      finished = ::Channel(Nil).new(1)
+      spawn(name: "azu-drain") do
+        @in_flight.wait
+        finished.send(nil)
+      end
+      select
+      when finished.receive
+        true
+      when timeout(timeout)
+        false
+      end
+    end
+
+    # Stops accepting connections and waits, up to `timeout`, for the requests in flight. True when
+    # all of them finished. This is what SIGTERM and SIGINT do in `Azu.start`.
+    def stop(timeout : Time::Span = @config.shutdown_timeout) : Bool
+      @server.try(&.close)
+      drain(timeout)
     end
 
     # The handler chain this app serves: its scope first, then `handlers`.
@@ -83,7 +119,7 @@ module Azu
     # An `HTTP::Server` for this app. It is not bound or started: call `bind_tcp`/`listen` on it, or
     # `bind_unused_port` in specs.
     def server(handlers : Array(HTTP::Handler) = [] of HTTP::Handler) : HTTP::Server
-      HTTP::Server.new(chain(handlers)) { |context| router.process(context) }
+      HTTP::Server.new(chain(handlers)) { |context| router.process(context) }.tap { |server| @server = server }
     end
   end
 end
