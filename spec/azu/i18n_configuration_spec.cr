@@ -29,4 +29,17 @@ describe Azu::I18nConfiguration do
       Azu::Helpers::I18n.load_path = ["locales"]
     end
   end
+
+  it "does not overwrite an explicit Helpers::I18n.configure with its defaults" do
+    default = Azu::Helpers::I18n.default_locale
+    Azu::Helpers::I18n.configure { |config| config.default_locale = "es" }
+    begin
+      app = Azu::App.new
+      app.config.i18n.load_path = ["spec/fixtures/locales"]
+      app.server
+      Azu::Helpers::I18n.default_locale.should eq "es"
+    ensure
+      Azu::Helpers::I18n.configure { |config| config.default_locale = default }
+    end
+  end
 end

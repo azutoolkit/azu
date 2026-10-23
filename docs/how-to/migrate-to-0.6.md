@@ -187,6 +187,8 @@ validations.
 
 These are process-wide in 0.6 and are not per app: the endpoint verb macros, `Channel.ws`, the PubSub
 backend, Spark connections, `QueryStore`, the helper and i18n registries (the last app to build a
-server applies its `i18n` settings), the dev handlers' `log:` default, and `Handler::Static`
+server applies the `i18n` settings that differ from the defaults, and an explicit
+`Azu::Helpers::I18n.configure` is never overwritten), `Azu.prepare` and `Azu.shutdown` (they use the global
+`Azu::CONFIG`), the dev handlers' `log:` default, and `Handler::Static`
 when built by hand (its `cache_max_age` defaults to the global configuration; `app.default_handlers`
 passes the app's).

@@ -111,8 +111,8 @@ module DocsCheck
     File.write(path, source)
     message = compile(path)
     # Crystal builds its ECR helper into a shared cache on first use; a compile that starts while another
-    # one is still writing it fails with "macro_run: Permission denied". The snippet is fine: try once more.
-    message = compile(path) if message && message.includes?("macro_run")
+    # one is still writing it fails with "macro_run: Permission denied". The snippet is fine: try again, up to twice.
+    2.times { message = compile(path) if message && message.includes?("macro_run") }
     message
   end
 
