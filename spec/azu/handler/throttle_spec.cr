@@ -114,35 +114,37 @@ describe Azu::Handler::Throttle do
     end
 
     it "resets counter after interval expires" do
-      handler = Azu::Handler::Throttle.new(
-        interval: 1, # 1 second interval
-        duration: 60,
-        threshold: 2,
-        blacklist: [] of String,
-        whitelist: [] of String
-      )
-      next_handler, verify = create_next_handler(4)
-      handler.next = next_handler
+      with_fake_clock do |clock|
+        handler = Azu::Handler::Throttle.new(
+          interval: 1, # 1 second interval
+          duration: 60,
+          threshold: 2,
+          blacklist: [] of String,
+          whitelist: [] of String
+        )
+        next_handler, verify = create_next_handler(4)
+        handler.next = next_handler
 
-      # Make 2 requests
-      2.times do
-        context, io = create_context_with_remote_addr("GET", "/test", "192.168.1.5")
-        handler.call(context)
-        get_response_body(context, io).should eq("OK")
+        # Make 2 requests
+        2.times do
+          context, io = create_context_with_remote_addr("GET", "/test", "192.168.1.5")
+          handler.call(context)
+          get_response_body(context, io).should eq("OK")
+        end
+
+        # Let the interval expire
+        clock.advance(1.5.seconds)
+
+        # Should allow 2 more requests after reset
+        2.times do
+          context, io = create_context_with_remote_addr("GET", "/test", "192.168.1.5")
+          handler.call(context)
+          get_response_body(context, io).should eq("OK")
+        end
+
+        verify.call
+        handler.reset
       end
-
-      # Wait for interval to expire
-      sleep 1.5.seconds
-
-      # Should allow 2 more requests after reset
-      2.times do
-        context, io = create_context_with_remote_addr("GET", "/test", "192.168.1.5")
-        handler.call(context)
-        get_response_body(context, io).should eq("OK")
-      end
-
-      verify.call
-      handler.reset
     end
   end
 

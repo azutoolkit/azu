@@ -4,7 +4,7 @@ module Azu
     class RateLimiter
       def initialize(@rate : Float64, @burst : Int32)
         @tokens = @burst.to_f
-        @refilled_at = Time.instant
+        @refilled_at = Clock.instant
         @mutex = Mutex.new
       end
 
@@ -19,7 +19,7 @@ module Azu
       end
 
       private def refill : Nil
-        now = Time.instant
+        now = Clock.instant
         @tokens = {@burst.to_f, @tokens + (now - @refilled_at).total_seconds * @rate}.min
         @refilled_at = now
       end

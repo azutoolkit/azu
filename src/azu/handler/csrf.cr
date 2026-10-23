@@ -385,7 +385,7 @@ module Azu
       private def generate_signed_double_submit_token(context : HTTP::Server::Context) : String
         # Generate base token
         base_token = Random::Secure.urlsafe_base64(TOKEN_LENGTH)
-        timestamp = Time.utc.to_unix.to_s
+        timestamp = Clock.now.to_unix.to_s
 
         # Create HMAC signature
         data = "#{base_token}:#{timestamp}"
@@ -511,7 +511,7 @@ module Azu
         # Check token age (optional, prevents replay attacks)
         begin
           token_time = Time.unix(timestamp.to_i64)
-          return false if (Time.utc - token_time).total_seconds > @cookie_max_age
+          return false if (Clock.now - token_time).total_seconds > @cookie_max_age
         rescue ex : ArgumentError | OverflowError
           return false
         end

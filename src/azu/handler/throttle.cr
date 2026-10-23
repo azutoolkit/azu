@@ -119,7 +119,7 @@ module Azu
         retry_after = @mutex.synchronize do
           if tracker = @tracker[remote]?
             if block_exp = tracker.block_expires
-              remaining = block_exp - Time.instant
+              remaining = block_exp - Clock.instant
               remaining.total_seconds.to_i64
             else
               0_i64
@@ -140,7 +140,7 @@ module Azu
       private def watch(remote : String) : Bool
         # Use monotonic time to prevent clock skew vulnerabilities
         # (e.g., NTP adjustments causing indefinite blocks)
-        current_time = Time.instant
+        current_time = Clock.instant
         tracker = get_or_create_tracker(remote, current_time)
 
         # Increment requests

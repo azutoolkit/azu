@@ -56,16 +56,16 @@ describe Azu::Cache do
     end
 
     it "handles TTL expiration" do
-      store = Azu::Cache::MemoryStore.new
+      with_fake_clock do |clock|
+        store = Azu::Cache::MemoryStore.new
+        store.set("expire_key", "value", 1.second)
+        store.get("expire_key").should eq("value")
 
-      # Set with very short TTL
-      store.set("expire_key", "value", Time::Span.new(nanoseconds: 1))
+        clock.advance(1.second + 1.millisecond)
 
-      # Give time for expiration
-      sleep(Time::Span.new(nanoseconds: 1000000))
-
-      store.get("expire_key").should be_nil
-      store.exists?("expire_key").should be_false
+        store.get("expire_key").should be_nil
+        store.exists?("expire_key").should be_false
+      end
     end
 
     it "implements LRU eviction" do
@@ -143,16 +143,18 @@ describe Azu::Cache do
     end
 
     it "keeps the expiry set when the counter was created" do
-      store = Azu::Cache::MemoryStore.new
-      store.increment("hits", 1, 150.milliseconds)
+      with_fake_clock do |clock|
+        store = Azu::Cache::MemoryStore.new
+        store.increment("hits", 1, 150.milliseconds)
 
-      2.times do
-        sleep 60.milliseconds
-        store.increment("hits")
+        2.times do
+          clock.advance(60.milliseconds)
+          store.increment("hits")
+        end
+        clock.advance(60.milliseconds)
+
+        store.increment("hits").should eq(1)
       end
-      sleep 60.milliseconds
-
-      store.increment("hits").should eq(1)
     end
 
     it "evicts the least recently used key when a counter would exceed max_size" do

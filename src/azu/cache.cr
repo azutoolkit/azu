@@ -96,18 +96,18 @@ module Azu
         getter access_count : Int32
 
         def initialize(@value : String, ttl : Time::Span? = nil)
-          @created_at = Time.utc
+          @created_at = Clock.now
           @expires_at = ttl ? @created_at + ttl : nil
           @access_count = 1
         end
 
         def initialize(@value : String, @expires_at : Time?, @access_count : Int32)
-          @created_at = Time.utc
+          @created_at = Clock.now
         end
 
         def expired? : Bool
           return false unless expires_at = @expires_at
-          Time.utc > expires_at
+          Clock.now > expires_at
         end
 
         def accessed : CacheEntry
