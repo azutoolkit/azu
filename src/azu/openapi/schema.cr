@@ -76,6 +76,10 @@ module Azu::OpenAPI
     # calls record. A variable is required unless its type is nilable or it has a default, or when a
     # `presence` or `required` validation says it must be there.
     #
+    # A `validate` argument is used only when it is a literal (or a constant of `type` that holds one): numbers,
+    # strings, booleans, symbols and regexes, and ranges and arrays of those. Anything computed cannot be
+    # read at compile time, so its constraint is left out instead of stopping the build.
+    #
     # `Body` reads the instance variables the way `JSON::Serializable` does, `Form` the way
     # `URI::Params::Serializable` does (the variable name is always the key). A field with a
     # `converter:` or a JSON `root:` is described as `{}`: what it holds is not its type.
@@ -86,19 +90,28 @@ module Azu::OpenAPI
         {% form = E == Form %}
         {% field = form ? ivar.annotation(URI::Params::Field) : ivar.annotation(JSON::Field) %}
         {% unless field && (field[:ignore] || (form && field[:ignore_deserialize])) %}
-          {% key = (!form && field && field[:key]) || ivar.name.stringify %}
+          {% key = !form && field && field[:key].is_a?(StringLiteral) ? field[:key] : ivar.name.stringify %}
           {% opaque = field && (field[:converter] || (!form && field[:root])) %}
           property = {% if opaque %}Map.new{% else %}of({{ivar.type}}, components){% end %}
           must_exist = {{!ivar.type.nilable? && !ivar.has_default_value?}}
           {% if T.type_vars.empty? && T.has_constant?("SCHEMA_VALIDATIONS") %}
             {% for name, options in T.constant("SCHEMA_VALIDATIONS") %}
               {% if name.stringify == ivar.name.stringify %}
-                {% for predicate, expected in options %}
+                {% for predicate, option in options %}
+                  {% expected = option %}
+                  {% if option.is_a?(Path) && option.names.size == 1 && T.has_constant?(option.names[0]) %}
+                    {% expected = T.constant(option.names[0]) %}
+                  {% end %}
+                  {% scalar = expected.is_a?(NumberLiteral) || expected.is_a?(StringLiteral) || expected.is_a?(BoolLiteral) || expected.is_a?(SymbolLiteral) || expected.is_a?(RegexLiteral) %}
+                  {% range = expected.is_a?(RangeLiteral) && (expected.begin.is_a?(NumberLiteral) || expected.begin.is_a?(NilLiteral) || expected.begin.is_a?(Nop)) && (expected.end.is_a?(NumberLiteral) || expected.end.is_a?(NilLiteral) || expected.end.is_a?(Nop)) %}
+                  {% list = expected.is_a?(ArrayLiteral) && expected.all? { |element| element.is_a?(NumberLiteral) || element.is_a?(StringLiteral) || element.is_a?(SymbolLiteral) || element.is_a?(BoolLiteral) } %}
+                  {% plain = scalar || range || list %}
                   {% if predicate.stringify == "presence" %}
                     Constraints.presence(property)
                     must_exist = true
                   {% elsif predicate.stringify == "required" %}
                     must_exist = true
+                  {% elsif !plain %}
                   {% elsif predicate.stringify == "in" %}
                     Constraints.inclusion(property, {{expected}})
                   {% elsif predicate.stringify == "exclude" %}
