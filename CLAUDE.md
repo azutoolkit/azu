@@ -47,7 +47,7 @@ src/azu/
 ├── response.cr         # Response objects & error classes
 ├── channel.cr          # WebSocket channel handlers
 ├── spark.cr            # Real-time component system
-├── component.cr        # Live components with pooling
+├── component.cr        # Static markup components (`Azu::Component`)
 ├── cache.cr            # Multi-store caching (Memory/Redis)
 ├── params.cr           # Parameter extraction & uploads
 ├── handler/            # Middleware handlers (12 files)
@@ -111,11 +111,11 @@ end
 struct UserRequest
   include Azu::Request
 
-  @name : String
-  @email : String
+  getter name : String
+  getter email : String
 
-  validate name, presence: true, length: {min: 2}
-  validate email, presence: true, format: /@/
+  validate name, presence: true, size: 2..50
+  validate email, presence: true, match: /@/
 end
 ```
 
@@ -137,8 +137,25 @@ end
 
 ```crystal
 class ChatChannel < Azu::Channel
+  # All six callbacks are abstract: implement every one, even if empty
+  def on_connect
+    subscribe "chat"
+  end
+
   def on_message(message : String)
     broadcast("chat", message)
+  end
+
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
   end
 end
 ```
@@ -229,16 +246,17 @@ The dev dashboard, performance monitor, profiler and reporter live in `src/azu/d
 
 ### Caching Strategy
 
-- Router uses path caching (1000 entry limit, LRU)
-- Component pooling (max 50 per type)
-- Template caching with optional hot-reload
+- Router path cache: stops adding entries at 1000 (no eviction, no LRU); `path_cache.stats` reports
+  `fill_percent`, not a hit rate
+- No component pooling: components are plain objects created where they are rendered
+- Azu does not cache templates: `Templates#load` asks Crinja every time; the hot-reload flag only
+  controls checking template files for changes
 - Multi-store cache: Memory (default), Redis (production)
 
 ### Optimization Checklist
 
 - [ ] Use struct for value objects (stack allocation)
 - [ ] Enable path caching for repeated routes
-- [ ] Pool frequently-created components
 - [ ] Use compile-time conditionals for optional features
 
 ## Dependencies

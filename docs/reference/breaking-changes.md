@@ -80,14 +80,16 @@ end
   longer forwards other calls (`root`, `add`) to the router.
 
 **Request contracts are enforced.** An endpoint whose request type has validations no longer runs when the
-request breaks them: the router answers `422` before `call`, and the parsed request is built once per call.
+request breaks them: the endpoint answers `422` before `call` (by itself, whether or not a `Rescuer` is in the handler stack),
+and the parsed request is built once per call.
 
 - The body is RFC 7807 `application/problem+json`:
   `{"type": "about:blank", "title": "Validation Error", "status": 422, "detail": "...", "errors": {"name": ["must be present"]}}`.
 - To keep the pre-0.6 body (`FieldErrors`, `ErrorId`, ...) for one more minor release, set
   `config.error_format = Azu::ErrorFormat::Legacy`.
 - The request is parsed before `call` even when the endpoint never reads it, so a body that cannot be parsed
-  into the request type (for example a missing non-nilable field on a GET) answers `400` before `call`.
+  into the request type (for example a missing non-nilable field on a GET) answers `400` before `call`, also
+  without a `Rescuer`.
   Endpoints that validate by hand (`if signup_request.valid?` then re-render a form) no longer get to run
   for invalid input; declare such an endpoint with a request type without validations.
 - Endpoints declared with the bare `Azu::Request` module have no contract and are not affected.
@@ -117,6 +119,27 @@ shuts the rest down. Before, it exited as soon as the listener closed. The resta
 Requests that arrive on connections that stay open after the listener closed get `503` with `Connection: close`.
 Streaming responses (SSE) count as in flight until the client disconnects, and only `App.default` is
 drained by `start`. WebSocket sockets are not waited for.
+
+**Fixes** (behaviour changes that make the code do what it documented):
+
+- `class` endpoints are request-safe. The router holds one instance per route and a class was shared by
+  concurrent requests, so a request that waited (database, service) could read the parameters of a later
+  one. Each request now runs on a copy (`dup`) of the registered instance, as structs always did: state an
+  endpoint object keeps in its own instance variables no longer carries over from one request to the next.
+- `Cache::RedisStore` returns values: `get`, `exists?`, `delete`, `increment`, `size` and `ping` always
+  answered `nil`/`false`/`0`, and the start-up check turned `store = "redis"` into a `NullStore` after its
+  retries. `size` counts the keys of the database in the URL (it only looked at `db0`).
+- `Handler::CORS` no longer keeps the request's `Origin` in the shared handler, so overlapping requests on
+  parallel threads cannot answer with each other's `Access-Control-Allow-Origin`.
+- `Cache::MemoryStore#increment` sets the expiry when the counter is created (it was renewed on every call,
+  so a counter hit more often than its TTL never expired) and evicts the least recently used key when a new
+  counter would exceed `max_size`. `MemoryStore#stats["hit_rate"]` is a real hit rate (hits / lookups); it
+  used to be the fill percentage. The router's `path_cache.stats` now calls its figure `fill_percent`.
+- The HTML error page renders in production for unexpected exceptions (it raised "can't wrap
+  Azu::ErrorContext" and the client got a bare `500`). The development JSON `Backtrace` shows the original
+  exception's message and backtrace instead of ` (Azu::Response::Error)`. Production bodies still carry no
+  backtrace, request context or environment.
+- Not changed: Azu does not cache templates (`Templates#load` asks Crinja each time).
 
 ### 0.5.28
 
