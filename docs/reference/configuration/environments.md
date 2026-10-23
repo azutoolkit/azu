@@ -1,234 +1,200 @@
 # Environments Reference
 
-Azu supports three environments with different default behaviors.
+`Azu::Configuration#env` names the environment the application runs in. Azu changes a small, specific set of
+behaviours with it; everything else is configured explicitly. This page lists exactly what depends on the
+environment, as read from the source and checked by running each case.
 
 ## Environment Enum
 
 ```crystal
-enum Azu::Environment
-  Development
-  Test
-  Production
-end
+require "azu"
+
+Azu::Environment.values.each { |environment| puts environment }
 ```
 
-## Setting Environment
+`Azu::Environment` has eight members, in this order: `Build`, `Development`, `Test`, `Integration`, `Acceptance`,
+`Pipeline`, `Staging`, `Production`.
 
-### Via Configuration
-
-```crystal
-Azu.configure do |config|
-  config.env = Azu::Environment::Production
-end
-```
+## Setting the Environment
 
 ### Via Environment Variable
 
 ```bash
-export AZU_ENV=production
+export CRYSTAL_ENV=production
 ```
 
-## Checking Environment
+The name is case-insensitive (`production` and `Production` both work) and `Development` is used when the variable
+is unset. An unknown name raises `ArgumentError: Unknown enum Azu::Environment value: bogus` when the configuration
+is built, at `require "azu"`. The variable is `CRYSTAL_ENV`; `AZU_ENV` is not read.
+
+### Via Configuration
 
 ```crystal
-if Azu.env.production?
-  # Production-only code
-end
+require "azu"
 
-Azu.env.development?  # => Bool
-Azu.env.test?         # => Bool
-Azu.env.production?   # => Bool
-```
-
-## Development Environment
-
-Default settings for development:
-
-| Setting | Value | Purpose |
-|---------|-------|---------|
-| Log level | `Debug` | Detailed logging |
-| Template hot reload | `true` | Immediate changes |
-| Error pages | Detailed | Full stack traces |
-| Cache | Memory | Simple, local |
-
-### Behavior
-
-- Detailed error pages with stack traces
-- Templates reloaded on each request
-- Verbose logging of all requests
-- Development-friendly error messages
-
-### Configuration
-
-```crystal
-config.env = Azu::Environment::Development
-config.log.level = Log::Severity::Debug
-config.template_hot_reload = true
-```
-
-## Test Environment
-
-Default settings for testing:
-
-| Setting | Value | Purpose |
-|---------|-------|---------|
-| Log level | `Warn` | Less noise |
-| Template hot reload | `false` | Faster tests |
-| Error pages | Simple | JSON errors |
-| Cache | Memory | Isolated |
-
-### Behavior
-
-- Minimal logging to reduce noise
-- Cached templates for speed
-- JSON error responses
-- Isolated test database
-
-### Configuration
-
-```crystal
-config.env = Azu::Environment::Test
-config.log.level = Log::Severity::Warn
-config.template_hot_reload = false
-```
-
-### Test Setup
-
-```crystal
-# spec/spec_helper.cr
-ENV["AZU_ENV"] = "test"
-ENV["DATABASE_URL"] = "sqlite3://./test.db"
-
-Spec.before_each do
-  # Reset database
-  TestDatabase.truncate_all
-end
-```
-
-## Production Environment
-
-Default settings for production:
-
-| Setting | Value | Purpose |
-|---------|-------|---------|
-| Log level | `Info` | Important events |
-| Template hot reload | `false` | Performance |
-| Error pages | Simple | Security |
-| Cache | Redis | Distributed |
-
-### Behavior
-
-- Minimal, structured logging
-- Compiled and cached templates
-- Generic error messages (no stack traces)
-- External cache (Redis)
-- SSL recommended
-
-### Configuration
-
-```crystal
-config.env = Azu::Environment::Production
-config.log.level = Log::Severity::Info
-config.template_hot_reload = false
-config.cache = Azu::Cache::RedisStore.new(url: ENV["REDIS_URL"])
-```
-
-### Security Considerations
-
-- Stack traces hidden from users
-- Sensitive data not logged
-- HTTPS enforced
-- Security headers enabled
-
-## Environment Files
-
-### .env Files
-
-```bash
-# .env.development
-AZU_ENV=development
-PORT=4000
-DATABASE_URL=sqlite3://./dev.db
-
-# .env.test
-AZU_ENV=test
-PORT=4001
-DATABASE_URL=sqlite3://./test.db
-
-# .env.production (never commit!)
-AZU_ENV=production
-PORT=8080
-DATABASE_URL=postgres://user:pass@host/db
-REDIS_URL=redis://redis:6379/0
-SECRET_KEY=actual-secret
-```
-
-### Loading Environment
-
-```crystal
-# Load environment file based on AZU_ENV
-env_file = ".env.#{ENV.fetch("AZU_ENV", "development")}"
-if File.exists?(env_file)
-  File.each_line(env_file) do |line|
-    next if line.starts_with?("#") || line.blank?
-    key, value = line.split("=", 2)
-    ENV[key.strip] = value.strip
-  end
-end
-```
-
-## Complete Example
-
-```crystal
 module MyApp
   include Azu
 
-  configure do
-    env_name = ENV.fetch("AZU_ENV", "development")
-
-    case env_name
-    when "production"
-      config.env = Environment::Production
-      config.port = ENV.fetch("PORT", "8080").to_i
-      config.host = "0.0.0.0"
-
-      # Logging
-      config.log.level = Log::Severity::Info
-      config.log.backend = JsonLogBackend.new(STDOUT)
-
-      # Templates
-      config.template_hot_reload = false
-
-      # Cache
-      config.cache = Cache::RedisStore.new(
-        url: ENV["REDIS_URL"],
-        namespace: "myapp:prod"
-      )
-
-      # SSL
-      if ssl_cert = ENV["SSL_CERT"]?
-        config.ssl = {cert: ssl_cert, key: ENV["SSL_KEY"]}
-      end
-
-    when "test"
-      config.env = Environment::Test
-      config.port = 4001
-      config.log.level = Log::Severity::Warn
-      config.template_hot_reload = false
-      config.cache = Cache::MemoryStore.new
-
-    else # development
-      config.env = Environment::Development
-      config.port = 4000
-      config.log.level = Log::Severity::Debug
-      config.template_hot_reload = true
-      config.cache = Cache::MemoryStore.new
-    end
+  configure do |config|
+    config.env = Azu::Environment::Staging
   end
+end
+```
+
+Azu does not read `.env` files. Export the variables in the shell, the process manager or the container.
+
+## Checking the Environment
+
+Every member has a predicate, and `in?` takes several:
+
+```crystal
+require "azu"
+
+env = Azu::CONFIG.env
+
+env.production?
+env.development?
+env.test?
+env.in?(Azu::Environment::Staging, Azu::Environment::Production)
+```
+
+Inside a request, `Azu.current_config.env` is the environment of the app serving it.
+
+## What Depends on the Environment
+
+| Behaviour | Development | Test | Pipeline | Staging, Production | Others |
+|---|---|---|---|---|---|
+| `template_hot_reload?` default | on | on | on | off | off |
+| Error responses of `Rescuer` carry the request context | yes | no | no | no | no |
+| HTML error page | Azu's exception page | `error.html` | `error.html` | `error.html` | `error.html` |
+| Spark live views need `SPARK_SECRET` | no | no | no | **yes** | no |
+| Spark error frames carry the real message | yes | yes | no | no | no |
+| Profiler and memory monitor (`azu/dev`) default | on | off | off | off | off |
+| Database SQL playground of the dashboard | allowed | no | no | no | no |
+
+Notes on the rows:
+
+- `TEMPLATE_HOT_RELOAD=true|false` overrides the default in every environment.
+- In development, `Rescuer` includes the request context (headers, params, process environment) in the error and
+  HTML clients get an exception page. Elsewhere the context is `null` and HTML clients get the `error.html`
+  template (seen for a 404). An HTML client whose request raised an unexpected exception currently gets the bare
+  text `500 Internal Server Error` instead, because that template fails to render with the request context.
+- Spark signs its page tokens with `SPARK_SECRET` (or `Azu::Spark.configure { |c| c.secret = ... }`). Without one,
+  development and the other environments generate a random secret per process; in `Staging` and `Production`
+  the first use raises `Azu::Spark::ConfigurationError`.
+- The profiler and memory monitor exist after `require "azu/dev"`; `PERFORMANCE_PROFILING` and
+  `PERFORMANCE_MEMORY_MONITORING` set them explicitly.
+- The dashboard's SQL playground is further limited to loopback clients and `config.database.playground?`.
+
+Everything else, including the log level, the cache store, the port and the handler stack, is independent of the
+environment. Azu sets no log level and no cache store per environment; the configuration below does.
+
+## Development
+
+```crystal
+require "azu"
+
+module MyApp
+  include Azu
+
+  configure do |config|
+    config.env = Azu::Environment::Development
+    config.template_hot_reload = true
+  end
+end
+
+Azu.setup_logging # Azu's log format at Debug
+```
+
+Add `require "azu/dev"` and `Azu::Handler::DevDashboard.new` to the handlers to get the dashboard (see the
+[database dashboard](../database-dashboard.md)).
+
+## Test
+
+Give a spec its own configuration so it does not touch the global one:
+
+```crystal
+require "spec"
+require "azu"
+
+describe "a test environment" do
+  it "scopes a configuration to the block" do
+    config = Azu::Configuration.new
+    config.env = Azu::Environment::Test
+    config.cache_config.store = "null"
+
+    Azu.with_config(config) do
+      Azu.current_config.env.test?.should be_true
+      Azu.cache.set("key", "value").should be_false
+    end
+
+    Azu.current_config.env.test?.should be_false
+  end
+end
+```
+
+To serve requests against an app of your own, build it with `Azu::App.new(config)` and
+`app.server(handlers)`; see [How to Test Endpoints](../../how-to/testing/test-endpoints.md).
+
+## Staging and Production
+
+```crystal
+require "azu"
+
+module MyApp
+  include Azu
+
+  configure do |config|
+    config.template_hot_reload = false
+    config.shutdown_timeout = 20.seconds
+    config.cache_config.store = "redis"
+    config.cache_config.redis_url = ENV.fetch("CACHE_REDIS_URL", "redis://localhost:6379/0")
+  end
+end
+```
+
+Set `CRYSTAL_ENV=production` in the process environment, `SPARK_SECRET` if you use Spark, and `SSL_CERT` / `SSL_KEY`
+if Azu terminates TLS itself (a TLS-terminating proxy instead needs `SecurityHeaders.new(hsts: true)` in your own
+handler array). Behind a proxy, `Throttle` sees the proxy's address for every request.
+
+## Environment Files
+
+Keep one set of variables per environment and load it with your process manager. For example with Docker:
+
+```bash
+# production.env (never commit)
+CRYSTAL_ENV=production
+PORT=8080
+HOST=0.0.0.0
+SPARK_SECRET=change-me
+CACHE_STORE=redis
+CACHE_REDIS_URL=redis://redis:6379/0
+DATABASE_URL=postgres://user:pass@host/db
+```
+
+```bash
+docker run --env-file production.env myapp
+```
+
+## Per-App Environments
+
+Two apps in one process can run in different environments, because each has its own configuration:
+
+```crystal
+require "azu"
+
+public_site = Azu::App.new
+public_site.config.env = Azu::Environment::Production
+
+admin = Azu::App.new
+admin.config.env = Azu::Environment::Development
+
+public_site.routes do
+  mount admin, at: "/admin"
 end
 ```
 
 ## See Also
 
 - [Configuration Options](options.md)
-- [How to Configure Production](../../how-to/deployment/configure-production.md)
+- [Core Reference](../api/core.md)

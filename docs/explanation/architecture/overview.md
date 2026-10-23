@@ -1,190 +1,229 @@
 # Architecture Overview
 
-This document explains the high-level architecture of Azu and how its components work together.
+This document explains the high-level architecture of Azu and how its parts work together. Everything stated here
+is a property of the code in this repository; where a number appears, the page says how it was measured.
 
 ## Design Philosophy
 
-Azu follows Crystal's philosophy of being "fast as C, slick as Ruby." The framework emphasizes:
+Azu is a web framework for Crystal. Its design choices:
 
-1. **Type Safety** - Catch errors at compile time, not runtime
-2. **Performance** - Zero-cost abstractions and efficient execution
-3. **Developer Experience** - Clean, readable code with helpful error messages
-4. **Real-time First** - Built-in WebSocket support for modern applications
+1. **Type safety** - request and response types are part of an endpoint's declaration, and the compiler checks the
+   code that uses them.
+2. **Contracts** - a request type states what an endpoint accepts and is enforced before the endpoint runs.
+3. **Small core, explicit stack** - the handler chain is an array you can read; optional subsystems are opt-in
+   requires (`azu/cql`, `azu/dev`) and cost nothing when not required.
+4. **Real-time built in** - WebSocket channels, a pub/sub bus and server-rendered live components (Spark).
 
 ## Core Components
 
+### An App is a Value
+
+An `Azu::App` bundles a `Configuration` and a `Router`. The endpoint macros, `include Azu` and `Azu.start` use the
+default app, `Azu::App.default`, which wraps the global `Azu::CONFIG`; you can build more (`Azu::App.new`) and
+`mount` one below a prefix of another, each with its own configuration. `app.server(handlers)` returns the
+`HTTP::Server` that serves it.
+
 ### Request/Response Cycle
 
-```
-Client Request
-     ↓
-┌─────────────────────┐
-│   Handler Chain     │
-│  ┌───────────────┐  │
-│  │   Rescuer     │  │  ← Catches exceptions
-│  ├───────────────┤  │
-│  │   Logger      │  │  ← Logs requests
-│  ├───────────────┤  │
-│  │   Auth        │  │  ← Authentication
-│  ├───────────────┤  │
-│  │   Router      │  │  ← Route matching
-│  └───────────────┘  │
-└─────────────────────┘
-           ↓
-┌─────────────────────┐
-│      Endpoint       │
-│  ┌───────────────┐  │
-│  │   Request     │──┼──→ Parse & Validate
-│  ├───────────────┤  │
-│  │   call()      │──┼──→ Business Logic
-│  ├───────────────┤  │
-│  │   Response    │──┼──→ Serialize Output
-│  └───────────────┘  │
-└─────────────────────┘
-           ↓
-    Client Response
+```text
+Client request
+      ↓
+HTTP::Server (Crystal standard library)
+      ↓
+App::Scope            marks the request in flight, makes the app's configuration current
+      ↓
+Handler chain         the handlers you pass to start, outermost first
+      ↓
+Router                radix tree: method + path → endpoint (or channel upgrader)
+      ↓
+Endpoint
+   ├─ request contract   parsed and validated; 400 / 422 before call
+   ├─ call               your code
+   └─ response           render is written to the connection
+      ↓
+Handler chain, in reverse
+      ↓
+Client response
 ```
 
-### Component Diagram
+[Request Lifecycle](request-lifecycle.md) walks through each step with a program that prints the order.
 
-```
+### Components
+
+```text
 ┌──────────────────────────────────────────────────────┐
-│                         Azu                          │
+│                        Azu::App                      │
 ├──────────────────────────────────────────────────────┤
-│                                                      │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
-│  │  Endpoints  │  │  Channels   │  │  Components │  │
-│  │             │  │             │  │             │  │
-│  │  HTTP       │  │  WebSocket  │  │  Live UI    │  │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  │
-│         │                │                │         │
-│         └────────────────┼────────────────┘         │
-│                          │                          │
-│  ┌───────────────────────┴───────────────────────┐  │
-│  │                    Router                      │  │
-│  │                  (Radix Tree)                  │  │
-│  └───────────────────────┬───────────────────────┘  │
-│                          │                          │
-│  ┌───────────────────────┴───────────────────────┐  │
-│  │               Handler Pipeline                 │  │
-│  │  Rescuer → Logger → CORS → Auth → Static      │  │
-│  └───────────────────────────────────────────────┘  │
-│                                                      │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │
+│  │  Endpoints  │  │  Channels   │  │    Spark    │   │
+│  │    HTTP     │  │  WebSocket  │  │  live views │   │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘   │
+│         └────────────────┼────────────────┘          │
+│  ┌───────────────────────┴───────────────────────┐   │
+│  │                    Router                     │   │
+│  └───────────────────────┬───────────────────────┘   │
+│  ┌───────────────────────┴───────────────────────┐   │
+│  │                 Handler chain                 │   │
+│  └───────────────────────────────────────────────┘   │
 ├──────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
-│  │    Cache    │  │  Templates  │  │   Config    │  │
-│  │   Memory/   │  │   Crinja    │  │ Environment │  │
-│  │   Redis     │  │             │  │             │  │
-│  └─────────────┘  └─────────────┘  └─────────────┘  │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │
+│  │    Cache    │  │  Templates  │  │Configuration│   │
+│  │ memory/redis│  │   Crinja    │  │ environment │   │
+│  └─────────────┘  └─────────────┘  └─────────────┘   │
 └──────────────────────────────────────────────────────┘
 ```
 
 ## Type-Safe Request Handling
 
-Azu uses generics to ensure type safety throughout the request lifecycle:
+An endpoint names its request and response types, and its `call` returns the response type:
 
 ```crystal
-struct UserEndpoint
+require "azu"
+
+struct CreateUserRequest
+  include Azu::Request
+
+  getter name : String
+  getter email : String
+
+  def initialize(@name = "", @email = "")
+  end
+
+  validate name, presence: true
+  validate email, presence: true
+end
+
+struct UserResponse
+  include Azu::Response
+
+  def initialize(@name : String)
+  end
+
+  def render
+    {name: @name}.to_json
+  end
+end
+
+struct CreateUserEndpoint
   include Azu::Endpoint(CreateUserRequest, UserResponse)
   #                     ↑                  ↑
-  #                     Input Type         Output Type
+  #                     input contract     output type
+
+  post "/users"
+
+  def call : UserResponse
+    UserResponse.new(create_user_request.name)
+  end
+end
 ```
 
-The compiler verifies:
-- Request data matches the expected shape
-- Response type is correctly returned
-- All code paths return the correct type
+The compiler checks that `call` returns a `UserResponse` and that `create_user_request` has the fields of
+`CreateUserRequest`. At run time a request that breaks the contract is answered with `422` before `call`.
 
-## Handler Pipeline
+## Handler Chain
 
-Handlers form a middleware chain that processes every request:
+Handlers are `HTTP::Handler`s that wrap every request. The chain is an array, outermost first:
 
 ```crystal
+require "azu"
+
+module MyApp
+  include Azu
+end
+
+class AuthHandler
+  include HTTP::Handler
+
+  def call(context : HTTP::Server::Context)
+    call_next(context)
+  end
+end
+
 MyApp.start [
-  Azu::Handler::Rescuer.new,  # 1. Handle errors
-  Azu::Handler::Logger.new,   # 2. Log requests
-  AuthHandler.new,             # 3. Authenticate
-  RateLimitHandler.new,        # 4. Rate limit
-  MyEndpoint.new,              # 5. Handle request
-]
+  Azu::Handler::RequestId.new,
+  Azu::Handler::Logger.new,
+  Azu::Handler::Rescuer.new,
+  AuthHandler.new,
+] of HTTP::Handler
 ```
 
-Each handler can:
-- Process the request before passing it on
-- Modify the response after it returns
-- Short-circuit the chain (e.g., for authentication failures)
+`MyApp.start` without an argument serves the default stack (`RequestId`, `Logger`, `Rescuer`, `SecurityHeaders`,
+`Static`). The router is always the last link, so endpoints are not listed. Each handler can act before the rest of
+the chain, change the response after it, or answer on its own and stop the chain. See
+[the middleware concept](../concepts/middleware.md).
 
 ## Routing
 
-The router uses a radix tree for O(k) route matching:
+The router is a radix tree from the `radix` shard. Routes come from the endpoint macros (`get "/users/:id"`) or
+from an app's `routes` block (`get`, `post`, ..., `ws`, `scope`, `mount`). It supports
 
-```
-          /users
-         /      \
-       GET     POST
-       /          \
-   /:id          /
-    /
-  GET
-```
+- static and `:param` segments, with the parameters available as `params`,
+- one route per HTTP method (and `ws` for WebSockets),
+- `POST` with `_method` or `X-HTTP-Method-Override` handled as `PUT`, `PATCH` or `DELETE`,
+- prefixes: `scope "/api"` prefixes the routes inside it, `mount app, at: "/admin"` serves another app below a path.
 
-Features:
-- Static and dynamic route segments
-- Wildcard matching
-- HTTP method routing
-- Path parameter extraction
+An unmatched request is answered with a `404` error response by the router itself.
 
 ## Real-Time Architecture
 
 ### WebSocket Channels
 
-Channels handle persistent WebSocket connections:
+A channel class (`ws "/chat"`) handles one WebSocket connection per instance, with callbacks for connect, message,
+binary, ping, pong and close. Channels talk to each other, and to the rest of the application, through topics of
+`Azu::PubSub`:
 
-```
+```text
 Client 1 ←──┐
             │
-Client 2 ←──┼──→ Channel ──→ Application Logic
+Client 2 ←──┼──→ Channel instances ──→ Azu::PubSub topic ──→ the rest of the application
             │
 Client 3 ←──┘
 ```
 
-### Live Components
+### Spark Live Views
 
-Components maintain state on the server and push updates to clients:
+Spark components keep their state on the server and send HTML patches over a WebSocket:
 
-```
+```text
 ┌─────────────────┐     WebSocket     ┌─────────────────┐
 │                 │ ←────────────────→│                 │
-│  Browser DOM    │                   │  Server State   │
-│                 │ ←── HTML Patches  │                 │
+│  Browser DOM    │  events →         │  Server state   │
+│                 │  ← diffs/patches  │                 │
 └─────────────────┘                   └─────────────────┘
 ```
 
+See [Spark live views](../spark-live-views.md).
+
 ## Module Structure
 
-```
+```text
 Azu
-├── Core           # Configuration, startup
-├── Endpoint       # Request handling
-├── Request        # Input contracts
-├── Response       # Output contracts
-├── Channel        # WebSocket handling
-├── Component      # Live components
-├── Spark          # Component system
-├── Cache          # Caching stores
-├── Router         # Route matching
-├── Handler        # Middleware
-└── Templates      # HTML rendering
+├── App            Configuration + Router, server, graceful shutdown
+├── Configuration  Environment-driven settings
+├── Router         Radix-tree routing, scopes, mounts
+├── Routable       What the router dispatches to
+├── Endpoint       Request handling
+├── Request        Input contracts and validation
+├── Response       Output contracts and error types
+├── Handler        Middleware (RequestId, Logger, Rescuer, Static, CORS, CSRF, ...)
+├── Channel        WebSocket channels
+├── PubSub         Topics, in memory or over Redis
+├── Spark          Live views (Spark::Component)
+├── Component      Static markup components, with Markup
+├── Cache          Memory, Redis and null stores
+├── Templates      Crinja rendering
+├── Helpers        Template helpers and i18n
+├── Instrumentation  Hooks for optional tooling
+└── RequestContext   The request being served, per fiber
 ```
 
-## Performance Characteristics
+Two directories are opt-in and are not loaded by `require "azu"`: `azu/cql` (the CQL bridge, query telemetry) and
+`azu/dev` (the dashboard, performance monitor and profiler).
 
-| Component | Optimization |
-|-----------|-------------|
-| Router | Radix tree, path caching |
-| Templates | Pre-compiled, cached |
-| Components | Object pooling |
-| Handlers | Zero-allocation hot path |
+## Performance
+
+What the code does for speed (the router, the handlers, the cache) and what it measurably costs is on one page:
+[Performance Design](performance-design.md). It lists only numbers that were measured there, with the method.
 
 ## See Also
 
