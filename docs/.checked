@@ -82,4 +82,6 @@ docs/reference/api/cql-bridge.md
 docs/reference/api/content-negotiation.md
 docs/reference/api/streaming.md
 docs/reference/api/testing.md
+docs/reference/api/presence.md
+docs/how-to/deployment/scale-out-realtime.md
 docs/reference/spark-client.md

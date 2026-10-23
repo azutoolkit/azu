@@ -80,6 +80,7 @@
 - [Configure Production](how-to/deployment/configure-production.md)
 - [Deploy with Docker](how-to/deployment/deploy-with-docker.md)
 - [Scale Horizontally](how-to/deployment/scale-horizontally.md)
+- [Scale Real-Time Features Out](how-to/deployment/scale-out-realtime.md)
 - [Shut Down Gracefully](how-to/deployment/graceful-shutdown.md)
 
 ### Error Handling
@@ -105,6 +106,7 @@
 - [Content Negotiation](reference/api/content-negotiation.md)
 - [Streaming and SSE](reference/api/streaming.md)
 - [Channel](reference/api/channel.md)
+- [Presence](reference/api/presence.md)
 - [Component](reference/api/component.md)
 - [Cache](reference/api/cache.md)
 - [Router](reference/api/router.md)
