@@ -3,6 +3,7 @@ require "../performance_metrics"
 require "../performance_reporter"
 require "../development_tools"
 require "../cache"
+require "./csrf"
 require "../components/dev_dashboard_component"
 
 module Azu
@@ -32,6 +33,7 @@ module Azu
       def initialize(@path = DEFAULT_PATH, metrics : PerformanceMetrics? = nil, @log : ::Log = Azu::CONFIG.log, @queries : QueryStore = QueryStore.instance)
         @metrics = metrics || Azu::CONFIG.performance_monitor.try(&.metrics) || PerformanceMetrics.new
         @start_time = Time.utc
+        CSRF.exempt("#{@path}/sql") # guarded by `run_playground` itself, and sent without a token by dashboard.js
       end
 
       def call(context : HTTP::Server::Context)

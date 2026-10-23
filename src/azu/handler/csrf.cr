@@ -51,6 +51,19 @@ module Azu
       @@default_instance : CSRF? = nil
       @@instance_mutex = Mutex.new
       @@shared_secret_key : String? = nil
+      @@exempt_paths = Set(String).new
+
+      # Exempts one exact path from the check, for an endpoint that protects itself another way
+      # (the dev dashboard's SQL playground does: development only, loopback clients only, same
+      # origin and a custom header). Order independent: it applies to every CSRF handler, wherever
+      # it sits in the pipeline relative to the registering handler.
+      def self.exempt(path : String) : Nil
+        @@instance_mutex.synchronize { @@exempt_paths << path }
+      end
+
+      def self.exempt?(path : String) : Bool
+        @@instance_mutex.synchronize { @@exempt_paths.includes?(path) }
+      end
 
       # Exception for CSRF validation failures
       class InvalidTokenError < Exception
@@ -235,7 +248,7 @@ module Azu
 
       # Check if route should skip CSRF protection
       private def skip_route?(path : String) : Bool
-        @skip_routes.any? { |route| path.starts_with?(route) }
+        CSRF.exempt?(path) || @skip_routes.any? { |route| path.starts_with?(route) }
       end
 
       # Validate CSRF token based on configured strategy
