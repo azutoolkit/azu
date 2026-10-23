@@ -108,6 +108,55 @@ private struct Endless
   end
 end
 
+private struct Closing
+  include Azu::Endpoint(Azu::Request, Azu::Response::Stream)
+
+  get "/st-closing"
+
+  def call : Azu::Response::Stream
+    Azu::Response::Stream.new do |sink|
+      sink << "body"
+    end.on_close { STOPPED.send "closed" }
+  end
+end
+
+private struct Broken
+  include Azu::Endpoint(Azu::Request, Azu::Response::Stream)
+
+  get "/st-broken"
+
+  def call : Azu::Response::Stream
+    Azu::Response::Stream.new do |sink|
+      sink << "partial"
+      raise "boom"
+    end.on_close { STOPPED.send "closed" }
+  end
+end
+
+private struct Failing
+  include Azu::Endpoint(Azu::Request, EventStream)
+
+  get "/st-failing"
+
+  def call : EventStream
+    EventStream.new do |events|
+      events.send "before"
+      raise "producer failed"
+    end
+  end
+end
+
+private struct FlushFirst
+  include Azu::Routable
+
+  def call(context : HTTP::Server::Context)
+    context.response.content_type = "text/plain"
+    context.response.flush
+    context.response << "hello hello hello"
+    context
+  end
+end
+
 private struct Plain
   include Azu::Routable
 
@@ -128,6 +177,10 @@ private def streaming_app : Azu::App
     endpoint Csv
     endpoint Endless
     get "/st-plain", Plain.new
+    get "/st-flush-first", FlushFirst.new
+    endpoint Closing
+    endpoint Broken
+    endpoint Failing
   end
   app
 end
@@ -298,6 +351,13 @@ describe Azu::Response::EventStream do
     PRODUCED.should be_empty
   end
 
+  it "tells the client when the producer fails" do
+    body = HTTP::Client.get("#{serve(streaming_app)}/st-failing").body
+
+    body.should contain "data: before\n\n"
+    body.should end_with "event: error\ndata: The stream failed\n\n"
+  end
+
   it "is not compressed, while other responses are" do
     base = serve(streaming_app, [Azu::Handler::Compression.new] of HTTP::Handler)
     headers = HTTP::Headers{"Accept-Encoding" => "gzip"}
@@ -307,6 +367,18 @@ describe Azu::Response::EventStream do
       response.body_io.gets_to_end.should contain "data: resumed"
     end
     HTTP::Client.get("#{base}/st-plain", headers) { |response| response.headers["Content-Encoding"]?.should eq "gzip" }
+  end
+end
+
+describe Azu::Handler::Compression do
+  it "leaves the body intact when the handler flushed before its first write" do
+    headers = HTTP::Headers{"Accept-Encoding" => "gzip"}
+
+    HTTP::Client.get("#{serve(streaming_app, [Azu::Handler::Compression.new] of HTTP::Handler)}/st-flush-first", headers) do |response|
+      io = response.body_io
+      text = response.headers["Content-Encoding"]? == "gzip" ? Compress::Gzip::Reader.open(io, &.gets_to_end) : io.gets_to_end
+      text.should eq "hello hello hello"
+    end
   end
 end
 
@@ -329,6 +401,20 @@ describe Azu::Response::Stream do
 
     response.headers["Content-Type"].should eq "text/csv"
     response.body.should be_empty
+  end
+
+  it "runs on_close for HEAD too" do
+    HTTP::Client.head("#{serve(streaming_app)}/st-closing").headers["Cache-Control"].should eq "no-cache"
+
+    received(STOPPED).should eq "closed"
+  end
+
+  it "logs an error raised after the headers are out, ends the body and runs on_close" do
+    response = HTTP::Client.get("#{serve(streaming_app)}/st-broken")
+
+    response.status_code.should eq 200
+    response.body.should eq "partial"
+    received(STOPPED).should eq "closed"
   end
 
   it "ends the block with the client's disconnection and runs on_close" do

@@ -81,7 +81,17 @@ end
 ## Overriding the header with `?format=`
 
 `/users/ada?format=json` answers in JSON whatever `Accept` says. The values are `html`, `json`, `xml`,
-`text` and `txt`; a format the response does not define is a `406`. There is no path extension
+`text` and `txt`; one of those the response does not define is a `406`. Any other value
+(`?format=csv`) is ignored, so an endpoint can have a `format` field of its own. If it takes the values
+above as well, rename the parameter, or turn it off with `nil`:
+
+```crystal
+require "azu"
+
+Azu::CONFIG.format_parameter = "as" # /users/ada?as=json
+```
+
+The name `format` is reserved for this by default. There is no path extension
 (`/users/ada.json`): routes are matched on the path as written, and a query parameter needs no
 routing support.
 
@@ -104,8 +114,12 @@ With `error_format = Azu::ErrorFormat::Legacy` the same body is sent as `applica
 whatever the client accepts, since it just said it accepts nothing the response renders.
 
 An endpoint declared with a `Negotiable` response type (`Endpoint(Request, UserPage)`) refuses the
-request **before `call` runs**: a `POST` that cannot be answered creates nothing. When the response type
-is a union, or the endpoint is hand written, the check happens when the response is written, after `call`.
+request **before `call` runs**: a `POST` that cannot be answered creates nothing. For a union of
+negotiable types (`Endpoint(Request, UserPage | OtherPage)`) the check uses the formats all members
+render (members must be public types: macros cannot name private ones). A union with a member that is not
+negotiable, and a hand written endpoint, is checked only when the response is written, after `call`: for
+an unsafe method use a single response type, or negotiate in `call` with `Azu::Negotiation.negotiate!`
+before doing anything.
 
 ## Calling the negotiator yourself
 

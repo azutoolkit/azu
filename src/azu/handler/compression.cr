@@ -27,7 +27,9 @@ module Azu
           @io.write(slice)
         end
 
+        # A flush before the first write may have put the headers on the wire: the decision is made.
         def flush
+          @checked = true
           @io.flush
         end
 

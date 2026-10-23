@@ -76,6 +76,11 @@ module Azu
     # The shape of validation failures: RFC 7807 `application/problem+json`, or the pre-0.6 body.
     property error_format : ErrorFormat = ErrorFormat::Problem
 
+    # The query parameter that picks the format of a `Response::Negotiable` (`?format=json`), or nil
+    # to turn it off. A value that is not a format name (html, json, xml, text, txt) is ignored, so an
+    # endpoint can have its own `format` field; rename the parameter if it also takes those values.
+    property format_parameter : String? = "format"
+
     # The middleware pipeline handed to `Azu.start`, in execution order. Recorded
     # for introspection only (the development dashboard draws it).
     property handlers : Array(HTTP::Handler) = [] of HTTP::Handler
