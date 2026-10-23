@@ -190,10 +190,12 @@ module Azu
     CONFIG.prepare
   end
 
-  # Stops the long lived parts of the framework: closes Spark connections and the PubSub backend.
+  # Stops the long lived parts of the framework: closes Spark connections, the default presence tracker
+  # (so its entries leave before the PubSub backend stops) and the PubSub backend.
   # Called by `start` once the server stops; safe to call again.
   def self.shutdown : Nil
     Spark.shutdown
+    Presence.shutdown
     PubSub.shutdown
   end
 

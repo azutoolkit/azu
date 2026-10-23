@@ -9,6 +9,10 @@ module Azu
       # readers from the leases, not by Redis key TTLs, so it follows `Azu::Clock`; the topic hashes carry
       # a long Redis TTL only as a last resort for topics nobody reads or renews any more.
       #
+      # With `server_time: true` (the default) leases are written and judged against the Redis `TIME`, so the
+      # nodes need no synchronized clocks. `server_time: false` uses `Azu::Clock` instead, which lets specs drive
+      # expiry with a fake clock.
+      #
       # One mutex-guarded connection is opened on first use. A dead connection is discarded and the command
       # retried once on a fresh one.
       class Redis < Store
@@ -16,8 +20,10 @@ module Azu
         RETENTION      = 1.day
         TIMEOUT        = 5.seconds
 
+        FIELD_SEPARATOR = '\u001f'
+
         def initialize(@url : String = ENV.fetch("PRESENCE_REDIS_URL", ENV.fetch("PUBSUB_REDIS_URL", "redis://localhost:6379/0")),
-                       @prefix : String = DEFAULT_PREFIX)
+                       @prefix : String = DEFAULT_PREFIX, @server_time : Bool = true)
           @mutex = Mutex.new
           @connection = nil.as(::Redis?)
         end
@@ -25,7 +31,7 @@ module Azu
         def put(topic : String, meta : Meta) : Nil
           key = topic_key(topic)
           run do |redis|
-            redis.hset(key, meta.ref, meta.to_json)
+            redis.hset(key, field(meta), meta.to_json)
             redis.expire(key, RETENTION.total_seconds.to_i)
           end
         end
@@ -53,7 +59,20 @@ module Azu
 
         def evict(topic : String, metas : Array(Meta)) : Nil
           return if metas.empty?
-          run(&.command(["HDEL", topic_key(topic)] + metas.map(&.ref)))
+          run(&.command(["HDEL", topic_key(topic)] + metas.map { |meta| field(meta) }))
+        end
+
+        def now : Time
+          return super unless @server_time
+          seconds, micros = run(&.command(["TIME"])).as(Array).map(&.as(String).to_i64)
+          Time.unix(seconds) + micros.microseconds
+        end
+
+        # Scans only the fields of *key* (`<key>\u001f<ref>`), so tracking does not read the whole topic.
+        def present?(topic : String, key : String, now : Time, grace : Time::Span) : Bool
+          alive = leases.select { |_, expires_at| expires_at > now }
+          fields = run { |redis| matching_fields(redis, topic_key(topic), "#{escape_glob(key)}#{FIELD_SEPARATOR}*") }
+          fields.any? { |field| alive.has_key?(node_of(field)) }
         end
 
         def shutdown : Nil
@@ -70,6 +89,31 @@ module Azu
             discard
             yield (@connection = connect)
           end
+        end
+
+        private def matching_fields(redis : ::Redis, hash : String, pattern : String) : Array(String)
+          cursor = "0"
+          fields = [] of String
+          loop do
+            reply = redis.command(["HSCAN", hash, cursor, "MATCH", pattern, "COUNT", "500"]).as(Array)
+            cursor = reply[0].as(String)
+            reply[1].as(Array).each_slice(2) { |pair| fields << pair[0].as(String) }
+            break if cursor == "0"
+          end
+          fields
+        end
+
+        private def field(meta : Meta) : String
+          "#{meta.key}#{FIELD_SEPARATOR}#{meta.ref}"
+        end
+
+        # The node of a field: its ref is `<node>.<counter>`.
+        private def node_of(field : String) : String
+          field.partition(FIELD_SEPARATOR)[2].rpartition('.')[0]
+        end
+
+        private def escape_glob(text : String) : String
+          text.gsub(/[\\*?\[\]]/) { |char| "\\#{char}" }
         end
 
         private def discard : Nil

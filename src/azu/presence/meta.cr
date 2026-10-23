@@ -19,7 +19,9 @@ module Azu
     end
 
     # What one change did to a topic. `joins` and `leaves` carry every meta added or removed, keyed by user;
-    # `arrived` and `departed` name the keys that went from absent to present and back.
+    # `arrived` and `departed` name the keys that went from absent to present and back. `node` and `seq` identify the
+    # publisher and number its diffs 1, 2, 3...: a gap in the `seq` of one `node` means diffs were missed, so call
+    # `list` again. A node restarts at 1 under a new id.
     struct Diff
       include JSON::Serializable
 
@@ -27,9 +29,11 @@ module Azu
       getter leaves : Hash(String, Array(Meta))
       getter arrived : Array(String)
       getter departed : Array(String)
+      getter node : String = ""
+      getter seq : Int64 = 0_i64
 
       def initialize(@joins = {} of String => Array(Meta), @leaves = {} of String => Array(Meta),
-                     @arrived = [] of String, @departed = [] of String)
+                     @arrived = [] of String, @departed = [] of String, @node = "", @seq = 0_i64)
       end
 
       def empty? : Bool

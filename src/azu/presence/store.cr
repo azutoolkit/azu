@@ -17,6 +17,17 @@ module Azu
       def shutdown : Nil
       end
 
+      # The time leases are written and judged against. Every node of a cluster must agree on it, so a shared
+      # store answers with its own clock; the default is `Azu::Clock`.
+      def now : Time
+        Clock.now
+      end
+
+      # Whether *key* has a live meta in *topic*; a store can answer without reading the whole topic.
+      def present?(topic : String, key : String, now : Time, grace : Time::Span) : Bool
+        live(topic, now, grace).any? { |meta| meta.key == key }
+      end
+
       # The metas of nodes whose lease is still valid at *now*. Metas of nodes expired for more than *grace*
       # (or without a lease) are removed on the way, and so are those leases.
       def live(topic : String, now : Time, grace : Time::Span) : Array(Meta)

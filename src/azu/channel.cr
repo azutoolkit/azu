@@ -136,7 +136,13 @@ module Azu
     rescue IO::Error
     end
 
+    # Raises `ArgumentError` for the topics `Azu::Presence` owns (`PubSub::RESERVED_PREFIX`).
     def subscribe(topic : String) : Nil
+      reject_reserved(topic)
+      subscribe_topic(topic)
+    end
+
+    protected def subscribe_topic(topic : String) : Nil
       @subscriptions_mutex.synchronize do
         @subscriptions[topic] ||= PubSub.subscribe(topic) { |message| deliver(message) }
       end
@@ -147,8 +153,14 @@ module Azu
       subscription.try(&.cancel)
     end
 
+    # Raises `ArgumentError` for the topics `Azu::Presence` owns, so a client-chosen topic cannot forge a diff.
     def broadcast(topic : String, message : String) : Nil
+      reject_reserved(topic)
       PubSub.broadcast(topic, message)
+    end
+
+    private def reject_reserved(topic : String) : Nil
+      raise ArgumentError.new("topic #{topic.inspect} is reserved for Azu::Presence") if PubSub.reserved?(topic)
     end
 
     private def deliver(message : PubSub::Message) : Nil
