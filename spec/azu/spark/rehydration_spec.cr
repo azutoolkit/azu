@@ -41,6 +41,17 @@ module SparkRehydrationSpec
     end
   end
 
+  class Pair < Azu::Spark::Component
+    mountable
+
+    def render
+      div do
+        live Tally, key: "a", label: "a"
+        live Tally, key: "b", label: "b"
+      end
+    end
+  end
+
   SECRET = "rehydration-spec-secret-rehydration-spec"
   USER   = {"user" => "ada"}
 end
@@ -199,6 +210,50 @@ describe "Spark rehydration" do
       other_session = sign_snapshot(bob.root_id, {bob.root_id => member("SparkRehydrationSpec::Board", notes: ["alice's"])})
       rejected(bob, other_session)["message"].as_s.should contain "another session"
       bob.close
+    end
+  end
+end
+
+describe "Spark failed joins" do
+  it "unmount every component of a root whose second child cannot be restored" do
+    with_board_server do |port|
+      client = SparkSpecClient.new(port, Azu::Spark.render(SparkRehydrationSpec::Pair, session: SparkRehydrationSpec::USER))
+      before = SparkRehydrationSpec::Tally.unmounted
+      root = client.root_id
+      snapshot = sign_snapshot(root, {
+        "#{root}~a" => member("SparkRehydrationSpec::Tally", taps: 1),
+        "#{root}~b" => member("Kernel::Evil", taps: 1),
+      })
+
+      rejected(client, snapshot)
+      wait_until { SparkRehydrationSpec::Tally.unmounted == before + 1 }.should be_true
+      client.event("tap", target: "#{root}~a")
+      client.await("error")["code"].as_s.should eq "unknown_target"
+      client.close
+    end
+  end
+
+  it "does not unmount a live root when the same root is joined again" do
+    with_board_server do |port|
+      client = SparkSpecClient.new(port, board_page)
+      client.join
+      client.await("reply")
+      client.join
+      client.await("error")["code"].as_s.should eq "bad_request"
+
+      client.event("add", text: "still here")
+      client.await("diff")["patches"][0]["html"].as_s.should contain "still here"
+      client.close
+    end
+  end
+
+  it "rejects a snapshot whose state is not an object" do
+    with_board_server do |port|
+      client = SparkSpecClient.new(port, board_page)
+      broken = sign_snapshot(client.root_id, {client.root_id => Azu::Spark::Snapshot::Member.new("SparkRehydrationSpec::Board", JSON::Any.new("nope"))})
+
+      rejected(client, broken)["message"].as_s.should contain "not an object"
+      client.close
     end
   end
 end

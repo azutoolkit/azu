@@ -52,15 +52,8 @@ module Azu
       # Mounts *component* as the root *id* and returns its initial render. A snapshot token
       # from a previous connection restores the persisted state of its components.
       def start(component : Component, id : String, claims : Hash(String, String), params : Params, snapshot : String? = nil) : Update
-        @claims[id] = claims
-        @rehydrator.load(snapshot, id, claims)
-        mount(component, id, nil, params)
-        flush
-      rescue ex
-        leave(id)
-        raise ex
-      ensure
-        @rehydrator.clear
+        raise BadRequest.new("component already joined") if @registry[id]?
+        mount_root(component, id, claims, params, snapshot)
       end
 
       # Mounts *component* as a root without a connection and returns it wrapped in its element,
@@ -184,6 +177,28 @@ module Azu
         mount(type.new(**props), id, parent, Params.new)
       end
 
+      # A failed join leaves nothing behind: every component of the root is unmounted again.
+      private def mount_root(component : Component, id : String, claims : Hash(String, String), params : Params, snapshot : String?) : Update
+        @claims[id] = claims
+        @rehydrator.load(snapshot, id, claims)
+        mount(component, id, nil, params)
+        flush
+      rescue ex
+        abandon(id)
+        raise ex
+      ensure
+        @rehydrator.clear
+      end
+
+      private def abandon(root_id : String) : Nil
+        @registry.entries.select { |entry| entry.root_id == root_id }.sort_by { |entry| -entry.depth }.each do |entry|
+          @registry.delete(entry.id)
+          retire(entry)
+        end
+        @claims.delete(root_id)
+        @sent_snapshots.delete(root_id)
+      end
+
       private def mount(component : Component, id : String, parent : Entry?, params : Params) : Entry
         root_id = parent.try(&.root_id) || id
         entry = Entry.new(component, id, parent.try(&.id), root_id, (parent.try(&.depth) || -1) + 1)
@@ -281,7 +296,7 @@ module Azu
 
         encoded = members.to_json
         return if @sent_snapshots[root_id]? == encoded
-        token = Snapshot.sign(root_id, @claims[root_id]? || {} of String => String, members, @config.token_ttl, @config.secret, @config.max_snapshot_size)
+        token = Snapshot.sign(root_id, @claims[root_id]? || {} of String => String, members, @config.snapshot_ttl, @config.secret, @config.max_snapshot_size)
         unless token
           Log.for("Azu::Spark").warn { "Persisted state of #{root_id} exceeds #{@config.max_snapshot_size} bytes and was not saved" }
           return

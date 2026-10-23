@@ -34,8 +34,10 @@ and 7.5 KB gzipped (it includes the DOM patcher and the HTML sanitiser, see the 
   timeout) is handled like any lost connection: the client backs off and reconnects to the next
   process.
 - **Event queue.** Events raised while there is no connection (up to 50, none older than 60 s) wait
-  in a queue and are sent, in order, right after the page has rejoined. An event that carries a
-  complete value (a text input's `change`) replaces an older queued event for the same target. Each
+  in a queue and are sent, in order, once every root of the page has rejoined and the server has
+  answered the joins (also after a refused snapshot and a fresh join). An event that carries a
+  complete value (a `change` of a control) replaces an older queued event of the same control (same
+  component, event and control name or id); other controls are never merged. Each
   queued event is sent once. An event that was already on the wire when the connection broke has
   an unknown fate and is not repeated: delivery is at most once for those.
 
@@ -84,8 +86,19 @@ class Cart < Azu::Spark::Component
 end
 ```
 
-Only `persist: true` state travels, `draft` above starts empty again. The snapshot is signed, not
-encrypted: never persist secrets.
+Only `persist: true` state travels, `draft` above starts empty again.
+
+**Persisted state is not authority.** The snapshot is signed, not encrypted, so the browser can
+read it, and it can replay an old one until it expires (`config.snapshot_ttl`, default one hour,
+`SPARK_SNAPSHOT_TTL`; the join token lives for `token_ttl`). On rejoin the restored state
+overwrites what `mount` computed. Never persist secrets or anything that grants rights
+(`is_admin`, `user_id`, prices, permissions): keep those in the session claims of the join token
+or look them up again in `mount` and `event` handlers. A snapshot that expired before a reconnect
+is refused and the page starts afresh.
+
+A snapshot token is sent with a diff only when the persisted state changed (it is not debounced:
+persist small, rarely changing state). Joining a root that is already mounted is refused with
+`bad_request` and leaves the live root alone; a failed join unmounts every component it mounted.
 
 A snapshot is accepted only if all of this holds, otherwise the join is answered with an error
 with the code `invalid_snapshot`, nothing is mounted and the client joins again without it:
@@ -94,6 +107,7 @@ with the code `invalid_snapshot`, nothing is mounted and the client joins again 
 | --- | --- |
 | HMAC-SHA256 signature with `config.secret` | tampered |
 | `exp` (`token_ttl`, measured with `Azu::Clock`) | expired |
+| state is a JSON object | malformed |
 | size at most `config.max_snapshot_size` (default 4096 bytes) | too large (it is also not issued above the limit) |
 | format `v` equals `Snapshot::VERSION` | unsupported version |
 | root component id equals the page being joined | another page |
@@ -109,7 +123,7 @@ unmounted when its socket closes (their subscriptions and timers end with it).
 ```crystal
 Azu::Spark.configure do |config|
   config.max_snapshot_size = 8192
-  config.token_ttl = 12.hours
+  config.snapshot_ttl = 30.minutes
 end
 ```
 

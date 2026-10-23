@@ -53,6 +53,15 @@ describe Azu::Spark::Client do
       response.body.should eq Azu::Spark::Client::SOURCE
     end
 
+    it "only answers GET and HEAD, and understands lists and weak forms of If-None-Match" do
+      response = serve_client_asset(method: "POST")
+      response.status_code.should eq 405
+      response.headers["Allow"].should eq "GET, HEAD"
+      tag = %("#{Azu::Spark::Client::VERSION}")
+      serve_client_asset(HTTP::Headers{"If-None-Match" => %("other", W/#{tag})}).status_code.should eq 304
+      serve_client_asset(HTTP::Headers{"If-None-Match" => %("other")}).status_code.should eq 200
+    end
+
     it "makes browsers revalidate without a version and answers conditional requests" do
       serve_client_asset.headers["Cache-Control"].should eq "no-cache"
       headers = HTTP::Headers{"If-None-Match" => %("#{Azu::Spark::Client::VERSION}")}
