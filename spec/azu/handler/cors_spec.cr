@@ -475,7 +475,7 @@ describe Azu::Handler::CORS do
   describe "concurrent requests" do
     it "answers each request with its own origin when handlers run in parallel" do
       handler = Azu::Handler::CORS.new(origins: ["https://a.com", "https://b.com"])
-      handler.next = ->(context : HTTP::Server::Context) {}
+      handler.next = ->(context : HTTP::Server::Context) { }
       mismatches = Atomic(Int32).new(0)
 
       threads = ["https://a.com", "https://b.com", "https://a.com", "https://b.com"].map do |origin|

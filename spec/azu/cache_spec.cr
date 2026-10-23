@@ -165,6 +165,19 @@ describe Azu::Cache do
       store.exists?("counter_4").should be_true
     end
 
+    it "reports the hit rate of the lookups it served" do
+      store = Azu::Cache::MemoryStore.new
+      store.stats["hit_rate"].should eq(0.0)
+
+      store.set("a", "1")
+      store.get("a")
+      store.get("a")
+      store.get("a")
+      store.get("missing")
+
+      store.stats["hit_rate"].should eq(75.0)
+    end
+
     it "supports decrement operations" do
       store = Azu::Cache::MemoryStore.new
 

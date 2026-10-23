@@ -125,6 +125,8 @@ module Azu
       @default_ttl : Time::Span?
       @cleanup_interval : Time::Span
       @cleanup_fiber : Fiber?
+      @hits : Int64 = 0
+      @misses : Int64 = 0
 
       def initialize(@max_size : Int32 = DEFAULT_MAX_SIZE, @default_ttl : Time::Span? = DEFAULT_TTL, cleanup_interval : Time::Span = 5.minutes)
         @cache = Hash(String, CacheEntry).new
@@ -137,14 +139,19 @@ module Azu
       def get(key : String) : String?
         @mutex.synchronize do
           entry = @cache[key]?
-          return nil unless entry
+          unless entry
+            @misses += 1
+            return nil
+          end
 
           if entry.expired?
             @cache.delete(key)
             @access_order.delete(key)
+            @misses += 1
             return nil
           end
 
+          @hits += 1
           # Update access order for LRU
           @access_order.delete(key)
           @access_order << key
@@ -242,9 +249,8 @@ module Azu
       end
 
       private def calculate_hit_rate : Float64
-        # Simplified hit rate calculation
-        # In a real implementation, you'd track hits/misses
-        @cache.size.to_f / @max_size.to_f * 100.0
+        lookups = @hits + @misses
+        lookups.zero? ? 0.0 : @hits.to_f / lookups * 100.0
       end
 
       private def calculate_memory_usage : Float64
