@@ -6,7 +6,10 @@ module Azu
     # The wire format: one JSON object per WebSocket text frame, `{"v": 1, "type": ..., ...}`.
     #
     # Client to server
-    # - `join`      `id`, `token`, optional `snapshot` and `params` (the page's query string)
+    # - `join`      `id`, `token`, optional `snapshot` and `params` (the page's query string). The
+    #               `snapshot` is the latest signed state of the page (see `Snapshot`): after a
+    #               reconnect the server mounts the components from it, so the page continues
+    #               where it was. A bad snapshot answers `invalid_snapshot` and mounts nothing.
     # - `event`     `id`, `target` (component id), `event`, `payload`
     # - `heartbeat` `id`
     # - `leave`     `target` (root component id)
@@ -18,6 +21,10 @@ module Azu
     # - `redirect`  `to`, `replace`
     # - `heartbeat` `id`
     # - `error`     `code`, `message`, and the `id` of the request it answers (null otherwise)
+    #
+    # Error codes: `invalid_token` (the page can never join), `invalid_snapshot` (join again
+    # without the snapshot), `rejected`, `bad_request`, `unknown_target`, `unknown_event`,
+    # `limit_exceeded`, `rate_limited` and `internal`.
     #
     # Client ids increase per connection and are echoed in the matching reply, which is how the
     # browser clears loading states and detects lost requests. `seq` orders server pushes.

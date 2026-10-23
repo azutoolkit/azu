@@ -36,6 +36,8 @@ module Azu
           usable << name if (only_names.nil? || only_names.includes?(name)) && !except_names.includes?(name)
         end
 
+        # never copied into a record by name, unless `only:` lists the field: the database or the framework sets them
+        server_set = setters ? ["id", "created_at", "updated_at"] : [] of String
         best = nil
         best_missing = nil
         target.methods.each do |ctor|
@@ -43,7 +45,8 @@ module Azu
             missing = [] of String
             ctor.args.each do |arg|
               field = renames[arg.name.stringify] || arg.name.stringify
-              missing << "#{arg.name} (read from `#{field.id}`)" if !usable.includes?(field) && arg.default_value.class_name == "Nop"
+              copied = usable.includes?(field) && (!server_set.includes?(arg.name.stringify) || (only_names && only_names.includes?(field)))
+              missing << "#{arg.name} (read from `#{field.id}`)" if !copied && arg.default_value.class_name == "Nop"
             end
             if missing.empty?
               best = ctor if best.nil? || ctor.args.size > best.args.size
@@ -63,7 +66,7 @@ module Azu
         best.args.each do |arg|
           attribute = arg.name.stringify
           field = renames[attribute] || attribute
-          if usable.includes?(field)
+          if usable.includes?(field) && (!server_set.includes?(attribute) || (only_names && only_names.includes?(field)))
             used << field
             pairs << [attribute, field, true, target_ivars[attribute] || (arg.restriction ? arg.restriction.resolve? : nil)]
           end
@@ -72,7 +75,8 @@ module Azu
           ivars.keys.each do |field|
             attribute = renames.keys.find { |key| renames[key] == field } || field
             explicit = only_names && only_names.includes?(field)
-            if !used.includes?(field) && usable.includes?(field) && (explicit || !["id", "created_at", "updated_at"].includes?(attribute)) && target.has_method?(attribute + "=")
+            renamed_elsewhere = renames[attribute] && renames[attribute] != field # a field named like a renamed attribute must not overwrite it
+            if !used.includes?(field) && usable.includes?(field) && !renamed_elsewhere && (explicit || !server_set.includes?(attribute)) && target.has_method?(attribute + "=")
               pairs << [attribute, field, false, target_ivars[attribute]]
             end
           end

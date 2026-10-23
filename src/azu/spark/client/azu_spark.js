@@ -8,7 +8,10 @@
     path: (script && script.getAttribute("data-spark-path")) || "/spark",
     backoffMin: 500,
     backoffMax: 15000,
-    requestTimeout: 10000
+    requestTimeout: 10000,
+    probeTimeout: 3000,
+    queueMax: 50,
+    queueMaxAge: 60000
   };
 
   var ws = null;
@@ -22,7 +25,10 @@
   var lastFrameAt = 0;
   var stopped = false;
   var booted = false;
-  var pending = new Map(); // request id -> {element, undo, sentAt}
+  var pending = new Map(); // request id -> {undo, sentAt}
+  var queue = []; // events waiting for a connection: {message, undo, key, at}
+  var joining = new Map(); // join request id -> root id
+  var handlers = {}; // Spark.on(...)
   var joined = new Set(); // root ids joined on the current socket
   var snapshots = new Map(); // root id -> signed state snapshot
   var timers = new WeakMap(); // element -> {kind: timer or time}
@@ -31,6 +37,9 @@
 
   function emit(name, detail, target) {
     (target || document).dispatchEvent(new CustomEvent("spark:" + name, { bubbles: true, detail: detail }));
+    (handlers[name] || []).slice().forEach(function (fn) {
+      try { fn(detail); } catch (e) { if (window.console) console.error(e); }
+    });
   }
 
   function setStatus(next) {
@@ -58,6 +67,47 @@
     var params = {};
     new URLSearchParams(location.search).forEach(function (value, key) { params[key] = value; });
     return params;
+  }
+
+  // Sends *entry* (a queued or fresh event) now; false when there is no open socket.
+  function send(entry) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    var id = ++nextId;
+    entry.message.id = id;
+    if (transmit(entry.message)) pending.set(id, { undo: entry.undo, sentAt: Date.now() });
+    else release(entry); // too large for the server: reported as an error, never retried
+    return true;
+  }
+
+  function release(entry) {
+    if (entry.undo) entry.undo();
+  }
+
+  // Events wait here while there is no connection: bounded (the oldest is dropped), and an event
+  // that carries a whole value (a text input) replaces the older one for the same target.
+  function enqueue(entry) {
+    if (entry.key) {
+      queue = queue.filter(function (queued) {
+        if (queued.key !== entry.key) return true;
+        release(queued);
+        return false;
+      });
+    }
+    queue.push(entry);
+    while (queue.length > config.queueMax) {
+      release(queue.shift());
+      emit("error", { code: "queue_full", message: "too many events while offline" });
+    }
+  }
+
+  function flushQueue() {
+    var waiting = queue;
+    queue = [];
+    var now = Date.now();
+    waiting.forEach(function (entry) {
+      if (now - entry.at > config.queueMaxAge) release(entry);
+      else if (!send(entry)) queue.push(entry);
+    });
   }
 
   function transmit(message) {
@@ -88,12 +138,30 @@
     ws = null;
     hello = null;
     joined.clear();
+    joining.clear();
     clearInterval(heartbeatTimer);
     clearInterval(watchdogTimer);
     cancelPending();
-    if (stopped) return setStatus("disconnected");
     setStatus("disconnected");
-    scheduleReconnect(event && event.code);
+    emit("close", { code: event && event.code, reason: event && event.reason });
+    // Offline: the `online` event resumes; a stopped client stays stopped.
+    if (stopped || navigator.onLine === false) return;
+    scheduleReconnect();
+  }
+
+  // Abandons the socket without waiting for a close handshake that a dead peer never answers.
+  function drop(reason) {
+    var socket = ws;
+    if (!socket) return;
+    try { socket.close(4000, reason); } catch (e) { /* already closed */ }
+    lost({ code: 4000, reason: reason });
+  }
+
+  // Asks the server for a sign of life; the connection is dropped if none arrives in time.
+  function probe() {
+    var asked = Date.now();
+    if (!transmit({ v: PROTOCOL, type: "heartbeat", id: ++nextId })) return;
+    setTimeout(function () { if (ws && lastFrameAt < asked) drop("heartbeat timeout"); }, config.probeTimeout);
   }
 
   // Exponential backoff with full jitter, so a restarted server is not hit by every client at once.
@@ -106,6 +174,7 @@
     if (stopped) return;
     var delay = backoff(attempts++);
     emit("backoff", { delay: delay, attempts: attempts });
+    emit("reconnect", { delay: delay, attempts: attempts });
     clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(connect, delay);
   }
@@ -130,7 +199,7 @@
     heartbeatTimer = setInterval(function () { transmit({ v: PROTOCOL, type: "heartbeat", id: ++nextId }); }, interval);
     // Half open connections never fire `close`: give up when the server went quiet.
     watchdogTimer = setInterval(function () {
-      if (Date.now() - lastFrameAt > interval * 2.5 && ws) ws.close(4000, "heartbeat timeout");
+      if (Date.now() - lastFrameAt > interval * 2.5) drop("heartbeat timeout");
       expirePending();
     }, Math.min(interval, 5000));
   }
@@ -142,6 +211,7 @@
       joined.add(id);
       var frame = { v: PROTOCOL, type: "join", id: ++nextId, token: root.getAttribute("data-spark-token"), params: pageParams() };
       if (snapshots.has(id)) frame.snapshot = snapshots.get(id);
+      joining.set(frame.id, id);
       transmit(frame);
     });
   }
@@ -157,11 +227,13 @@
         hello = message;
         attempts = 0;
         setStatus("connected");
+        emit("open", { attempts: attempts });
         startHeartbeat();
         joinRoots();
+        flushQueue();
         break;
       case "diff": applyDiff(message); break;
-      case "reply": settle(message.id); break;
+      case "reply": joining.delete(message.id); settle(message.id); break;
       case "redirect": navigate(message.to, message.replace); break;
       case "heartbeat": break;
       case "error": failed(message); break;
@@ -191,7 +263,15 @@
 
   function failed(message) {
     settle(message.id);
+    var root = joining.get(message.id);
+    joining.delete(message.id);
     emit("error", { code: message.code, message: message.message, id: message.id });
+    if (message.code === "invalid_snapshot" && root) {
+      // The saved state cannot be used (expired, tampered, or the app changed): start the view afresh.
+      snapshots.delete(root);
+      joined.delete(root);
+      joinRoots();
+    }
     if (message.code === "invalid_token" || message.code === "rejected") {
       // The page can never join (expired token, refused by mount): stop retrying until reload.
       emit("expired", { code: message.code });
@@ -326,8 +406,7 @@
 
   // ---- requests ---------------------------------------------------------------------------
 
-  function push(element, event, payload, loading) {
-    var id = ++nextId;
+  function push(element, event, payload, loading, coalesce) {
     var undo = loading ? loading() : null;
     var target = element.closest("[data-spark-id]");
     if (!target) return;
@@ -343,13 +422,18 @@
       var selected = document.querySelector(targetName);
       target = (selected && selected.closest("[data-spark-id]")) || target;
     }
-    var sent = transmit({ v: PROTOCOL, type: "event", id: id, target: target.getAttribute("data-spark-id"), event: event, payload: payload });
-    if (!sent) {
-      if (undo) undo();
-      emit("offline", { event: event }, element);
-      return;
+    var targetId = target.getAttribute("data-spark-id");
+    var entry = {
+      message: { v: PROTOCOL, type: "event", target: targetId, event: event, payload: payload },
+      undo: undo, key: coalesce ? targetId + "|" + event : null, at: Date.now()
+    };
+    if (send(entry)) return;
+    if (stopped) {
+      release(entry);
+      return emit("offline", { event: event }, element);
     }
-    pending.set(id, { undo: undo, sentAt: Date.now() });
+    enqueue(entry);
+    emit("queued", { event: event, size: queue.length }, element);
   }
 
   function settle(id) {
@@ -448,7 +532,7 @@
       var payload = valuesOf(element);
       if (element.nodeName === "FORM") assign(payload, formPayload(element));
       else if (/^(INPUT|SELECT|TEXTAREA)$/.test(element.nodeName) && kind !== "click") assign(payload, controlPayload(element));
-      push(element, name, payload, loadingStates(element));
+      push(element, name, payload, loadingStates(element), kind === "change");
     };
     var debounce = parseInt(element.getAttribute("spark-debounce"), 10);
     var throttle = parseInt(element.getAttribute("spark-throttle"), 10);
@@ -509,6 +593,7 @@
   function stop() {
     stopped = true;
     clearTimeout(reconnectTimer);
+    queue.splice(0).forEach(release);
     if (ws) ws.close(1000, "stopped");
   }
 
@@ -518,6 +603,11 @@
     bind();
     observe();
     window.addEventListener("online", function () { attempts = 0; connect(); });
+    window.addEventListener("offline", function () { clearTimeout(reconnectTimer); drop("offline"); });
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState !== "visible" || stopped) return;
+      if (!ws) { attempts = 0; connect(); } else if (ws.readyState === WebSocket.OPEN) probe();
+    });
     window.addEventListener("pageshow", function (event) { if (event.persisted) { stopped = false; attempts = 0; connect(); } });
     window.addEventListener("pagehide", function () { stopped = true; if (ws) ws.close(1000, "page closed"); });
     if (roots().length > 0) connect();
@@ -526,10 +616,14 @@
 
   window.AzuSpark = {
     get status() { return status; },
+    get queued() { return queue.length; },
     connect: function () { stopped = false; connect(); },
     disconnect: stop,
+    on: function (name, fn) { (handlers[name] = handlers[name] || []).push(fn); return this; },
+    off: function (name, fn) { handlers[name] = (handlers[name] || []).filter(function (h) { return h !== fn; }); return this; },
     push: function (element, event, payload) { push(element, event, payload || {}); }
   };
+  if (!window.Spark) window.Spark = window.AzuSpark;
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();

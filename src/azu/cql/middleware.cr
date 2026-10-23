@@ -29,6 +29,11 @@ module Azu
         @schema = nil
       end
 
+      # Raised inside the transaction to roll it back for a status, and caught right outside it: CQL logs
+      # a warning for every `DB::Rollback`, which would flood the log with one line per 4xx.
+      private class StatusRollback < Exception
+      end
+
       def call(context : HTTP::Server::Context) : Nil
         RequestContext.scope(context) do |_|
           @transaction ? within_transaction(context) : call_next(context)
@@ -42,10 +47,22 @@ module Azu
       end
 
       private def within_transaction(context : HTTP::Server::Context) : Nil
-        schema.transaction do |_tx|
-          call_next(context)
-          raise DB::Rollback.new if context.response.status_code >= @rollback_from
+        handled = false
+        begin
+          schema.transaction do |_tx|
+            call_next(context)
+            handled = true
+            raise StatusRollback.new if context.response.status_code >= @rollback_from
+          end
+        rescue StatusRollback
+        rescue error
+          discard_success(context) if handled # the commit failed: the buffered success must not precede the error page
+          raise error
         end
+      end
+
+      private def discard_success(context : HTTP::Server::Context) : Nil
+        context.response.reset unless context.response.wrote_headers?
       end
 
       private def schema : ::CQL::Schema

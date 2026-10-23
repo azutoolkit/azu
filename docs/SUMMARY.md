@@ -126,6 +126,10 @@
 
 - [Error Types](reference/errors/error-types.md)
 
+### Real-Time
+
+- [Spark Client and Reconnects](reference/spark-client.md)
+
 ### Database
 
 - [Database Dashboard](reference/database-dashboard.md)

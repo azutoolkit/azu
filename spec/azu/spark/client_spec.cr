@@ -25,6 +25,18 @@ describe Azu::Spark::Client do
     source.should contain("snapshots.get(id)")
   end
 
+  it "queues events while offline and reacts to the browser's offline and visibility events" do
+    source = Azu::Spark::Client::SOURCE
+    source.should contain("queueMax")
+    source.should contain(%("offline"))
+    source.should contain("visibilitychange")
+    source.should contain(%("invalid_snapshot"))
+  end
+
+  it "versions the asset path by content hash" do
+    Azu::Spark.asset_path.should eq "/_spark/azu_spark.js?v=#{Azu::Spark::Client::VERSION}"
+  end
+
   it "builds a pinned script tag" do
     tag = Azu::Spark.script_tag
     tag.should contain("/_spark/azu_spark.js?v=#{Azu::Spark::Client::VERSION}")
