@@ -1,311 +1,316 @@
 # Understanding Real-Time Features
 
-This document explains Azu's real-time capabilities through WebSocket channels and how they enable bidirectional communication.
+This page explains how Azu does real-time communication: WebSocket channels for your own message
+protocol, the PubSub bus that connects them, and Spark live components for server-rendered UI.
 
-## Why Real-Time?
+## Why real-time?
 
-Traditional HTTP is request-response:
+HTTP is request and response: the server only speaks when asked, so a client that wants fresh data has to
+poll. Real-time applications need instant updates, server-initiated messages and cheap two-way traffic.
+A WebSocket keeps one connection open and lets both sides send whenever they like.
 
-```
-Client: "Give me data"
-Server: "Here's data"
-Client: "Give me data again"
-Server: "Here's data"
-...
-```
+Azu offers two levels:
 
-Real-time applications need:
-- Instant updates without polling
-- Server-initiated messages
-- Efficient bidirectional communication
+| Level | Use it when |
+| --- | --- |
+| `Azu::Channel` | You want your own protocol: chat messages, notifications, a JSON feed for a JavaScript client. |
+| `Azu::Spark::Component` | You want the server to render the UI and keep it in sync without writing JavaScript. See [Components](components.md). |
 
-WebSockets provide:
-```
-Client ←→ Server
-    Persistent connection
-    Messages flow both ways
-    Low latency
-```
+Both subscribe to topics of `Azu::PubSub`, so a broadcast reaches channels and components alike.
 
-## WebSocket Channels
+## WebSocket channels
 
-Channels are the Azu abstraction for WebSocket connections:
+A channel is one WebSocket connection. Azu creates a new instance per client, so instance variables
+are per connection. All six callbacks are abstract: a channel that omits one does not compile.
 
 ```crystal
 class ChatChannel < Azu::Channel
-  PATH = "/chat"
+  ws "/chat"
 
   def on_connect
-    # Connection established
+    subscribe "chat"
+    send({type: "welcome"}.to_json)
   end
 
   def on_message(message : String)
-    # Message received
+    broadcast "chat", message
   end
 
-  def on_close(code, reason)
-    # Connection closed
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
   end
 end
 ```
 
-### Channel Lifecycle
+`ws "/chat"` registers the route. `subscribe` joins a PubSub topic; each `broadcast` to it arrives in
+`on_broadcast`, which writes the payload to the socket by default. Subscriptions end with the connection.
 
+### Channel lifecycle
+
+```text
+HTTP upgrade request
+   -> Origin check (403 for a foreign origin)
+   -> 101 Switching Protocols
+   -> on_connect
+   -> on_message / on_binary / on_ping / on_pong ...   (per frame)
+   -> on_close                                         (also when the peer vanishes)
 ```
-Client connects via WebSocket
-         ↓
-    on_connect
-         ↓
-    ┌────────┐
-    │  Loop  │ ←── on_message (for each message)
-    └────────┘
-         ↓
-    on_close
-```
 
-## Connection Management
+The server pings every `websocket.ping_interval` (30 seconds by default) so dead peers are noticed,
+and a frame larger than `websocket.max_message_size` (1 MiB) closes the connection. Both are set on
+`Azu::CONFIG.websocket`.
 
-### Tracking Connections
+## Topics with PubSub
 
-Channels typically maintain a collection of active connections:
+`Azu::PubSub` is a process-wide topic bus. Channels use it through `subscribe`, `unsubscribe` and
+`broadcast`; any other code can use it directly:
 
 ```crystal
-class NotificationChannel < Azu::Channel
-  PATH = "/notifications"
+Azu::PubSub.broadcast("orders", {id: 42, status: "paid"}) # JSON encoded
 
-  @@connections = [] of HTTP::WebSocket
-
-  def on_connect
-    @@connections << socket
-    send_welcome
-  end
-
-  def on_close(code, reason)
-    @@connections.delete(socket)
-  end
+subscription = Azu::PubSub.subscribe("orders") do |message|
+  puts message.topic
+  puts message.payload
 end
+
+subscription.cancel
 ```
 
-### Broadcasting
+Handlers run on the broadcaster's fiber, so they must be quick: enqueue and return.
 
-Send messages to multiple clients:
+### Rooms
 
-```crystal
-def self.broadcast(message : String)
-  @@connections.each do |socket|
-    socket.send(message)
-  end
-end
-```
-
-This enables:
-- Chat rooms
-- Live notifications
-- Real-time dashboards
-- Collaborative editing
-
-## Message Protocol
-
-### JSON Messages
-
-Typically, messages are JSON:
-
-```crystal
-def on_message(message : String)
-  data = JSON.parse(message)
-
-  case data["type"]?.try(&.as_s)
-  when "subscribe"
-    handle_subscribe(data)
-  when "message"
-    handle_message(data)
-  when "ping"
-    send({type: "pong"}.to_json)
-  end
-end
-```
-
-### Client Protocol
-
-```javascript
-const ws = new WebSocket('ws://localhost:4000/chat');
-
-ws.onopen = () => {
-  ws.send(JSON.stringify({
-    type: 'subscribe',
-    room: 'general'
-  }));
-};
-
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  handleMessage(data);
-};
-```
-
-## Common Patterns
-
-### Room-Based Channels
-
-Organize connections into rooms:
+A room is just a topic name:
 
 ```crystal
 class RoomChannel < Azu::Channel
-  PATH = "/rooms/:room_id"
-
-  @@rooms = Hash(String, Set(HTTP::WebSocket)).new { |h, k|
-    h[k] = Set(HTTP::WebSocket).new
-  }
-
   def on_connect
-    room = params["room_id"]
-    @@rooms[room] << socket
+    subscribe "room:#{context.request.path_params["room"]}"
   end
 
-  def on_message(message)
-    room = params["room_id"]
-    broadcast_to_room(room, message)
+  def on_message(message : String)
+    broadcast "room:#{context.request.path_params["room"]}", message
   end
 
-  def on_close(code, reason)
-    room = params["room_id"]
-    @@rooms[room].delete(socket)
+  def on_binary(binary : Bytes)
   end
 
-  private def broadcast_to_room(room, message)
-    @@rooms[room].each { |ws| ws.send(message) }
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
   end
 end
+
+Azu::CONFIG.router.ws "/rooms/:room", RoomChannel
 ```
 
-### User-Targeted Messages
+### Messages to one user
 
-Associate connections with users:
+Give every user a topic and broadcast to it from anywhere in your application, for example from an
+endpoint or a background job:
 
 ```crystal
 class UserChannel < Azu::Channel
-  @@user_sockets = Hash(Int64, Set(HTTP::WebSocket)).new { |h, k|
-    h[k] = Set(HTTP::WebSocket).new
-  }
-
   def on_connect
-    if user = authenticate
-      @@user_sockets[user.id] << socket
-    end
+    subscribe "user:#{params["user_id"]?}"
   end
 
-  def self.send_to_user(user_id : Int64, message : String)
-    @@user_sockets[user_id].each { |ws| ws.send(message) }
+  def on_message(message : String)
+  end
+
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
   end
 end
 
-# From anywhere in your app:
-UserChannel.send_to_user(user.id, notification.to_json)
+def notify(user_id : Int64, text : String) : Nil
+  Azu::PubSub.broadcast("user:#{user_id}", {type: "notification", text: text})
+end
 ```
 
-### Presence Tracking
+In a real application, take the user id from a verified session or token, never from a parameter the
+client controls (see Authentication below).
 
-Track who's online:
+### Presence
+
+Azu has no presence feature. If you need "who is online", keep a registry yourself and guard it with a
+mutex, because channels run on many fibers:
 
 ```crystal
 class PresenceChannel < Azu::Channel
-  @@online_users = Set(Int64).new
+  ONLINE = Hash(String, Int32).new(0)
+  LOCK   = Mutex.new
+
+  def self.online : Array(String)
+    LOCK.synchronize { ONLINE.keys }
+  end
 
   def on_connect
-    if user = authenticate
-      @@online_users << user.id
-      broadcast_presence_update
-    end
+    name = params["name"]? || "anonymous"
+    LOCK.synchronize { ONLINE[name] += 1 }
+    subscribe "presence"
+    broadcast "presence", {type: "online", users: self.class.online}.to_json
   end
 
-  def on_close(code, reason)
-    if user = @current_user
-      @@online_users.delete(user.id)
-      broadcast_presence_update
-    end
+  def on_message(message : String)
   end
 
-  def self.online?(user_id : Int64)
-    @@online_users.includes?(user_id)
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
+    name = params["name"]? || "anonymous"
+    LOCK.synchronize do
+      ONLINE[name] -= 1
+      ONLINE.delete(name) if ONLINE[name] <= 0
+    end
+    broadcast "presence", {type: "online", users: self.class.online}.to_json
   end
 end
 ```
+
+This registry lives in one process. With several servers each would know only its own users; keep the
+registry in a shared store such as Redis in that case.
+
+## Message protocol
+
+A channel moves strings (and bytes). Most applications send JSON with a `type` field and parse it into
+a `JSON::Serializable` type so that bad input fails in one place:
+
+```crystal
+struct Incoming
+  include JSON::Serializable
+
+  getter type : String
+  getter body : String?
+end
+
+class JsonChannel < Azu::Channel
+  def on_connect
+  end
+
+  def on_message(message : String)
+    incoming = Incoming.from_json(message)
+    case incoming.type
+    when "ping" then send({type: "pong"}.to_json)
+    when "say"  then broadcast "chat", {type: "say", body: incoming.body}.to_json
+    else             send({type: "error", code: "UNKNOWN_TYPE"}.to_json)
+    end
+  rescue JSON::ParseException | JSON::SerializableError
+    send({type: "error", code: "INVALID_JSON"}.to_json)
+  end
+
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
+  end
+end
+```
+
+The browser side:
+
+```javascript
+const ws = new WebSocket("ws://localhost:3000/chat");
+
+ws.onopen = () => ws.send(JSON.stringify({ type: "say", body: "hello" }));
+ws.onmessage = (event) => handle(JSON.parse(event.data));
+```
+
+An exception that escapes a callback ends that connection, so rescue what you can recover from and
+answer with an error message as above.
 
 ## Authentication
 
-WebSocket connections can be authenticated:
+Browsers cannot set headers on a WebSocket, so authenticate with the query string (`?token=...`) or with
+the cookies the browser sends with the upgrade request. Both are available from `on_connect`:
 
 ```crystal
-def on_connect
-  token = context.request.query_params["token"]?
-
-  if token && (user = validate_token(token))
-    @current_user = user
-    send({type: "authenticated"}.to_json)
-  else
-    send({type: "error", message: "Unauthorized"}.to_json)
-    socket.close
-  end
-end
-```
-
-Client-side:
-```javascript
-const token = getAuthToken();
-const ws = new WebSocket(`ws://localhost:4000/channel?token=${token}`);
-```
-
-## Scaling Considerations
-
-### Single Server
-
-On a single server, channel state is in-memory:
-
-```crystal
-@@connections = [] of HTTP::WebSocket
-```
-
-### Multiple Servers
-
-For multiple servers, use Redis pub/sub:
-
-```crystal
-class ScalableChannel < Azu::Channel
-  @@redis = Redis.new
-
+class AccountChannel < Azu::Channel
   def on_connect
-    spawn do
-      @@redis.subscribe("channel:messages") do |on|
-        on.message do |_, msg|
-          socket.send(msg)
-        end
-      end
+    unless user = authenticate(params["token"]?)
+      close(HTTP::WebSocket::CloseCode::PolicyViolation, "Unauthorized")
+      return
     end
+    subscribe "user:#{user}"
+    send({type: "authenticated", user: user}.to_json)
   end
 
-  def self.broadcast(message)
-    @@redis.publish("channel:messages", message)
+  def on_message(message : String)
+  end
+
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
+  end
+
+  # Replace with your own verification (a signed token, a session lookup, ...).
+  private def authenticate(token : String?) : String?
+    "alice" if token == ENV.fetch("CHANNEL_TOKEN", "change-me")
   end
 end
 ```
 
-## Error Handling
+The upgrade is also protected against cross-site WebSocket hijacking: the `Origin` header must be the
+application's own origin or listed in `Azu::CONFIG.websocket.allowed_origins`.
 
-Handle connection errors gracefully:
+## Scaling
+
+By default PubSub is in memory: a broadcast reaches the subscribers in the same process. With several
+servers, select the Redis backend once at boot, and every `broadcast` reaches the subscribers of every
+process:
 
 ```crystal
-def on_message(message)
-  process(message)
-rescue JSON::ParseException
-  send({type: "error", code: "INVALID_JSON"}.to_json)
-rescue ex
-  Log.error { "Channel error: #{ex.message}" }
-  send({type: "error", code: "INTERNAL_ERROR"}.to_json)
-end
+Azu::PubSub.backend = Azu::PubSub::Redis.new(ENV.fetch("REDIS_URL", "redis://localhost:6379/0"))
 ```
 
-## See Also
+Channels and Spark components need no change. What stays per process is whatever you keep in your own
+variables (the presence registry above, for example). WebSockets are sticky to the server that accepted
+them. On shutdown they are not drained: a graceful stop waits for HTTP requests in flight, not for open
+WebSockets, and only Spark connections are closed explicitly (with a "service restart" code, so the
+browser reconnects to another process).
+
+## See also
 
 - [Components](components.md)
 - [Channel Reference](../../reference/api/channel.md)
-- [How to Create WebSocket Channel](../../how-to/real-time/create-websocket-channel.md)
+- [How to create a WebSocket channel](../../how-to/real-time/create-websocket-channel.md)

@@ -1,319 +1,330 @@
 # How to Build a Live Component
 
-> **Outdated:** this page describes the previous `Azu::Component` live API (`on_event`, `mount`,
-> `refresh`, `live-*`), which has been removed. See
-> [Spark Live Views](../../explanation/spark-live-views.md) for the current API and the list of breaking changes.
+A live component keeps its state on the server. The browser sends events over a WebSocket, the server
+renders again and sends back only the HTML that changed. This guide builds one step by step. For the
+ideas behind it read [Components](../../explanation/concepts/components.md); for every option see the
+[Component Reference](../../reference/api/component.md).
 
+## A basic live component
 
-This guide shows you how to create real-time UI components that update automatically.
-
-## Basic Live Component
-
-Create a component by including `Azu::Component`:
+Inherit from `Azu::Spark::Component`, declare state, declare the events the browser may trigger with
+`event def`, and describe the HTML in `render`. `mountable` allows the component to be rendered from a page.
 
 ```crystal
-class CounterComponent
-  include Azu::Component
+class Counter < Azu::Spark::Component
+  mountable
 
-  @count = 0
+  prop label : String = "Clicks"
+  state count : Int32 = 0
 
-  def mount(socket)
-    # Called when component is mounted
-    push_state
+  event def increment(by : Int32 = 1) : Nil
+    self.count += by
   end
 
-  def content
-    <<-HTML
-    <div id="counter">
-      <span>Count: #{@count}</span>
-      <button azu-click="increment">+</button>
-      <button azu-click="decrement">-</button>
-    </div>
-    HTML
+  event def reset : Nil
+    self.count = 0
   end
 
-  on_event "increment" do
-    @count += 1
-    push_state
-  end
-
-  on_event "decrement" do
-    @count -= 1
-    push_state
+  def render
+    div class: "counter" do
+      h2 "#{label}: #{count}"
+      button "+1", **spark_click(:increment)
+      button "+10", **spark_click(:increment, by: 10)
+      button "Reset", **spark_click(:reset)
+    end
   end
 end
 ```
 
-## Register Component with Spark
+- `prop` is a read-only input from the page; `state` is owned by the server and re-renders on change.
+- `spark_click(:increment, by: 10)` makes the button send the `increment` event with `by = 10`. The
+  browser can only trigger methods declared with `event def`, and the payload is converted to the
+  declared parameter types.
 
-Add your component to the Spark system:
+## Serve it from a page
 
-```crystal
-# In your application setup
-Azu::Spark.register(CounterComponent)
-```
-
-## Client-Side Setup
-
-Include the Spark JavaScript client:
-
-```html
-<script src="/azu/spark.js"></script>
-<script>
-  Spark.connect('/spark');
-</script>
-```
-
-Mount a component in your HTML:
-
-```html
-<div azu-component="CounterComponent"></div>
-```
-
-## Component with Props
-
-Pass initial data to components:
+Install Spark once at boot, put the script tag in your layout and render the component where you want
+it. The rendered markup contains a signed token that the browser uses to join the live connection.
 
 ```crystal
-class UserCardComponent
-  include Azu::Component
+class Counter < Azu::Spark::Component
+  mountable
 
-  property user_id : Int64
-  @user : User?
+  prop label : String = "Clicks"
+  state count : Int32 = 0
 
-  def mount(socket)
-    @user = User.find(user_id)
-    push_state
+  event def increment(by : Int32 = 1) : Nil
+    self.count += by
   end
 
-  def content
-    if user = @user
-      <<-HTML
-      <div class="user-card">
-        <h3>#{user.name}</h3>
-        <p>#{user.email}</p>
-      </div>
-      HTML
+  def render
+    div do
+      h2 "#{label}: #{count}"
+      button "+1", **spark_click(:increment)
+    end
+  end
+end
+
+Azu::Spark.configure { |c| c.secret = ENV.fetch("SPARK_SECRET", "development-only-secret") }
+Azu::Spark.install
+
+struct PageResponse
+  include Azu::Response
+
+  def render
+    <<-HTML
+    <!doctype html>
+    <html>
+      <body>
+        #{Azu::Spark.render(Counter, label: "Visits")}
+        #{Azu::Spark.script_tag}
+      </body>
+    </html>
+    HTML
+  end
+end
+
+struct PageEndpoint
+  include Azu::Endpoint(Azu::Request, PageResponse)
+
+  get "/"
+
+  def call : PageResponse
+    content_type "text/html"
+    PageResponse.new
+  end
+end
+```
+
+`Azu::Spark.install` registers the WebSocket route (`/spark`) and the client script
+(`/_spark/azu_spark.js`) on the router, so no CDN or inline script is involved. In production and
+staging `SPARK_SECRET` (or `c.secret`) is required, because it signs the join tokens. Props given to
+`Spark.render` are checked at compile time against the `prop` declarations.
+
+Without JavaScript the page still shows the initial HTML; with it, every click updates the component.
+
+## Props and session claims
+
+Props travel inside the signed token, so they must be JSON serializable. For values that identify the
+user, pass claims in `session:`; they are readable in `mount` as `socket.session`:
+
+```crystal
+class Greeting < Azu::Spark::Component
+  mountable
+
+  prop title : String
+  state name : String = "guest"
+
+  def mount(socket : Azu::Spark::Socket, params : Azu::Spark::Params) : Nil
+    self.name = socket.session["name"]? || "guest"
+  end
+
+  def render
+    h1 "#{title}, #{name}"
+  end
+end
+
+Azu::Spark.render(Greeting, title: "Welcome", session: {"name" => "Ada"})
+```
+
+`params` carries the query string of the page, so `params.fetch("page", Int32, 1)` reads `?page=2` with
+a default.
+
+## Handling form input
+
+A form event receives the field values by name. A parameter typed as an `Azu::Request` receives the
+whole payload, so the same contract that validates an endpoint validates the form:
+
+```crystal
+struct SignupRequest
+  include Azu::Request
+
+  getter name : String
+  getter email : String
+
+  def initialize(@name : String = "", @email : String = "")
+  end
+
+  validate name, presence: true, message: "Name is required"
+  validate email, presence: true, message: "Email is required"
+end
+
+class Signup < Azu::Spark::Component
+  mountable
+
+  state signup : SignupRequest = SignupRequest.new
+  state submitted : Bool = false
+
+  event def submit(signup : SignupRequest) : Nil
+    self.signup = signup
+    self.submitted = true
+  end
+
+  private def problems(field : Symbol) : Array(String)
+    submitted ? errors_on(signup, field) : [] of String
+  end
+
+  def render
+    return div("Thanks, #{signup.name}!") if submitted && signup.valid?
+
+    form(**spark_submit(:submit, disable_with: "Saving...")) do
+      input type: "text", name: "name", value: signup.name
+      problems(:name).each { |message| span message, class: "error" }
+      input type: "email", name: "email", value: signup.email
+      problems(:email).each { |message| span message, class: "error" }
+      button "Sign up", type: "submit"
+    end
+  end
+end
+```
+
+Use `spark_change(:event, debounce: 300)` on an input for live validation or search; `debounce` and
+`throttle` limit how often the browser sends events.
+
+## Lifecycle
+
+```crystal
+class Dashboard < Azu::Spark::Component
+  mountable
+
+  state visitors : Int32 = 0
+  state log : Array(String) = [] of String
+
+  def mount(socket : Azu::Spark::Socket, params : Azu::Spark::Params) : Nil
+    self.visitors = params.fetch("visitors", Int32, 0)
+    socket.subscribe("dashboard")
+    socket.every(30.seconds, "refresh")
+  end
+
+  def handle_info(message : Azu::PubSub::Message, socket : Azu::Spark::Socket) : Nil
+    if message.topic == "dashboard"
+      self.log = (log + [message.payload]).last(5)
     else
-      "<div>User not found</div>"
+      self.visitors += 1 # stand-in for reloading data
+    end
+  end
+
+  def unmount(socket : Azu::Spark::Socket) : Nil
+    # Subscriptions and timers are cancelled for you.
+  end
+
+  def render
+    div do
+      h2 "Visitors: #{visitors}"
+      ul { log.each { |entry| li entry } }
     end
   end
 end
 ```
 
-Mount with props:
+`mount` runs on the HTTP render (`socket.connected?` is false, so `subscribe` and timers do nothing yet)
+and again when the browser joins. `handle_info` receives PubSub broadcasts, timers (`every`,
+`send_after`) and messages sent with `send_info`.
 
-```html
-<div azu-component="UserCardComponent" azu-props='{"user_id": 123}'></div>
-```
+## Push updates from anywhere
 
-## Handling Form Input
-
-Create interactive forms:
+Every `Dashboard` that is mounted somewhere receives this broadcast and re-renders:
 
 ```crystal
-class TodoFormComponent
-  include Azu::Component
+Azu::PubSub.broadcast("dashboard", "deploy finished")
+```
 
-  @todos = [] of String
-  @input = ""
+See [Broadcast Messages](broadcast-messages.md) for the Redis backend that does the same across processes.
 
-  def content
-    <<-HTML
-    <div id="todo-form">
-      <input type="text"
-             azu-model="input"
-             value="#{@input}"
-             placeholder="Add todo...">
-      <button azu-click="add_todo">Add</button>
+## Child components
 
-      <ul>
-        #{@todos.map { |todo| "<li>#{todo}</li>" }.join}
-      </ul>
-    </div>
-    HTML
+Split a page into components that update independently. `live` embeds a child, identified among its
+siblings by `key`:
+
+```crystal
+class Row < Azu::Spark::Component
+  container "li"
+
+  prop name : String
+  state selected : Bool = false
+
+  event def toggle : Nil
+    self.selected = !selected
   end
 
-  on_event "input_change" do |value|
-    @input = value.as_s
+  def render
+    button "#{selected ? "[x]" : "[ ]"} #{name}", **spark_click(:toggle)
   end
+end
 
-  on_event "add_todo" do
-    unless @input.empty?
-      @todos << @input
-      @input = ""
-      push_state
+class Table < Azu::Spark::Component
+  mountable
+
+  state names : Array(String) = ["Ada", "Grace", "Linus"]
+
+  def render
+    ul do
+      names.each { |name| live Row, key: name, name: name }
     end
   end
 end
 ```
 
-## Component Lifecycle
+Toggling a row re-renders that row only; the table and the other rows are not sent again. Give each
+child a stable key (an id, not the index of a list that can reorder).
 
-Handle lifecycle events:
+## Errors
+
+An event that fails to convert (`by=many` for an `Int32`) is rejected before your handler runs and the
+state is untouched. An exception raised inside a handler is logged and reported to the browser as an
+`error` frame; outside development and test the frame carries only a generic text, never your message.
+The component stays usable. Refuse a connection from `mount`:
 
 ```crystal
-class LifecycleComponent
-  include Azu::Component
+class AdminPanel < Azu::Spark::Component
+  mountable
 
-  def mount(socket)
-    # Called when component first mounts
-    load_initial_data
+  def mount(socket : Azu::Spark::Socket, params : Azu::Spark::Params) : Nil
+    socket.reject!("forbidden") unless socket.session["role"]? == "admin"
   end
 
-  def unmount
-    # Called when component is removed
-    cleanup_resources
-  end
-
-  def before_update
-    # Called before state update
-  end
-
-  def after_update
-    # Called after state update
-  end
-
-  private def load_initial_data
-    # Load data from database, etc.
-  end
-
-  private def cleanup_resources
-    # Clean up subscriptions, etc.
+  def render
+    h1 "Admin"
   end
 end
 ```
 
-## Real-time Updates
+## Test it
 
-Push updates from server events:
+`Azu::Spark::Testing` drives a component with a real session and no WebSocket:
 
 ```crystal
-class NotificationComponent
-  include Azu::Component
+require "spec"
 
-  @notifications = [] of Notification
+class Counter < Azu::Spark::Component
+  prop label : String = "Clicks"
+  state count : Int32 = 0
 
-  def mount(socket)
-    # Subscribe to notification channel
-    NotificationService.subscribe(current_user_id) do |notification|
-      @notifications.unshift(notification)
-      push_state
-    end
+  event def increment(by : Int32 = 1) : Nil
+    self.count += by
   end
 
-  def content
-    <<-HTML
-    <div class="notifications">
-      #{@notifications.map { |n| render_notification(n) }.join}
-    </div>
-    HTML
-  end
-
-  private def render_notification(n : Notification)
-    <<-HTML
-    <div class="notification #{n.read? ? "" : "unread"}">
-      <p>#{n.message}</p>
-      <button azu-click="dismiss" azu-value="#{n.id}">Dismiss</button>
-    </div>
-    HTML
-  end
-
-  on_event "dismiss" do |id|
-    @notifications.reject! { |n| n.id == id.as_i }
-    push_state
+  def render
+    h2 "#{label}: #{count}"
   end
 end
-```
 
-## Optimizing Updates
-
-Use partial updates for better performance:
-
-```crystal
-class ListComponent
-  include Azu::Component
-
-  @items = [] of Item
-
-  def content
-    <<-HTML
-    <ul id="item-list">
-      #{@items.map { |item| render_item(item) }.join}
-    </ul>
-    HTML
-  end
-
-  on_event "add_item" do |data|
-    item = Item.new(data["name"].as_s)
-    @items << item
-
-    # Push only the new item instead of full re-render
-    push_append("#item-list", render_item(item))
-  end
-
-  private def render_item(item : Item)
-    %(<li id="item-#{item.id}">#{item.name}</li>)
-  end
-end
-```
-
-## Component Communication
-
-Components can communicate via events:
-
-```crystal
-class ParentComponent
-  include Azu::Component
-
-  @selected_id : Int64?
-
-  def content
-    <<-HTML
-    <div>
-      <div azu-component="ListComponent" azu-on-select="handle_select"></div>
-      <div azu-component="DetailComponent" azu-props='{"id": #{@selected_id}}'></div>
-    </div>
-    HTML
-  end
-
-  on_event "handle_select" do |id|
-    @selected_id = id.as_i64
-    push_state
-  end
-end
-```
-
-## Error Handling
-
-Handle component errors gracefully:
-
-```crystal
-class SafeComponent
-  include Azu::Component
-
-  @error : String?
-
-  def content
-    if error = @error
-      %(<div class="error">#{error}</div>)
-    else
-      render_content
-    end
-  end
-
-  on_event "risky_action" do
-    begin
-      perform_risky_action
-    rescue ex
-      @error = "Something went wrong: #{ex.message}"
-      push_state
+describe Counter do
+  it "increments" do
+    Azu::Spark::Testing.mount(Counter, label: "Hits") do |view|
+      view.trigger("increment", by: 2)
+      view.html.should contain("Hits: 2")
+      view.assigns[:count].should eq 2
     end
   end
 end
 ```
 
-## See Also
+Testing over a real socket is covered in [Testing WebSockets](../testing/test-websockets.md).
 
-- [Create WebSocket Channel](create-websocket-channel.md)
+## See also
+
+- [Create a WebSocket channel](create-websocket-channel.md)
 - [Broadcast Messages](broadcast-messages.md)
+- [Spark live views](../../explanation/spark-live-views.md)
+- [Component Reference](../../reference/api/component.md)

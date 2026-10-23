@@ -1,342 +1,338 @@
 # Component Reference
 
-> **Outdated:** this page describes the previous `Azu::Component` live API (`on_event`, `mount`,
-> `refresh`, `live-*`), which has been removed. See
-> [Spark Live Views](../../explanation/spark-live-views.md) for the current API and the list of breaking changes.
+Azu has two kinds of components:
 
+- **`Azu::Component`** is a static piece of HTML written with the `Azu::Markup` DSL. It renders once.
+- **`Azu::Spark::Component`** is a live component. Its state lives on the server, the browser sends
+  events over a WebSocket, and the server pushes the HTML that changed. See
+  [Spark live views](../../explanation/spark-live-views.md) for the architecture.
 
-Components provide real-time, stateful UI elements that update automatically via WebSocket.
+## Azu::Component
 
-## Including Component
+Include the module, describe the markup in `content`, call `render` to get a `String`.
 
 ```crystal
-class MyComponent
+class Greeting
   include Azu::Component
 
-  def content
-    "<div>Hello</div>"
-  end
-end
-```
-
-## Required Methods
-
-### content
-
-Return the HTML content of the component.
-
-```crystal
-def content : String
-  <<-HTML
-  <div id="my-component">
-    <p>Count: #{@count}</p>
-  </div>
-  HTML
-end
-```
-
-**Returns:** `String` - HTML content
-
-## Lifecycle Methods
-
-### mount
-
-Called when component is first connected.
-
-```crystal
-def mount(socket)
-  @socket = socket
-  load_initial_data
-  push_state
-end
-```
-
-**Parameters:**
-- `socket` - WebSocket connection
-
-### unmount
-
-Called when component is disconnected.
-
-```crystal
-def unmount
-  cleanup_subscriptions
-  save_state
-end
-```
-
-## Instance Methods
-
-### push_state
-
-Push current state to client, triggering re-render.
-
-```crystal
-on_event "increment" do
-  @count += 1
-  push_state  # Sends updated HTML to client
-end
-```
-
-### push_append
-
-Append content to an element.
-
-```crystal
-def add_item(item)
-  @items << item
-  push_append("#items-list", render_item(item))
-end
-```
-
-**Parameters:**
-- `selector : String` - CSS selector
-- `html : String` - HTML to append
-
-### push_prepend
-
-Prepend content to an element.
-
-```crystal
-def add_notification(notification)
-  push_prepend("#notifications", render_notification(notification))
-end
-```
-
-### push_replace
-
-Replace an element's content.
-
-```crystal
-def update_status(status)
-  push_replace("#status", "<span>#{status}</span>")
-end
-```
-
-### push_remove
-
-Remove an element.
-
-```crystal
-def remove_item(id)
-  @items.reject! { |i| i.id == id }
-  push_remove("#item-#{id}")
-end
-```
-
-## Event Handling
-
-### on_event
-
-Define event handlers.
-
-```crystal
-on_event "click_button" do
-  handle_button_click
-end
-
-on_event "submit_form" do |data|
-  name = data["name"].as_s
-  process_form(name)
-end
-```
-
-**Parameters:**
-- `event_name : String` - Event name from client
-- `&block` - Handler block (optionally receives event data)
-
-### Client-Side Events
-
-```html
-<button azu-click="click_button">Click Me</button>
-<button azu-click="delete" azu-value="123">Delete</button>
-<input azu-change="input_changed" azu-model="name">
-<form azu-submit="submit_form">...</form>
-```
-
-**Event Attributes:**
-- `azu-click` - Click event
-- `azu-change` - Change event
-- `azu-submit` - Form submit
-- `azu-keyup` - Key up event
-- `azu-keydown` - Key down event
-- `azu-focus` - Focus event
-- `azu-blur` - Blur event
-
-**Data Attributes:**
-- `azu-value` - Value to send with event
-- `azu-model` - Two-way data binding
-
-## Properties
-
-### property
-
-Define component properties.
-
-```crystal
-class UserComponent
-  include Azu::Component
-
-  property user_id : Int64
-  property show_details : Bool = false
-
-  def mount(socket)
-    @user = User.find(user_id)
-    push_state
-  end
-end
-```
-
-Usage in HTML:
-```html
-<div azu-component="UserComponent" azu-props='{"user_id": 123, "show_details": true}'></div>
-```
-
-## State Management
-
-```crystal
-class CounterComponent
-  include Azu::Component
-
-  @count = 0
-  @history = [] of Int32
-
-  def content
-    <<-HTML
-    <div>
-      <p>Count: #{@count}</p>
-      <button azu-click="increment">+</button>
-      <button azu-click="decrement">-</button>
-      <button azu-click="reset">Reset</button>
-    </div>
-    HTML
-  end
-
-  on_event "increment" do
-    @history << @count
-    @count += 1
-    push_state
-  end
-
-  on_event "decrement" do
-    @history << @count
-    @count -= 1
-    push_state
-  end
-
-  on_event "reset" do
-    @history.clear
-    @count = 0
-    push_state
-  end
-end
-```
-
-## Registration
-
-### Registering with Spark
-
-```crystal
-Azu::Spark.register(MyComponent)
-Azu::Spark.register(CounterComponent)
-Azu::Spark.register(UserComponent)
-```
-
-## Client Setup
-
-### JavaScript Connection
-
-```html
-<script src="/azu/spark.js"></script>
-<script>
-  document.addEventListener('DOMContentLoaded', function() {
-    Spark.connect('/spark');
-  });
-</script>
-```
-
-### Component Mounting
-
-```html
-<div azu-component="CounterComponent"></div>
-<div azu-component="UserComponent" azu-props='{"user_id": 42}'></div>
-```
-
-## Complete Example
-
-```crystal
-class TodoComponent
-  include Azu::Component
-
-  @todos = [] of Todo
-  @new_todo = ""
-
-  def mount(socket)
-    @todos = Todo.all
-    push_state
+  def initialize(@name : String)
   end
 
   def content
-    <<-HTML
-    <div class="todo-app">
-      <h1>Todos (#{@todos.size})</h1>
+    div class: "greeting" do
+      h1 "Hello #{@name}"
+      tag(:p) { text "Welcome back." }
+    end
+  end
+end
 
-      <form azu-submit="add_todo">
-        <input type="text"
-               azu-model="new_todo"
-               value="#{@new_todo}"
-               placeholder="What needs to be done?">
-        <button type="submit">Add</button>
-      </form>
+Greeting.new("Azu").render
+# => "<div class='greeting'><h1>Hello Azu</h1><p>Welcome back.</p></div>"
+```
 
-      <ul id="todo-list">
-        #{@todos.map { |t| render_todo(t) }.join}
-      </ul>
-    </div>
-    HTML
+Text is HTML-escaped. `raw(html)` writes markup unescaped, `text(string)` writes escaped text.
+Attributes are named arguments; `true` renders a bare boolean attribute (`disabled: true`) and `false`
+omits it. There is no `p` helper (it would clash with `Kernel#p`); write a paragraph with
+`tag(:p) { text "..." }`.
+
+```crystal
+class SignupForm
+  include Azu::Component
+
+  def content
+    form action: "/users", method: "post" do
+      label "Email", for: "email"
+      input type: "email", id: "email", name: "email", required: true
+      button "Sign up", type: "submit", disabled: false
+    end
+    raw "<!-- rendered by SignupForm -->"
+  end
+end
+
+SignupForm.new.render
+```
+
+A static component can be returned from an endpoint response:
+
+```crystal
+struct GreetingResponse
+  include Azu::Response
+
+  def initialize(@name : String)
   end
 
-  private def render_todo(todo : Todo)
-    <<-HTML
-    <li id="todo-#{todo.id}" class="#{todo.completed? ? "completed" : ""}">
-      <input type="checkbox"
-             azu-change="toggle"
-             azu-value="#{todo.id}"
-             #{todo.completed? ? "checked" : ""}>
-      <span>#{todo.title}</span>
-      <button azu-click="delete" azu-value="#{todo.id}">×</button>
-    </li>
-    HTML
+  def render
+    Greeting.new(@name).render
+  end
+end
+
+struct GreetingEndpoint
+  include Azu::Endpoint(Azu::Request, GreetingResponse)
+
+  get "/greeting/:name"
+
+  def call : GreetingResponse
+    content_type "text/html"
+    GreetingResponse.new(params["name"])
+  end
+end
+```
+
+## Azu::Spark::Component
+
+Inherit directly from `Azu::Spark::Component` (declarations are not inherited through intermediate
+component classes), declare the inputs and state, and implement `render`.
+
+```crystal
+class Counter < Azu::Spark::Component
+  mountable
+
+  prop label : String = "Clicks"
+  state count : Int32 = 0
+
+  event def increment(by : Int32 = 1) : Nil
+    self.count += by
   end
 
-  on_event "new_todo_change" do |value|
-    @new_todo = value.as_s
+  def render
+    div do
+      h2 "#{label}: #{count}"
+      button "+1", **spark_click(:increment)
+      button "+10", **spark_click(:increment, by: 10)
+    end
+  end
+end
+```
+
+### Declarations
+
+| Macro | Description |
+| --- | --- |
+| `prop name : Type [= default]` | A read-only input supplied by the page (`Spark.render`) or the parent (`live`). A prop without a default is required. Defines a getter. |
+| `state name : Type = default` | Server-owned state; a default is required. Assigning a different value (`self.count += 1`) schedules a render. |
+| `state name : Type = default, persist: true` | The value survives reconnects and server restarts inside a signed snapshot kept by the browser. It must be JSON serializable and not secret. |
+| `assign a: 1, b: 2` | Assigns several states at once; names and value types are checked at compile time. |
+| `event def name(args) : Nil` | A method the browser may trigger. Parameters are read from the payload by name and need a type restriction. Nothing else can be invoked from the client. |
+| `mountable` | Allows `Azu::Spark.render` to render this component from a page. Props must be JSON serializable. |
+| `container "li", class: "todo"` | Chooses the wrapping element (default `div`) and its static attributes. |
+
+`id`, `socket`, `render`, `mount`, `unmount`, `assigns`, `handle_event` and `handle_info` cannot be used
+as prop or state names.
+
+### Lifecycle
+
+```crystal
+class Ticker < Azu::Spark::Component
+  mountable
+
+  state ticks : Int32 = 0
+  state news : Array(String) = [] of String
+
+  def mount(socket : Azu::Spark::Socket, params : Azu::Spark::Params) : Nil
+    self.ticks = params.fetch("start", Int32, 0)
+    socket.subscribe("news")
+    socket.every(1.second, "tick")
   end
 
-  on_event "add_todo" do
-    unless @new_todo.empty?
-      todo = Todo.create!(title: @new_todo)
-      @todos << todo
-      @new_todo = ""
-      push_state
+  def handle_info(message : Azu::PubSub::Message, socket : Azu::Spark::Socket) : Nil
+    if message.topic == "news"
+      self.news = (news + [message.payload]).last(5)
+    else
+      self.ticks += 1
     end
   end
 
-  on_event "toggle" do |id|
-    if todo = @todos.find { |t| t.id == id.as_i64 }
-      todo.toggle!
-      push_replace("#todo-#{todo.id}", render_todo(todo))
-    end
+  def unmount(socket : Azu::Spark::Socket) : Nil
+    # Subscriptions and timers are cancelled for you; release anything else here.
   end
 
-  on_event "delete" do |id|
-    @todos.reject! { |t| t.id == id.as_i64 }
-    push_remove("#todo-#{id}")
+  def render
+    div do
+      span "ticks: #{ticks}"
+      ul { news.each { |item| li item } }
+    end
   end
 end
 ```
 
-## See Also
+| Callback | When |
+| --- | --- |
+| `mount(socket, params)` | On the initial HTTP render (`socket.connected?` is `false`) and again when the WebSocket joins. Initialise state, read `socket.session`, subscribe, or call `socket.reject!`. |
+| `handle_info(message, socket)` | A PubSub broadcast, a timer or a `send_info` message arrived. The component renders afterwards. |
+| `unmount(socket)` | The component left the page or the connection closed. |
+| `render` | Describes the HTML with the `Azu::Markup` DSL. |
+
+### Socket
+
+`socket` (a `Azu::Spark::Socket`) is the server-side handle of the mounted component.
+
+| Method | Description |
+| --- | --- |
+| `id`, `connected?` | The component id; whether a live connection exists (false while rendering the HTTP page). |
+| `session` | The signed claims given to `Spark.render(..., session: {...})`. |
+| `headers`, `remote_address` | Metadata of the WebSocket connection. |
+| `subscribe(topic)`, `unsubscribe(topic)` | Deliver `PubSub` broadcasts of a topic to `handle_info`. |
+| `broadcast(topic, payload)` | Publish to a topic; non-string payloads are encoded as JSON. |
+| `send_info(payload)` | Queue a message for this component's `handle_info`. |
+| `send_after(delay, payload)`, `every(interval, payload)` | Timers delivering to `handle_info`; cancelled on unmount. |
+| `put_flash(kind, message)`, `clear_flash(kind = nil)`, `flash` | Short-lived messages the component can render. |
+| `push_event(name, payload)` | Dispatches the DOM event `spark:<name>` on the component's element. |
+| `redirect(to, replace = false)` | Navigates the browser to a path of this application. |
+| `reject!(reason)` | Refuses the connection from `mount`. |
+
+### Bindings
+
+Bindings return a named tuple of `spark-*` attributes that you double-splat into a tag. The event
+must be declared with `event def`, otherwise compilation fails.
+
+```crystal
+class Search < Azu::Spark::Component
+  mountable
+
+  state query : String = ""
+  state saved : Array(String) = [] of String
+
+  event def search(q : String) : Nil
+    self.query = q
+  end
+
+  event def save : Nil
+    self.saved = saved + [query]
+  end
+
+  event def remove(index : Int32) : Nil
+    remaining = saved.dup
+    remaining.delete_at(index) if index < remaining.size
+    self.saved = remaining
+  end
+
+  def render
+    div do
+      input **spark_change(:search, debounce: 300), type: "text", name: "q", value: query
+      form(**spark_submit(:save, disable_with: "Saving...")) do
+        button "Save", type: "submit"
+      end
+      saved.each_with_index do |item, index|
+        button "Remove #{item}", **spark_click(:remove, index: index, confirm: "Sure?")
+      end
+    end
+  end
+end
+```
+
+`spark_click`, `spark_submit`, `spark_change`, `spark_keydown`, `spark_keyup`, `spark_blur` and
+`spark_focus` accept these options: `debounce: ms`, `throttle: ms`, `target: :parent | :root | "css selector"`,
+`key: "Enter"`, `confirm: "text"`, `disable_with: "text"` and `optimistic_class: "css-class"`. Any other
+option is sent to the handler as a parameter (`index: 3` reaches `def remove(index : Int32)`).
+Crystal requires double splats before named arguments: write `button "+", **spark_click(:inc), class: "btn"`.
+
+### Child components
+
+`live` embeds a child component, identified among its siblings by `key`. Props are checked against the
+child's `prop` declarations at compile time.
+
+```crystal
+class TodoItem < Azu::Spark::Component
+  container "li", class: "todo"
+
+  prop text : String
+  prop done : Bool = false
+
+  def render
+    span text, class: done ? "done" : ""
+  end
+end
+
+class TodoList < Azu::Spark::Component
+  mountable
+
+  state items : Array(String) = ["Write docs", "Ship"]
+
+  def render
+    ul do
+      items.each_with_index { |item, index| live TodoItem, key: index.to_s, text: item }
+    end
+  end
+end
+```
+
+### Rendering from a page
+
+```crystal
+class Counter < Azu::Spark::Component
+  mountable
+
+  prop label : String = "Clicks"
+  state count : Int32 = 0
+
+  event def increment(by : Int32 = 1) : Nil
+    self.count += by
+  end
+
+  def render
+    h2 "#{label}: #{count}"
+  end
+end
+
+# once, at boot
+Azu::Spark.configure { |c| c.secret = ENV.fetch("SPARK_SECRET", "development-only") }
+Azu::Spark.install
+
+# in a layout
+Azu::Spark.script_tag
+
+# in a page: the markup plus a signed token the browser uses to join
+Azu::Spark.render(Counter, label: "Visits", session: {"user_id" => "42"})
+```
+
+`Azu::Spark.render` signs the component id, type, props and session claims with `config.secret`
+(required in production and staging). Props are checked at compile time.
+
+### Configuration
+
+`Azu::CONFIG.spark` (`Azu::Spark.config`) exposes `path`, `assets_path`, `secret`, `token_ttl`,
+`allowed_origins`, `max_message_size`, `max_components`, `events_per_second`, `event_burst`,
+`heartbeat_interval`, `idle_timeout` and `max_snapshot_size`. Most can also be set through
+`SPARK_*` environment variables.
+
+### Testing
+
+`Azu::Spark::Testing` drives a component with a real session, without a WebSocket.
+
+```crystal
+require "spec"
+
+class Counter < Azu::Spark::Component
+  mountable
+
+  prop label : String = "Clicks"
+  state count : Int32 = 0
+
+  event def increment(by : Int32 = 1) : Nil
+    self.count += by
+  end
+
+  def render
+    h2 "#{label}: #{count}"
+  end
+end
+
+
+describe Counter do
+  it "counts" do
+    Azu::Spark::Testing.mount(Counter, label: "Clicks") do |view|
+      view.trigger("increment", by: 5)
+      view.html.should contain("Clicks: 5")
+      view.assigns[:count].should eq 5
+    end
+  end
+end
+```
+
+See [Testing WebSockets](../../how-to/testing/test-websockets.md) for the connection level.
+
+## See also
 
 - [Channel Reference](channel.md)
-- [How to Build Live Component](../../how-to/real-time/build-live-component.md)
+- [Building live components](../../how-to/real-time/build-live-component.md)
+- [Spark live views](../../explanation/spark-live-views.md)

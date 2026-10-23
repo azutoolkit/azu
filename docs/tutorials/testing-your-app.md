@@ -1,576 +1,602 @@
 # Testing Your App
 
-This tutorial teaches you how to write comprehensive tests for your Azu application, including endpoints, models, and WebSocket channels.
+This tutorial teaches you how to write tests for an Azu application: endpoints, request contracts,
+WebSocket channels and live components. Every example runs with the tools that ship with Crystal
+(`spec`, `HTTP::Server`, `HTTP::Client`, `HTTP::WebSocket`) and with Azu's own `Azu::App` and
+`Azu::Spark::Testing`.
 
 ## What You'll Learn
 
 By the end of this tutorial, you'll be able to:
 
-- Set up a testing environment
-- Write unit tests for endpoints
+- Set up a spec helper that serves your app in-process
+- Test endpoints through the real handler chain
 - Test request validation
-- Test database models
-- Test WebSocket channels
+- Test WebSocket channels and PubSub
+- Test live (Spark) components
+- Organise and run your specs
 
 ## Prerequisites
 
-- Completed previous tutorials
+- Completed the previous tutorials (the examples use a small user API like the one you built)
 - Basic understanding of testing concepts
+- Crystal 1.19.1 or newer
+
+Azu has no `Azu::Testing` module yet, so there are no special helpers to learn: the pieces below are
+plain Crystal.
 
 ## Step 1: Test Setup
 
-Create `spec/spec_helper.cr`:
+Create `spec/spec_helper.cr`. It loads the application and defines the two helpers the rest of the
+tutorial uses: `serve` runs an app on a free local port, and `WsClient` talks to it over a WebSocket.
 
 ```crystal
 require "spec"
-require "../src/user_api"
+require "azu"
+require "http/client"
+require "http/web_socket"
 
-# Test configuration
-module TestConfig
-  def self.setup
-    # Use test database
-    ENV["DATABASE_URL"] = "sqlite3://./test.db"
-    ENV["AZU_ENV"] = "test"
+# Runs *app* on a free local port while the block executes and yields an HTTP client for it.
+# Endpoints declared with get/post/... register on Azu::App.default.
+def serve(app : Azu::App = Azu::App.default, &)
+  handlers = [Azu::Handler::RequestId.new, Azu::Handler::Rescuer.new] of HTTP::Handler
+  server = app.server(handlers)
+  address = server.bind_unused_port("127.0.0.1")
+  spawn { server.listen }
+  Fiber.yield
+  begin
+    yield HTTP::Client.new(address.address, address.port)
+  ensure
+    server.close
   end
 end
 
-# Helper module for creating test contexts
-module TestHelpers
-  def create_context(
-    method : String = "GET",
-    path : String = "/",
-    body : String? = nil,
-    headers : HTTP::Headers = HTTP::Headers.new
-  ) : HTTP::Server::Context
-    io = IO::Memory.new
-    request = HTTP::Request.new(method, path, headers, body)
-    response = HTTP::Server::Response.new(io)
-    HTTP::Server::Context.new(request, response)
+# A WebSocket client that collects the text frames the server sends.
+class WsClient
+  def initialize(port : Int32, path : String)
+    @messages = ::Channel(String).new(64)
+    @socket = HTTP::WebSocket.new("127.0.0.1", path, port)
+    @socket.on_message { |message| @messages.send(message) }
+    spawn do
+      @socket.run
+    rescue IO::Error
+    end
   end
 
-  def json_headers : HTTP::Headers
-    headers = HTTP::Headers.new
-    headers["Content-Type"] = "application/json"
-    headers
+  def send(message : String) : Nil
+    @socket.send(message)
   end
 
-  def parse_response(context : HTTP::Server::Context) : JSON::Any
-    context.response.close
-    body = context.response.@io.as(IO::Memory).to_s
-    JSON.parse(body.split("\r\n\r\n").last)
+  # The next frame, or nil when the timeout passes.
+  def receive(timeout : Time::Span = 2.seconds) : String?
+    select
+    when message = @messages.receive?
+      message
+    when timeout(timeout)
+      nil
+    end
   end
-end
 
-# Setup before all tests
-TestConfig.setup
-
-Spec.before_each do
-  # Clean database before each test
-  User.delete_all if defined?(User)
+  def close : Nil
+    @socket.close
+  end
 end
 ```
+
+`serve` builds the handler chain with `RequestId` (so responses carry `X-Request-ID`) and `Rescuer`
+(so raised errors become the 404, 401 or 422 responses clients see). In a real project each spec file
+starts with `require "./spec_helper"` and the application file.
 
 ## Step 2: Testing Endpoints
 
-Create `spec/endpoints/create_user_endpoint_spec.cr`:
+An endpoint spec starts the app, makes a real request and checks the response.
 
 ```crystal
-require "../spec_helper"
+require "spec"
+require "azu"
+require "http/client"
 
-describe CreateUserEndpoint do
-  include TestHelpers
+def serve(app : Azu::App = Azu::App.default, &)
+  server = app.server([Azu::Handler::RequestId.new, Azu::Handler::Rescuer.new] of HTTP::Handler)
+  address = server.bind_unused_port("127.0.0.1")
+  spawn { server.listen }
+  Fiber.yield
+  begin
+    yield HTTP::Client.new(address.address, address.port)
+  ensure
+    server.close
+  end
+end
 
-  describe "#call" do
-    it "creates a user with valid data" do
-      body = {
-        name: "Alice Smith",
-        email: "alice@example.com",
-        age: 30
-      }.to_json
+USERS = {} of Int64 => {name: String, email: String}
 
-      context = create_context("POST", "/users", body, json_headers)
-      endpoint = CreateUserEndpoint.new
+struct CreateUserRequest
+  include Azu::Request
 
-      # Simulate the request
-      endpoint.context = context
-      response = endpoint.call
+  getter name : String
+  getter email : String
 
-      response.should be_a(UserResponse)
-      context.response.status_code.should eq(201)
-    end
+  def initialize(@name = "", @email = "")
+  end
 
-    it "returns validation error for missing name" do
-      body = {email: "alice@example.com"}.to_json
-      context = create_context("POST", "/users", body, json_headers)
-      endpoint = CreateUserEndpoint.new
-      endpoint.context = context
+  validate name, presence: true, size: 2..50
+  validate email, presence: true, match: /@/
+end
 
-      expect_raises(Azu::Response::ValidationError) do
-        endpoint.call
+struct UserResponse
+  include Azu::Response
+
+  def initialize(@id : Int64, @name : String, @email : String)
+  end
+
+  def render
+    {id: @id, name: @name, email: @email}.to_json
+  end
+end
+
+struct CreateUserEndpoint
+  include Azu::Endpoint(CreateUserRequest, UserResponse)
+
+  post "/users"
+
+  def call : UserResponse
+    user = create_user_request
+    id = USERS.size.to_i64 + 1
+    USERS[id] = {name: user.name, email: user.email}
+    status 201
+    content_type "application/json"
+    UserResponse.new(id, user.name, user.email)
+  end
+end
+
+struct ShowUserEndpoint
+  include Azu::Endpoint(Azu::Request, UserResponse)
+
+  get "/users/:id"
+
+  def call : UserResponse
+    id = params["id"].to_i64
+    user = USERS[id]? || raise Azu::Response::NotFound.new("/users/#{id}")
+    content_type "application/json"
+    UserResponse.new(id, user[:name], user[:email])
+  end
+end
+
+describe "users API" do
+  json = HTTP::Headers{"Content-Type" => "application/json", "Accept" => "application/json"}
+
+  before_each { USERS.clear }
+
+  describe "POST /users" do
+    it "creates a user" do
+      serve do |client|
+        response = client.post "/users", headers: json, body: {name: "Ada", email: "ada@example.com"}.to_json
+
+        response.status_code.should eq 201
+        JSON.parse(response.body)["name"].should eq "Ada"
+        USERS.size.should eq 1
       end
     end
 
-    it "returns validation error for invalid email" do
-      body = {name: "Alice", email: "invalid-email"}.to_json
-      context = create_context("POST", "/users", body, json_headers)
-      endpoint = CreateUserEndpoint.new
-      endpoint.context = context
+    it "does not run the endpoint for an invalid body" do
+      serve do |client|
+        response = client.post "/users", headers: json, body: {name: "A", email: "nope"}.to_json
 
-      expect_raises(Azu::Response::ValidationError) do
-        endpoint.call
+        response.status_code.should eq 422
+        USERS.should be_empty
+      end
+    end
+  end
+
+  describe "GET /users/:id" do
+    it "returns the user" do
+      USERS[1_i64] = {name: "Ada", email: "ada@example.com"}
+
+      serve do |client|
+        response = client.get "/users/1", headers: json
+
+        response.status_code.should eq 200
+        JSON.parse(response.body)["email"].should eq "ada@example.com"
       end
     end
 
-    it "returns validation error for duplicate email" do
-      # Create first user
-      User.create!(name: "First", email: "alice@example.com")
-
-      body = {name: "Second", email: "alice@example.com"}.to_json
-      context = create_context("POST", "/users", body, json_headers)
-      endpoint = CreateUserEndpoint.new
-      endpoint.context = context
-
-      expect_raises(Azu::Response::ValidationError) do
-        endpoint.call
+    it "answers 404 for an unknown user" do
+      serve do |client|
+        client.get("/users/42", headers: json).status_code.should eq 404
       end
     end
   end
 end
 ```
 
-Create `spec/endpoints/show_user_endpoint_spec.cr`:
+Things to notice:
 
-```crystal
-require "../spec_helper"
+- The endpoint structs register their routes when they are defined, so the spec only has to load them.
+- Requests are real HTTP requests, so status codes, headers and content negotiation are what a client sees.
+- State kept in module-level variables (`USERS`) is cleared in `before_each`; with a database, truncate
+  or roll back in the same place.
 
-describe ShowUserEndpoint do
-  include TestHelpers
-
-  describe "#call" do
-    it "returns user when found" do
-      user = User.create!(name: "Alice", email: "alice@example.com")
-
-      context = create_context("GET", "/users/#{user.id}")
-      endpoint = ShowUserEndpoint.new
-      endpoint.context = context
-      endpoint.params = {"id" => user.id.to_s}
-
-      response = endpoint.call
-
-      response.should be_a(UserResponse)
-    end
-
-    it "raises NotFound for non-existent user" do
-      context = create_context("GET", "/users/999")
-      endpoint = ShowUserEndpoint.new
-      endpoint.context = context
-      endpoint.params = {"id" => "999"}
-
-      expect_raises(Azu::Response::NotFound) do
-        endpoint.call
-      end
-    end
-  end
-end
-```
+See [How to test endpoints](../how-to/testing/test-endpoints.md) for PUT, DELETE, authentication and apps
+built as values.
 
 ## Step 3: Testing Request Validation
 
-Create `spec/requests/create_user_request_spec.cr`:
+A request contract is enforced before the endpoint runs: a body that fails validation is answered with
+`422` and a `application/problem+json` document listing the broken fields. You can test the contract with
+or without HTTP.
 
 ```crystal
-require "../spec_helper"
+require "spec"
+require "azu"
+
+struct CreateUserRequest
+  include Azu::Request
+
+  getter name : String
+  getter email : String
+  getter age : Int32 = 18
+
+  def initialize(@name = "", @email = "", @age = 18)
+  end
+
+  validate name, presence: true, size: 2..50
+  validate email, presence: true, match: /@/
+  validate age, gt: 0, lt: 150
+end
 
 describe CreateUserRequest do
-  describe "validation" do
-    it "validates with correct data" do
-      request = CreateUserRequest.new(
-        name: "Alice Smith",
-        email: "alice@example.com",
-        age: 30
-      )
+  it "accepts valid input" do
+    CreateUserRequest.new("Ada", "ada@example.com", 36).valid?.should be_true
+  end
 
-      request.valid?.should be_true
-      request.errors.should be_empty
-    end
+  it "rejects a missing name" do
+    request = CreateUserRequest.new("", "ada@example.com")
 
-    it "requires name" do
-      request = CreateUserRequest.new(
-        name: "",
-        email: "alice@example.com"
-      )
+    request.valid?.should be_false
+    request.errors.map(&.field).should contain :name
+  end
 
-      request.valid?.should be_false
-      request.errors.map(&.field).should contain("name")
-    end
+  it "rejects a malformed email" do
+    CreateUserRequest.new("Ada", "not-an-email").valid?.should be_false
+  end
 
-    it "validates name length" do
-      request = CreateUserRequest.new(
-        name: "A",  # Too short
-        email: "alice@example.com"
-      )
+  it "rejects an age outside the range" do
+    CreateUserRequest.new("Ada", "ada@example.com", 200).valid?.should be_false
+  end
 
-      request.valid?.should be_false
-    end
+  it "is built from a JSON body the way an endpoint builds it" do
+    request = CreateUserRequest.from_json(%({"name": "Ada", "email": "ada@example.com"}))
 
-    it "requires email" do
-      request = CreateUserRequest.new(
-        name: "Alice Smith",
-        email: ""
-      )
+    request.name.should eq "Ada"
+    request.age.should eq 18
+  end
 
-      request.valid?.should be_false
-      request.errors.map(&.field).should contain("email")
-    end
+  it "is built from form data" do
+    request = CreateUserRequest.from_www_form("name=Ada&email=ada%40example.com")
 
-    it "validates email format" do
-      request = CreateUserRequest.new(
-        name: "Alice Smith",
-        email: "invalid-email"
-      )
-
-      request.valid?.should be_false
-    end
-
-    it "allows nil age" do
-      request = CreateUserRequest.new(
-        name: "Alice Smith",
-        email: "alice@example.com",
-        age: nil
-      )
-
-      request.valid?.should be_true
-    end
-
-    it "validates age range" do
-      request = CreateUserRequest.new(
-        name: "Alice Smith",
-        email: "alice@example.com",
-        age: 200  # Too old
-      )
-
-      request.valid?.should be_false
-    end
+    request.email.should eq "ada@example.com"
   end
 end
 ```
 
-## Step 4: Testing Models
+## Step 4: Testing Business Logic
 
-Create `spec/models/user_spec.cr`:
+Code that is not tied to HTTP, such as the services you extract from endpoints, is tested like any
+Crystal code, without a server. Keeping logic out of endpoints is what makes this possible.
 
 ```crystal
-require "../spec_helper"
+require "spec"
 
-describe User do
-  describe "validations" do
-    it "requires name" do
-      user = User.new(email: "test@example.com")
-      user.valid?.should be_false
-      user.errors.should contain("name")
-    end
+class Discount
+  def self.apply(price : Float64, percent : Int32) : Float64
+    raise ArgumentError.new("percent must be between 0 and 100") unless 0 <= percent <= 100
+    (price * (100 - percent) / 100).round(2)
+  end
+end
 
-    it "validates name length" do
-      user = User.new(name: "A", email: "test@example.com")
-      user.valid?.should be_false
-    end
-
-    it "requires email" do
-      user = User.new(name: "Test User")
-      user.valid?.should be_false
-    end
+describe Discount do
+  it "applies a percentage" do
+    Discount.apply(80.0, 25).should eq 60.0
   end
 
-  describe "CRUD operations" do
-    it "creates a user" do
-      user = User.create!(name: "Test", email: "test@example.com")
-
-      user.id.should_not be_nil
-      user.name.should eq("Test")
-      user.created_at.should_not be_nil
-    end
-
-    it "finds a user by ID" do
-      created = User.create!(name: "Test", email: "test@example.com")
-      found = User.find?(created.id.not_nil!)
-
-      found.should_not be_nil
-      found.try(&.name).should eq("Test")
-    end
-
-    it "updates a user" do
-      user = User.create!(name: "Test", email: "test@example.com")
-      user.update!(name: "Updated")
-
-      User.find?(user.id.not_nil!).try(&.name).should eq("Updated")
-    end
-
-    it "deletes a user" do
-      user = User.create!(name: "Test", email: "test@example.com")
-      user.destroy!
-
-      User.find?(user.id.not_nil!).should be_nil
-    end
-  end
-
-  describe "scopes" do
-    it "filters active users" do
-      User.create!(name: "Active", email: "active@example.com", active: true)
-      User.create!(name: "Inactive", email: "inactive@example.com", active: false)
-
-      active_users = User.active.all
-      active_users.size.should eq(1)
-      active_users.first.name.should eq("Active")
-    end
-
-    it "orders by recent" do
-      first = User.create!(name: "First", email: "first@example.com")
-      sleep 0.1.seconds
-      second = User.create!(name: "Second", email: "second@example.com")
-
-      users = User.recent.all
-      users.first.name.should eq("Second")
-    end
+  it "rejects an impossible percentage" do
+    expect_raises(ArgumentError, /between 0 and 100/) { Discount.apply(10.0, 150) }
   end
 end
 ```
+
+Specs for the database layer are ordinary specs too: point CQL at an in-memory SQLite database and reset
+the tables in `before_each`. [Working with Databases](working-with-databases.md) shows the setup.
 
 ## Step 5: Testing WebSocket Channels
 
-Create `spec/channels/notification_channel_spec.cr`:
+A channel is tested over a real socket, which exercises the handshake and your callbacks together. Register
+the channel on a fresh `Azu::App` so the spec is isolated:
 
 ```crystal
-require "../spec_helper"
+require "spec"
+require "azu"
+require "http/web_socket"
+
+class WsClient
+  def initialize(port : Int32, path : String)
+    @messages = ::Channel(String).new(64)
+    @socket = HTTP::WebSocket.new("127.0.0.1", path, port)
+    @socket.on_message { |message| @messages.send(message) }
+    spawn do
+      @socket.run
+    rescue IO::Error
+    end
+  end
+
+  def send(message : String) : Nil
+    @socket.send(message)
+  end
+
+  def receive(timeout : Time::Span = 2.seconds) : String?
+    select
+    when message = @messages.receive?
+      message
+    when timeout(timeout)
+      nil
+    end
+  end
+
+  def close : Nil
+    @socket.close
+  end
+end
+
+class NotificationChannel < Azu::Channel
+  def on_connect
+    subscribe "notifications"
+    send({type: "connected"}.to_json)
+  end
+
+  def on_message(message : String)
+  end
+
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
+  end
+end
 
 describe NotificationChannel do
-  describe "#on_connect" do
-    it "adds socket to connections" do
-      channel = NotificationChannel.new
-      socket = MockWebSocket.new
+  it "welcomes a client and forwards broadcasts" do
+    app = Azu::App.new
+    app.routes { ws "/notifications", NotificationChannel }
+    server = app.server
+    address = server.bind_unused_port("127.0.0.1")
+    spawn { server.listen }
+    Fiber.yield
 
-      initial_count = NotificationChannel::CONNECTIONS.size
-      channel.socket = socket
-      channel.on_connect
+    begin
+      client = WsClient.new(address.port, "/notifications")
+      client.receive.should eq %({"type":"connected"})
 
-      NotificationChannel::CONNECTIONS.size.should eq(initial_count + 1)
-    end
+      Azu::PubSub.broadcast("notifications", {type: "user_created", name: "Ada"})
 
-    it "sends welcome message" do
-      channel = NotificationChannel.new
-      socket = MockWebSocket.new
-      channel.socket = socket
-      channel.on_connect
-
-      socket.sent_messages.size.should eq(1)
-      message = JSON.parse(socket.sent_messages.first)
-      message["type"].should eq("connected")
+      JSON.parse(client.receive.not_nil!)["name"].should eq "Ada"
+      client.close
+    ensure
+      server.close
     end
   end
 
-  describe "#on_message" do
-    it "responds to ping with pong" do
-      channel = NotificationChannel.new
-      socket = MockWebSocket.new
-      channel.socket = socket
-      channel.on_connect
+  it "does not deliver other topics" do
+    app = Azu::App.new
+    app.routes { ws "/notifications", NotificationChannel }
+    server = app.server
+    address = server.bind_unused_port("127.0.0.1")
+    spawn { server.listen }
+    Fiber.yield
 
-      channel.on_message(%({"type": "ping"}))
+    begin
+      client = WsClient.new(address.port, "/notifications")
+      client.receive # the welcome message
 
-      messages = socket.sent_messages
-      pong = messages.find { |m| JSON.parse(m)["type"] == "pong" }
-      pong.should_not be_nil
+      Azu::PubSub.broadcast("other", "ignored")
+
+      client.receive(200.milliseconds).should be_nil
+      client.close
+    ensure
+      server.close
     end
-
-    it "handles invalid JSON" do
-      channel = NotificationChannel.new
-      socket = MockWebSocket.new
-      channel.socket = socket
-      channel.on_connect
-
-      channel.on_message("invalid json")
-
-      messages = socket.sent_messages
-      error = messages.find { |m| JSON.parse(m)["type"] == "error" }
-      error.should_not be_nil
-    end
-  end
-
-  describe "#on_close" do
-    it "removes socket from connections" do
-      channel = NotificationChannel.new
-      socket = MockWebSocket.new
-      channel.socket = socket
-      channel.on_connect
-
-      count_before = NotificationChannel::CONNECTIONS.size
-      channel.on_close(nil, nil)
-
-      NotificationChannel::CONNECTIONS.size.should eq(count_before - 1)
-    end
-  end
-end
-
-# Mock WebSocket for testing
-class MockWebSocket
-  getter sent_messages = [] of String
-
-  def send(message : String)
-    @sent_messages << message
-  end
-
-  def object_id
-    0_u64
   end
 end
 ```
 
-## Step 6: Integration Tests
+Wait for messages with `receive` (which times out) rather than sleeping, and assert "nothing arrived" with
+a short timeout. [How to test WebSockets](../how-to/testing/test-websockets.md) covers authentication,
+origin checks and the Spark wire protocol.
 
-Create `spec/integration/api_spec.cr`:
+## Step 6: Testing Live Components
+
+`Azu::Spark::Testing` mounts a component with a real session and no socket, so you test state, events and
+rendering directly:
 
 ```crystal
-require "../spec_helper"
-require "http/client"
+require "spec"
+require "azu"
 
-describe "User API Integration" do
-  # Start server before tests
-  before_all do
-    spawn do
-      UserAPI.start
+class Counter < Azu::Spark::Component
+  prop label : String = "Clicks"
+  state count : Int32 = 0
+
+  event def increment(by : Int32 = 1) : Nil
+    self.count += by
+  end
+
+  def render
+    h2 "#{label}: #{count}"
+  end
+end
+
+describe Counter do
+  it "starts at zero" do
+    Azu::Spark::Testing.mount(Counter) do |view|
+      view.html.should contain "Clicks: 0"
     end
-    sleep 1.second  # Wait for server to start
   end
 
-  it "creates and retrieves a user" do
-    # Create user
-    response = HTTP::Client.post(
-      "http://localhost:4000/users",
-      headers: HTTP::Headers{"Content-Type" => "application/json"},
-      body: {name: "Integration Test", email: "integration@test.com"}.to_json
-    )
+  it "counts events" do
+    Azu::Spark::Testing.mount(Counter, label: "Hits") do |view|
+      view.trigger("increment")
+      view.trigger("increment", by: 5)
 
-    response.status_code.should eq(201)
-    user = JSON.parse(response.body)
-    user["name"].should eq("Integration Test")
-
-    # Retrieve user
-    get_response = HTTP::Client.get("http://localhost:4000/users/#{user["id"]}")
-    get_response.status_code.should eq(200)
+      view.html.should contain "Hits: 6"
+      view.assigns[:count].should eq 6
+    end
   end
 
-  it "lists all users" do
-    response = HTTP::Client.get("http://localhost:4000/users")
-
-    response.status_code.should eq(200)
-    data = JSON.parse(response.body)
-    data["users"].as_a.should be_a(Array(JSON::Any))
-  end
-
-  it "returns 404 for non-existent user" do
-    response = HTTP::Client.get("http://localhost:4000/users/999999")
-
-    response.status_code.should eq(404)
-  end
-
-  it "validates request data" do
-    response = HTTP::Client.post(
-      "http://localhost:4000/users",
-      headers: HTTP::Headers{"Content-Type" => "application/json"},
-      body: {name: ""}.to_json
-    )
-
-    response.status_code.should eq(422)
+  it "rejects a payload of the wrong type" do
+    Azu::Spark::Testing.mount(Counter) do |view|
+      expect_raises(Azu::Spark::BadRequest) { view.trigger("increment", by: "lots") }
+      view.assigns[:count].should eq 0
+    end
   end
 end
 ```
 
-## Step 7: Running Tests
+## Step 7: Integration Tests
 
-Run all tests:
+An integration spec drives several requests through the same stack `Azu.start` builds. Use
+`app.default_handlers` for the full default chain (request id, logging, error pages, security headers,
+static files):
 
-```bash
-crystal spec
+```crystal
+require "spec"
+require "azu"
+require "http/client"
+
+struct StatusResponse
+  include Azu::Response
+
+  def render
+    {status: "ok"}.to_json
+  end
+end
+
+struct StatusEndpoint
+  include Azu::Endpoint(Azu::Request, StatusResponse)
+
+  get "/status"
+
+  def call : StatusResponse
+    content_type "application/json"
+    StatusResponse.new
+  end
+end
+
+describe "the default stack" do
+  it "serves the API with its security headers and request id" do
+    app = Azu::App.default
+    server = app.server(app.default_handlers)
+    address = server.bind_unused_port("127.0.0.1")
+    spawn { server.listen }
+    Fiber.yield
+
+    begin
+      client = HTTP::Client.new(address.address, address.port)
+      response = client.get "/status", headers: HTTP::Headers{"Accept" => "application/json"}
+
+      response.status_code.should eq 200
+      response.headers["X-Request-ID"]?.should_not be_nil
+      response.headers["X-Content-Type-Options"]?.should eq "nosniff"
+      client.get("/missing", headers: HTTP::Headers{"Accept" => "application/json"}).status_code.should eq 404
+    ensure
+      app.stop(1.second)
+    end
+  end
+end
 ```
 
-Run specific test file:
+`app.stop` closes the server and waits for requests in flight, as a graceful shutdown does. Open
+WebSockets are not drained.
+
+## Step 8: Running Tests
 
 ```bash
-crystal spec spec/endpoints/create_user_endpoint_spec.cr
-```
-
-Run with verbose output:
-
-```bash
-crystal spec --verbose
-```
-
-Run focused tests:
-
-```bash
-crystal spec --tag focus
+crystal spec                              # everything
+crystal spec spec/endpoints               # one directory
+crystal spec spec/users_spec.cr:12        # one example, by line
+crystal spec --tag focus                  # examples tagged focus: true
+crystal spec --verbose                    # print every example
+crystal spec --order random               # shuffle, to find hidden dependencies
 ```
 
 ## Test Organization
 
-```
+```text
 spec/
-├── spec_helper.cr           # Test configuration
-├── endpoints/               # Endpoint tests
-│   ├── create_user_endpoint_spec.cr
-│   ├── show_user_endpoint_spec.cr
-│   └── ...
-├── requests/                # Request validation tests
-│   ├── create_user_request_spec.cr
-│   └── ...
-├── models/                  # Model tests
-│   └── user_spec.cr
-├── channels/                # WebSocket channel tests
-│   └── notification_channel_spec.cr
-└── integration/             # Integration tests
-    └── api_spec.cr
+├── spec_helper.cr           # serve, WsClient, shared setup
+├── endpoints/               # endpoint specs (real requests)
+├── requests/                # request contract specs
+├── services/                # plain Crystal specs
+├── channels/                # WebSocket channel specs
+├── components/              # Spark component specs
+└── integration/             # whole-stack specs
 ```
 
 ## Best Practices
 
-1. **Test one thing per test** - Each test should verify one specific behavior
-2. **Use descriptive names** - Test names should describe the expected behavior
-3. **Clean up after tests** - Reset database state between tests
-4. **Mock external services** - Don't call real external APIs in tests
-5. **Test edge cases** - Include tests for error conditions and boundary values
+1. **Test one thing per example** and name it after the behaviour.
+2. **Start servers on a free port** (`bind_unused_port`) so specs can run side by side, and close them in `ensure`.
+3. **Never sleep to wait for something**; wait on a `Channel` with a timeout.
+4. **Reset shared state** (module variables, the database, PubSub subscriptions) in `before_each`.
+5. **Keep logic out of endpoints** so most specs need no server.
+6. **Don't call real external services**; put them behind a class you can replace in the spec.
 
 ## Key Concepts Learned
 
-### Test Structure
+### Test structure
 
 ```crystal
-describe ClassName do
-  describe "#method" do
-    it "does something" do
-      # Arrange
-      # Act
-      # Assert
+require "spec"
+
+describe String do
+  describe "#upcase" do
+    it "uppercases every letter" do
+      # arrange
+      name = "ada"
+      # act
+      result = name.upcase
+      # assert
+      result.should eq "ADA"
     end
   end
 end
 ```
 
-### Common Assertions
+### Common assertions
 
 ```crystal
-value.should eq(expected)
-value.should be_true
-value.should be_nil
-value.should_not be_nil
-array.should contain(item)
-expect_raises(ErrorClass) { code }
+require "spec"
+
+describe "assertions" do
+  it "covers the usual cases" do
+    (1 + 1).should eq 2
+    true.should be_true
+    nil.should be_nil
+    "x".should_not be_nil
+    [1, 2, 3].should contain 2
+    expect_raises(ArgumentError) { raise ArgumentError.new("boom") }
+  end
+end
 ```
 
 ## Next Steps
 
 You've learned to test your Azu application. Continue with:
 
+- [How to test endpoints](../how-to/testing/test-endpoints.md) - more endpoint scenarios
+- [How to test WebSockets](../how-to/testing/test-websockets.md) - authentication, origin checks, wire protocol
 - [Deploying to Production](deploying-to-production.md) - Deploy your tested app
-
----
-
-**Your tests are ready!** You now have comprehensive test coverage for your application.

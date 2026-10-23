@@ -34,3 +34,16 @@ docs/reference/database/cql-api.md
 docs/reference/database/query-methods.md
 docs/reference/database-dashboard.md
 docs/tutorials/working-with-databases.md
+docs/how-to/real-time/broadcast-messages.md
+docs/how-to/real-time/create-websocket-channel.md
+docs/how-to/real-time/build-live-component.md
+docs/tutorials/building-live-components.md
+docs/tutorials/adding-websockets.md
+docs/tutorials/testing-your-app.md
+docs/explanation/concepts/real-time.md
+docs/explanation/concepts/components.md
+docs/explanation/spark-live-views.md
+docs/reference/api/channel.md
+docs/reference/api/component.md
+docs/how-to/testing/test-endpoints.md
+docs/how-to/testing/test-websockets.md

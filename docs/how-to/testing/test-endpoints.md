@@ -1,313 +1,486 @@
 # How to Test Endpoints
 
-This guide shows you how to write tests for your Azu endpoints.
+This guide shows how to write specs for Azu endpoints with the tools Crystal and Azu already provide:
+an in-process `HTTP::Server` bound to a free port, and `HTTP::Client`. The requests go through the real
+handler chain, the router, the request contract and the response, exactly as in production.
 
-## Basic Test Setup
+Azu does not ship test helpers (an `Azu::Testing` module is planned but does not exist yet), so the few
+lines of helper below are yours to keep in `spec/spec_helper.cr`.
 
-Create a spec helper:
+## Basic test setup
+
+An `Azu::App` is an application as a value: it has a router and can build an `HTTP::Server`. Endpoints
+declared with `get "/path"`, `post "/path"` and friends register on the default app, `Azu::App.default`.
 
 ```crystal
-# spec/spec_helper.cr
 require "spec"
-require "../src/app"
-
-module TestHelpers
-  def create_context(
-    method : String = "GET",
-    path : String = "/",
-    body : String? = nil,
-    headers : HTTP::Headers = HTTP::Headers.new
-  ) : HTTP::Server::Context
-    io = IO::Memory.new
-    request = HTTP::Request.new(method, path, headers, body)
-    response = HTTP::Server::Response.new(io)
-    HTTP::Server::Context.new(request, response)
-  end
-
-  def json_headers : HTTP::Headers
-    headers = HTTP::Headers.new
-    headers["Content-Type"] = "application/json"
-    headers
-  end
-
-  def with_auth(headers : HTTP::Headers, token : String) : HTTP::Headers
-    headers["Authorization"] = "Bearer #{token}"
-    headers
-  end
-
-  def parse_json_response(context) : JSON::Any
-    context.response.close
-    body = context.response.@io.as(IO::Memory).to_s
-    JSON.parse(body.split("\r\n\r\n").last)
-  end
-end
-```
-
-## Testing GET Endpoints
-
-```crystal
-# spec/endpoints/show_user_endpoint_spec.cr
-require "../spec_helper"
-
-describe ShowUserEndpoint do
-  include TestHelpers
-
-  before_each do
-    User.delete_all
-  end
-
-  describe "#call" do
-    it "returns user when found" do
-      user = User.create!(name: "Alice", email: "alice@example.com")
-
-      context = create_context("GET", "/users/#{user.id}")
-      endpoint = ShowUserEndpoint.new
-      endpoint.context = context
-      endpoint.params = {"id" => user.id.to_s}
-
-      response = endpoint.call
-
-      response.should be_a(UserResponse)
-      context.response.status_code.should eq(200)
-    end
-
-    it "returns 404 for non-existent user" do
-      context = create_context("GET", "/users/999")
-      endpoint = ShowUserEndpoint.new
-      endpoint.context = context
-      endpoint.params = {"id" => "999"}
-
-      expect_raises(Azu::Response::NotFound) do
-        endpoint.call
-      end
-    end
-  end
-end
-```
-
-## Testing POST Endpoints
-
-```crystal
-# spec/endpoints/create_user_endpoint_spec.cr
-require "../spec_helper"
-
-describe CreateUserEndpoint do
-  include TestHelpers
-
-  before_each do
-    User.delete_all
-  end
-
-  describe "#call" do
-    it "creates user with valid data" do
-      body = {name: "Alice", email: "alice@example.com", age: 30}.to_json
-
-      context = create_context("POST", "/users", body, json_headers)
-      endpoint = CreateUserEndpoint.new
-      endpoint.context = context
-
-      response = endpoint.call
-
-      response.should be_a(UserResponse)
-      context.response.status_code.should eq(201)
-
-      User.count.should eq(1)
-    end
-
-    it "returns validation error for missing name" do
-      body = {email: "alice@example.com"}.to_json
-
-      context = create_context("POST", "/users", body, json_headers)
-      endpoint = CreateUserEndpoint.new
-      endpoint.context = context
-
-      expect_raises(Azu::Response::ValidationError) do
-        endpoint.call
-      end
-    end
-
-    it "returns validation error for invalid email" do
-      body = {name: "Alice", email: "invalid"}.to_json
-
-      context = create_context("POST", "/users", body, json_headers)
-      endpoint = CreateUserEndpoint.new
-      endpoint.context = context
-
-      expect_raises(Azu::Response::ValidationError) do
-        endpoint.call
-      end
-    end
-  end
-end
-```
-
-## Testing PUT/PATCH Endpoints
-
-```crystal
-describe UpdateUserEndpoint do
-  include TestHelpers
-
-  it "updates user attributes" do
-    user = User.create!(name: "Alice", email: "alice@example.com")
-    body = {name: "Alice Smith"}.to_json
-
-    context = create_context("PUT", "/users/#{user.id}", body, json_headers)
-    endpoint = UpdateUserEndpoint.new
-    endpoint.context = context
-    endpoint.params = {"id" => user.id.to_s}
-
-    response = endpoint.call
-
-    response.should be_a(UserResponse)
-    User.find(user.id).name.should eq("Alice Smith")
-  end
-end
-```
-
-## Testing DELETE Endpoints
-
-```crystal
-describe DeleteUserEndpoint do
-  include TestHelpers
-
-  it "deletes the user" do
-    user = User.create!(name: "Alice", email: "alice@example.com")
-
-    context = create_context("DELETE", "/users/#{user.id}")
-    endpoint = DeleteUserEndpoint.new
-    endpoint.context = context
-    endpoint.params = {"id" => user.id.to_s}
-
-    endpoint.call
-
-    context.response.status_code.should eq(204)
-    User.find?(user.id).should be_nil
-  end
-end
-```
-
-## Testing with Authentication
-
-```crystal
-describe ProtectedEndpoint do
-  include TestHelpers
-
-  it "returns 401 without token" do
-    context = create_context("GET", "/protected")
-    endpoint = ProtectedEndpoint.new
-    endpoint.context = context
-
-    expect_raises(Azu::Response::Unauthorized) do
-      endpoint.call
-    end
-  end
-
-  it "succeeds with valid token" do
-    user = User.create!(name: "Alice", email: "alice@example.com")
-    token = Token.create(user_id: user.id)
-
-    headers = with_auth(json_headers, token)
-    context = create_context("GET", "/protected", nil, headers)
-    endpoint = ProtectedEndpoint.new
-    endpoint.context = context
-
-    response = endpoint.call
-    context.response.status_code.should eq(200)
-  end
-end
-```
-
-## Integration Tests
-
-Test the full request/response cycle:
-
-```crystal
-# spec/integration/users_api_spec.cr
-require "../spec_helper"
+require "azu"
 require "http/client"
 
-describe "Users API" do
-  BASE_URL = "http://localhost:4000"
+# Serves *app* on a free local port while the block runs and yields a client for it.
+def serve(app : Azu::App = Azu::App.default, &)
+  handlers = [Azu::Handler::RequestId.new, Azu::Handler::Rescuer.new] of HTTP::Handler
+  server = app.server(handlers)
+  address = server.bind_unused_port("127.0.0.1")
+  spawn { server.listen }
+  Fiber.yield
+  begin
+    yield HTTP::Client.new(address.address, address.port)
+  ensure
+    server.close
+  end
+end
 
-  before_all do
-    # Start server in background
-    spawn { MyApp.start }
-    sleep 1.second
+struct HelloResponse
+  include Azu::Response
+
+  def initialize(@name : String)
   end
 
-  describe "POST /users" do
-    it "creates a new user" do
-      response = HTTP::Client.post(
-        "#{BASE_URL}/users",
-        headers: HTTP::Headers{"Content-Type" => "application/json"},
-        body: {name: "Test User", email: "test@example.com"}.to_json
-      )
-
-      response.status_code.should eq(201)
-
-      data = JSON.parse(response.body)
-      data["name"].should eq("Test User")
-      data["email"].should eq("test@example.com")
-    end
+  def render
+    {message: "Hello, #{@name}!"}.to_json
   end
+end
 
-  describe "GET /users/:id" do
-    it "returns the user" do
-      # Create user first
-      create_response = HTTP::Client.post(
-        "#{BASE_URL}/users",
-        headers: HTTP::Headers{"Content-Type" => "application/json"},
-        body: {name: "Test", email: "test@example.com"}.to_json
-      )
-      user_id = JSON.parse(create_response.body)["id"]
+struct HelloEndpoint
+  include Azu::Endpoint(Azu::Request, HelloResponse)
 
-      # Get user
-      response = HTTP::Client.get("#{BASE_URL}/users/#{user_id}")
+  get "/hello/:name"
 
-      response.status_code.should eq(200)
-      JSON.parse(response.body)["id"].should eq(user_id)
+  def call : HelloResponse
+    content_type "application/json"
+    HelloResponse.new(params["name"])
+  end
+end
+
+describe HelloEndpoint do
+  it "greets by name" do
+    serve do |client|
+      response = client.get "/hello/Ada", headers: HTTP::Headers{"Accept" => "application/json"}
+
+      response.status_code.should eq 200
+      response.content_type.should eq "application/json"
+      JSON.parse(response.body)["message"].should eq "Hello, Ada!"
+      response.headers["X-Request-ID"]?.should_not be_nil
     end
   end
 end
 ```
 
-## Testing Response Format
+`RequestId` and `Rescuer` are the minimum for realistic specs: `Rescuer` turns raised errors (a missing
+record, a failed contract) into the error responses clients see. To test with the stack `Azu.start`
+uses, pass `app.default_handlers` instead.
+
+## Testing GET endpoints
+
+Raise `Azu::Response::NotFound` for a missing resource and assert the status the client sees:
 
 ```crystal
-it "returns correct JSON structure" do
-  user = User.create!(name: "Alice", email: "alice@example.com")
-  context = create_context("GET", "/users/#{user.id}")
-  endpoint = ShowUserEndpoint.new
-  endpoint.context = context
-  endpoint.params = {"id" => user.id.to_s}
+require "spec"
+require "azu"
+require "http/client"
 
-  endpoint.call
+def serve(app : Azu::App = Azu::App.default, &)
+  server = app.server([Azu::Handler::Rescuer.new] of HTTP::Handler)
+  address = server.bind_unused_port("127.0.0.1")
+  spawn { server.listen }
+  Fiber.yield
+  begin
+    yield HTTP::Client.new(address.address, address.port)
+  ensure
+    server.close
+  end
+end
 
-  json = parse_json_response(context)
+USERS = {1_i64 => "Ada", 2_i64 => "Grace"}
 
-  json["id"].should eq(user.id)
-  json["name"].should eq("Alice")
-  json["email"].should eq("alice@example.com")
-  json.as_h.has_key?("password").should be_false
+struct UserResponse
+  include Azu::Response
+
+  def initialize(@id : Int64, @name : String)
+  end
+
+  def render
+    {id: @id, name: @name}.to_json
+  end
+end
+
+struct ShowUserEndpoint
+  include Azu::Endpoint(Azu::Request, UserResponse)
+
+  get "/users/:id"
+
+  def call : UserResponse
+    id = params["id"].to_i64
+    name = USERS[id]? || raise Azu::Response::NotFound.new("/users/#{id}")
+    content_type "application/json"
+    UserResponse.new(id, name)
+  end
+end
+
+describe ShowUserEndpoint do
+  json = HTTP::Headers{"Accept" => "application/json"}
+
+  it "returns an existing user" do
+    serve do |client|
+      response = client.get "/users/1", headers: json
+
+      response.status_code.should eq 200
+      JSON.parse(response.body).should eq JSON.parse(%({"id": 1, "name": "Ada"}))
+    end
+  end
+
+  it "answers 404 for an unknown user" do
+    serve do |client|
+      response = client.get "/users/99", headers: json
+
+      response.status_code.should eq 404
+    end
+  end
+
+  it "answers 404 for a path no route matches" do
+    serve do |client|
+      client.get("/nothing-here", headers: json).status_code.should eq 404
+    end
+  end
 end
 ```
 
-## Running Tests
+## Testing POST endpoints and validation
 
-```bash
-# Run all tests
-crystal spec
+A request contract is enforced before `call` runs: a body that fails validation is answered with `422`
+and `application/problem+json`, and a body that is not valid JSON with `400`. Test both.
 
-# Run specific file
-crystal spec spec/endpoints/create_user_endpoint_spec.cr
+```crystal
+require "spec"
+require "azu"
+require "http/client"
 
-# Run with verbose output
-crystal spec --verbose
+def serve(app : Azu::App = Azu::App.default, &)
+  server = app.server([Azu::Handler::Rescuer.new] of HTTP::Handler)
+  address = server.bind_unused_port("127.0.0.1")
+  spawn { server.listen }
+  Fiber.yield
+  begin
+    yield HTTP::Client.new(address.address, address.port)
+  ensure
+    server.close
+  end
+end
 
-# Run tagged tests
-crystal spec --tag focus
+struct CreateUserRequest
+  include Azu::Request
+
+  getter name : String
+  getter email : String
+
+  def initialize(@name = "", @email = "")
+  end
+
+  validate name, presence: true, size: 2..50
+  validate email, presence: true, match: /@/
+end
+
+struct CreatedResponse
+  include Azu::Response
+
+  def initialize(@request : CreateUserRequest)
+  end
+
+  def render
+    {name: @request.name, email: @request.email}.to_json
+  end
+end
+
+struct CreateUserEndpoint
+  include Azu::Endpoint(CreateUserRequest, CreatedResponse)
+
+  post "/users"
+
+  def call : CreatedResponse
+    status 201
+    content_type "application/json"
+    CreatedResponse.new(create_user_request)
+  end
+end
+
+describe CreateUserEndpoint do
+  headers = HTTP::Headers{"Content-Type" => "application/json", "Accept" => "application/json"}
+
+  it "creates a user from a valid body" do
+    serve do |client|
+      body = {name: "Ada", email: "ada@example.com"}.to_json
+      response = client.post "/users", headers: headers, body: body
+
+      response.status_code.should eq 201
+      JSON.parse(response.body)["email"].should eq "ada@example.com"
+    end
+  end
+
+  it "answers 422 with the validation errors" do
+    serve do |client|
+      response = client.post "/users", headers: headers, body: {name: "", email: "nope"}.to_json
+
+      response.status_code.should eq 422
+      response.content_type.should eq "application/problem+json"
+      JSON.parse(response.body)["errors"].as_h.keys.should contain "email"
+    end
+  end
+
+  it "answers 400 for a body that is not JSON" do
+    serve do |client|
+      client.post("/users", headers: headers, body: "{not json").status_code.should eq 400
+    end
+  end
+end
 ```
 
-## See Also
+Request contracts can also be tested without a server, which is quicker when you only care about the
+rules:
 
-- [Test WebSockets](test-websockets.md)
+```crystal
+require "spec"
+require "azu"
+
+struct SignupRequest
+  include Azu::Request
+
+  getter name : String
+  getter email : String
+
+  def initialize(@name = "", @email = "")
+  end
+
+  validate name, presence: true, size: 2..50
+  validate email, presence: true, match: /@/
+end
+
+describe SignupRequest do
+  it "accepts valid input" do
+    SignupRequest.new("Ada", "ada@example.com").valid?.should be_true
+  end
+
+  it "reports a broken field" do
+    request = SignupRequest.new("Ada", "nope")
+
+    request.valid?.should be_false
+    request.errors.map(&.field).should contain :email
+  end
+
+  it "parses a JSON body like an endpoint does" do
+    request = SignupRequest.from_json(%({"name": "Ada", "email": "ada@example.com"}))
+    request.name.should eq "Ada"
+  end
+end
+```
+
+## Testing PUT, PATCH and DELETE
+
+Verbs work the same way; `HTTP::Client` has a method for each, and an endpoint that answers
+`Azu::Response::Empty` returns an empty body:
+
+```crystal
+require "spec"
+require "azu"
+require "http/client"
+
+def serve(app : Azu::App = Azu::App.default, &)
+  server = app.server([Azu::Handler::Rescuer.new] of HTTP::Handler)
+  address = server.bind_unused_port("127.0.0.1")
+  spawn { server.listen }
+  Fiber.yield
+  begin
+    yield HTTP::Client.new(address.address, address.port)
+  ensure
+    server.close
+  end
+end
+
+NOTES = {} of Int64 => String
+
+struct NoteResponse
+  include Azu::Response
+
+  def initialize(@id : Int64, @text : String)
+  end
+
+  def render
+    {id: @id, text: @text}.to_json
+  end
+end
+
+struct UpdateNoteRequest
+  include Azu::Request
+
+  getter text : String
+
+  def initialize(@text = "")
+  end
+
+  validate text, presence: true
+end
+
+struct UpdateNoteEndpoint
+  include Azu::Endpoint(UpdateNoteRequest, NoteResponse)
+
+  put "/notes/:id"
+
+  def call : NoteResponse
+    id = params["id"].to_i64
+    NOTES[id] = update_note_request.text
+    content_type "application/json"
+    NoteResponse.new(id, NOTES[id])
+  end
+end
+
+struct DeleteNoteEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  delete "/notes/:id"
+
+  def call : Azu::Response::Empty
+    NOTES.delete(params["id"].to_i64)
+    status 204
+    Azu::Response::Empty.new
+  end
+end
+
+describe "notes" do
+  headers = HTTP::Headers{"Content-Type" => "application/json", "Accept" => "application/json"}
+
+  before_each { NOTES.clear }
+
+  it "updates a note" do
+    serve do |client|
+      response = client.put "/notes/5", headers: headers, body: {text: "remember"}.to_json
+
+      response.status_code.should eq 200
+      NOTES[5_i64].should eq "remember"
+    end
+  end
+
+  it "deletes a note" do
+    NOTES[5_i64] = "remember"
+    serve do |client|
+      response = client.delete "/notes/5", headers: headers
+
+      response.status_code.should eq 204
+      response.body.should be_empty
+      NOTES.has_key?(5_i64).should be_false
+    end
+  end
+end
+```
+
+## Testing authentication
+
+Send the credentials the way a client does, in a header, and assert on the status:
+
+```crystal
+require "spec"
+require "azu"
+require "http/client"
+
+def serve(app : Azu::App = Azu::App.default, &)
+  server = app.server([Azu::Handler::Rescuer.new] of HTTP::Handler)
+  address = server.bind_unused_port("127.0.0.1")
+  spawn { server.listen }
+  Fiber.yield
+  begin
+    yield HTTP::Client.new(address.address, address.port)
+  ensure
+    server.close
+  end
+end
+
+struct SecretResponse
+  include Azu::Response
+
+  def render
+    {secret: 42}.to_json
+  end
+end
+
+struct SecretEndpoint
+  include Azu::Endpoint(Azu::Request, SecretResponse)
+
+  get "/secret"
+
+  def call : SecretResponse
+    raise Azu::Response::AuthenticationError.new unless header["Authorization"]? == "Bearer let-me-in"
+    content_type "application/json"
+    SecretResponse.new
+  end
+end
+
+describe SecretEndpoint do
+  it "rejects a request without a token" do
+    serve do |client|
+      client.get("/secret", headers: HTTP::Headers{"Accept" => "application/json"}).status_code.should eq 401
+    end
+  end
+
+  it "accepts the right token" do
+    serve do |client|
+      headers = HTTP::Headers{"Accept" => "application/json", "Authorization" => "Bearer let-me-in"}
+      client.get("/secret", headers: headers).status_code.should eq 200
+    end
+  end
+end
+```
+
+## Testing a single app
+
+Apps are values, so a spec can build its own instead of using the global one. Routes declared on an app
+with `routes` take any `Azu::Routable`, including a plain handler:
+
+```crystal
+require "spec"
+require "azu"
+require "http/client"
+
+struct Ping
+  include Azu::Routable
+
+  def call(context : HTTP::Server::Context)
+    context.response.content_type = "text/plain"
+    context.response << "pong"
+    context
+  end
+end
+
+describe "a routed handler" do
+  it "answers on its path" do
+    app = Azu::App.new
+    app.routes { get "/ping", Ping }
+
+    server = app.server
+    address = server.bind_unused_port("127.0.0.1")
+    spawn { server.listen }
+    Fiber.yield
+
+    response = HTTP::Client.get("http://127.0.0.1:#{address.port}/ping")
+    response.body.should eq "pong"
+
+    app.stop(1.second).should be_true
+  end
+end
+```
+
+`app.stop` stops accepting connections and waits for the requests in flight, which is also what a
+graceful shutdown does in production. Open WebSockets are not drained.
+
+## Running the specs
+
+```bash
+crystal spec                          # everything
+crystal spec spec/endpoints           # one directory
+crystal spec spec/users_spec.cr:12    # one example, by line
+crystal spec --tag focus              # examples tagged with focus: true
+```
+
+## See also
+
+- [Testing WebSockets](test-websockets.md)
+- [Testing Your App tutorial](../../tutorials/testing-your-app.md)
+- [Handle validation errors](../validation/handle-validation-errors.md)

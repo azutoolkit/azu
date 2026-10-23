@@ -7,6 +7,17 @@ again and sends only the HTML of the components that changed.
 ## Setup
 
 ```crystal
+class CounterView < Azu::Spark::Component
+  mountable
+
+  prop label : String = "Clicks"
+  state count : Int32 = 0
+
+  def render
+    h2 "#{label}: #{count}"
+  end
+end
+
 # once, at boot
 Azu::Spark.install                       # registers the WebSocket endpoint and the client script
 Azu::Spark.configure { |c| c.secret = ENV["SPARK_SECRET"] }
