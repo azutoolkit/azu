@@ -19,12 +19,16 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context)
-        return call_next(context) unless context.request.path == @path && {"GET", "HEAD"}.includes?(context.request.method)
+        return call_next(context) unless context.request.path.rstrip('/') == @path && {"GET", "HEAD"}.includes?(context.request.method)
 
         failing = @checks.keys.reject { |name| passes?(name) }
-        context.response.status_code = failing.empty? ? 200 : 503
-        context.response.content_type = "application/json"
-        context.response << (failing.empty? ? {status: "ok"}.to_json : {status: "unavailable", failing: failing}.to_json)
+        body = failing.empty? ? {status: "ok"}.to_json : {status: "unavailable", failing: failing}.to_json
+        response = context.response
+        response.status_code = failing.empty? ? 200 : 503
+        response.content_type = "application/json"
+        response.headers["Cache-Control"] = "no-store"
+        response.content_length = body.bytesize
+        response << body unless context.request.method == "HEAD"
       end
 
       private def passes?(name : String) : Bool

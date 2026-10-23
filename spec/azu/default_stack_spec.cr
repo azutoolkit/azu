@@ -60,6 +60,7 @@ describe Azu::App do
         failed.status_code.should eq 500
         failed.headers["X-Content-Type-Options"].should eq "nosniff"
         client.get("/missing").status_code.should eq 404
+        client.get("/hello/").status_code.should eq 200
       end
     end
   end
@@ -89,6 +90,13 @@ describe Azu::Handler::HealthCheck do
       response.status_code.should eq 200
       JSON.parse(response.body)["status"].should eq "ok"
       client.get("/hello").body.should start_with "hello"
+      client.get("/health/?probe=1").status_code.should eq 200
+      response.headers["Cache-Control"].should eq "no-store"
+
+      head = client.head("/health")
+      head.status_code.should eq 200
+      head.headers["Content-Length"].to_i.should eq response.body.bytesize
+      head.body.should be_empty
     end
   end
 

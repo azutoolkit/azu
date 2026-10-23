@@ -61,8 +61,15 @@ keeps today's behaviour exactly: it is used as given and nothing is added to it.
 - `Handler::SecurityHeaders`: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`; HSTS and a
   `Content-Security-Policy` only when asked for (`hsts: true`, `content_security_policy: "..."`). Headers
   the application already set are left alone.
-- `Handler::Compression`: gzip/deflate, the standard library's `HTTP::CompressHandler`.
-- `Handler::HealthCheck`: `GET /health` answers `200`, or `503` naming failing checks, without reaching the router.
+- `Handler::Compression`: gzip/deflate, the standard library's `HTTP::CompressHandler`. Opt-in, and not in the
+  default stack: `Static` already compresses and sets its own `Content-Length`, so put `Compression` only
+  in front of the router (after `Static`), not in front of `Static`.
+- `Handler::HealthCheck`: opt-in, not in the default stack. `GET /health` (or `HEAD`) answers `200`, or `503`
+  naming the failing checks, without reaching the router.
+- The default stack includes `Static` serving `./public` relative to the working directory, with
+  `fallthrough: true`. A file there shadows a route with the same path, and anything in `public/` is
+  served, so keep only public files in it. HSTS follows `config.tls?`; behind a TLS-terminating proxy pass
+  your own `SecurityHeaders.new(hsts: true)`.
 
 ### 0.5.28
 
