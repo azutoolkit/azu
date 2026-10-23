@@ -50,6 +50,7 @@ src/azu/
 ├── response/           # Negotiable (Accept), Stream, EventStream (SSE), NotAcceptable
 ├── negotiation.cr      # Accept parsing & format selection
 ├── channel.cr          # WebSocket channel handlers
+├── presence.cr + presence/  # Azu::Presence: who is in a topic across nodes (Tracker, Store::Memory/Redis, Tracked channel module)
 ├── spark.cr            # Real-time component system
 ├── component.cr        # Static markup components (`Azu::Component`)
 ├── cache.cr            # Multi-store caching (Memory/Redis)

@@ -290,7 +290,9 @@ end
 Azu::PubSub.broadcast("notifications", {text: "Deploy finished"})
 ```
 
-See [Broadcast Messages](../real-time/broadcast-messages.md).
+See [Broadcast Messages](../real-time/broadcast-messages.md), and
+[Scale Real-Time Features Out](scale-out-realtime.md) for the connections, reconnect behaviour and how to
+track who is online across instances with [Presence](../../reference/api/presence.md).
 
 ## Database Scaling
 
