@@ -38,6 +38,12 @@ module Azu
   module Response
     abstract def render
 
+    # Writes this response to the connection; a response that is more than a string overrides it
+    # (`Negotiable` picks a format, `Stream` and `EventStream` keep the connection open).
+    def write_to(context : HTTP::Server::Context) : Nil
+      context.response << render
+    end
+
     class Empty
       include Response
 

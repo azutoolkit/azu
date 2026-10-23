@@ -10,7 +10,8 @@ module Azu::OpenAPI
     request_schema : Map?,
     form_schema : Map?,
     response_schema : Map?,
-    components : Components do
+    components : Components,
+    response_types : Array(String) = [] of String do
     # The operation of an endpoint of type `endpoint` with the given request and response types.
     # A request that is not a `JSON::Serializable` struct (the bare `Azu::Request`) declares no fields,
     # and a response that is not one has no schema: nothing says what it renders.
@@ -23,6 +24,7 @@ module Azu::OpenAPI
         form_schema: described?(Req) ? Schema.object(Req, components, Schema::Form) : nil,
         response_schema: described?(Res) ? Schema.of(Res, components) : nil,
         components: components,
+        response_types: negotiated_types(Res),
       )
     end
 
@@ -30,6 +32,15 @@ module Azu::OpenAPI
     def self.tags_of(name : String) : Array(String)
       namespace = name.split("::")[...-1]
       namespace.empty? ? [] of String : [namespace.last]
+    end
+
+    # The media types a `Response::Negotiable` renders; none for any other response.
+    private def self.negotiated_types(type : T.class) : Array(String) forall T
+      {% if T <= Azu::Response::Negotiable %}
+        T.formats.map(&.media_type)
+      {% else %}
+        [] of String
+      {% end %}
     end
 
     private def self.described?(type : T.class) : Bool forall T
