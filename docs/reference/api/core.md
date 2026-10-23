@@ -14,14 +14,19 @@ end
 
 ### configure
 
-Configure application settings.
+Configure application settings. `configure` yields the configuration, so settings are assigned on the block argument.
 
 ```crystal
-Azu.configure do |config|
-  config.port = 8080
-  config.host = "0.0.0.0"
-  config.env = Environment::Production
-  config.template_hot_reload = false
+module MyApp
+  include Azu
+
+  configure do |config|
+    config.port = 8080
+    config.host = "0.0.0.0"
+    config.env = Azu::Environment::Production
+    config.template_hot_reload = false
+    config.shutdown_timeout = 10.seconds
+  end
 end
 ```
 
@@ -29,19 +34,31 @@ end
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `port` | `Int32` | `4000` | HTTP server port |
-| `host` | `String` | `"0.0.0.0"` | Bind address |
-| `env` | `Environment` | `Development` | Environment mode |
-| `template_hot_reload` | `Bool` | `true` | Reload templates on change |
-| `log` | `Log::Severity` | `Debug` | Log level |
-| `cache` | `Cache::Store` | `MemoryStore` | Cache backend |
+| `port` | `Int32` | `PORT` or `4000` | HTTP server port |
+| `host` | `String` | `HOST` or `"0.0.0.0"` | Bind address |
+| `env` | `Azu::Environment` | `CRYSTAL_ENV` or `Development` | Environment mode |
+| `template_hot_reload` | `Bool` | `true` in development, test and pipeline | Reload templates on change |
+| `log` | `Log` | `Log.for("Azu")` | Logger used by the framework |
+| `cache` | `Azu::Cache::Manager` | memory store | Cache manager (see [cache](#cache)) |
+| `shutdown_timeout` | `Time::Span` | `SHUTDOWN_TIMEOUT` or `30` seconds | How long a stopping server waits for requests in flight |
+| `error_format` | `Azu::ErrorFormat` | `Problem` | Body of request validation failures (`Problem` or `Legacy`) |
+
+See the [Configuration Reference](../configuration/options.md) for the rest.
 
 ## Environment
 
+`Azu::Environment` has these members, in this order:
+
+<!-- skip -->
 ```crystal
 enum Environment
+  Build
   Development
   Test
+  Integration
+  Acceptance
+  Pipeline
+  Staging
   Production
 end
 ```
@@ -49,51 +66,95 @@ end
 ### Checking Environment
 
 ```crystal
-if Azu.env.production?
+module MyApp
+  include Azu
+end
+
+if MyApp.env.production?
   # Production-only code
 end
 
-Azu.env.development?  # => Bool
-Azu.env.test?         # => Bool
+MyApp.env.development? # => Bool
+MyApp.env.test?        # => Bool
 ```
 
 ## Starting the Application
 
 ### start
 
-Start the HTTP server with handlers.
+Start the HTTP server. Without arguments it serves the default handler stack
+(`RequestId`, `Logger`, `Rescuer`, `SecurityHeaders` and `Static`), and it shuts down gracefully on
+`SIGTERM` and `SIGINT`, waiting up to `shutdown_timeout` for requests in flight.
 
 ```crystal
+module MyApp
+  include Azu
+end
+
+MyApp.start
+```
+
+### start (handlers)
+
+Pass an array to choose the handlers yourself. It is used exactly as given and nothing is added to it.
+
+```crystal
+module MyApp
+  include Azu
+end
+
 MyApp.start [
+  Azu::Handler::RequestId.new,
   Azu::Handler::Rescuer.new,
   Azu::Handler::Logger.new,
-  MyEndpoint.new,
-]
+] of HTTP::Handler
 ```
 
 **Parameters:**
-- `handlers : Array(HTTP::Handler)` - Handler chain
+- `handlers : Array(HTTP::Handler)` - Handler chain, run in the order listed. Endpoints are not handlers: they are reached through the router.
 
-### start (block)
+## Apps
 
-Start with a block for additional setup.
+`Azu::App` is an application as a value: its own configuration and router. `include Azu` and the
+endpoint macros drive `Azu::App.default`, the app built around the global `Azu::CONFIG`.
 
 ```crystal
-MyApp.start do |server|
-  server.bind_tcp("0.0.0.0", 8080)
-  server.listen
+struct PingEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  get "/ping"
+
+  def call : Azu::Response::Empty
+    Azu::Response::Empty.new
+  end
 end
+
+app = Azu::App.new
+app.routes do
+  get "/ping", PingEndpoint
+  scope "/api" do
+    get "/ping", PingEndpoint
+  end
+end
+
+admin = Azu::App.new
+admin.routes { get "/ping", PingEndpoint }
+app.routes { mount admin, at: "/admin" }
+
+server = app.server([Azu::Handler::RequestId.new] of HTTP::Handler)
 ```
+
+See [Router Reference](router.md) for `scope` and `mount`.
 
 ## Cache Access
 
 ### cache
 
-Access the configured cache store.
+Access the configured cache store. Time to live is a `Time::Span` passed as `ttl`.
 
 ```crystal
-Azu.cache.set("key", "value", expires_in: 1.hour)
-Azu.cache.get("key")  # => "value"
+Azu.cache.set("key", "value", ttl: 1.hour)
+Azu.cache.get("key") # => "value"
 Azu.cache.delete("key")
 ```
 
@@ -101,10 +162,14 @@ Azu.cache.delete("key")
 
 ### router
 
-Access the application router.
+The router belongs to the configuration. `route_info` lists the registered routes.
 
 ```crystal
-Azu.router.routes  # => Array of registered routes
+module MyApp
+  include Azu
+end
+
+MyApp.config.router.route_info # => Array of hashes with "method", "path" and "handler"
 ```
 
 ## Logging
@@ -114,21 +179,17 @@ Azu.router.routes  # => Array of registered routes
 Access the application logger.
 
 ```crystal
-Azu.log.info { "Application started" }
-Azu.log.error(exception: ex) { "Error occurred" }
-```
+module MyApp
+  include Azu
+end
 
-## Type Aliases
+MyApp.log.info { "Application started" }
 
-```crystal
-alias EmptyRequest = Azu::Request::Empty
-alias Params = Hash(String, String)
-```
-
-## Constants
-
-```crystal
-VERSION = "0.5.28"
+begin
+  raise "boom"
+rescue ex
+  MyApp.log.error(exception: ex) { "Error occurred" }
+end
 ```
 
 ## See Also

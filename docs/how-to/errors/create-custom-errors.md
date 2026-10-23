@@ -2,43 +2,63 @@
 
 This guide shows you how to create custom error types for your Azu application.
 
+An error is an `Azu::Response::Error`: an exception that is also a response. `Azu::Handler::Rescuer` catches it and
+writes it with its status, in the format the `Accept` header asks for. A subclass sets the title, the status
+(an `HTTP::Status`) and the list of messages through `super`, and the longer explanation in `@detail`.
+
 ## Basic Custom Error
 
 Create an error by extending `Azu::Response::Error`:
 
 ```crystal
-class NotFoundError < Azu::Response::Error
+class ResourceNotFound < Azu::Response::Error
   def initialize(resource : String, id : String | Int64)
-    super("#{resource} with id #{id} not found", 404)
+    super(title: "Not Found", status: HTTP::Status::NOT_FOUND, errors: [] of String)
+    @detail = "#{resource} with id #{id} not found"
   end
 end
 
-# Usage
-raise NotFoundError.new("User", params["id"])
+struct ShowEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  get "/users/:id"
+
+  def call : Azu::Response::Empty
+    raise ResourceNotFound.new("User", params["id"])
+  end
+end
 ```
 
 ## Error with Context
 
-Include additional context:
+Keep additional data on the error and expose it in the body by overriding `json`:
 
 ```crystal
-class ValidationError < Azu::Response::Error
-  getter errors : Array(FieldError)
+record FieldError, field : String, message : String
 
-  def initialize(@errors : Array(FieldError))
-    super("Validation failed", 422)
+class ImportFailed < Azu::Response::Error
+  getter rows : Array(FieldError)
+
+  def initialize(@rows : Array(FieldError))
+    super(
+      title: "Import Failed",
+      status: HTTP::Status::UNPROCESSABLE_ENTITY,
+      errors: @rows.map { |row| "#{row.field}: #{row.message}" }
+    )
+    @detail = "#{@rows.size} rows could not be imported"
   end
 
-  def to_json(io : IO)
+  def json : String
     {
-      error: message,
-      details: errors.map { |e| {field: e.field, message: e.message} }
-    }.to_json(io)
+      error:   detail,
+      details: rows.map { |row| {field: row.field, message: row.message} },
+    }.to_json
   end
 end
-
-record FieldError, field : String, message : String
 ```
+
+`errors` is the list of messages shown in the HTML, XML and plain text formats. Request validation failures have
+their own class, `Azu::Response::ValidationError`; raise that one for invalid input.
 
 ## Domain-Specific Errors
 
@@ -48,7 +68,8 @@ Create errors for your domain:
 # Payment errors
 class PaymentError < Azu::Response::Error
   def initialize(message : String)
-    super(message, 402)  # Payment Required
+    super(title: "Payment Required", status: HTTP::Status::PAYMENT_REQUIRED, errors: [] of String)
+    @detail = message
   end
 end
 
@@ -69,7 +90,8 @@ end
 # Inventory errors
 class InventoryError < Azu::Response::Error
   def initialize(message : String)
-    super(message, 422)
+    super(title: "Inventory Error", status: HTTP::Status::UNPROCESSABLE_ENTITY, errors: [] of String)
+    @detail = message
   end
 end
 
@@ -82,7 +104,7 @@ end
 
 ## Error Hierarchy
 
-Create a structured error hierarchy:
+Create a structured error hierarchy with a machine readable code:
 
 ```crystal
 module Errors
@@ -90,48 +112,49 @@ module Errors
   abstract class AppError < Azu::Response::Error
     getter code : String
 
-    def initialize(message : String, status : Int32, @code : String)
-      super(message, status)
+    def initialize(title : String, status : HTTP::Status, message : String, @code : String)
+      super(title: title, status: status, errors: [] of String)
+      @detail = message
     end
 
-    def to_json(io : IO)
+    def json : String
       {
         error: {
-          code: code,
-          message: message
-        }
-      }.to_json(io)
+          code:    code,
+          message: detail,
+        },
+      }.to_json
     end
   end
 
   # Client errors (4xx)
   class BadRequest < AppError
     def initialize(message : String, code = "BAD_REQUEST")
-      super(message, 400, code)
+      super("Bad Request", HTTP::Status::BAD_REQUEST, message, code)
     end
   end
 
   class Unauthorized < AppError
     def initialize(message = "Authentication required")
-      super(message, 401, "UNAUTHORIZED")
+      super("Unauthorized", HTTP::Status::UNAUTHORIZED, message, "UNAUTHORIZED")
     end
   end
 
   class Forbidden < AppError
     def initialize(message = "Access denied")
-      super(message, 403, "FORBIDDEN")
+      super("Forbidden", HTTP::Status::FORBIDDEN, message, "FORBIDDEN")
     end
   end
 
   class NotFound < AppError
     def initialize(resource : String)
-      super("#{resource} not found", 404, "NOT_FOUND")
+      super("Not Found", HTTP::Status::NOT_FOUND, "#{resource} not found", "NOT_FOUND")
     end
   end
 
   class Conflict < AppError
     def initialize(message : String)
-      super(message, 409, "CONFLICT")
+      super("Conflict", HTTP::Status::CONFLICT, message, "CONFLICT")
     end
   end
 
@@ -139,30 +162,30 @@ module Errors
     getter details : Array(Hash(String, String))
 
     def initialize(@details : Array(Hash(String, String)))
-      super("Validation failed", 422, "VALIDATION_FAILED")
+      super("Validation Failed", HTTP::Status::UNPROCESSABLE_ENTITY, "Validation failed", "VALIDATION_FAILED")
     end
 
-    def to_json(io : IO)
+    def json : String
       {
         error: {
-          code: code,
-          message: message,
-          details: details
-        }
-      }.to_json(io)
+          code:    code,
+          message: detail,
+          details: details,
+        },
+      }.to_json
     end
   end
 
   # Server errors (5xx)
   class InternalError < AppError
     def initialize(message = "Internal server error")
-      super(message, 500, "INTERNAL_ERROR")
+      super("Internal Server Error", HTTP::Status::INTERNAL_SERVER_ERROR, message, "INTERNAL_ERROR")
     end
   end
 
   class ServiceUnavailable < AppError
     def initialize(service : String)
-      super("#{service} is temporarily unavailable", 503, "SERVICE_UNAVAILABLE")
+      super("Service Unavailable", HTTP::Status::SERVICE_UNAVAILABLE, "#{service} is temporarily unavailable", "SERVICE_UNAVAILABLE")
     end
   end
 end
@@ -170,85 +193,112 @@ end
 
 ## Error Responses
 
-Create custom response formats:
+Add request details to the body. `Rescuer` calls `to_s(context)` on the error, which sets the status and picks the
+format; override `json` for the JSON one and `json_content_type` if the body has its own media type:
 
 ```crystal
 class ApiError < Azu::Response::Error
   getter code : String
-  getter details : Hash(String, JSON::Any)?
   getter request_id : String?
 
   def initialize(
     message : String,
-    status : Int32,
+    status : HTTP::Status,
     @code : String,
-    @details : Hash(String, JSON::Any)? = nil,
-    @request_id : String? = nil
+    @request_id : String? = nil,
   )
-    super(message, status)
+    super(title: message, status: status, errors: [] of String)
   end
 
-  def to_json(io : IO)
-    response = {
-      error: {
-        code: code,
-        message: message,
-        timestamp: Time.utc.to_rfc3339
-      }
+  def json : String
+    error = {
+      code:      code,
+      message:   detail,
+      timestamp: Time.utc.to_rfc3339,
     }
 
-    response[:error][:details] = details if details
-    response[:error][:request_id] = request_id if request_id
+    if id = request_id
+      error = error.merge({request_id: id})
+    end
 
-    response.to_json(io)
+    {error: error}.to_json
   end
 end
 ```
 
 ## Error Handler Integration
 
-Handle custom errors:
+Custom errors need no handler of their own: `Rescuer` rescues every `Azu::Response::Error`, including yours.
 
 ```crystal
-class CustomErrorHandler < Azu::Handler::Base
-  def call(context)
-    call_next(context)
-  rescue ex : Errors::AppError
-    context.response.status_code = ex.status
-    context.response.content_type = "application/json"
-    ex.to_json(context.response)
-  rescue ex : Azu::Response::Error
-    context.response.status_code = ex.status
-    context.response.content_type = "application/json"
-    {error: ex.message}.to_json(context.response)
-  end
+module MyApp
+  include Azu
 end
+
+MyApp.start [
+  Azu::Handler::RequestId.new,
+  Azu::Handler::Rescuer.new,
+] of HTTP::Handler
 ```
 
 ## Using Custom Errors in Endpoints
 
 ```crystal
+class InsufficientFundsError < Azu::Response::Error
+  def initialize(required : Float64, available : Float64)
+    super(title: "Payment Required", status: HTTP::Status::PAYMENT_REQUIRED, errors: [] of String)
+    @detail = "Insufficient funds: need $#{required}, have $#{available}"
+  end
+end
+
+class AccountNotFound < Azu::Response::Error
+  def initialize(account : String)
+    super(title: "Not Found", status: HTTP::Status::NOT_FOUND, errors: [] of String)
+    @detail = "#{account} not found"
+  end
+end
+
+struct TransferRequest
+  include Azu::Request
+
+  getter from_account_id : Int64
+  getter to_account_id : Int64
+  getter amount : Float64
+
+  def initialize(@from_account_id = 0_i64, @to_account_id = 0_i64, @amount = 0.0)
+  end
+end
+
+struct TransferResponse
+  include Azu::Response
+
+  def initialize(@amount : Float64)
+  end
+
+  def render
+    {transferred: @amount}.to_json
+  end
+end
+
 struct TransferFundsEndpoint
   include Azu::Endpoint(TransferRequest, TransferResponse)
 
   post "/transfers"
 
   def call : TransferResponse
-    from_account = Account.find?(transfer_request.from_account_id)
-    raise Errors::NotFound.new("Source account") unless from_account
+    balances = {1_i64 => 100.0, 2_i64 => 50.0}
 
-    to_account = Account.find?(transfer_request.to_account_id)
-    raise Errors::NotFound.new("Destination account") unless to_account
+    from_balance = balances[transfer_request.from_account_id]? || raise AccountNotFound.new("Source account")
+    balances[transfer_request.to_account_id]? || raise AccountNotFound.new("Destination account")
 
     amount = transfer_request.amount
-    raise Errors::BadRequest.new("Amount must be positive") if amount <= 0
+    raise Azu::Response::BadRequest.new("Amount must be positive") if amount <= 0
 
-    if from_account.balance < amount
-      raise InsufficientFundsError.new(amount, from_account.balance)
+    if from_balance < amount
+      raise InsufficientFundsError.new(amount, from_balance)
     end
 
-    transfer = Transfer.execute!(from_account, to_account, amount)
-    TransferResponse.new(transfer)
+    TransferResponse.new(amount)
   end
 end
 ```
@@ -257,19 +307,19 @@ end
 
 Document your errors for API consumers:
 
-```crystal
-# Each error code has a specific meaning:
-#
-# Client Errors:
-# - BAD_REQUEST (400): The request was malformed
-# - UNAUTHORIZED (401): Authentication is required
-# - FORBIDDEN (403): You don't have permission
-# - NOT_FOUND (404): The resource doesn't exist
-# - VALIDATION_FAILED (422): Input validation failed
-#
-# Server Errors:
-# - INTERNAL_ERROR (500): Something went wrong on our end
-# - SERVICE_UNAVAILABLE (503): A dependent service is down
+```text
+Each error code has a specific meaning:
+
+Client Errors:
+- BAD_REQUEST (400): The request was malformed
+- UNAUTHORIZED (401): Authentication is required
+- FORBIDDEN (403): You don't have permission
+- NOT_FOUND (404): The resource doesn't exist
+- VALIDATION_FAILED (422): Input validation failed
+
+Server Errors:
+- INTERNAL_ERROR (500): Something went wrong on our end
+- SERVICE_UNAVAILABLE (503): A dependent service is down
 ```
 
 ## See Also

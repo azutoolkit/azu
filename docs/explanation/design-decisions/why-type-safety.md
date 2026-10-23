@@ -25,10 +25,24 @@ These errors:
 Crystal catches errors before deployment:
 
 ```crystal
-# Crystal - Compile-time error
-def call
-  user = User.find(params["id"])
-  user.to_josn  # Error: undefined method 'to_josn' for User
+struct User
+  getter name : String
+
+  def initialize(@name)
+  end
+end
+
+struct ShowResponse
+  include Azu::Response
+
+  def initialize(@user : User)
+  end
+
+  def render
+    # Crystal - the typo is a compile-time error:
+    #   @user.to_josn # Error: undefined method 'to_josn' for User
+    @user.name
+  end
 end
 ```
 
@@ -50,8 +64,13 @@ end
 ### With Types
 
 ```crystal
+record Order, id : Int64
+record ProcessOptions, express : Bool = false
+record OrderResult, shipped : Bool
+
 def process_order(order : Order, options : ProcessOptions) : OrderResult
   # Clear: Order in, ProcessOptions for config, OrderResult out
+  OrderResult.new(options.express)
 end
 ```
 
@@ -65,57 +84,79 @@ Types make refactoring safe:
 
 ```crystal
 # Before
-class User
+class Person
+  def initialize(@first_name : String, @last_name : String)
+  end
+
   def full_name
-    "#{first_name} #{last_name}"
+    "#{@first_name} #{@last_name}"
   end
 end
+
+Person.new("Ada", "Lovelace").full_name
 
 # After - rename to display_name
-class User
+class Person
   def display_name
-    "#{first_name} #{last_name}"
+    "#{@first_name} #{@last_name}"
   end
 end
 
-# Compiler shows every call site that needs updating
-# Error: undefined method 'full_name' for User
+# Compiler shows every call site that needs updating, because the
+# call above no longer finds the old method once it is renamed:
+# Error: undefined method 'full_name' for Person
 ```
 
 In dynamic languages, you'd need extensive test coverage or grep.
 
-## Request Validation
+## Request Contracts
 
-Azu validates requests at compile time:
+A request contract declares its fields as types:
 
 ```crystal
 struct CreateUserRequest
   include Azu::Request
 
-  getter name : String       # Required, must be string
-  getter email : String      # Required, must be string
-  getter age : Int32?        # Optional, must be integer if present
+  getter name : String  # Required, must be string
+  getter email : String # Required, must be string
+  getter age : Int32?   # Optional, must be integer if present
+
+  def initialize(@name = "", @email = "", @age = nil)
+  end
 end
 ```
 
 The compiler ensures:
-- Required fields are handled
-- Types are correct
-- Optional fields are properly checked
+- Your code handles every field with the right type
+- Optional fields are checked for `nil` before use
+
+At runtime Azu parses the request into those types, answering `400` for input that cannot be converted, and
+runs the contract's `validate` rules, answering `422` for input that breaks them, both before your `call` runs.
 
 ## Response Type Enforcement
 
 Endpoints declare their output:
 
 ```crystal
-struct UserEndpoint
-  include Azu::Endpoint(Request, UserResponse)
+struct UserResponse
+  include Azu::Response
 
-  def call : UserResponse  # Must return UserResponse
-    if condition
-      UserResponse.new(user)
+  def render
+    "user"
+  end
+end
+
+struct UserEndpoint
+  include Azu::Endpoint(Azu::Request, UserResponse)
+
+  get "/user"
+
+  def call : UserResponse # Must return UserResponse
+    if params["ok"]? == "1"
+      UserResponse.new
     else
-      "error"  # Compile error: expected UserResponse
+      # "error" here would be a compile error: expected UserResponse
+      raise Azu::Response::BadRequest.new("ok must be 1")
     end
   end
 end
@@ -128,12 +169,23 @@ Every code path must return the declared type.
 Crystal's nil-safety prevents null pointer errors:
 
 ```crystal
-user = User.find?(id)  # Returns User?
+struct User
+  getter name : String
 
-user.name  # Error: undefined method 'name' for Nil
+  def initialize(@name)
+  end
+
+  def self.find?(id : Int64) : User?
+    new("Ada") if id == 1
+  end
+end
+
+user = User.find?(1_i64) # Returns User?
+
+# user.name would be: Error: undefined method 'name' for Nil
 
 if user
-  user.name  # Now compiler knows user is not nil
+  user.name # Now compiler knows user is not nil
 end
 ```
 
@@ -150,21 +202,33 @@ Types enable powerful IDE features:
 
 ## Performance Benefits
 
-Types enable optimization:
-- No runtime type checking
-- Direct method dispatch
-- Optimized memory layout
-- Specialized generic code
+Crystal compiles to native code, and types let the compiler:
+- Skip runtime type checks
+- Dispatch methods directly
+- Lay out values compactly
+- Specialize generic code
 
 ## Trade-offs
 
 ### More Upfront Code
 
 ```crystal
+struct User
+  getter name : String
+
+  def initialize(@name)
+  end
+end
+
 # Must declare types
 struct UserResponse
   include Azu::Response
+
   def initialize(@user : User)
+  end
+
+  def render
+    @user.name
   end
 end
 ```
@@ -186,12 +250,22 @@ user.send(method_name)
 ```
 
 ```crystal
+class Account
+  def save
+  end
+
+  def delete
+  end
+end
+
 # Crystal requires compile-time knowledge
-case method_name
-when "save"
-  user.save
-when "delete"
-  user.delete
+def run(account : Account, method_name : String)
+  case method_name
+  when "save"
+    account.save
+  when "delete"
+    account.delete
+  end
 end
 ```
 
@@ -203,7 +277,7 @@ Azu embraces types because:
 2. **APIs are contracts** - Types enforce contracts
 3. **Teams scale** - Types help developers understand code
 4. **Bugs are expensive** - Finding them early is cheaper
-5. **Crystal is fast** - Types enable performance
+5. **Crystal is native** - Types let the compiler produce fast code
 
 ## Comparison
 
@@ -213,7 +287,6 @@ Azu embraces types because:
 | Refactoring | Manual/risky | Compiler-assisted |
 | Documentation | Comments (outdated) | Types (verified) |
 | IDE support | Limited | Full |
-| Performance | Slower | Faster |
 | Flexibility | High | Moderate |
 
 ## See Also

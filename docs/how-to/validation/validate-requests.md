@@ -22,66 +22,136 @@ struct CreateUserRequest
 end
 ```
 
+Validation is enforced before your endpoint runs: a request that breaks its contract is answered with `422` and the
+failing fields, and `call` never sees it.
+
 ## Validation Rules
+
+Every rule takes the field name, the rule and the expected value, and an optional `message:` that replaces the default
+message (`Invalid field: <name>`).
 
 ### Presence
 
 Ensure a field is not empty:
 
 ```crystal
-validate name, presence: true
+struct NameRequest
+  include Azu::Request
+
+  getter name : String
+
+  def initialize(@name = "")
+  end
+
+  validate name, presence: true
+end
 ```
 
-### Length
+### Size
 
-Validate string length:
+Validate string length with a `Range`, or an exact size with an `Int`:
 
 ```crystal
-validate name, length: {min: 2, max: 100}
-validate bio, length: {max: 500}
-validate code, length: {is: 6}
+struct ProfileRequest
+  include Azu::Request
+
+  getter name : String
+  getter bio : String
+  getter code : String
+
+  def initialize(@name = "", @bio = "", @code = "")
+  end
+
+  validate name, size: 2..100
+  validate bio, size: 0..500
+  validate code, size: 6
+end
 ```
 
-### Format
+### Match
 
 Validate against a regular expression:
 
 ```crystal
-validate email, format: /@/
-validate phone, format: /^\d{10}$/
-validate slug, format: /^[a-z0-9-]+$/
+struct ContactRequest
+  include Azu::Request
+
+  getter email : String
+  getter phone : String
+  getter slug : String
+
+  def initialize(@email = "", @phone = "", @slug = "")
+  end
+
+  validate email, match: /@/, message: "must be an email address"
+  validate phone, match: /^\d{10}$/
+  validate slug, match: /^[a-z0-9-]+$/
+end
 ```
 
-### Numericality
+### Comparisons
 
-Validate numeric values:
+Validate numbers with `gt`, `gte`, `lt`, `lte` and `eq`:
 
 ```crystal
-validate age, numericality: {greater_than: 0, less_than: 150}
-validate quantity, numericality: {greater_than_or_equal_to: 1}
-validate price, numericality: {greater_than: 0}
+struct OrderLineRequest
+  include Azu::Request
+
+  getter age : Int32
+  getter quantity : Int32
+  getter price : Float64
+
+  def initialize(@age = 0, @quantity = 1, @price = 0.0)
+  end
+
+  validate age, gt: 0
+  validate age, lt: 150
+  validate quantity, gte: 1
+  validate price, gt: 0.0
+end
 ```
 
-### Inclusion
+### In
 
-Validate value is in a set:
+Validate value is in a set (an `Array` or a `Range`):
 
 ```crystal
-validate status, inclusion: {in: ["pending", "active", "archived"]}
-validate role, inclusion: {in: ["admin", "user", "guest"]}
+struct SettingsRequest
+  include Azu::Request
+
+  getter status : String
+  getter role : String
+  getter page : Int32
+
+  def initialize(@status = "pending", @role = "user", @page = 1)
+  end
+
+  validate status, in: %w(pending active archived)
+  validate role, in: %w(admin user guest)
+  validate page, in: 1..100
+end
 ```
 
-### Exclusion
+### Exclude
 
 Validate value is not in a set:
 
 ```crystal
-validate username, exclusion: {in: ["admin", "root", "system"]}
+struct UsernameRequest
+  include Azu::Request
+
+  getter username : String
+
+  def initialize(@username = "")
+  end
+
+  validate username, exclude: %w(admin root system), message: "is reserved"
+end
 ```
 
 ## Combining Validations
 
-Apply multiple rules to one field:
+Apply multiple rules to one field. All of them are checked, and each failing rule adds an error:
 
 ```crystal
 struct RegistrationRequest
@@ -94,17 +164,25 @@ struct RegistrationRequest
   def initialize(@username = "", @password = "", @email = "")
   end
 
-  validate username, presence: true, length: {min: 3, max: 20}
-  validate password, presence: true, length: {min: 8}
-  validate email, presence: true, format: /@/
+  validate username, presence: true, size: 3..20
+  validate password, presence: true, size: 8..128
+  validate email, presence: true, match: /@/
 end
 ```
 
 ## Custom Validation
 
-Add custom validation logic:
+For rules that need code, subclass `Schema::Validator`, return the errors from `valid?`, and register it with `use`.
+The validator receives the request as `@record`:
 
 ```crystal
+struct OrderItem
+  getter sku : String
+
+  def initialize(@sku)
+  end
+end
+
 struct OrderRequest
   include Azu::Request
 
@@ -114,29 +192,30 @@ struct OrderRequest
   def initialize(@items = [] of OrderItem, @coupon_code = nil)
   end
 
-  def validate
-    super  # Run standard validations first
+  use OrderValidator
+end
 
-    if items.empty?
-      errors << Error.new(:items, "must have at least one item")
-    end
+class OrderValidator < Schema::Validator
+  VALID_COUPONS = ["WELCOME10"]
 
-    if coupon = coupon_code
-      unless valid_coupon?(coupon)
-        errors << Error.new(:coupon_code, "is invalid or expired")
-      end
-    end
+  def initialize(@record : OrderRequest)
   end
 
-  private def valid_coupon?(code : String) : Bool
-    Coupon.valid?(code)
+  def valid? : Array(Schema::Error)
+    errors = [] of Schema::Error
+    errors << Schema::Error.new(:items, "must have at least one item") if @record.items.empty?
+
+    if coupon = @record.coupon_code
+      errors << Schema::Error.new(:coupon_code, "is invalid or expired") unless VALID_COUPONS.includes?(coupon)
+    end
+    errors
   end
 end
 ```
 
 ## Conditional Validation
 
-Validate based on conditions:
+Validate based on conditions inside a validator:
 
 ```crystal
 struct PaymentRequest
@@ -150,20 +229,23 @@ struct PaymentRequest
   end
 
   validate payment_type, presence: true
+  use PaymentValidator
+end
 
-  def validate
-    super
+class PaymentValidator < Schema::Validator
+  def initialize(@record : PaymentRequest)
+  end
 
-    case payment_type
+  def valid? : Array(Schema::Error)
+    errors = [] of Schema::Error
+
+    case @record.payment_type
     when "card"
-      if card_number.nil? || card_number.try(&.empty?)
-        errors << Error.new(:card_number, "is required for card payments")
-      end
+      errors << Schema::Error.new(:card_number, "is required for card payments") if @record.card_number.presence.nil?
     when "bank"
-      if bank_account.nil? || bank_account.try(&.empty?)
-        errors << Error.new(:bank_account, "is required for bank payments")
-      end
+      errors << Schema::Error.new(:bank_account, "is required for bank payments") if @record.bank_account.presence.nil?
     end
+    errors
   end
 end
 ```
@@ -171,22 +253,39 @@ end
 ## Using Validated Requests in Endpoints
 
 ```crystal
+struct CreateUserRequest
+  include Azu::Request
+
+  getter name : String
+  getter email : String
+
+  def initialize(@name = "", @email = "")
+  end
+
+  validate name, presence: true
+  validate email, presence: true
+end
+
+struct UserResponse
+  include Azu::Response
+
+  def initialize(@name : String)
+  end
+
+  def render
+    {name: @name}.to_json
+  end
+end
+
 struct CreateUserEndpoint
   include Azu::Endpoint(CreateUserRequest, UserResponse)
 
   post "/users"
 
   def call : UserResponse
-    # Request is automatically validated before call
-    # Access validated data via the request object
-    user = User.create!(
-      name: create_user_request.name,
-      email: create_user_request.email,
-      age: create_user_request.age
-    )
-
+    # The request is validated before call. A request that fails never gets here.
     status 201
-    UserResponse.new(user)
+    UserResponse.new(create_user_request.name)
   end
 end
 ```

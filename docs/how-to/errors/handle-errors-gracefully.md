@@ -4,13 +4,19 @@ This guide shows you how to implement robust error handling in your Azu applicat
 
 ## Built-in Error Handling
 
-Azu provides a Rescuer handler for catching exceptions:
+Azu provides a Rescuer handler for catching exceptions. It renders an `Azu::Response::Error` with its own status and
+turns any other exception into a `500`, in the format the `Accept` header asks for (HTML, JSON, XML or plain text).
+`start` without arguments already includes it:
 
 ```crystal
+module MyApp
+  include Azu
+end
+
 MyApp.start [
   Azu::Handler::Rescuer.new,
   # ... other handlers
-]
+] of HTTP::Handler
 ```
 
 ## HTTP Error Responses
@@ -18,79 +24,80 @@ MyApp.start [
 Use built-in error responses:
 
 ```crystal
-def call
-  user = User.find?(params["id"])
+struct UserResponse
+  include Azu::Response
 
-  unless user
-    raise Azu::Response::NotFound.new("/users/#{params["id"]}")
+  def render
+    "user"
   end
+end
 
-  UserResponse.new(user)
+struct ShowUserEndpoint
+  include Azu::Endpoint(Azu::Request, UserResponse)
+
+  get "/users/:id"
+
+  def call : UserResponse
+    unless params["id"] == "1"
+      raise Azu::Response::NotFound.new("/users/#{params["id"]}")
+    end
+
+    UserResponse.new
+  end
 end
 ```
 
 Available error responses:
 - `Azu::Response::BadRequest` (400)
-- `Azu::Response::Unauthorized` (401)
-- `Azu::Response::Forbidden` (403)
+- `Azu::Response::AuthenticationError` (401)
+- `Azu::Response::AuthorizationError` and `Azu::Response::Forbidden` (403)
 - `Azu::Response::NotFound` (404)
 - `Azu::Response::ValidationError` (422)
-- `Azu::Response::InternalServerError` (500)
+- `Azu::Response::RateLimitError` (429)
+- `Azu::Response::Error` (500 unless you give a status)
+
+See the [Error Types Reference](../../reference/errors/error-types.md) for all of them, and for statuses that have no class
+of their own.
 
 ## Custom Error Handler
 
-Create a comprehensive error handler:
+Create a handler that answers errors in your own format. A handler is an `HTTP::Handler`: it calls `call_next` and
+rescues what the rest of the chain raises. Put it after `Rescuer` to see errors first, or instead of it to own the
+format:
 
 ```crystal
-class ErrorHandler < Azu::Handler::Base
+class ErrorHandler
+  include HTTP::Handler
+
   Log = ::Log.for(self)
 
-  def call(context)
+  def call(context : HTTP::Server::Context)
     call_next(context)
   rescue ex : Azu::Response::Error
-    handle_known_error(context, ex)
+    respond_with_error(context, ex.status_code, ex.detail, ex.errors)
   rescue ex : JSON::ParseException
-    handle_json_error(context, ex)
-  rescue ex : CQL::RecordNotFound
-    handle_not_found(context, ex)
-  rescue ex : CQL::RecordInvalid
-    handle_validation_error(context, ex)
+    respond_with_error(context, 400, "Invalid JSON: #{ex.message}")
+  rescue ex : KeyError
+    respond_with_error(context, 400, ex.message || "Missing parameter")
   rescue ex
     handle_unknown_error(context, ex)
   end
 
-  private def handle_known_error(context, ex : Azu::Response::Error)
-    respond_with_error(context, ex.status, ex.message)
-  end
-
-  private def handle_json_error(context, ex)
-    respond_with_error(context, 400, "Invalid JSON: #{ex.message}")
-  end
-
-  private def handle_not_found(context, ex)
-    respond_with_error(context, 404, "Resource not found")
-  end
-
-  private def handle_validation_error(context, ex)
-    respond_with_error(context, 422, "Validation failed", ex.errors)
-  end
-
-  private def handle_unknown_error(context, ex)
+  private def handle_unknown_error(context : HTTP::Server::Context, ex : Exception)
     Log.error(exception: ex) { "Unhandled error" }
 
-    if ENV["AZU_ENV"] == "production"
+    if Azu.current_config.env.production?
       respond_with_error(context, 500, "Internal server error")
     else
-      respond_with_error(context, 500, ex.message, ex.backtrace)
+      respond_with_error(context, 500, ex.message || "Error", ex.backtrace)
     end
   end
 
-  private def respond_with_error(context, status, message, details = nil)
+  private def respond_with_error(context : HTTP::Server::Context, status : Int32, message : String, details : Array(String) = [] of String)
     context.response.status_code = status
     context.response.content_type = "application/json"
 
-    body = {error: message}
-    body = body.merge({details: details}) if details
+    body = {error: message, details: details}
 
     context.response.print(body.to_json)
   end
@@ -102,17 +109,42 @@ end
 Handle errors within endpoints:
 
 ```crystal
+class InsufficientInventoryError < Exception
+end
+
+class PaymentDeclinedError < Exception
+end
+
+struct ErrorResponse
+  include Azu::Response
+
+  def initialize(@message : String)
+  end
+
+  def render
+    {error: @message}.to_json
+  end
+end
+
+struct OrderResponse
+  include Azu::Response
+
+  def render
+    {status: "created"}.to_json
+  end
+end
+
 struct CreateOrderEndpoint
-  include Azu::Endpoint(CreateOrderRequest, OrderResponse)
+  include Azu::Endpoint(Azu::Request, OrderResponse | ErrorResponse)
 
   post "/orders"
 
-  def call : Azu::Response
+  def call : OrderResponse | ErrorResponse
     validate_inventory
-    order = create_order
+    create_order
 
     status 201
-    OrderResponse.new(order)
+    OrderResponse.new
   rescue ex : InsufficientInventoryError
     status 422
     ErrorResponse.new("Insufficient inventory: #{ex.message}")
@@ -131,32 +163,31 @@ struct CreateOrderEndpoint
 end
 ```
 
+When an endpoint can answer with more than one response type, declare the union as its response type, as above.
+For failures, raising an `Azu::Response::Error` subclass is usually simpler: the status and body come from the error.
+
 ## Error Response Format
 
 Create a consistent error response:
 
 ```crystal
-struct ErrorResponse
+struct ApiErrorResponse
   include Azu::Response
 
   def initialize(
     @message : String,
     @code : String? = nil,
-    @details : Hash(String, String)? = nil
+    @details : Hash(String, String)? = nil,
   )
   end
 
   def render
-    response = {
-      error: {
-        message: @message
-      }
-    }
+    error = {} of String => (String | Hash(String, String))
+    error["message"] = @message
+    error["code"] = @code.not_nil! if @code
+    error["details"] = @details.not_nil! if @details
 
-    response[:error][:code] = @code if @code
-    response[:error][:details] = @details if @details
-
-    response.to_json
+    {error: error}.to_json
   end
 end
 ```
@@ -166,49 +197,62 @@ end
 Log errors with context:
 
 ```crystal
-class ErrorLogger < Azu::Handler::Base
+class ErrorLogger
+  include HTTP::Handler
+
   Log = ::Log.for(self)
 
-  def call(context)
+  def call(context : HTTP::Server::Context)
     call_next(context)
   rescue ex
     log_error(context, ex)
     raise ex
   end
 
-  private def log_error(context, ex)
-    Log.error(exception: ex) { {
-      error_class: ex.class.name,
-      message: ex.message,
-      path: context.request.path,
-      method: context.request.method,
-      request_id: context.request.headers["X-Request-ID"]?,
-      user_agent: context.request.headers["User-Agent"]?
-    }.to_json }
+  private def log_error(context : HTTP::Server::Context, ex : Exception)
+    Log.error(exception: ex) {
+      {
+        error_class: ex.class.name,
+        message:     ex.message,
+        path:        context.request.path,
+        method:      context.request.method,
+        request_id:  context.request.headers["X-Request-ID"]?,
+        user_agent:  context.request.headers["User-Agent"]?,
+      }.to_json
+    }
   end
 end
 ```
 
+Put it after `Rescuer` in the handler list so it sees the exception before `Rescuer` turns it into a response.
+
 ## Error Monitoring
 
-Send errors to external monitoring:
+Send errors to external monitoring. The `ExternalTracker` module below stands in for your tracker's SDK (Sentry,
+Honeybadger, ...):
 
 ```crystal
-class ErrorReporter < Azu::Handler::Base
-  def call(context)
+module ExternalTracker
+  def self.capture(ex : Exception, extra : Hash(String, String)) : Nil
+  end
+end
+
+class ErrorReporter
+  include HTTP::Handler
+
+  def call(context : HTTP::Server::Context)
     call_next(context)
   rescue ex
     report_error(context, ex)
     raise ex
   end
 
-  private def report_error(context, ex)
-    return if ENV["AZU_ENV"] != "production"
+  private def report_error(context : HTTP::Server::Context, ex : Exception)
+    return unless Azu.current_config.env.production?
 
-    # Send to Sentry, Honeybadger, etc.
-    Sentry.capture_exception(ex, extra: {
-      path: context.request.path,
-      method: context.request.method
+    ExternalTracker.capture(ex, {
+      "path"   => context.request.path,
+      "method" => context.request.method,
     })
   end
 end
@@ -225,18 +269,39 @@ def with_retry(max_attempts = 3, &)
   loop do
     attempts += 1
     return yield
-  rescue ex : Timeout::Error | IO::Error
+  rescue ex : IO::TimeoutError | IO::Error
     raise ex if attempts >= max_attempts
 
-    Log.warn { "Attempt #{attempts} failed, retrying..." }
+    Log.for("retry").warn { "Attempt #{attempts} failed, retrying..." }
     sleep (2 ** attempts).seconds
   end
 end
 
-# Usage
-def call
-  with_retry do
-    external_api.fetch_data
+struct DataResponse
+  include Azu::Response
+
+  def initialize(@data : String)
+  end
+
+  def render
+    @data
+  end
+end
+
+struct FetchEndpoint
+  include Azu::Endpoint(Azu::Request, DataResponse)
+
+  get "/fetch"
+
+  def call : DataResponse
+    data = with_retry do
+      fetch_data
+    end
+    DataResponse.new(data)
+  end
+
+  private def fetch_data : String
+    "data"
   end
 end
 ```
@@ -246,6 +311,17 @@ end
 Prevent cascading failures:
 
 ```crystal
+class CircuitOpenError < Azu::Response::Error
+  def initialize
+    super(
+      title: "Service Unavailable",
+      status: HTTP::Status::SERVICE_UNAVAILABLE,
+      errors: [] of String
+    )
+    @detail = "The circuit is open; try again later"
+  end
+end
+
 class CircuitBreaker
   enum State
     Closed
@@ -255,20 +331,19 @@ class CircuitBreaker
 
   def initialize(
     @failure_threshold = 5,
-    @reset_timeout = 30.seconds
+    @reset_timeout = 30.seconds,
   )
     @state = State::Closed
     @failures = 0
     @last_failure_time = Time.utc
+    @lock = Mutex.new
   end
 
   def call(&)
-    case @state
-    when .open?
-      if Time.utc - @last_failure_time > @reset_timeout
+    @lock.synchronize do
+      if @state.open?
+        raise CircuitOpenError.new unless Time.utc - @last_failure_time > @reset_timeout
         @state = State::HalfOpen
-      else
-        raise CircuitOpenError.new
       end
     end
 
@@ -283,38 +358,68 @@ class CircuitBreaker
   end
 
   private def on_success
-    @failures = 0
-    @state = State::Closed
+    @lock.synchronize do
+      @failures = 0
+      @state = State::Closed
+    end
   end
 
   private def on_failure
-    @failures += 1
-    @last_failure_time = Time.utc
-
-    if @failures >= @failure_threshold
-      @state = State::Open
+    @lock.synchronize do
+      @failures += 1
+      @last_failure_time = Time.utc
+      @state = State::Open if @failures >= @failure_threshold
     end
   end
 end
 ```
+
+A `CircuitOpenError` is an `Azu::Response::Error`, so `Rescuer` answers it with a `503` without more code.
 
 ## Graceful Degradation
 
 Provide fallback behavior:
 
 ```crystal
-def call
-  data = fetch_from_primary
-rescue ex : ServiceUnavailableError
-  Log.warn { "Primary service unavailable, using cache" }
-  data = fetch_from_cache
+class ServiceUnavailableError < Exception
+end
 
-  if data.nil?
-    Log.error { "No cached data available" }
-    raise ex
+struct ProfileResponse
+  include Azu::Response
+
+  def initialize(@data : String)
   end
 
-  data
+  def render
+    @data
+  end
+end
+
+struct ProfileEndpoint
+  include Azu::Endpoint(Azu::Request, ProfileResponse)
+
+  get "/profile"
+
+  def call : ProfileResponse
+    ProfileResponse.new(fetch_from_primary)
+  rescue ex : ServiceUnavailableError
+    Log.for("profile").warn { "Primary service unavailable, using cache" }
+
+    unless data = fetch_from_cache
+      Log.for("profile").error { "No cached data available" }
+      raise ex
+    end
+
+    ProfileResponse.new(data)
+  end
+
+  private def fetch_from_primary : String
+    raise ServiceUnavailableError.new("primary is down")
+  end
+
+  private def fetch_from_cache : String?
+    Azu.cache.get("profile")
+  end
 end
 ```
 

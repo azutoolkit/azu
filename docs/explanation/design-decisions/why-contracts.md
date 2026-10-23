@@ -43,8 +43,11 @@ struct CreateUserRequest
   getter email : String
   getter age : Int32?
 
-  validate name, presence: true, length: {min: 2}
-  validate email, presence: true, format: /@/
+  def initialize(@name = "", @email = "", @age = nil)
+  end
+
+  validate name, presence: true, size: 2..100
+  validate email, presence: true, match: /@/
 end
 ```
 
@@ -64,12 +67,12 @@ Contracts define your API interface:
 struct SearchProductsRequest
   include Azu::Request
 
-  getter query : String           # Required search term
-  getter category : String?       # Optional filter
-  getter min_price : Float64?     # Optional minimum
-  getter max_price : Float64?     # Optional maximum
-  getter page : Int32 = 1         # Default: first page
-  getter per_page : Int32 = 20    # Default: 20 items
+  getter query : String        # Required search term
+  getter category : String?    # Optional filter
+  getter min_price : Float64?  # Optional minimum
+  getter max_price : Float64?  # Optional maximum
+  getter page : Int32 = 1      # Default: first page
+  getter per_page : Int32 = 20 # Default: 20 items
 end
 ```
 
@@ -78,20 +81,28 @@ Reading this tells you exactly what the API accepts.
 ### Response Contract = API Output
 
 ```crystal
+struct Product
+  getter id : Int64
+  getter name : String
+
+  def initialize(@id, @name)
+  end
+end
+
 struct ProductSearchResponse
   include Azu::Response
 
   def initialize(
     @products : Array(Product),
     @total : Int64,
-    @page : Int32
+    @page : Int32,
   )
   end
 
   def render
     {
-      data: @products.map { |p| serialize(p) },
-      meta: {total: @total, page: @page}
+      data: @products.map { |p| {id: p.id, name: p.name} },
+      meta: {total: @total, page: @page},
     }.to_json
   end
 end
@@ -104,6 +115,14 @@ Reading this tells you exactly what the API returns.
 Validation rules live with the data definition:
 
 ```crystal
+struct OrderItem
+  include JSON::Serializable
+  include URI::Params::Serializable
+
+  property product_id : Int64
+  property quantity : Int32
+end
+
 struct CreateOrderRequest
   include Azu::Request
 
@@ -111,16 +130,13 @@ struct CreateOrderRequest
   getter shipping_address : String
   getter payment_method : String
 
-  # Validation right here with the fields
-  validate items, presence: true
-  validate shipping_address, presence: true
-  validate payment_method, inclusion: {in: ["card", "paypal"]}
-
-  # Custom validation in the same struct
-  def validate
-    super
-    errors << Error.new(:items, "too many") if items.size > 100
+  def initialize(@items = [] of OrderItem, @shipping_address = "", @payment_method = "")
   end
+
+  # Validation right here with the fields
+  validate items, presence: true, size: 0..100, message: "must have between 1 and 100 items"
+  validate shipping_address, presence: true
+  validate payment_method, in: %w(card paypal)
 end
 ```
 
@@ -131,13 +147,50 @@ No hunting through multiple files.
 Contracts provide typed access:
 
 ```crystal
-def call : OrderResponse
-  # Type is known: Array(OrderItem)
-  items = create_order_request.items
+struct OrderItem
+  include JSON::Serializable
+  include URI::Params::Serializable
 
-  items.each do |item|
-    # Type is known: OrderItem
-    process(item.product_id, item.quantity)
+  property product_id : Int64
+  property quantity : Int32
+end
+
+struct CreateOrderRequest
+  include Azu::Request
+
+  getter items : Array(OrderItem)
+
+  def initialize(@items = [] of OrderItem)
+  end
+end
+
+struct OrderResponse
+  include Azu::Response
+
+  def initialize(@units : Int32)
+  end
+
+  def render
+    {units: @units}.to_json
+  end
+end
+
+struct CreateOrderEndpoint
+  include Azu::Endpoint(CreateOrderRequest, OrderResponse)
+
+  post "/orders"
+
+  def call : OrderResponse
+    # Type is known: Array(OrderItem)
+    items = create_order_request.items
+
+    units = 0
+    items.each do |item|
+      # Type is known: OrderItem
+      units += item.quantity
+    end
+
+    OrderResponse.new(units)
   end
 end
 ```
@@ -148,6 +201,7 @@ No casting, no string parsing, no nil surprises.
 
 Contracts document themselves:
 
+<!-- skip -->
 ```crystal
 # What does this endpoint accept?
 struct CreateUserEndpoint
@@ -166,24 +220,44 @@ Contracts make versioning explicit:
 module V1
   struct UserResponse
     include Azu::Response
+
     # V1 fields
+    def render
+      {name: "Ada"}.to_json
+    end
   end
 end
 
 module V2
   struct UserResponse
     include Azu::Response
+
     # V2 fields (breaking changes)
+    def render
+      {full_name: "Ada Lovelace"}.to_json
+    end
   end
 end
 
 # Different endpoints use different versions
 struct V1::UsersEndpoint
-  include Azu::Endpoint(Request, V1::UserResponse)
+  include Azu::Endpoint(Azu::Request, V1::UserResponse)
+
+  get "/v1/users"
+
+  def call : V1::UserResponse
+    V1::UserResponse.new
+  end
 end
 
 struct V2::UsersEndpoint
-  include Azu::Endpoint(Request, V2::UserResponse)
+  include Azu::Endpoint(Azu::Request, V2::UserResponse)
+
+  get "/v2/users"
+
+  def call : V2::UserResponse
+    V2::UserResponse.new
+  end
 end
 ```
 
@@ -192,6 +266,22 @@ end
 Contracts are easy to test:
 
 ```crystal
+require "azu"
+require "spec"
+
+struct CreateUserRequest
+  include Azu::Request
+
+  getter name : String
+  getter email : String
+
+  def initialize(@name = "", @email = "")
+  end
+
+  validate name, presence: true
+  validate email, match: /@/
+end
+
 describe CreateUserRequest do
   it "validates presence of name" do
     request = CreateUserRequest.new(name: "", email: "a@b.com")
@@ -206,22 +296,13 @@ describe CreateUserRequest do
 end
 ```
 
+A contract needs no server to test: construct it and ask `valid?` and `errors`.
+
 ## Code Generation
 
-Contracts enable tooling:
-
-```crystal
-# Generate OpenAPI spec from contracts
-OpenAPI.generate(CreateUserRequest)
-# => {
-#      type: "object",
-#      required: ["name", "email"],
-#      properties: {
-#        name: {type: "string", minLength: 2},
-#        email: {type: "string", format: "email"}
-#      }
-#    }
-```
+Because the shape of the input and output is declared in types, tooling can read it. The Azu CLI exports an OpenAPI
+specification from the contracts of a project with `azu openapi:export`, and can generate code from a specification
+with `azu openapi:generate`.
 
 ## Comparison
 
@@ -230,7 +311,7 @@ OpenAPI.generate(CreateUserRequest)
 | Discoverability | Low | High |
 | Type safety | None | Full |
 | Validation | Scattered | Colocated |
-| Documentation | Manual | Automatic |
+| Documentation | Manual | From the types |
 | Testing | Complex | Simple |
 | Refactoring | Risky | Safe |
 
@@ -242,7 +323,11 @@ OpenAPI.generate(CreateUserRequest)
 # Extra struct definition needed
 struct MyRequest
   include Azu::Request
+
   getter field : String
+
+  def initialize(@field = "")
+  end
 end
 ```
 
@@ -258,6 +343,15 @@ params.permit!
 ```crystal
 # Crystal: Must define all fields
 # Can use JSON::Any for truly dynamic data
+struct FlexibleRequest
+  include Azu::Request
+
+  getter name : String
+  getter settings : Hash(String, JSON::Any)
+
+  def initialize(@name = "", @settings = {} of String => JSON::Any)
+  end
+end
 ```
 
 ## The Azu Philosophy
