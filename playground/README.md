@@ -53,6 +53,7 @@ It accepts one `SELECT`/`WITH`/`EXPLAIN` statement and always rolls back.
 ```crystal
 require "azu"
 require "azu/cql"                      # opt-in bridge
+require "azu/dev"                      # opt-in dashboard
 
 DemoDB = Azu::CQL.schema(:app, "sqlite3://./app.db") do
   table :users { ... }

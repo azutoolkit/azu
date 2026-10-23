@@ -7,13 +7,8 @@ require "./router"
 require "./templates"
 require "./log_format"
 require "./cache"
-require "./development_tools"
+require "./instrumentation"
 require "./spark/configuration"
-
-# Conditionally require performance monitor only when needed
-{% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-  require "./handler/performance_monitor"
-{% end %}
 
 module Azu
   # Holds all the configuration properties for your Azu Application
@@ -110,66 +105,11 @@ module Azu
       Cache::Configuration.new
     end
 
-    # Performance monitoring configuration - defaults to false for truly optional behavior
-    property? performance_enabled : Bool = ENV.fetch("PERFORMANCE_MONITORING", "false") == "true"
-    property? performance_profiling_enabled : Bool = ENV.fetch("PERFORMANCE_PROFILING", "false") == "true"
-    property? performance_memory_monitoring : Bool = ENV.fetch("PERFORMANCE_MEMORY_MONITORING", "false") == "true"
-
-    # Performance monitor instance - truly optional
-    {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-      @performance_monitor : Handler::PerformanceMonitor? = nil
-    {% end %}
-
-    # Setter for performance monitor to allow sharing instance from handler chain
-    {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-      def performance_monitor=(monitor : Handler::PerformanceMonitor?)
-        @performance_monitor = monitor
-      end
-    {% else %}
-      def performance_monitor=(monitor)
-        # Performance monitoring disabled at compile time
-      end
-    {% end %}
-
-    # Getter that only creates monitor when explicitly enabled
-    {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-      def performance_monitor : Handler::PerformanceMonitor?
-        return @performance_monitor if @performance_monitor
-        return nil unless performance_enabled?
-
-        @performance_monitor = Handler::PerformanceMonitor.new
-      end
-    {% else %}
-      def performance_monitor : Nil
-        nil
-      end
-    {% end %}
-
-    # Development tools access
-    def development_tools
-      DevelopmentTools
-    end
-
-    def initialize
-      # Set performance defaults based on environment (only if not explicitly set)
-      if ENV.fetch("PERFORMANCE_PROFILING", "").empty?
-        @performance_profiling_enabled = env.development?
-      end
-
-      if ENV.fetch("PERFORMANCE_MEMORY_MONITORING", "").empty?
-        @performance_memory_monitoring = env.development?
-      end
-    end
-
-    # Starts what needs a running app: the profiler and memory monitor (development by default),
-    # the upload temp directory and its cleanup task. `Azu.start` calls this; building a
-    # configuration, and so requiring azu, starts nothing.
+    # Starts what needs a running app: the upload temp directory and its cleanup task, plus whatever
+    # `Instrumentation.on_prepare` hooks add (`azu/dev` starts the profiler and memory monitor).
+    # `Azu.start` calls this; building a configuration, and so requiring azu, starts nothing.
     def prepare : Nil
-      development_tools.profiler.enabled = true if performance_profiling_enabled?
-      if performance_memory_monitoring?
-        development_tools.memory_detector.start_monitoring
-        @started_memory_monitor = true
-      end
+      Instrumentation.prepare(self)
       upload.prepare
     end
 
@@ -186,24 +126,13 @@ module Azu
       !ssl_cert.empty? && !ssl_key.empty?
     end
 
-    @started_memory_monitor = false
-
     def finalize
-      # The memory monitor is process-wide: stop it only if this configuration started it, not when
-      # some other configuration (a second app, a spec) is collected.
-      if @started_memory_monitor
-        development_tools.memory_detector.stop_monitoring
-      end
+      Instrumentation.finalize(self)
     end
 
     # Initialize cache with retry logic and graceful fallback
     private def initialize_cache_with_retry : Cache::Manager
       manager = Cache::Manager.new(cache_config)
-
-      # Connect cache with performance metrics only if available and enabled
-      if performance_enabled? && (monitor = performance_monitor)
-        manager.metrics = monitor.metrics
-      end
 
       # Test cache connectivity if Redis store is configured
       if cache_config.store == "redis"

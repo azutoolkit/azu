@@ -1,4 +1,5 @@
 require "../../spec_helper"
+require "../../../src/azu/dev/dev"
 
 alias DatabaseStats = Azu::Components::Dashboard::DatabaseData::DatabaseStats
 alias SlowQuery = Azu::Components::Dashboard::DatabaseData::SlowQuery

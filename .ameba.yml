@@ -9,9 +9,9 @@ Metrics/CyclomaticComplexity:
   Excluded:
     - playground/endpoints/demo_reporting_endpoint.cr
     - playground/examples/cache_metrics_demo.cr
-    - src/azu/handler/performance_monitor.cr
-    - src/azu/performance_reporter.cr
-    - src/azu/components/dev_dashboard_component.cr
+    - src/azu/dev/performance_monitor.cr
+    - src/azu/dev/performance_reporter.cr
+    - src/azu/dev/dev_dashboard_component.cr
     - src/azu/helpers/builtin/form_helpers.cr
     - src/azu/helpers/builtin/date_helpers.cr
     - src/azu/helpers/builtin/number_helpers.cr

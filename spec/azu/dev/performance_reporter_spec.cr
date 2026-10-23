@@ -1,4 +1,5 @@
-require "../spec_helper"
+require "../../spec_helper"
+require "../../../src/azu/dev/dev"
 
 describe "Performance Reporter SOLID Refactoring" do
   describe "PerformanceReporter abstract class" do

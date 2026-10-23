@@ -52,9 +52,18 @@ src/azu/
 ├── params.cr           # Parameter extraction & uploads
 ├── handler/            # Middleware handlers (12 files)
 ├── templates.cr        # Crinja template engine
-├── query_store.cr      # Query/transaction telemetry + N+1 analysis (dev dashboard)
+├── instrumentation.cr  # The seam optional subsystems plug into: cache/component hooks, prepare/finalize hooks
+├── query_store.cr      # Query/transaction telemetry + N+1 analysis (fed by azu/cql, read by the dashboard)
 ├── request_context.cr  # Fiber-keyed current request for tagging SQL/logs
-├── cql.cr + cql/       # Opt-in CQL bridge (`require "azu/cql"`), see docs/reference/database-dashboard.md
+├── cql/                # Opt-in CQL bridge (`require "azu/cql"`), see docs/reference/database-dashboard.md
+├── dev/                # Opt-in dev tooling (`require "azu/dev"`, entry point dev/dev.cr)
+│   ├── configuration.cr        # Configuration#performance_*, #performance_monitor, #development_tools
+│   ├── performance_metrics.cr  # Request/cache/component metrics
+│   ├── performance_monitor.cr  # Handler::PerformanceMonitor
+│   ├── performance_reporter.cr # Log/JSON reporters
+│   ├── development_tools.cr    # Profiler, memory leak detector
+│   ├── dev_dashboard.cr        # Handler::DevDashboard
+│   └── dev_dashboard_component.cr + dev_dashboard/  # The dashboard page and its sections
 └── helpers/            # Template helpers DSL
     ├── helpers.cr      # Main require & DSL macros
     ├── registry.cr     # Thread-safe helper registration
@@ -72,7 +81,8 @@ src/azu/
 
 spec/
 ├── integration/        # Integration test suites
-└── azu/handler/        # Handler-specific tests
+├── azu/handler/        # Handler-specific tests
+└── azu/dev/            # azu/dev specs (they require "../../../src/azu/dev/dev")
 
 playground/             # Example application
 docs/                   # Comprehensive documentation
@@ -210,14 +220,12 @@ end
 
 ## Performance Considerations
 
-### Compile-Time Flags
+### Optional Subsystems
 
-```crystal
-# Enable performance monitoring (compile-time)
-{% if env("PERFORMANCE_MONITORING") == "true" %}
-  require "./performance_metrics"
-{% end %}
-```
+The dev dashboard, performance monitor, profiler and reporter live in `src/azu/dev/` and load with
+`require "azu/dev"`. Core only calls `Azu::Instrumentation` (a nil check without subscribers), so
+`require "azu"` alone pays nothing. Building with `PERFORMANCE_MONITORING=true` makes `require "azu"` load
+`azu/dev` too.
 
 ### Caching Strategy
 
@@ -248,7 +256,7 @@ end
 - **Linter:** Ameba with max cyclomatic complexity of 10
 - **Container:** crystallang/crystal:1.19.1
 - **Services:** Redis required for cache tests
-- **Excluded from complexity:** performance_monitor, components, demo_reporting
+- **Excluded from complexity:** dev/ (performance_monitor, performance_reporter, dev_dashboard_component), demo_reporting
 
 ## Common Tasks
 

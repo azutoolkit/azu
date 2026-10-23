@@ -1,5 +1,5 @@
 require "http/server/handler"
-require "../performance_metrics"
+require "./performance_metrics"
 
 module Azu
   module Handler

@@ -4,6 +4,7 @@
 #   crystal run playground/azu_cql_postgres/app.cr
 #   open http://localhost:4000/__dev#database
 require "../../src/azu"
+require "../../src/azu/dev" # the dashboard
 require "./initializers/**" # configures CQL and attaches the dashboard (same order as an azu_cli project)
 require "./db/**"           # the schema
 require "./models"

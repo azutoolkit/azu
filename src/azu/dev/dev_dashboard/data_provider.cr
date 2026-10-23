@@ -1,5 +1,5 @@
-require "../../performance_metrics"
-require "../../development_tools"
+require "../performance_metrics"
+require "../development_tools"
 require "./format"
 require "./status"
 require "./database_data"

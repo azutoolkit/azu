@@ -15,8 +15,42 @@ with Azu's formatter, created the upload temp directory and started seven backgr
 - The async log pipeline starts on the first log entry or reported error, or in `start`.
 - The upload temp directory and its cleanup task are created by `start` (or by the first upload for
   apps that never call `start`).
-- The profiler and memory monitor that development mode turns on by default now start in `start`
+- The profiler and memory monitor (`azu/dev`) that development mode turns on by default now start in `start`
   instead of when the configuration is built.
+
+**The dev dashboard and performance tooling are opt-in: `require "azu/dev"`.** `require "azu"` no longer
+loads them, and core no longer has the ~25 `PERFORMANCE_MONITORING` compile-time blocks. Core only calls
+`Azu::Instrumentation`, which costs a nil check until `azu/dev` subscribes.
+
+These now exist only after `require "azu/dev"` (the fix for each is the same: add that line after
+`require "azu"`):
+
+- `Azu::Handler::DevDashboard`, `Azu::Components::DevDashboardComponent` and the `Dashboard` sections
+- `Azu::Handler::PerformanceMonitor`, `Azu::PerformanceMetrics`
+- `Azu::PerformanceReporter`, `LogPerformanceReporter`, `JsonPerformanceReporter`,
+  `PerformanceMonitoringManager`, `PerformanceReportScheduler`, `PerformanceReportService`
+- `Azu::DevelopmentTools` (profiler, memory leak detector, benchmark)
+- `Configuration#performance_enabled?`, `#performance_profiling_enabled?`, `#performance_memory_monitoring?`
+  (and their setters), `#performance_monitor` and `#performance_monitor=`, `#development_tools`.
+  `performance_profiling_enabled?` and `performance_memory_monitoring?` now follow `config.env` while
+  their environment variable is unset, instead of reading the environment once when the
+  configuration was built.
+
+Other changes:
+
+- `Azu::Cache::Manager#metrics` / `#metrics=` and the second `Manager.new` argument are gone, and so is
+  `PerformanceMetrics.time_cache_operation`. With `azu/dev` loaded, cache operations are recorded in the
+  current configuration's monitor whenever `performance_enabled?` is on; no per-manager wiring.
+- Component and cache metrics no longer need the `PERFORMANCE_MONITORING` build flag: `azu/dev` plus
+  `performance_enabled?` is enough.
+- `Azu::Spark::Instrumentation.measure` and the profiler / memory monitor start-up call
+  `Azu::Instrumentation` (`on_prepare`, `on_finalize`, `cache_subscriber=`, `component_subscriber=`);
+  use those to build your own subscriber.
+- Building with `PERFORMANCE_MONITORING=true` or `-Dperformance_monitoring` still works unchanged: it makes
+  `require "azu"` also load `azu/dev`.
+- Files moved: `src/azu/{performance_metrics,performance_reporter,development_tools}.cr`,
+  `src/azu/handler/{dev_dashboard,performance_monitor}.cr` and `src/azu/components/dev_dashboard*` are under
+  `src/azu/dev/`. Require `azu/dev`, not the files.
 
 **Routes can belong to an app** (additive; the endpoint macros keep registering on `Azu::App.default`).
 

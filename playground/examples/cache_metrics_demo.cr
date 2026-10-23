@@ -1,4 +1,5 @@
 require "../../src/azu"
+require "../../src/azu/dev"
 
 # Demo showing cache metrics collection and analysis
 class CacheMetricsDemo

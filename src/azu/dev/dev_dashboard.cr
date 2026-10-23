@@ -1,10 +1,10 @@
 require "http/server/handler"
-require "../performance_metrics"
-require "../performance_reporter"
-require "../development_tools"
+require "./performance_metrics"
+require "./performance_reporter"
+require "./development_tools"
 require "../cache"
-require "./csrf"
-require "../components/dev_dashboard_component"
+require "../handler/csrf"
+require "./dev_dashboard_component"
 
 module Azu
   module Handler

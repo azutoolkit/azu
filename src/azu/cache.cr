@@ -2,10 +2,7 @@ require "json"
 require "digest/sha256"
 require "redis"
 
-# Conditionally require performance metrics only when needed
-{% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-  require "./performance_metrics"
-{% end %}
+require "./instrumentation"
 
 module Azu
   # Core caching module for the Azu framework
@@ -642,40 +639,16 @@ module Azu
       @fetch_locks : Hash(String, Mutex)
       @locks_mutex : Mutex
 
-      {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-        property metrics : Azu::PerformanceMetrics?
+      def initialize(@config : Configuration = Configuration.new)
+        @fetch_locks = Hash(String, Mutex).new
+        @locks_mutex = Mutex.new
+        @store = create_store
+      end
 
-        def initialize(@config : Configuration = Configuration.new, @metrics : Azu::PerformanceMetrics? = nil)
-          @fetch_locks = Hash(String, Mutex).new
-          @locks_mutex = Mutex.new
-          @store = create_store
-        end
-      {% else %}
-        def initialize(@config : Configuration = Configuration.new)
-          @fetch_locks = Hash(String, Mutex).new
-          @locks_mutex = Mutex.new
-          @store = create_store
-        end
-      {% end %}
-
-      # Rails-like API methods with optional performance metrics
       def get(key : String) : String?
         return nil unless @config.enabled?
 
-        {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-          if metrics = @metrics
-            result = Azu::PerformanceMetrics.time_cache_operation(
-              metrics, key, "get", @config.store, key.bytesize
-            ) do
-              @store.get(prefixed_key(key))
-            end
-            result.as(String?)
-          else
-            @store.get(prefixed_key(key))
-          end
-        {% else %}
-          @store.get(prefixed_key(key))
-        {% end %}
+        instrumented("get", key) { @store.get(prefixed_key(key)) }
       end
 
       # Overloaded get method with block and TTL support (Rails-like)
@@ -686,185 +659,46 @@ module Azu
         with_stampede_protection(key) do
           prefixed = prefixed_key(key)
 
-          {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-            if metrics = @metrics
-              cached_result = Azu::PerformanceMetrics.time_cache_operation(
-                metrics, key, "get", @config.store, key.bytesize
-              ) do
-                @store.get(prefixed)
-              end
-
-              cached = cached_result.as(String?)
-
-              if cached
-                deserialize_value(cached)
-              else
-                value = yield
-                ttl = ttl || @config.ttl_span
-                serialized_value = serialize_value(value)
-                set_result = Azu::PerformanceMetrics.time_cache_operation(
-                  metrics, key, "set", @config.store, key.bytesize, serialized_value.bytesize, ttl
-                ) do
-                  @store.set(prefixed, serialized_value, ttl)
-                end
-                set_result.as(Bool)
-                value
-              end
-            else
-              if cached = @store.get(prefixed)
-                deserialize_value(cached)
-              else
-                value = yield
-                ttl = ttl || @config.ttl_span
-                @store.set(prefixed, serialize_value(value), ttl)
-                value
-              end
-            end
-          {% else %}
-            if cached = @store.get(prefixed)
-              deserialize_value(cached)
-            else
-              value = yield
-              ttl = ttl || @config.ttl_span
-              @store.set(prefixed, serialize_value(value), ttl)
-              value
-            end
-          {% end %}
+          if cached = instrumented("get", key) { @store.get(prefixed) }
+            deserialize_value(cached)
+          else
+            value = yield
+            ttl = ttl || @config.ttl_span
+            serialized_value = serialize_value(value)
+            instrumented("set", key, serialized_value.bytesize, ttl) { @store.set(prefixed, serialized_value, ttl) }
+            value
+          end
         end
       end
 
       def set(key : String, value : String, ttl : Time::Span? = nil) : Bool
         return false unless @config.enabled?
 
-        {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-          if metrics = @metrics
-            ttl = ttl || @config.ttl_span
-            serialized_value = serialize_value(value)
-            result = Azu::PerformanceMetrics.time_cache_operation(
-              metrics, key, "set", @config.store, key.bytesize, serialized_value.bytesize, ttl
-            ) do
-              @store.set(prefixed_key(key), serialized_value, ttl)
-            end
-            result.as(Bool)
-          else
-            ttl = ttl || @config.ttl_span
-            @store.set(prefixed_key(key), serialize_value(value), ttl)
-          end
-        {% else %}
-          ttl = ttl || @config.ttl_span
-          @store.set(prefixed_key(key), serialize_value(value), ttl)
-        {% end %}
+        ttl = ttl || @config.ttl_span
+        serialized_value = serialize_value(value)
+        instrumented("set", key, serialized_value.bytesize, ttl) { @store.set(prefixed_key(key), serialized_value, ttl) }
       end
 
       def fetch(key : String, ttl : Time::Span? = nil, & : -> String) : String
-        return yield unless @config.enabled?
-
-        # Use stampede protection for expensive operations
-        with_stampede_protection(key) do
-          prefixed = prefixed_key(key)
-
-          {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-            if metrics = @metrics
-              cached_result = Azu::PerformanceMetrics.time_cache_operation(
-                metrics, key, "get", @config.store, key.bytesize
-              ) do
-                @store.get(prefixed)
-              end
-
-              cached = cached_result.as(String?)
-
-              if cached
-                deserialize_value(cached)
-              else
-                value = yield
-                ttl = ttl || @config.ttl_span
-                serialized_value = serialize_value(value)
-                set_result = Azu::PerformanceMetrics.time_cache_operation(
-                  metrics, key, "set", @config.store, key.bytesize, serialized_value.bytesize, ttl
-                ) do
-                  @store.set(prefixed, serialized_value, ttl)
-                end
-                set_result.as(Bool)
-                value
-              end
-            else
-              if cached = @store.get(prefixed)
-                deserialize_value(cached)
-              else
-                value = yield
-                ttl = ttl || @config.ttl_span
-                @store.set(prefixed, serialize_value(value), ttl)
-                value
-              end
-            end
-          {% else %}
-            if cached = @store.get(prefixed)
-              deserialize_value(cached)
-            else
-              value = yield
-              ttl = ttl || @config.ttl_span
-              @store.set(prefixed, serialize_value(value), ttl)
-              value
-            end
-          {% end %}
-        end
+        get(key, ttl) { yield }
       end
 
       def delete(key : String) : Bool
         return false unless @config.enabled?
 
-        {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-          if metrics = @metrics
-            result = Azu::PerformanceMetrics.time_cache_operation(
-              metrics, key, "delete", @config.store, key.bytesize
-            ) do
-              @store.delete(prefixed_key(key))
-            end
-            result.as(Bool)
-          else
-            @store.delete(prefixed_key(key))
-          end
-        {% else %}
-          @store.delete(prefixed_key(key))
-        {% end %}
+        instrumented("delete", key) { @store.delete(prefixed_key(key)) }
       end
 
       def exists?(key : String) : Bool
         return false unless @config.enabled?
 
-        {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-          if metrics = @metrics
-            result = Azu::PerformanceMetrics.time_cache_operation(
-              metrics, key, "exists", @config.store, key.bytesize
-            ) do
-              @store.exists?(prefixed_key(key))
-            end
-            result.as(Bool)
-          else
-            @store.exists?(prefixed_key(key))
-          end
-        {% else %}
-          @store.exists?(prefixed_key(key))
-        {% end %}
+        instrumented("exists", key) { @store.exists?(prefixed_key(key)) }
       end
 
       def clear : Bool
         return false unless @config.enabled?
 
-        {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-          if metrics = @metrics
-            result = Azu::PerformanceMetrics.time_cache_operation(
-              metrics, "all", "clear", @config.store, 0
-            ) do
-              @store.clear
-            end
-            result.as(Bool)
-          else
-            @store.clear
-          end
-        {% else %}
-          @store.clear
-        {% end %}
+        Instrumentation.cache("all", "clear", @config.store) { @store.clear }
       end
 
       def size : Int32
@@ -904,40 +738,14 @@ module Azu
         return nil unless @config.enabled?
         ttl = ttl || @config.ttl_span
 
-        {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-          if metrics = @metrics
-            result = Azu::PerformanceMetrics.time_cache_operation(
-              metrics, key, "increment", @config.store, key.bytesize, nil, ttl
-            ) do
-              @store.increment(prefixed_key(key), amount, ttl)
-            end
-            result.as(Int32?)
-          else
-            @store.increment(prefixed_key(key), amount, ttl)
-          end
-        {% else %}
-          @store.increment(prefixed_key(key), amount, ttl)
-        {% end %}
+        instrumented("increment", key, nil, ttl) { @store.increment(prefixed_key(key), amount, ttl) }
       end
 
       def decrement(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
         return nil unless @config.enabled?
         ttl = ttl || @config.ttl_span
 
-        {% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-          if metrics = @metrics
-            result = Azu::PerformanceMetrics.time_cache_operation(
-              metrics, key, "decrement", @config.store, key.bytesize, nil, ttl
-            ) do
-              @store.decrement(prefixed_key(key), amount, ttl)
-            end
-            result.as(Int32?)
-          else
-            @store.decrement(prefixed_key(key), amount, ttl)
-          end
-        {% else %}
-          @store.decrement(prefixed_key(key), amount, ttl)
-        {% end %}
+        instrumented("decrement", key, nil, ttl) { @store.decrement(prefixed_key(key), amount, ttl) }
       end
 
       # Utility methods
@@ -1003,6 +811,10 @@ module Azu
         else
           raise ArgumentError.new("Unsupported cache store: #{@config.store}")
         end
+      end
+
+      private def instrumented(operation : String, key : String, value_size : Int32? = nil, ttl : Time::Span? = nil, &)
+        Instrumentation.cache(key, operation, @config.store, key.bytesize, value_size, ttl) { yield }
       end
 
       private def prefixed_key(key : String) : String

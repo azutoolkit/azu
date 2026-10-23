@@ -10,11 +10,9 @@ require "./azu/routable"
 require "./azu/router"
 require "./azu/router/**"
 require "./azu/cache"
-require "./azu/performance_metrics"
+require "./azu/instrumentation"
 require "./azu/query_store"
 require "./azu/request_context"
-require "./azu/development_tools"
-require "./azu/performance_reporter"
 require "./azu/*"
 require "./azu/channel/**"
 require "./azu/components/**"
@@ -24,8 +22,9 @@ require "./azu/pub_sub/**"
 require "./azu/spark/**"
 require "./azu/templates/**"
 
-# Not globbed on purpose: `azu/cql` is opt-in and needs the cql shard. Add every new core directory above; spec/azu/opt_in_integrations_spec.cr
-# fails when one is missing.
+# Not globbed on purpose: `azu/cql` is opt-in and needs the cql shard, `azu/dev` is the opt-in dashboard and
+# performance tooling. Add every new core directory above; spec/azu/opt_in_integrations_spec.cr fails when one is
+# missing.
 
 module Azu
   alias Validator = Schema::Validator
@@ -213,3 +212,8 @@ module Azu
     end
   end
 end
+
+# `PERFORMANCE_MONITORING=true` (or `-Dperformance_monitoring`) at build time keeps meaning "monitoring is on".
+{% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
+  require "./azu/dev/dev"
+{% end %}

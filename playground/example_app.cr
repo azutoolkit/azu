@@ -1,4 +1,5 @@
 require "../src/azu"
+require "../src/azu/dev" # dashboard, performance monitor and metrics
 require "sqlite3"
 require "db"
 

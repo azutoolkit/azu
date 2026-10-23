@@ -1,4 +1,5 @@
 require "../../src/azu"
+require "../../src/azu/dev"
 
 # Demonstration of the refactored performance reporting system
 # This shows how SOLID principles make the code more flexible and extensible

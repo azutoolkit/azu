@@ -1322,57 +1322,54 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Ready to build something amazing?** Start with Azu today and experience the power of type-safe, high-performance web development in Crystal.
 
-## Performance Monitoring (Optional)
+## Performance Monitoring and Dev Dashboard (Optional)
 
-Performance monitoring in Azu is **completely optional** and disabled by default. When disabled, it adds zero overhead to your application.
+The dev dashboard, the performance monitor, the profiler and the memory leak detector are **not part of
+`require "azu"`**. Add them with one line, and an app that does not pay for them does not load them:
+
+```crystal
+require "azu"
+require "azu/dev" # Handler::DevDashboard, Handler::PerformanceMonitor, PerformanceMetrics, DevelopmentTools, ...
+```
 
 ### Enabling Performance Monitoring
 
-Set the environment variable or enable it at compile time:
+Request, cache and component metrics are recorded once monitoring is on, with the environment variable
+or in the configuration:
 
 ```bash
 # Enable performance monitoring
 export PERFORMANCE_MONITORING=true
 
-# Optional: Enable detailed profiling (development only)
+# Optional: profiler and memory monitor (on by default in development, off elsewhere)
 export PERFORMANCE_PROFILING=true
 export PERFORMANCE_MEMORY_MONITORING=true
 ```
 
-Or compile with the flag:
-
-```bash
-crystal build --define=performance_monitoring src/app.cr
-```
+Building with `PERFORMANCE_MONITORING=true` or `--define=performance_monitoring` also makes
+`require "azu"` load `azu/dev`, for apps that always did that.
 
 ### Using Performance Monitoring
 
-When enabled, add the performance monitor to your handler chain. The class only exists in a build that
-enables monitoring, so the chain is chosen at compile time:
+Add the monitor to your handler chain:
 
 <!-- skip -->
 ```crystal
 require "azu"
+require "azu/dev"
 
 module MyApp
   include Azu
 end
 
-{% if env("PERFORMANCE_MONITORING") == "true" || flag?(:performance_monitoring) %}
-  MyApp.start [
-    Azu::Handler::PerformanceMonitor.new,
-    Azu::Handler::Logger.new,
-    Azu::Handler::Static.new,
-  ] of HTTP::Handler
-{% else %}
-  MyApp.start [
-    Azu::Handler::Logger.new,
-    Azu::Handler::Static.new,
-  ] of HTTP::Handler
-{% end %}
+MyApp.start [
+  Azu::Handler::PerformanceMonitor.new,
+  Azu::Handler::Logger.new,
+  Azu::Handler::Static.new,
+] of HTTP::Handler
 ```
 
-### Performance Features (When Enabled)
+### Performance Features (With `azu/dev`)
 
 - **Request Metrics**: Response times, memory usage, error rates
 - **Component Tracking**: Mount/unmount/refresh performance
@@ -1380,19 +1377,17 @@ end
 - **Memory Monitoring**: Leak detection and memory profiling
 - **Development Dashboard**: Real-time performance visualization
 
-### Zero Overhead When Disabled
+### Zero Overhead Without `azu/dev`
 
-When `PERFORMANCE_MONITORING=false` (default):
+Core only calls `Azu::Instrumentation`, a nil check when nobody listens. Without `azu/dev`:
 
-- No performance monitoring code is compiled
+- No dashboard, monitor, profiler or reporter code is compiled
 - No memory overhead for metrics collection
-- No timing overhead for operations
-- Components run without tracking
-- Cache operations run without metrics
+- Components and cache operations run without tracking
 
-This makes Azu suitable for both development (with monitoring) and production (without overhead).
+With `azu/dev` loaded, nothing is recorded until `PERFORMANCE_MONITORING` (or `config.performance_enabled`) is on.
 
-### Performance API (When Enabled)
+### Performance API
 
 <!-- skip -->
 ```crystal
@@ -1409,6 +1404,9 @@ end
 Settings are assigned on the configuration yielded by `configure`:
 
 ```crystal
+require "azu"
+require "azu/dev"
+
 module MyApp
   include Azu
 
@@ -1416,10 +1414,10 @@ module MyApp
     config.port = 4000
     config.host = "0.0.0.0"
 
-    # Performance monitoring (only when enabled)
+    # Performance monitoring (settings come with azu/dev)
     config.performance_enabled = true            # Default: false
-    config.performance_profiling_enabled = true  # Default: false
-    config.performance_memory_monitoring = true  # Default: false
+    config.performance_profiling_enabled = true  # Default: on in development
+    config.performance_memory_monitoring = true  # Default: on in development
   end
 end
 ```

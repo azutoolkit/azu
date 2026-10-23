@@ -1,5 +1,6 @@
 require "cql"
 require "../../spec_helper"
+require "../../../src/azu/dev/dev"
 require "../../support/integration_helpers"
 
 include IntegrationHelpers

@@ -1,4 +1,5 @@
-require "../spec_helper"
+require "../../spec_helper"
+require "../../../src/azu/dev/dev"
 
 describe Azu::DevelopmentTools do
   describe Azu::DevelopmentTools::Profiler do

@@ -1,4 +1,4 @@
-require "./handler/performance_monitor"
+require "./performance_monitor"
 require "json"
 
 module Azu
