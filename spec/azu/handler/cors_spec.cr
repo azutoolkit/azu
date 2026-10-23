@@ -471,4 +471,26 @@ describe Azu::Handler::CORS do
       response.headers["Access-Control-Allow-Origin"]?.should be_nil
     end
   end
+
+  describe "concurrent requests" do
+    it "answers each request with its own origin when handlers run in parallel" do
+      handler = Azu::Handler::CORS.new(origins: ["https://a.com", "https://b.com"])
+      handler.next = ->(context : HTTP::Server::Context) {}
+      mismatches = Atomic(Int32).new(0)
+
+      threads = ["https://a.com", "https://b.com", "https://a.com", "https://b.com"].map do |origin|
+        Thread.new do
+          100_000.times do
+            request = HTTP::Request.new("POST", "/", HTTP::Headers{"Origin" => origin})
+            context = HTTP::Server::Context.new(request, HTTP::Server::Response.new(IO::Memory.new))
+            handler.call(context)
+            mismatches.add(1) if context.response.headers["Access-Control-Allow-Origin"]? != origin
+          end
+        end
+      end
+      threads.each(&.join)
+
+      mismatches.get.should eq 0
+    end
+  end
 end
