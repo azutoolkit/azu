@@ -450,6 +450,24 @@ describe Azu::Cache do
       store.decrement("counter").should eq(3)
     end
 
+    it "sets a counter's expiry once, when the counter has none, and never renews it" do
+      store = Azu::Cache::RedisStore.new("#{redis_url}/15")
+      store.clear
+
+      store.increment("hits", 1, 100.seconds).should eq(1)
+      store.increment("hits", 1, 5.seconds).should eq(2)
+      store.decrement("hits", 1, 5.seconds).should eq(1)
+      ttl = Redis.new(url: "#{redis_url}/15").ttl("hits")
+      ttl.should be > 50
+
+      store.increment("existing_counter", 3) # created without an expiry
+      store.increment("existing_counter", 1, 100.seconds).should eq(4)
+      Redis.new(url: "#{redis_url}/15").ttl("existing_counter").should be > 0
+
+      store.decrement("fresh", 2, 100.seconds).should eq(-2)
+      Redis.new(url: "#{redis_url}/15").ttl("fresh").should be > 0
+    end
+
     it "supports multi-key operations with Redis native commands" do
       store = Azu::Cache::RedisStore.new("#{redis_url}/15")
       store.clear
@@ -504,11 +522,27 @@ describe Azu::Cache do
       channels.map(&.receive).should eq((0...5).map { |i| "value_#{i}" })
     end
 
-    it "handles Redis operation timeouts" do
-      store = Azu::Cache::RedisStore.new("#{redis_url}/15", operation_timeout: Time::Span.new(nanoseconds: 1_000_000))
+    it "gives up on a command that outlasts the operation timeout" do
+      store = Azu::Cache::RedisStore.new("#{redis_url}/15", operation_timeout: 50.milliseconds)
       store.clear
+      store.set("present", "value").should be_true
+      store.get("present").should eq("value")
 
-      store.get("timeout_test").should be_nil
+      # Keeps the server busy for ~400 ms so the next command has to wait for it
+      busy = <<-LUA
+        local started = redis.call('TIME')
+        while true do
+          local now = redis.call('TIME')
+          if (now[1] - started[1]) * 1000000 + (now[2] - started[2]) > 400000 then break end
+        end
+        return 1
+        LUA
+      spawn { Redis.new(url: "#{redis_url}/15").eval(busy) }
+      sleep 50.milliseconds
+
+      started = Time.instant
+      store.get("present").should be_nil
+      (Time.instant - started).should be < 300.milliseconds
     end
   end
 

@@ -375,46 +375,27 @@ module Azu
         0
       end
 
-      # Override increment for Redis native support
-      def increment(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
-        result = if amount == 1
-                   with_timeout("incr", key) { @client.incr(key) }
-                 else
-                   with_timeout("incrby", key) { @client.incrby(key, amount) }
-                 end
-
-        return nil unless result
-
-        # Set TTL if provided and key was just created
-        if ttl && result == amount
-          expire(key, ttl)
+      # INCRBY that gives the key `ttl` only when it has none, in one atomic step: the expiry belongs
+      # to the counter's creation and is not renewed by later hits (EXPIRE ... NX needs Redis 7).
+      INCREMENT_SCRIPT = <<-LUA
+        local value = redis.call('INCRBY', KEYS[1], ARGV[1])
+        local ttl = tonumber(ARGV[2])
+        if ttl > 0 and redis.call('TTL', KEYS[1]) == -1 then
+          redis.call('EXPIRE', KEYS[1], ttl)
         end
+        return value
+        LUA
 
-        result.to_i
+      def increment(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
+        seconds = ttl ? ttl.total_seconds.to_i : 0
+        with_timeout("incrby", key) { @client.eval(INCREMENT_SCRIPT, [key], [amount.to_s, seconds.to_s]) }.as(Int).to_i
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to increment key: #{key}" }
         nil
       end
 
-      # Override decrement for Redis native support
       def decrement(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
-        result = if amount == 1
-                   with_timeout("decr", key) { @client.decr(key) }
-                 else
-                   with_timeout("decrby", key) { @client.decrby(key, amount) }
-                 end
-
-        return nil unless result
-
-        # Set TTL if provided
-        if ttl
-          expire(key, ttl)
-        end
-
-        result.to_i
-      rescue ex
-        Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to decrement key: #{key}" }
-        nil
+        increment(key, -amount, ttl)
       end
 
       # Override multi-get for Redis native support
@@ -495,10 +476,6 @@ module Azu
         else
           "Unknown Redis error: #{ex.message}"
         end
-      end
-
-      private def expire(key : String, ttl : Time::Span) : Int64
-        with_timeout("expire", key) { @client.expire(key, ttl.total_seconds.to_i) }
       end
 
       # Timeout wrapper for Redis operations

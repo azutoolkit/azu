@@ -131,6 +131,10 @@ drained by `start`. WebSocket sockets are not waited for.
   retries. `size` counts the keys of the database in the URL (it only looked at `db0`).
 - `Handler::CORS` no longer keeps the request's `Origin` in the shared handler, so overlapping requests on
   parallel threads cannot answer with each other's `Access-Control-Allow-Origin`.
+  API change: `Handler::Origin` (the struct behind `CORS`) is stateless now. `#request_origin` and
+  `#origin_header?` are removed, `#match?(request)` became `#match?(origin : String)`, and `#of(request)`
+  returns the request's `Origin` (or `X-Origin`) header. Code that called these directly must pass the
+  origin around itself.
 - `Cache::MemoryStore#increment` sets the expiry when the counter is created (it was renewed on every call,
   so a counter hit more often than its TTL never expired) and evicts the least recently used key when a new
   counter would exceed `max_size`. `MemoryStore#stats["hit_rate"]` is a real hit rate (hits / lookups); it
@@ -138,7 +142,11 @@ drained by `start`. WebSocket sockets are not waited for.
 - The HTML error page renders in production for unexpected exceptions (it raised "can't wrap
   Azu::ErrorContext" and the client got a bare `500`). The development JSON `Backtrace` shows the original
   exception's message and backtrace instead of ` (Azu::Response::Error)`. Production bodies still carry no
-  backtrace, request context or environment.
+  backtrace, request context or environment, and for exceptions that are not `Response::Error` they now
+  carry a generic title and detail ("Internal Server Error") instead of the exception's message (which could
+  name a database host or user); the message stays in the log and in development bodies.
+- `Cache::RedisStore#increment` / `#decrement` set the TTL in one atomic Lua script, only when the key has
+  none; `decrement` used to renew it on every call.
 - Not changed: Azu does not cache templates (`Templates#load` asks Crinja each time).
 
 ### 0.5.28
