@@ -124,6 +124,7 @@ module Azu
     # `Instrumentation.on_prepare` hooks add (`azu/dev` starts the profiler and memory monitor).
     # `Azu.start` calls this; building a configuration, and so requiring azu, starts nothing.
     def prepare : Nil
+      cache_config.validate!
       Instrumentation.prepare(self)
       upload.prepare
     end

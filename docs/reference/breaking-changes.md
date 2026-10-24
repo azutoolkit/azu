@@ -12,11 +12,15 @@ Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/mig
 
 - `cache_config.redis_url` is now `String?` and has no default (it used to be `redis://localhost:6379/0`).
   `CACHE_STORE=redis` without `CACHE_REDIS_URL` (or `cache_config.redis_url`, or `cache_config.redis_client`) now
-  raises an `ArgumentError` when `Azu.cache` is built, and the boot fails. Set `CACHE_REDIS_URL`; to keep using
-  localhost, say so: `CACHE_REDIS_URL=redis://localhost:6379/0`. `REDIS_URL` is not read by the cache.
+  raises an `ArgumentError` at `start` (`Configuration#prepare` checks it, without connecting) and on any use of
+  `Azu.cache`; it is not turned into a disabled cache. Any other `ArgumentError` raised while the cache is built (an
+  unknown `CACHE_STORE`) propagates the same way; only an unreachable Redis still falls back to a disabled cache.
+  Set `CACHE_REDIS_URL`; to keep using localhost, say so: `CACHE_REDIS_URL=redis://localhost:6379/0`. `REDIS_URL`
+  is not read by the cache.
 - `Azu.cache.clear` removes the keys under `"<key_prefix>:"` instead of running `FLUSHDB`, so other keys in the same
-  Redis database survive. Use `Azu.cache.clear(all: true)` for the old behaviour (`FLUSHDB`). The prefix clear
-  walks the keyspace with `SCAN`, needs Redis 4.0 and does not support Redis Cluster.
+  Redis database survive. Use `Azu.cache.clear(all: true)` for the old behaviour (`FLUSHDB`).
+  `RedisStore#clear` used directly is still `FLUSHDB`. Limits of the prefix clear (cost, Redis version, Cluster):
+  [Cache reference](api/cache.md).
 - `Cache::Store` has a new abstract method `clear_prefix(prefix : String) : Bool`; a custom store must implement it.
 
 **The global shim is deprecated.** `include Azu`, `configure` and `start` still work, and log one warning per
