@@ -52,6 +52,22 @@ module Azu
         end
       end
 
+      # Closes every idle connection. After a connection failure the others are most likely dead too (the server
+      # restarted), and the next attempt should open a fresh one rather than take the next dead one.
+      def drop_idle : Nil
+        loop do
+          select
+          when idle = @idle.receive?
+            return unless idle
+            @mutex.synchronize { @discarded += 1 }
+            destroy(idle.connection)
+            release_permit
+          else
+            return
+          end
+        end
+      end
+
       def checkout : T
         idle = receive
         return open_connection unless idle

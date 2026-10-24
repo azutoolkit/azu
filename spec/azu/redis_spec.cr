@@ -367,7 +367,66 @@ describe Azu::Redis::Pool do
   end
 end
 
+private def kill_all_clients : Nil
+  killer = Redis.new(url: REDIS_UTIL_URL, reconnect: false)
+  begin
+    killer.command(["CLIENT", "KILL", "TYPE", "normal", "SKIPME", "yes"])
+  ensure
+    killer.close
+  end
+end
+
+private def fill_pool(client : Azu::Redis::Client) : Nil
+  client.run { |_| client.run { |_| client.run(&.ping) } }
+end
+
+describe Azu::Redis::Pool do
+  it "drops every idle connection and frees their permits" do
+    created = [] of FakeConnection
+    pool = fake_pool(3, created: created)
+    held = [pool.checkout, pool.checkout, pool.checkout]
+    held.each { |connection| pool.checkin(connection) }
+
+    pool.drop_idle
+
+    created.all?(&.closed?).should be_true
+    pool.stats.open.should eq 0
+    3.times { pool.checkout }
+    created.size.should eq 6
+  end
+end
+
 describe Azu::Redis do
+  describe "after the server dropped every connection" do
+    it "succeeds on one retry although several idle connections are dead" do
+      pending!("Redis is not reachable on #{REDIS_UTIL_URL}") unless redis_util_available?
+      client = Azu::Redis::Client.new(live_config(pool_size: 3))
+      begin
+        fill_pool(client)
+        client.stats.open.should eq 3
+        kill_all_clients
+
+        client.run(retry: true, &.ping).should eq "PONG"
+      ensure
+        client.close
+      end
+    end
+
+    it "costs a call without retry one failure, not one per dead connection" do
+      pending!("Redis is not reachable on #{REDIS_UTIL_URL}") unless redis_util_available?
+      client = Azu::Redis::Client.new(live_config(pool_size: 3))
+      begin
+        fill_pool(client)
+        kill_all_clients
+
+        expect_raises(Redis::ConnectionError) { client.run(retry: false, &.ping) }
+        client.run(retry: false, &.ping).should eq "PONG"
+      ensure
+        client.close
+      end
+    end
+  end
+
   describe "a failed transaction or pipeline" do
     it "does not leave a stale reply for the next user of the pool" do
       pending!("Redis is not reachable on #{REDIS_UTIL_URL}") unless redis_util_available?

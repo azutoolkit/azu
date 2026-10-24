@@ -20,6 +20,9 @@ module Azu
     # jittered time between attempts. A command that merely timed out is not retried (it may have been applied)
     # but its connection is discarded, since a late reply would answer the wrong command. Pass `retry: false` for
     # a command that must not run twice.
+    #
+    # A lost connection also closes the other idle connections, which are most likely dead as well (a restarted
+    # server), so the next attempt, retried or not, opens a fresh one.
     class Client
       alias ConnectionPool = Pool(::Redis)
 
@@ -125,6 +128,7 @@ module Azu
         loop do
           return @pool.run(strict) { |connection| yield connection }
         rescue ex
+          @pool.drop_idle if Redis.retryable?(ex)
           raise ex unless retry && Redis.retryable?(ex) && @config.retry.retry?(tries)
           Clock.sleep(@config.retry.delay(tries))
           tries += 1
