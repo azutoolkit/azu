@@ -416,13 +416,13 @@ private class FailingRedis < ::Redis
   end
 
   # The `yield`s make these overrides of the parent's block methods; they are never reached.
-  def multi
+  def multi(&)
     raise ArgumentError.new("multi failed") unless @reconnect.nil?
     yield ::Redis::TransactionApi.allocate
     [] of ::Redis::RedisValue
   end
 
-  def pipelined
+  def pipelined(&)
     raise ArgumentError.new("pipeline failed") unless @reconnect.nil?
     yield ::Redis::PipelineApi.allocate
     [] of ::Redis::RedisValue
