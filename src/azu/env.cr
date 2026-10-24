@@ -1,4 +1,5 @@
 require "uri"
+require "log"
 require "random/secure"
 
 module Azu
@@ -21,7 +22,13 @@ module Azu
   # overrides a variable the process already has, so a container that injects real values is unaffected by a
   # `.env` left in the image. Files are data: no interpolation, no command substitution, nothing is executed.
   #
-  # Errors name the variable (or file and line) and never print a value.
+  # Errors name the variable (or file and line) and never print a value. One bad line fails the whole file (it sets
+  # nothing), and a file larger than 1 MB is refused.
+  #
+  # Trust: an application loads its own `.env`, but a variable that changes how processes are started
+  # (`LD_*`, `DYLD_*`, `PATH`, `SHELL`, `IFS`, `BASH_ENV`, `ENV`, `SHARDS_*`, `CRYSTAL_PATH`, `CRYSTAL_OPTS`,
+  # `CRYSTAL_LIBRARY_PATH`, `GIT_*`, `DOCKER_HOST`, `HOME`) is skipped with a warning naming it, so a copied file
+  # cannot hijack the process or the tools it spawns. Pass `unsafe: true` to load them anyway.
   module Env
     class Error < Exception
     end
@@ -58,13 +65,37 @@ module Azu
       end
     end
 
-    REDACTED    = "[FILTERED]"
-    SENSITIVE   = /SECRET|PASSWORD|PASSWD|TOKEN|PRIVATE|CREDENTIAL|(\A|_)KEY\z|(\A|_)KEY_|COOKIE/i
-    URL_SECRET  = %r{\A([a-z][a-z0-9+.\-]*://[^:/@\s]*):[^@/\s]*@}i
+    REDACTED      = "[FILTERED]"
+    SENSITIVE     = /SECRET|PASSWORD|PASSWD|TOKEN|PRIVATE|CREDENTIAL|KEY\z|(\A|_)KEY_|COOKIE|AUTH|DSN|SALT|SIGNING/i
+    URL_SECRET    = %r{\A([a-z][a-z0-9+.\-]*://[^:/@\s]*):[^\s]*@}i
+    MAX_FILE_SIZE = 1_048_576
+    # Names that change how processes start or where they look for code; `.env` files may not set them by default.
+    UNSAFE_NAME = /\A(?:LD_.*|DYLD_.*|SHARDS_.*|GIT_.*|PATH|SHELL|IFS|BASH_ENV|ENV|CRYSTAL_PATH|CRYSTAL_OPTS|CRYSTAL_LIBRARY_PATH|DOCKER_HOST|HOME)\z/i
     TRUE_WORDS  = %w[1 true yes on t y]
     FALSE_WORDS = %w[0 false no off f n]
 
     @@generated_secrets = {} of String => String
+    @@strict_environments : Array(String)? = nil
+
+    # True for a variable name a `.env` file may not set unless loaded with `unsafe: true`.
+    def self.unsafe_name?(name : String) : Bool
+      name.matches?(UNSAFE_NAME)
+    end
+
+    # Environments in which `secret` raises instead of falling back to a random value. `production` by default;
+    # `AZU_STRICT_ENVS=production,staging` or `Env.strict_environments = [...]` widens it.
+    def self.strict_environments : Array(String)
+      @@strict_environments || (ENV["AZU_STRICT_ENVS"]?.presence.try(&.split(',').map(&.strip.downcase).reject(&.empty?)) || ["production"])
+    end
+
+    # `nil` goes back to the default (`AZU_STRICT_ENVS`, then `production`).
+    def self.strict_environments=(names : Array(String)?) : Array(String)?
+      @@strict_environments = names.try(&.map(&.downcase))
+    end
+
+    def self.strict? : Bool
+      strict_environments.includes?(environment)
+    end
 
     # The environment the process runs in: `CRYSTAL_ENV` lowercased, `development` when unset or blank.
     def self.environment : String
@@ -86,22 +117,22 @@ module Azu
 
     # Reads one `.env` file into the process environment and returns the names it set. A missing file is not an
     # error. Variables the process already has (even empty ones) are kept unless `override` is true.
-    def self.load(path : String = ".env", override : Bool = false) : Array(String)
+    def self.load(path : String = ".env", override : Bool = false, unsafe : Bool = false) : Array(String)
       return [] of String unless File.file?(path)
 
-      apply(parse(File.read(path), path), override)
+      apply(read(path), override, unsafe)
     end
 
     # Loads `.env`, `.env.<CRYSTAL_ENV>` and `.env.local` from `dir` with the precedence documented on `Env`.
     # `CRYSTAL_ENV` itself may come from the files; the process value wins.
-    def self.load_all(dir : String = ".", override : Bool = false) : Array(String)
+    def self.load_all(dir : String = ".", override : Bool = false, unsafe : Bool = false) : Array(String)
       base = read(File.join(dir, ".env"))
       local = read(File.join(dir, ".env.local"))
       merged = base
       env = ENV["CRYSTAL_ENV"]?.presence || local["CRYSTAL_ENV"]? || base["CRYSTAL_ENV"]? || "development"
       env = env.strip.downcase
       merged = merged.merge(read(File.join(dir, ".env.#{env}"))) if env.matches?(/\A[a-z0-9_\-]+\z/)
-      apply(merged.merge(local), override)
+      apply(merged.merge(local), override, unsafe)
     end
 
     # The value of `name`; blank counts as unset.
@@ -151,11 +182,20 @@ module Azu
 
     # The secret `name`: its value when set; a random value outside production (the same one for the life of the
     # process, so two readers of one name agree); an error in production. Set it in the environment or `.env`.
-    def self.secret(name : String, production : Bool = production?) : String
+    #
+    # The random fallback is per process: several processes (or a restart) disagree on it, which breaks signed
+    # cookies and tokens, so it logs one warning per name. Set the variable in `.env` for development.
+    # `production` defaults to whether the environment is in `strict_environments`.
+    def self.secret(name : String, production : Bool = strict?) : String
       fetch?(name) || begin
         raise MissingError.new(name) if production
-        @@generated_secrets[name] ||= Random::Secure.hex(32)
+        @@generated_secrets[name] ||= generate_secret(name)
       end
+    end
+
+    private def self.generate_secret(name : String) : String
+      Log.for("azu.env").warn { "#{name} is not set: using a random value for this process only (set it in the environment or .env)" }
+      Random::Secure.hex(32)
     end
 
     # Forgets the random fallbacks `secret` handed out; for specs.
@@ -175,18 +215,34 @@ module Azu
     end
 
     private def self.read(path : String) : Hash(String, String)
-      File.file?(path) ? parse(File.read(path), path) : {} of String => String
+      return {} of String => String unless File.file?(path)
+      raise ParseError.new(path, 1, "file is larger than 1 MB") if File.size(path) > MAX_FILE_SIZE
+
+      parse(File.read(path), path)
     end
 
-    private def self.apply(vars : Hash(String, String), override : Bool) : Array(String)
+    # A blank CRYSTAL_ENV counts as unset, as `environment` does, so the file that picked `.env.<env>` can set it.
+    private def self.in_process?(name : String) : Bool
+      name == "CRYSTAL_ENV" ? !ENV[name]?.presence.nil? : ENV.has_key?(name)
+    end
+
+    private def self.apply(vars : Hash(String, String), override : Bool, unsafe : Bool) : Array(String)
       applied = [] of String
       vars.each do |name, value|
-        next if !override && ENV.has_key?(name)
+        next if !unsafe && skip_unsafe(name)
+        next if !override && in_process?(name)
 
         ENV[name] = value
         applied << name
       end
       applied
+    end
+
+    private def self.skip_unsafe(name : String) : Bool
+      return false unless unsafe_name?(name)
+
+      Log.for("azu.env").warn { "ignoring #{name} from a .env file: it changes how processes start (load with unsafe: true to allow it)" }
+      true
     end
 
     private def self.to_bool(name : String, value : String) : Bool

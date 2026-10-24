@@ -21,8 +21,8 @@ csrf_secret = Azu::Env.secret("CSRF_SECRET")
 
 | Call | What it does |
 | --- | --- |
-| `Azu::Env.load(path = ".env", override = false)` | Reads one file; returns the names it set. A missing file is not an error. |
-| `Azu::Env.load_all(dir = ".", override = false)` | Reads `.env`, `.env.<CRYSTAL_ENV>` and `.env.local` from `dir`. |
+| `Azu::Env.load(path = ".env", override = false, unsafe = false)` | Reads one file; returns the names it set. A missing file is not an error. |
+| `Azu::Env.load_all(dir = ".", override = false, unsafe = false)` | Reads `.env`, `.env.<CRYSTAL_ENV>` and `.env.local` from `dir`. |
 | `Azu::Env.parse(text)` | Parses text into a `Hash(String, String)` and touches nothing else. |
 
 Precedence, highest first:
@@ -34,7 +34,8 @@ Precedence, highest first:
 
 So a container that injects real values is unaffected by a `.env` baked into the image. `override: true`
 makes the file win over the process environment; use it in tooling, not in an application.
-`CRYSTAL_ENV` itself may be set in `.env` or `.env.local`; the process value wins.
+`CRYSTAL_ENV` itself may be set in `.env` or `.env.local`; the process value wins unless it is blank (blank counts as
+unset for `CRYSTAL_ENV`, as `Env.environment` treats it).
 
 ### File format
 
@@ -50,8 +51,18 @@ second"                       # quoted values may span lines
 ```
 
 `$VAR`, `${VAR}`, backticks and `$(...)` are ordinary characters: there is no interpolation and nothing is
-executed. A malformed line raises `Azu::Env::ParseError` naming the file and line (never the text), and the file
-sets nothing.
+executed. A malformed line raises `Azu::Env::ParseError` naming the file and line (never the text), and **one bad
+line fails the whole file**: it sets nothing. A file larger than 1 MB is refused. Paths in values (such as
+`sqlite3://./db/app.db`) are relative to the process's working directory, not to the file.
+
+### Trust
+
+An application loads its own `.env`, so the file is trusted for its own settings, but a copied or cloned file must not
+be able to change how processes start. `load` and `load_all` therefore **skip, with a warning naming the variable
+(never the value)**, these names (case-insensitive): `LD_*`, `DYLD_*`, `PATH`, `SHELL`, `IFS`, `BASH_ENV`, `ENV`,
+`SHARDS_*`, `CRYSTAL_PATH`, `CRYSTAL_OPTS`, `CRYSTAL_LIBRARY_PATH`, `GIT_*`, `DOCKER_HOST` and `HOME`. Pass
+`unsafe: true` to load them anyway; set them in the real environment otherwise. The `azu` CLI applies the same list
+to the `.env` of whatever project you run it in, and never lets a file override the real environment.
 
 ## Reading values
 
@@ -77,6 +88,14 @@ Errors name the variable and never its value: `PORT is not an integer`, `DATABAS
 outside production (the same value for the life of the process, so two readers of one name agree); an
 `Azu::Env::MissingError` (`CSRF_SECRET is not set`) in production.
 
+**The random fallback is per process.** Two processes, or one process after a restart, get different values, so signed
+cookies, CSRF tokens and sessions stop validating. `secret` logs one warning per name when it falls back; set the
+variable in `.env` in development.
+
+**Only `production` is strict by default.** Staging gets random secrets unless you list it: set
+`AZU_STRICT_ENVS=production,staging` or `Azu::Env.strict_environments = ["production", "staging"]` (`nil` restores
+the default), and `secret` raises there too.
+
 ```crystal
 require "azu"
 
@@ -88,7 +107,7 @@ end
 ## Logging
 
 `Azu::Env.redact(name, value)` returns `[FILTERED]` for names that look like secrets (`SECRET`, `PASSWORD`,
-`TOKEN`, `PRIVATE`, `CREDENTIAL`, `KEY`, `COOKIE`) and hides the password inside a URL;
+`TOKEN`, `PRIVATE`, `CREDENTIAL`, `*KEY`, `COOKIE`, `AUTH`, `DSN`, `SALT`, `SIGNING`) and hides the password inside a URL;
 `Azu::Env.redacted(hash)` does it for a hash. Use them whenever you print variables.
 
 ## What Azu reads through it

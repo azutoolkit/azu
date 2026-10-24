@@ -1,5 +1,6 @@
 require "../spec_helper"
 require "file_utils"
+require "log/spec"
 
 # Sets variables for the block and restores the process environment afterwards.
 private def with_env(vars : Hash(String, String?), &)
@@ -108,6 +109,25 @@ describe Azu::Env do
     end
   end
 
+  describe "the shared parser corpus" do
+    # spec/fixtures/dotenv_corpus.json is identical in azu and azu_cli (whose AzuCLI::DotEnv copies this parser):
+    # change one, change both.
+    corpus = JSON.parse(File.read(File.join(__DIR__, "../fixtures/dotenv_corpus.json"))).as_a
+
+    corpus.each do |entry|
+      it entry["name"].as_s do
+        input = entry["input"].as_s
+        if line = entry["error_line"]?
+          error = expect_raises(Azu::Env::ParseError) { Azu::Env.parse(input) }
+          error.line.should eq line.as_i
+        else
+          expected = entry["expect"].as_h.transform_values(&.as_s)
+          Azu::Env.parse(input).should eq expected
+        end
+      end
+    end
+  end
+
   describe ".load" do
     it "sets variables that are not in the process environment and returns their names" do
       with_dir do |dir|
@@ -172,6 +192,53 @@ describe Azu::Env do
     end
   end
 
+  describe "untrusted files" do
+    it "skips variables that change how processes start, with a warning naming them and never the value" do
+      names = %w[LD_PRELOAD ld_library_path DYLD_INSERT_LIBRARIES PATH SHELL IFS BASH_ENV ENV SHARDS_CACHE_PATH SHARDS_INSTALL_PATH
+        CRYSTAL_PATH CRYSTAL_OPTS CRYSTAL_LIBRARY_PATH GIT_SSH_COMMAND GIT_DIR DOCKER_HOST HOME path]
+      names.each { |name| Azu::Env.unsafe_name?(name).should be_true }
+      %w[PORT DATABASE_URL CSRF_SECRET PATHS SHELLY MY_PATH CRYSTAL_ENV GITHUB_TOKEN].each { |name| Azu::Env.unsafe_name?(name).should be_false }
+    end
+
+    it "does not load them from a file, but loads the rest" do
+      with_dir do |dir|
+        path = File.join(dir, ".env")
+        File.write(path, "AZU_ENV_SPEC_OK=1\nLD_PRELOAD=/tmp/evil.so\nGIT_SSH_COMMAND=evil-secret-value\nSHARDS_CACHE_PATH=/tmp/x\n")
+        with_env({"AZU_ENV_SPEC_OK" => nil, "LD_PRELOAD" => nil, "GIT_SSH_COMMAND" => nil, "SHARDS_CACHE_PATH" => nil}) do
+          Log.capture("azu.env") do |logs|
+            Azu::Env.load(path).should eq ["AZU_ENV_SPEC_OK"]
+            logs.check(:warn, /LD_PRELOAD/)
+            logs.check(:warn, /GIT_SSH_COMMAND/)
+            logs.entry.message.should_not contain("evil")
+          end
+          ENV["LD_PRELOAD"]?.should be_nil
+          ENV["GIT_SSH_COMMAND"]?.should be_nil
+          ENV["SHARDS_CACHE_PATH"]?.should be_nil
+        end
+      end
+    end
+
+    it "applies the same rule to load_all, and unsafe: true bypasses it" do
+      with_dir do |dir|
+        File.write(File.join(dir, ".env.local"), "CRYSTAL_OPTS=--no-color\n")
+        with_env({"CRYSTAL_OPTS" => nil}) do
+          Azu::Env.load_all(dir).should be_empty
+          ENV["CRYSTAL_OPTS"]?.should be_nil
+          Azu::Env.load_all(dir, unsafe: true).should eq ["CRYSTAL_OPTS"]
+          ENV["CRYSTAL_OPTS"].should eq "--no-color"
+        end
+      end
+    end
+
+    it "refuses a file larger than 1 MB" do
+      with_dir do |dir|
+        path = File.join(dir, ".env")
+        File.write(path, "A=" + "x" * 1_048_577)
+        expect_raises(Azu::Env::ParseError, /larger than 1 MB/) { Azu::Env.load(path) }
+      end
+    end
+  end
+
   describe ".load_all" do
     it "applies process env > .env.local > .env.<CRYSTAL_ENV> > .env" do
       with_dir do |dir|
@@ -207,6 +274,18 @@ describe Azu::Env do
         with_env({"CRYSTAL_ENV" => nil, "AZU_ENV_SPEC_P" => nil}) do
           Azu::Env.load_all(dir)
           ENV["AZU_ENV_SPEC_P"].should eq "dev"
+        end
+      end
+    end
+
+    it "treats a blank process CRYSTAL_ENV as unset when choosing the file and when applying" do
+      with_dir do |dir|
+        File.write(File.join(dir, ".env"), "CRYSTAL_ENV=staging\nAZU_ENV_SPEC_P=base\n")
+        File.write(File.join(dir, ".env.staging"), "AZU_ENV_SPEC_P=staging\n")
+        with_env({"CRYSTAL_ENV" => "", "AZU_ENV_SPEC_P" => nil}) do
+          Azu::Env.load_all(dir)
+          ENV["CRYSTAL_ENV"].should eq "staging"
+          ENV["AZU_ENV_SPEC_P"].should eq "staging"
         end
       end
     end
@@ -343,6 +422,38 @@ describe Azu::Env do
       end
     end
 
+    it "warns once per name about the per-process fallback" do
+      with_env({"AZU_ENV_SPEC_SECRET" => nil, "CRYSTAL_ENV" => "development"}) do
+        Log.capture("azu.env") do |logs|
+          Azu::Env.secret("AZU_ENV_SPEC_SECRET")
+          Azu::Env.secret("AZU_ENV_SPEC_SECRET")
+          logs.check(:warn, /AZU_ENV_SPEC_SECRET is not set: using a random value/)
+          logs.empty
+        end
+      end
+    end
+
+    it "raises in the environments listed as strict" do
+      with_env({"AZU_ENV_SPEC_SECRET" => nil, "CRYSTAL_ENV" => "staging"}) do
+        Azu::Env.secret("AZU_ENV_SPEC_SECRET").should_not be_empty
+        Azu::Env.strict_environments = ["production", "Staging"]
+        begin
+          expect_raises(Azu::Env::MissingError, /AZU_ENV_SPEC_SECRET is not set/) { Azu::Env.secret("AZU_ENV_SPEC_SECRET") }
+        ensure
+          Azu::Env.strict_environments = nil
+        end
+      end
+    end
+
+    it "reads strict environments from AZU_STRICT_ENVS" do
+      Azu::Env.strict_environments = nil
+      with_env({"CRYSTAL_ENV" => "staging", "AZU_STRICT_ENVS" => "production, staging"}) do
+        Azu::Env.strict_environments.should eq ["production", "staging"]
+        Azu::Env.strict?.should be_true
+      end
+      with_env({"CRYSTAL_ENV" => "staging", "AZU_STRICT_ENVS" => nil}) { Azu::Env.strict?.should be_false }
+    end
+
     it "takes the production flag explicitly" do
       with_env({"AZU_ENV_SPEC_SECRET" => nil, "CRYSTAL_ENV" => "development"}) do
         expect_raises(Azu::Env::MissingError) { Azu::Env.secret("AZU_ENV_SPEC_SECRET", production: true) }
@@ -362,6 +473,14 @@ describe Azu::Env do
     it "hides the password inside a URL" do
       Azu::Env.redact("DATABASE_URL", "postgres://app:hunter2@db/app").should eq "postgres://app:[FILTERED]@db/app"
       Azu::Env.redact("DATABASE_URL", "sqlite3://./db/app.db").should eq "sqlite3://./db/app.db"
+    end
+
+    it "filters more secret-looking names and URL passwords containing a slash" do
+      %w[STRIPE_APIKEY API_KEY SENTRY_DSN PASSWORD_SALT JWT_SIGNING AUTH_HEADER BASIC_AUTH].each do |name|
+        Azu::Env.redact(name, "abc").should eq "[FILTERED]"
+      end
+      Azu::Env.redact("DATABASE_URL", "postgres://app:pa/ss@db/app").should eq "postgres://app:[FILTERED]@db/app"
+      Azu::Env.redact("REDIS_URL", "redis://localhost:6379/0").should eq "redis://localhost:6379/0"
     end
 
     it "redacts a whole hash" do
