@@ -267,14 +267,54 @@ describe Azu::Env do
         with_env(names.to_h { |name| {name, nil} }) do
           Log.capture("azu.env") do |logs|
             Azu::Env.load(path).should eq ["AZU_ENV_SPEC_OK"]
-            logs.check(:warn, /CFLAGS/)
-            logs.check(:warn, /https_proxy/)
-            logs.check(:warn, /TZ/)
-            logs.check(:warn, /LC_ALL/)
-            logs.check(:warn, /GOPROXY/)
-            logs.entry.message.should_not contain("evil")
+            %w[CFLAGS https_proxy TZ LC_ALL GOPROXY].each { |name| logs.check(:warn, /#{name}/) }
+            logs.empty
           end
           (names - ["AZU_ENV_SPEC_OK"]).each { |name| ENV[name]?.should be_nil }
+        end
+      end
+    end
+
+    it "never puts a value in any warning" do
+      with_dir do |dir|
+        File.write(File.join(dir, ".env"), "CFLAGS=evil-value\nhttps_proxy=http://evil.example\n")
+        with_env({"CFLAGS" => nil, "https_proxy" => nil}) do
+          Log.capture("azu.env") do |logs|
+            Azu::Env.load_all(dir)
+            %w[CFLAGS https_proxy].each do |name|
+              logs.check(:warn, /#{name}/)
+              logs.entry.message.should_not contain("evil")
+            end
+            logs.empty
+          end
+        end
+      end
+    end
+
+    it "skips the new families with override: true too, for load and load_all" do
+      with_dir do |dir|
+        File.write(File.join(dir, ".env"), "TZ=UTC\nCFLAGS=-O2\nAZU_ENV_SPEC_OK=1\n")
+        with_env({"TZ" => "Europe/Paris", "CFLAGS" => nil, "AZU_ENV_SPEC_OK" => nil}) do
+          Azu::Env.load(File.join(dir, ".env"), override: true).should eq ["AZU_ENV_SPEC_OK"]
+          ENV["TZ"].should eq "Europe/Paris"
+          ENV["CFLAGS"]?.should be_nil
+          ENV.delete("AZU_ENV_SPEC_OK")
+          Azu::Env.load_all(dir, override: true).should eq ["AZU_ENV_SPEC_OK"]
+          ENV["TZ"].should eq "Europe/Paris"
+          ENV["CFLAGS"]?.should be_nil
+        end
+      end
+    end
+
+    it "does not warn when the real environment already has the denied name" do
+      with_dir do |dir|
+        File.write(File.join(dir, ".env"), "TZ=UTC\n")
+        with_env({"TZ" => "Europe/Paris"}) do
+          Log.capture("azu.env") do |logs|
+            Azu::Env.load_all(dir).should be_empty
+            logs.empty
+          end
+          ENV["TZ"].should eq "Europe/Paris"
         end
       end
     end

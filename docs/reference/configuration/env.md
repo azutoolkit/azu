@@ -75,6 +75,13 @@ be able to change how processes start or how the toolchain, TLS and proxies beha
 Pass `unsafe: true` to load them anyway; set them in the real environment otherwise. The `azu` CLI applies the same
 list to the `.env` of whatever project you run it in, and never lets a file override the real environment.
 
+**Watch the pattern names.** `*FLAGS` matches every name that ends in `FLAGS`, so application settings called
+`FEATURE_FLAGS`, `LOG_FLAGS` or `MY_CFLAGS` are skipped too; rename them (for example `FEATURES`). The same goes for
+`PYTHON*`, `RUBY*`, `XDG_*`, `BUNDLE_*`, `CARGO_*` and the other starred families.
+
+The warning is logged by `Log.for("azu.env")` at `warn` level, so it only shows once logging is configured. It is not
+written when the real environment already has the name (the file could not override it anyway).
+
 `LANG`, `LC_*` and `TZ` are on the list although an application may well want them in its own `.env`: they change how
 every library in the process (and every child process) formats and parses text and times, and the CLI and the app
 agreeing on one list matters more than the convenience. Set them in the real environment (the container, systemd, the

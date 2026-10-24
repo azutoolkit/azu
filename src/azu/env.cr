@@ -245,7 +245,7 @@ module Azu
     private def self.apply(vars : Hash(String, String), override : Bool, unsafe : Bool) : Array(String)
       applied = [] of String
       vars.each do |name, value|
-        next if !unsafe && skip_unsafe(name)
+        next if !unsafe && skip_unsafe(name, override)
         next if !override && in_process?(name)
 
         ENV[name] = value
@@ -254,10 +254,14 @@ module Azu
       applied
     end
 
-    private def self.skip_unsafe(name : String) : Bool
+    # A denied name is skipped. It warns (logger `azu.env`, level warn, so it is invisible until logging is configured)
+    # unless the real environment already has the name and the file could not override it anyway.
+    private def self.skip_unsafe(name : String, override : Bool) : Bool
       return false unless unsafe_name?(name)
 
-      Log.for("azu.env").warn { "ignoring #{name} from a .env file: it changes how processes start (load with unsafe: true to allow it)" }
+      unless !override && in_process?(name)
+        Log.for("azu.env").warn { "ignoring #{name} from a .env file: it changes how the process, its tools, TLS or locale behave (set it in the real environment, or load with unsafe: true)" }
+      end
       true
     end
 

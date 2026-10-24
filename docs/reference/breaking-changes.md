@@ -16,7 +16,7 @@ variables (`CC`, `CXX`, `*FLAGS`, ...), proxy and certificate variables (`HTTP_P
 runtimes' variables (`PYTHON*`, `RUBY*`, `NODE_OPTIONS`, `GEM_*`, `CARGO_*`, ...), `USER`, `TMPDIR`, `XDG_*` and the
 locale and time zone names `LANG`, `LC_*` and `TZ`. Matching is case-insensitive. A skipped name logs a warning naming
 it (never the value) and is not set. If your `.env` sets one of them (typically `TZ` or `LANG`), set it in the real
-environment instead, or load the file with `unsafe: true`. See [Environment](configuration/env.md#trust).
+environment instead, or load the file with `unsafe: true`. Note that `*FLAGS` also matches application names such as `FEATURE_FLAGS`, `LOG_FLAGS` and `MY_CFLAGS`: rename them (for example `FEATURES`). See [Environment](configuration/env.md#trust).
 
 **A Redis cache needs an explicit URL, and `clear` only removes the cache's own keys.**
 
