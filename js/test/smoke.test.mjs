@@ -34,7 +34,7 @@ describe("azu-spark.js", () => {
   it("only uses supported heartbeat intervals", () => {
     assert.equal(spark.heartbeatInterval(undefined), 20000);
     assert.equal(spark.heartbeatInterval("junk"), 20000);
-    assert.equal(spark.heartbeatInterval(3000), 5000);
+    assert.equal(spark.heartbeatInterval(3000), 2000);
     assert.equal(spark.heartbeatInterval(1), 1000);
     assert.equal(spark.heartbeatInterval(10 ** 9), 60000);
   });

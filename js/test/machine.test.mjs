@@ -14,14 +14,14 @@ const TABLE = [
   ["connecting", "offline", "offline", 2], ["connecting", "stop", "closing", 2], ["connecting", "pagehide", "closing", 2],
   ["joining", "joins_settled", "open", 2], ["joining", "stable", "joining", 0], ["joining", "closed", "backoff", 3],
   ["joining", "dead", "backoff", 3], ["joining", "offline", "offline", 2], ["joining", "stop", "closing", 2],
-  ["joining", "pagehide", "closing", 2], ["joining", "visible", "joining", 2],
-  ["open", "joins_pending", "joining", 2], ["open", "stable", "open", 0], ["open", "visible", "open", 2],
+  ["joining", "pagehide", "closing", 2], ["joining", "visible", "joining", 2], ["joining", "online", "joining", 2],
+  ["open", "joins_pending", "joining", 2], ["open", "stable", "open", 0], ["open", "visible", "open", 2], ["open", "online", "open", 2],
   ["open", "hide_idle", "closing", 2], ["open", "closed", "backoff", 3], ["open", "dead", "backoff", 3],
   ["open", "offline", "offline", 2], ["open", "stop", "closing", 2], ["open", "pagehide", "closing", 2],
   ["backoff", "backoff_elapsed", "connecting", 2], ["backoff", "connect", "connecting", 2], ["backoff", "visible", "connecting", 2],
-  ["backoff", "online", "connecting", 0], ["backoff", "offline", "offline", 2], ["backoff", "hide_idle", "hidden-idle", 2],
+  ["backoff", "online", "backoff", 2], ["backoff", "offline", "offline", 2], ["backoff", "hide_idle", "hidden-idle", 2],
   ["backoff", "stop", "stopped", 2], ["backoff", "pagehide", "idle", 2],
-  ["offline", "online", "connecting", 0], ["offline", "connect", "connecting", 2], ["offline", "visible", "connecting", 2],
+  ["offline", "online", "backoff", 2], ["offline", "connect", "connecting", 2], ["offline", "visible", "connecting", 2],
   ["offline", "stop", "stopped", 2], ["offline", "pagehide", "idle", 2],
   ["hidden-idle", "visible", "connecting", 0], ["hidden-idle", "connect", "connecting", 0],
   ["hidden-idle", "stop", "stopped", 2], ["hidden-idle", "pagehide", "idle", 2],
@@ -32,6 +32,8 @@ const CLOSING = [
   // [then, event, expected state, expected then]
   ["stopped", "closed", "stopped"], ["stopped", "dead", "stopped"], ["stopped", "stop", "closing", "stopped"],
   ["stopped", "pagehide", "closing", "stopped"], ["stopped", "connect", "closing", "connecting"],
+  ["idle", "pageshow", "closing", "connecting"], ["hidden-idle", "pageshow", "closing", "connecting"],
+  ["stopped", "pageshow", "closing", "stopped"], ["connecting", "pageshow", "closing", "connecting"],
   ["idle", "closed", "idle"], ["idle", "stop", "closing", "stopped"], ["idle", "pagehide", "closing", "idle"], ["idle", "connect", "closing", "connecting"],
   ["hidden-idle", "closed", "hidden-idle"], ["hidden-idle", "pagehide", "closing", "idle"],
   ["connecting", "closed", "connecting"], ["connecting", "stop", "closing", "stopped"],
@@ -94,11 +96,22 @@ describe("transitions", () => {
     assert.equal(spark.next({ name: "backoff", attempts: 5 }, { type: "visible", online: true }).state.attempts, 5);
   });
 
-  it("asks the server for a sign of life when a tab becomes visible with an open connection", () => {
+  it("asks the server for a sign of life when a tab becomes visible or the network returns with an open connection", () => {
     for (const from of ["joining", "open"]) {
-      const result = spark.next({ name: from, attempts: 0 }, { type: "visible", online: true });
-      assert.deepEqual(result.effects, [{ type: "probe" }]);
+      for (const type of ["visible", "online"]) {
+        const result = spark.next({ name: from, attempts: 0 }, { type, online: true });
+        assert.deepEqual(result.effects, [{ type: "probe" }]);
+      }
     }
+  });
+
+  it("revives a page restored from the back/forward cache while its close is still pending", () => {
+    const hidden = spark.next({ name: "open", attempts: 0 }, { type: "pagehide" }).state;
+    assert.deepEqual([hidden.name, hidden.then], ["closing", "idle"]);
+    const shown = spark.next(hidden, { type: "pageshow" }).state;
+    assert.deepEqual([shown.name, shown.then], ["closing", "connecting"]);
+    const closed = spark.next(shown, { type: "closed", code: 1000 }).state;
+    assert.deepEqual([closed.name, closed.attempts], ["connecting", 0]);
   });
 
   it("maps states to the public status", () => {
@@ -220,17 +233,35 @@ describe("runner", () => {
     assert.equal(h.machine.state.attempts, 0, "stable for 10 s: the backoff starts over");
   });
 
-  it("the online event resets the backoff and reconnects at once", () => {
-    const h = harness(spark);
+  it("the online event reconnects after a small jittered delay and keeps the attempts", () => {
+    const h = harness(spark, { random: () => 0.5 });
     open(h);
+    h.machine.dispatch({ type: "closed", code: 1006 });
+    h.clock.advance(250);
+    h.machine.dispatch({ type: "closed", code: 1006 }); // a second loss: attempts 2
+    h.clock.advance(500);
     h.status.online = false;
     h.machine.dispatch({ type: "closed", code: 1006 });
     assert.equal(h.machine.state.name, "offline");
     assert.equal(h.clock.pending(), 0, "nothing runs while offline");
+    const attempts = h.machine.state.attempts;
     h.status.online = true;
     h.machine.dispatch({ type: "online" });
+    assert.equal(h.machine.state.name, "backoff", "not an instant retry");
+    assert.equal(h.machine.state.attempts, attempts, "only a stable connection resets the attempts");
+    assert.equal(h.log.filter((entry) => entry.name === "backingOff").pop().delay, 250, "the delay of the first attempt");
+    h.clock.advance(250);
     assert.equal(h.machine.state.name, "connecting");
-    assert.equal(h.machine.state.attempts, 0);
+    assert.equal(h.machine.state.attempts, attempts);
+  });
+
+  it("a storm of online events does not retry sooner than one jittered delay", () => {
+    const h = harness(spark, { random: () => 0.5 });
+    open(h);
+    h.machine.dispatch({ type: "closed", code: 1006 });
+    for (let i = 0; i < 5; i++) h.machine.dispatch({ type: "online" });
+    assert.equal(h.machine.state.name, "backoff");
+    assert.equal(h.clock.pending(), 1, "one retry timer, not five");
   });
 
   it("keeps the attempts across visibility changes while the server is down", () => {
@@ -283,6 +314,54 @@ describe("backoff", () => {
 });
 
 describe("heartbeat", () => {
+  it("never beats slower than the server expects: rounds the proposal down to a supported interval", () => {
+    assert.equal(spark.heartbeatInterval(20000), 20000);
+    assert.equal(spark.heartbeatInterval(45000), 30000);
+    assert.equal(spark.heartbeatInterval(3000), 2000);
+    assert.equal(spark.heartbeatInterval(1), 1000);
+    assert.equal(spark.heartbeatInterval(0.5), 1000);
+    assert.equal(spark.heartbeatInterval(10 ** 9), 60000);
+    assert.equal(spark.heartbeatInterval(undefined), 20000);
+    assert.equal(spark.heartbeatInterval("junk"), 20000);
+  });
+
+  it("probes a connection after the machine slept, though the monotonic clock did not see it", () => {
+    const h = harness(spark);
+    open(h);
+    h.machine.frame();
+    h.clock.advance(1000);
+    h.machine.frame();
+    const beats = h.status.beats;
+    h.sleep(10 * 60 * 1000); // wall clock jumps, performance.now does not
+    h.clock.advance(1000);
+    assert.ok(h.status.beats >= beats + 2, "a heartbeat beyond the regular one was sent");
+    assert.equal(h.machine.state.name, "open", "a probe, not a verdict");
+    h.clock.advance(3000);
+    assert.notEqual(h.machine.state.name, "open", "and silence after waking drops the dead socket");
+    assert.ok(h.log.some((entry) => entry.name === "close" && entry.reason === "heartbeat timeout"));
+  });
+
+  it("keeps the connection that answers the probe after waking", () => {
+    const h = harness(spark);
+    open(h);
+    h.machine.frame();
+    h.sleep(10 * 60 * 1000);
+    h.clock.advance(1000);
+    h.machine.frame();
+    for (let second = 0; second < 5; second++) { h.clock.advance(1000); h.machine.frame(); }
+    assert.equal(h.machine.state.name, "open");
+  });
+
+  it("probes when the network returns with an open connection", () => {
+    const h = harness(spark);
+    open(h);
+    const beats = h.status.beats;
+    h.machine.dispatch({ type: "online" });
+    assert.equal(h.status.beats, beats + 1);
+    h.clock.advance(3001);
+    assert.ok(h.log.some((entry) => entry.name === "close" && entry.reason === "heartbeat timeout"));
+  });
+
   const measure = (silence, gap = 1000) => ({ silence, gap, interval: 1000, period: 1000 });
 
   it("judges silence against 2.5 intervals", () => {

@@ -42,6 +42,10 @@ declare function retry(state: any): {
     state: any;
     effects: any;
 };
+declare function networkBack(state: any): {
+    state: any;
+    effects: any;
+};
 declare function resume(state: any, event: any): {
     state: any;
     effects: any;
@@ -71,12 +75,16 @@ export declare var TRANSITIONS: {
             state: any;
             effects: any;
         };
+        pageshow: (state: any) => {
+            state: any;
+            effects: any;
+        };
     };
     backoff: {
         backoff_elapsed: typeof retry;
         connect: typeof retry;
         visible: typeof resume;
-        online: typeof connectFresh;
+        online: typeof networkBack;
         offline: (state: any) => {
             state: any;
             effects: any;
@@ -89,7 +97,7 @@ export declare var TRANSITIONS: {
         pagehide: typeof paused;
     };
     offline: {
-        online: typeof connectFresh;
+        online: typeof networkBack;
         connect: typeof retry;
         visible: typeof resume;
         stop: typeof stopped;
@@ -150,8 +158,10 @@ export declare function heartbeatInterval(proposed: unknown): number;
  * Whether a connection that has been silent for *silence* ms is dead. A half open connection never
  * fires `close`, so silence is the only sign. But a throttled or frozen tab runs its watchdog late
  * (*gap* is the time since its previous run, *period* how often it should run), and frames may sit
- * unread behind it: then the silence proves nothing and the server is asked instead.
- * @param {{silence: number, gap: number, interval: number, period: number}} measure all in milliseconds
+ * unread behind it: then the silence proves nothing and the server is asked instead. After a
+ * system sleep the monotonic clock may not have advanced at all; *jumped* is how much more the wall
+ * clock advanced than the monotonic one, and a large jump also means the server is asked.
+ * @param {{silence: number, gap: number, interval: number, period: number, jumped?: number}} measure all in milliseconds
  * @returns {"alive" | "suspect" | "dead"}
  */
 export declare function heartbeatVerdict(measure: {
@@ -159,11 +169,13 @@ export declare function heartbeatVerdict(measure: {
     gap: number;
     interval: number;
     period: number;
+    jumped?: number;
 }): "alive" | "suspect" | "dead";
 /**
  * Runs the machine: executes the effects of each transition and owns the timers. Everything it
  * touches comes in through *deps*, so it runs against a fake clock in tests.
- * @param {object} deps timers {setTimeout, clearTimeout, setInterval, clearInterval}, now(), random(), online(),
+ * @param {object} deps timers {setTimeout, clearTimeout, setInterval, clearInterval}, now() (monotonic), wall() (Date.now),
+ *   random(), online(),
  *   interval() (heartbeat ms), beat() (sends a heartbeat, true when sent), tick(), status(name, state),
  *   and the host effects open, close, teardown, opened, backingOff
  * @param {object} [settings] backoffMin, backoffMax, probeTimeout, stableAfter (ms)

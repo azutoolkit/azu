@@ -65,29 +65,35 @@ one it left, so no timer outlives its state.
    idle ------------> connecting ---------> joining ---------------------> open
                           ^  |                 |  ^                          |  |
           retry elapsed / |  | lost, or        |  | a root is added          |  |
-          online / visible|  | no hello in 10 s|  +--------------------------+  |
+          visible         |  | no hello in 10 s|  +--------------------------+  |
                           |  v                 v                                |
                        backoff <---------- (connection lost: close, dead, ... ) <+
                           |  ^
-          offline event   |  | online: reconnect at once, attempts reset
+          offline event   |  | online: retry after a short jittered delay, attempts kept
                           v  |
                         offline
 
    any state with a socket --stop / pagehide--> closing --closed--> stopped / idle
    stopped / idle / hidden-idle --connect / pageshow--> connecting
+   closing --pageshow (restored from the bfcache)--> connecting once the close finished
 ```
 
 - **Backoff.** After a lost connection the client waits a random time between 0 and
   `min(15 s, 500 ms * 2^attempt)` (full jitter, so clients that lost the same server do not return
   together). The attempt counter resets only after a connection stayed open for 10 s: a server
-  that accepts a socket and closes it again keeps being backed off from. Tab visibility never
-  resets it; the `online` event does (the network changed, not the server).
+  that accepts a socket and closes it again keeps being backed off from. Nothing else resets it:
+  not tab visibility, and not the `online` event, which only shortens the wait to the first
+  jittered delay (0 to 500 ms) so that flaky Wi-Fi, a captive portal or a fleet of clients coming
+  back together do not retry in a burst.
 - **Heartbeat.** The server proposes an interval in `hello` (`config.heartbeat_interval`). The client
-  sends a heartbeat each interval and drops a connection that has been silent for 2.5 intervals:
+  sends a heartbeat each interval (the largest supported interval, 1 to 60 s, that is not above the
+  proposal, so it is never slower than the server's idle check expects) and drops a connection that has been silent for 2.5 intervals:
   a half open connection (a vanished Wi-Fi, a NAT that forgot the flow) never reports `close`.
   Silence is measured with `performance.now()`, and a watchdog that itself ran late (a throttled
   or frozen background tab; frames may be waiting unread behind it) does not drop the connection:
-  it sends a heartbeat and drops the connection only if no frame arrives within 3 s.
+  it sends a heartbeat and drops the connection only if no frame arrives within 3 s. The same
+  happens when the wall clock jumped further than `performance.now()` (the machine slept), and when
+  the network comes back (`online`) or the tab becomes visible with an open connection.
 - **Browser events.** `offline` drops the socket at once and waits for `online` instead of retrying
   into the void. A tab that becomes visible while backing off retries at once (keeping the attempt
   counter, so the delays keep growing); with an open connection it probes it with a heartbeat that
