@@ -17,17 +17,26 @@ module Azu
       @presence_tracked = [] of {String, Meta}
       @presence_watches = {} of String => Watch
       @presence_mutex = Mutex.new
+      @presence_closed = false
 
       def track_presence(topic : String, key : String, meta = nil) : Meta
         Presence.track(topic, key, meta).tap do |entry|
-          @presence_mutex.synchronize { @presence_tracked << {topic, entry} }
+          closed = @presence_mutex.synchronize { @presence_closed.tap { |done| @presence_tracked << {topic, entry} unless done } }
+          Presence.untrack(topic, key, entry.ref) if closed
         end
       end
 
       # Subscribes this socket to the diffs of *topic*; they reach `on_broadcast` as JSON.
       def presence_updates(topic : String) : Nil
-        @presence_mutex.synchronize { @presence_watches[topic] ||= Presence.default.watch(topic) }
-        subscribe_topic(Presence.channel_for(topic))
+        return if @presence_mutex.synchronize { @presence_closed }
+        watch = Presence.default.watch(topic)
+        kept = @presence_mutex.synchronize do
+          next false if @presence_closed || @presence_watches.has_key?(topic)
+          @presence_watches[topic] = watch
+          true
+        end
+        watch.cancel unless kept
+        subscribe_topic(Presence.channel_for(topic)) unless @presence_mutex.synchronize { @presence_closed }
       end
 
       # Untracks last: a slow store must not hold up closing the socket.
@@ -39,6 +48,7 @@ module Azu
 
       private def untrack_presence : Nil
         tracked, watches = @presence_mutex.synchronize do
+          @presence_closed = true
           {@presence_tracked.dup.tap { @presence_tracked.clear }, @presence_watches.values.tap { @presence_watches = {} of String => Watch }}
         end
         watches.each(&.cancel)
