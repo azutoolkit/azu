@@ -66,7 +66,8 @@ HTTP upgrade request
 
 The server pings every `websocket.ping_interval` (30 seconds by default) so dead peers are noticed,
 and a frame larger than `websocket.max_message_size` (1 MiB) closes the connection. Both are set on
-`Azu::CONFIG.websocket`.
+`Azu::CONFIG.websocket`. Upgraded sockets also have `TCP_NODELAY` set (`websocket.tcp_nodelay`, on by default), so
+the several small writes of one reply are not held back for the peer's delayed ACK.
 
 ## Topics with PubSub
 

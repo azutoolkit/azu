@@ -179,6 +179,7 @@ These class methods read the application configuration and can be overridden per
 Azu::CONFIG.websocket.allowed_origins = ["https://app.example.com"]
 Azu::CONFIG.websocket.max_message_size = 64 * 1024
 Azu::CONFIG.websocket.ping_interval = 20.seconds
+Azu::CONFIG.websocket.tcp_nodelay = true # the default: frames leave at once, no Nagle delay
 
 class SmallMessagesChannel < Azu::Channel
   def self.max_message_size : Int32

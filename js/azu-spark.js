@@ -1090,9 +1090,11 @@ function remember(targets) {
   var kept = { scrolls: [], focus: null };
   var active = document.activeElement;
   targets.forEach(function (target) {
-    [target].concat(Array.prototype.slice.call(target.querySelectorAll("*"))).forEach(function (el) {
+    var all = target.querySelectorAll("*");
+    for (var i = -1; i < all.length; i++) {
+      var el = i < 0 ? target : all[i];
       if (el.scrollTop || el.scrollLeft) kept.scrolls.push([el, el.scrollTop, el.scrollLeft]);
-    });
+    }
   });
   if (active && targets.some(function (target) { return target.contains(active); })) {
     var selection = active.isContentEditable && window.getSelection && window.getSelection();
@@ -1235,11 +1237,12 @@ export function sanitize(root, scripts) {
   // The content of a nested <template> is a separate fragment that querySelectorAll does not enter.
   Array.prototype.forEach.call(root.querySelectorAll("template"), function (node) { sanitize(node.content, scripts); });
   Array.prototype.forEach.call(root.querySelectorAll("*"), function (node) {
-    Array.prototype.slice.call(node.attributes).forEach(function (attr) {
-      var name = attr.name.toLowerCase();
-      if (name.indexOf("on") === 0 || name === "srcdoc" || name === OPT_IN || foreignTarget(name, attr.value) ||
-          (URL_ATTRIBUTES.indexOf(name) >= 0 && scriptUrl(attr.value, name))) node.removeAttribute(attr.name);
-    });
+    var attrs = node.attributes;
+    for (var i = attrs.length - 1; i >= 0; i--) {
+      var name = attrs[i].name.toLowerCase();
+      if (name.indexOf("on") === 0 || name === "srcdoc" || name === OPT_IN || foreignTarget(name, attrs[i].value) ||
+          (URL_ATTRIBUTES.indexOf(name) >= 0 && scriptUrl(attrs[i].value, name))) node.removeAttribute(attrs[i].name);
+    }
   });
 }
 
@@ -1286,19 +1289,29 @@ function sameKind(a, b) {
 }
 
 function morphChildren(from, to, live) {
+  // Nothing keyed and the same kinds in the same places (most elements): each node meets its own, no bookkeeping.
+  var a = from.firstChild;
+  var b = to.firstChild;
+  while (a && b && !keyOf(a) && !keyOf(b) && sameKind(a, b)) { a = a.nextSibling; b = b.nextSibling; }
+  if (!a && !b) {
+    for (a = from.firstChild, b = to.firstChild; a; a = a.nextSibling, b = b.nextSibling) morphNode(a, b, live);
+    return;
+  }
   var old = Array.prototype.slice.call(from.childNodes);
   var wanted = Array.prototype.slice.call(to.childNodes);
+  var plain = wanted.filter(function (want) { return keyOf(want) === null; }); // in order, to look one ahead
   var keyed = new Map();
   var loose = [];
   var at = new Map();
   var next = 0;
+  var seen = 0;
   old.forEach(function (node, i) {
     var key = keyOf(node);
     at.set(node, i);
     if (key === null) loose.push(node); else if (!keyed.has(key)) keyed.set(key, node);
   });
   var claimed = new Set();
-  var matches = wanted.map(function (want, i) {
+  var matches = wanted.map(function (want) {
     var key = keyOf(want);
     var node = null;
     if (key !== null) {
@@ -1308,7 +1321,7 @@ function morphChildren(from, to, live) {
     } else {
       // A mismatch is an insertion when the following wanted node fits the old node, else a deletion: skip what the server dropped.
       var from = next;
-      var after = wanted.slice(i + 1).filter(function (w) { return keyOf(w) === null; })[0];
+      var after = plain[++seen];
       if (!(loose[next] && after && sameKind(loose[next], after))) {
         while (from < loose.length && !sameKind(loose[from], want)) from++;
       }
@@ -1356,9 +1369,9 @@ var OPENABLE = /^(DETAILS|DIALOG)$/;
 var OPT_IN = "data-spark-allow-scripts";
 
 function morphAttributes(from, to) {
-  var names = new Set();
+  var names = [];
   [from, to].forEach(function (el) {
-    Array.prototype.forEach.call(el.attributes, function (attr) { names.add(attr.name); });
+    Array.prototype.forEach.call(el.attributes, function (attr) { if (from.getAttribute(attr.name) !== to.getAttribute(attr.name)) names.push(attr.name); });
   });
   var openable = OPENABLE.test(from.nodeName);
   if (openable) reopen(from, to.hasAttribute("open"));

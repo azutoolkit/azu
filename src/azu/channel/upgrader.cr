@@ -32,7 +32,9 @@ module Azu
         # The upgrade block runs after the handler chain has returned, outside the app's scope.
         config = Azu.current_config
         app = Azu.current_app
+        nodelay = config.websocket.tcp_nodelay?
         response.upgrade do |io|
+          TCPNoDelay.apply(io, nodelay)
           Azu.with_app(app) do
             Azu.with_config(config) do
               socket = HTTP::WebSocket.new(BoundedProtocol.new(io, @channel.max_message_size))

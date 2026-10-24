@@ -22,9 +22,9 @@ const serverTtl = full ? 3600 : 1800;
 
 const exec = (extra) => [...prefix, bin, ...extra];
 
-function startServer(nodelay = true) {
+function startServer(nodelay = true, env = {}) {
   const [command, ...rest] = exec(["serve", "--ttl", String(serverTtl), ...(nodelay ? ["--nodelay"] : [])]);
-  const child = spawn(command, rest, { stdio: ["ignore", "pipe", "inherit"], env: process.env });
+  const child = spawn(command, rest, { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, ...env } });
   return new Promise((resolve, reject) => {
     let buffer = "";
     child.stdout.on("data", (chunk) => {
@@ -79,9 +79,10 @@ async function eventsSuite(port) {
   return metrics;
 }
 
-// The same event round trip on a server that keeps Nagle's algorithm on (the default of Crystal's HTTP server).
+// The same event round trip on a server that keeps Nagle's algorithm on: Azu sets TCP_NODELAY on upgraded sockets by
+// default, so this arm turns that off (WEBSOCKET_TCP_NODELAY=false; a BENCH_EXEC_PREFIX wrapper must forward it).
 async function nagleSuite() {
-  const { child, port } = await startServer(false);
+  const { child, port } = await startServer(false, { WEBSOCKET_TCP_NODELAY: "false" });
   const runs = [];
   try {
     for (let rep = 0; rep < reps; rep++) runs.push(load(port, "events", ["--conns", 10, "--components", 1, "--events", 100, "--eid", "on"]));
@@ -89,10 +90,10 @@ async function nagleSuite() {
     await stop(child, port);
   }
   const metrics = [
-    metric("server.events.c10n1.nagle_on.events_per_s", "events/s", runs.map((r) => [r.events_per_s]), { better: "higher", extra: { note: "default sockets: diff and reply are two writes" } }),
+    metric("server.events.c10n1.nagle_on.events_per_s", "events/s", runs.map((r) => [r.events_per_s]), { better: "higher", extra: { note: "tcp_nodelay off: diff and reply are two writes" } }),
     metric("server.events.c10n1.nagle_on.closed_loop_p50_ms", "ms", runs.map((r) => [r.p50_ms]), { floor: 0.5 }),
   ];
-  console.error(`  events with Nagle on (default sockets): ${Math.round(metrics[0].median)} /s, p50 ${metrics[1].median} ms`);
+  console.error(`  events with Nagle on (websocket.tcp_nodelay = false): ${Math.round(metrics[0].median)} /s, p50 ${metrics[1].median} ms`);
   return metrics;
 }
 
