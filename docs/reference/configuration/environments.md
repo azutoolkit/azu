@@ -41,7 +41,8 @@ module MyApp
 end
 ```
 
-Azu does not read `.env` files. Export the variables in the shell, the process manager or the container.
+Azu does not load `.env` files on its own. Call `Azu::Env.load_all` before `require "azu"` to load them (see [Azu::Env](env.md));
+a variable already in the process environment always wins over a file.
 
 ## Checking the Environment
 

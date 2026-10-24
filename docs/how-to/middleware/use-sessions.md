@@ -27,7 +27,7 @@ end
 Session::Web.use_store(Session::CookieStore(UserSession))
 
 Session.configure do |config|
-  config.secret = ENV["SESSION_SECRET"]
+  config.secret = Azu::Env.secret("SESSION_SECRET")
   config.store = Session::CookieStore(UserSession).new
 end
 ```

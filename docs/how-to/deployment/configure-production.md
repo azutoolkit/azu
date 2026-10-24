@@ -50,13 +50,13 @@ Keep secrets out of the image and out of source control: pass them as environmen
 `systemd` `EnvironmentFile=`, your platform's secret store) and read them with `ENV[...]`, which raises at boot
 when one is missing. Azu itself reads `SPARK_SECRET`; the application reads the rest.
 
-An application generated with `azu new` reads `SESSION_SECRET` and `CSRF_SECRET` and refuses to start in
-production without them. If you write the same guard yourself, the CSRF handler takes the key as an argument.
-Without one it generates a random key for each process, so tokens issued by one instance are rejected by
-another:
+An application generated with `azu new` reads `SESSION_SECRET` and `CSRF_SECRET` with `Azu::Env.secret` and refuses to
+start in production without them (in development it loads them from its git-ignored `.env`). Write the same guard
+yourself with [`Azu::Env.secret`](../../reference/configuration/env.md); without a key the CSRF handler generates a
+random one for each process, so tokens issued by one instance are rejected by another:
 
 ```crystal
-csrf = Azu::Handler::CSRF.new(secret_key: ENV["CSRF_SECRET"]?)
+csrf = Azu::Handler::CSRF.new(secret_key: Azu::Env.secret("CSRF_SECRET"))
 ```
 
 Generate a value with `openssl rand -base64 48`.
