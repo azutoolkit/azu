@@ -285,7 +285,7 @@ module MyApp
     when .production?
       config.template_hot_reload = false
       config.cache_config.store = "redis"
-      config.cache_config.redis_url = ENV.fetch("CACHE_REDIS_URL", "redis://localhost:6379/0")
+      config.cache_config.redis_url = ENV["CACHE_REDIS_URL"]
     when .test?
       config.port = 4001
     else

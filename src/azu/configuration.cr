@@ -155,6 +155,10 @@ module Azu
       end
 
       manager
+    rescue ex : ArgumentError
+      # A misconfigured cache (no Redis URL, unknown store) must fail the boot, not quietly turn caching off. Only
+      # an unreachable Redis, or another runtime failure, falls back below.
+      raise ex
     rescue ex
       log.error(exception: ex) { "Cache initialization failed, falling back to NullStore" }
       # Fall back to NullStore if initialization fails

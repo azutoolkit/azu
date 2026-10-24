@@ -29,11 +29,9 @@ module Azu
       abstract def clear : Bool
       abstract def size : Int32
 
-      # Removes the keys that start with *prefix*. A store that holds nothing but this cache's entries may remove
-      # everything (the default); a shared store (Redis) removes only the matching keys.
-      def clear_prefix(prefix : String) : Bool
-        clear
-      end
+      # Removes the keys that start with *prefix*. A store that holds nothing but this cache's entries removes
+      # everything; a shared store (Redis) removes only the matching keys.
+      abstract def clear_prefix(prefix : String) : Bool
 
       # Overloaded get method with block and TTL support
       # @deprecated Use `fetch` instead for Rails-like cache-aside pattern.
@@ -190,6 +188,11 @@ module Azu
           return false if entry.expired?
           true
         end
+      end
+
+      # The store holds only this cache's entries, so a prefix clear empties it.
+      def clear_prefix(prefix : String) : Bool
+        clear
       end
 
       def clear : Bool
@@ -390,6 +393,11 @@ module Azu
 
       # Deletes the keys that start with *prefix* (SCAN, then UNLINK in batches) and leaves every other key of the
       # database alone, which `clear` (FLUSHDB) does not.
+      #
+      # It walks the whole keyspace (SCAN COUNT 500), so it costs O(keys in the database), not O(cache entries).
+      # It is not atomic: it answers `false` when Redis fails part way, with some keys already removed. It needs
+      # Redis 4.0 (UNLINK) and a single node: Redis Cluster is not supported (SCAN visits one node and UNLINK of
+      # keys in different slots fails with CROSSSLOT).
       def clear_prefix(prefix : String) : Bool
         pattern = "#{prefix.gsub(/[\\*?\[\]]/) { |char| "\\#{char}" }}*"
         cursor = "0"
@@ -533,6 +541,10 @@ module Azu
 
       def exists?(key : String) : Bool
         false
+      end
+
+      def clear_prefix(prefix : String) : Bool
+        true
       end
 
       def clear : Bool

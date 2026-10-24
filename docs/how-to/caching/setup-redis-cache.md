@@ -20,7 +20,7 @@ module MyApp
 
   configure do |config|
     config.cache_config.store = "redis"
-    config.cache_config.redis_url = ENV.fetch("CACHE_REDIS_URL", "redis://localhost:6379/0")
+    config.cache_config.redis_url = ENV["CACHE_REDIS_URL"]
   end
 end
 ```

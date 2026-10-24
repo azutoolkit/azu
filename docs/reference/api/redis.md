@@ -131,6 +131,10 @@ redis.close
 
 ### Retries
 
+After a lost connection the other idle connections are closed, except those another fiber checked in after the
+failed attempt started. When several fibers fail together, one of them can still draw a dead connection on its
+retry, so give `Config#retry` at least 2 retries if many fibers share a client across server restarts.
+
 Timeouts are per socket read and write (`command_timeout`), not a deadline for the whole call: a command can take
 longer than `command_timeout` in total when it needs several reads.
 
