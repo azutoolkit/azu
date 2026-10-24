@@ -153,8 +153,10 @@ function trim() {
   }
 }
 
+var awaitingPaint = new Set(); // keys of answered events whose patches are not painted yet
+
 function inFlight(key) {
-  var found = false;
+  var found = awaitingPaint.has(key);
   pending.forEach(function (entry) { if (entry.key === key) found = true; });
   return found;
 }
@@ -635,8 +637,13 @@ function receive(text) {
 function answered(id) {
   var entry = pending.get(id);
   pending.delete(id);
+  // The next value of its control waits for the paint: an older patch must not land over newer text.
+  if (entry && entry.key) awaitingPaint.add(entry.key);
   afterPatches(function () {
-    if (entry) release(entry);
+    if (entry) {
+      awaitingPaint.delete(entry.key);
+      release(entry);
+    }
     pump();
   });
   return entry;

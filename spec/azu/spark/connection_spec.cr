@@ -501,6 +501,25 @@ describe Azu::Spark::Connection do
       end
     end
 
+    it "reads the numbers of a refused event from frames with non-ASCII text and of flood size" do
+      with_spark do |port|
+        Azu::Spark.config.events_per_second = 1.0
+        Azu::Spark.config.event_burst = 1
+        client = SparkSpecClient.new(port, page)
+        client.frame # hello
+        text = "é日本" * 8000
+        4.times { |i| client.probe.send(%({"v":1,"type":"event","target":"x","event":"increment","payload":{"t":"#{text}"},"id":#{i + 10},"eid":#{i + 1}})) }
+
+        refused = [] of JSON::Any
+        while frame = client.frame(500.milliseconds)
+          refused << frame if frame["type"].as_s == "error" && frame["code"].as_s == "rate_limited"
+        end
+
+        refused.should_not be_empty
+        refused.each { |answer| answer["ack"].as_i.should eq(answer["id"].as_i - 9) }
+      end
+    end
+
     it "answers floods with rate_limited errors and finally disconnects the client" do
       with_spark do |port|
         Azu::Spark.config.events_per_second = 1.0

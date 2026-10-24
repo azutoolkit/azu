@@ -204,6 +204,17 @@ describe("resending", () => {
     assert.equal(next.events.length, 0);
   });
 
+  it("does not send the next value of a control before the patch that came with the answer is painted", async () => {
+    const socket = await connected();
+    type("a", "1");
+    socket.receive({ type: "diff", seq: 1, patches: [{ id: "r", html: "<i></i>" }], events: [], snapshots: {}, ack: socket.events[0].eid });
+    reply(socket, socket.events[0]);
+    type("a", "12"); // before the animation frame
+    assert.equal(socket.events.length, 1, "an older patch would be written over the newer text");
+    spark.flushPatches();
+    assert.deepEqual(values(socket), ["1", "12"], "sent right after the paint");
+  });
+
   it("treats a rate_limited answer as the end of that event and reports it", async () => {
     const socket = await connected();
     click("go");

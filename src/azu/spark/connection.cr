@@ -16,6 +16,7 @@ module Azu
 
       private alias Job = Frame | Info
 
+      TAIL                =  80
       INBOX_CAPACITY      = 256
       MAX_RATE_VIOLATIONS =   5
 
@@ -63,15 +64,19 @@ module Azu
         close(HTTP::WebSocket::CloseCode::PolicyViolation, "rate limited") if (@violations += 1) >= MAX_RATE_VIOLATIONS
       end
 
-      # The request id and event number a client puts at the end of an event frame (the browser
-      # client does), read without parsing the frame: a flooding client must not make us do more work.
-      # Lets the client end the refused event instead of waiting for an answer that never comes.
+      # The request id and event number a client puts at the very end of an event frame (the browser
+      # client does), read from its last bytes without parsing or scanning the frame: a flooding
+      # client must not make us do more work. Lets the client end the refused event instead of waiting
+      # for an answer that never comes.
       private def numbered(message : String) : {Int64?, Int64?}
-        if match = message[Math.max(message.size - 80, 0)..].match(/"id":(\d+),"eid":(\d+)(?:,"gen":"[^"]*")?\}\z/)
-          {match[1].to_i64?, match[2].to_i64?}
-        else
-          {nil, nil}
+        start = Math.max(message.bytesize - TAIL, 0)
+        while start < message.bytesize && (message.to_unsafe[start] & 0xC0) == 0x80 # not inside a character
+          start += 1
         end
+        tail = String.new(message.to_unsafe + start, message.bytesize - start)
+        return {nil, nil} unless tail.valid_encoding?
+        match = tail.match(/"id":(\d+),"eid":(\d+)\}\z/)
+        match ? {match[1].to_i64?, match[2].to_i64?} : {nil, nil}
       end
 
       def on_binary(binary : Bytes)
