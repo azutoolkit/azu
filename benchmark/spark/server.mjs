@@ -7,22 +7,23 @@
 // BENCH_EXEC_PREFIX runs the binary through a wrapper (for example a docker command that mounts the
 // checkout), BENCH_CRYSTAL_VERSION records the compiler version in the result.
 import { spawn, execFileSync, spawnSync } from "node:child_process";
-import { captureEnv, metric, settings, writeResult } from "./lib.mjs";
+import { captureEnv, metric, writeResult } from "./lib.mjs";
 
 const args = process.argv.slice(2);
 const option = (name, fallback = null) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
 const mode = option("--mode", "short");
-const knobs = settings(mode);
 const bin = option("--bin");
 if (!bin) { console.error("usage: server.mjs --bin PATH [--mode short|full] [--out FILE]"); process.exit(2); }
 const prefix = (process.env.BENCH_EXEC_PREFIX || "").split(/\s+/).filter(Boolean);
 const full = mode === "full";
-const reps = full ? 10 : 10;
+const reps = full ? 15 : 10;
+// A server the runner failed to stop ends itself: long enough for the whole suite of its mode.
+const serverTtl = full ? 3600 : 1800;
 
-const exec = (extra, options = {}) => [...prefix, bin, ...extra];
+const exec = (extra) => [...prefix, bin, ...extra];
 
 function startServer(nodelay = true) {
-  const [command, ...rest] = exec(["serve", ...(nodelay ? ["--nodelay"] : [])]);
+  const [command, ...rest] = exec(["serve", "--ttl", String(serverTtl), ...(nodelay ? ["--nodelay"] : [])]);
   const child = spawn(command, rest, { stdio: ["ignore", "pipe", "inherit"], env: process.env });
   return new Promise((resolve, reject) => {
     let buffer = "";
@@ -32,7 +33,7 @@ function startServer(nodelay = true) {
       if (match) resolve({ child, port: Number(match[1]) });
     });
     child.on("exit", (code) => reject(new Error(`server exited early (${code})`)));
-    setTimeout(() => reject(new Error("server did not start")), 60000);
+    setTimeout(() => { child.kill("SIGKILL"); reject(new Error("server did not start")); }, 60000).unref();
   });
 }
 
@@ -41,6 +42,12 @@ function load(port, kind, flags) {
   const run = spawnSync(command, rest, { encoding: "utf8", timeout: 120000, env: process.env });
   if (run.status !== 0) throw new Error(`load ${kind} ${flags.join(" ")} failed: ${run.stderr || run.stdout}`);
   return JSON.parse(run.stdout.trim().split("\n").at(-1));
+}
+
+/** Asks the server to exit (the only way through a docker wrapper), then kills the wrapper process itself. */
+async function stop(child, port) {
+  try { await fetch(`http://127.0.0.1:${port}/stop`, { signal: AbortSignal.timeout(5000) }); } catch { /* already gone */ }
+  child.kill("SIGTERM");
 }
 
 const rotate = (list, by) => list.map((_, i) => list[(i + by) % list.length]);
@@ -63,8 +70,8 @@ async function eventsSuite(port) {
     for (const arm of ["on", "off"]) {
       const id = `server.events.${config.id}.eid_${arm}`;
       metrics.push(metric(`${id}.events_per_s`, "events/s", runs[arm].map((r) => [r.events_per_s]), { better: "higher" }));
-      metrics.push(metric(`${id}.p50_ms`, "ms", runs[arm].map((r) => [r.p50_ms]), { floor: 0.05 }));
-      metrics.push(metric(`${id}.p99_ms`, "ms", runs[arm].map((r) => [r.p99_ms]), { floor: 0.1 }));
+      metrics.push(metric(`${id}.closed_loop_p50_ms`, "ms", runs[arm].map((r) => [r.p50_ms]), { floor: 0.05, extra: { closedLoop: true } }));
+      metrics.push(metric(`${id}.closed_loop_p99_ms`, "ms", runs[arm].map((r) => [r.p99_ms]), { floor: 0.1, extra: { closedLoop: true, note: "lower bound of the open-loop tail" } }));
     }
     const pick = (arm) => metrics.find((m) => m.id === `server.events.${config.id}.eid_${arm}.events_per_s`).median;
     console.error(`  events ${config.id}: eid on ${Math.round(pick("on"))} /s, off ${Math.round(pick("off"))} /s`);
@@ -79,12 +86,11 @@ async function nagleSuite() {
   try {
     for (let rep = 0; rep < reps; rep++) runs.push(load(port, "events", ["--conns", 10, "--components", 1, "--events", 100, "--eid", "on"]));
   } finally {
-    try { await fetch(`http://127.0.0.1:${port}/stop`); } catch { /* gone */ }
-    setTimeout(() => child.kill("SIGTERM"), 2000).unref();
+    await stop(child, port);
   }
   const metrics = [
     metric("server.events.c10n1.nagle_on.events_per_s", "events/s", runs.map((r) => [r.events_per_s]), { better: "higher", extra: { note: "default sockets: diff and reply are two writes" } }),
-    metric("server.events.c10n1.nagle_on.p50_ms", "ms", runs.map((r) => [r.p50_ms]), { floor: 0.5 }),
+    metric("server.events.c10n1.nagle_on.closed_loop_p50_ms", "ms", runs.map((r) => [r.p50_ms]), { floor: 0.5 }),
   ];
   console.error(`  events with Nagle on (default sockets): ${Math.round(metrics[0].median)} /s, p50 ${metrics[1].median} ms`);
   return metrics;
@@ -157,8 +163,7 @@ try {
   metrics.push(...(await fanoutSuite(port)));
   metrics.push(...(await memorySuite(port)));
 } finally {
-  try { await fetch(`http://127.0.0.1:${port}/stop`); } catch { /* already gone */ }
-  setTimeout(() => child.kill("SIGTERM"), 2000).unref();
+  await stop(child, port);
 }
 metrics.push(...(await nagleSuite()));
 metrics.push(...microSuite());

@@ -1,7 +1,7 @@
 # Server-side benchmarks of Azu::Spark: one binary, four commands.
 #
 #   crystal build --release -o bin/spark_server_bench benchmark/spark/server_bench.cr
-#   spark_server_bench serve [--nodelay]             # a Spark server on a free port; prints PORT=<n>
+#   spark_server_bench serve [--nodelay] [--ttl SECONDS]             # a Spark server on a free port; prints PORT=<n>
 #   spark_server_bench load events   --port P --conns 10 --components 5 --events 2000 [--eid off]
 #   spark_server_bench load fanout   --port P --conns 100 --messages 40 --interval-ms 25
 #   spark_server_bench load memory   --port P --conns 200 --components 5
@@ -9,7 +9,9 @@
 #
 # The server and the load generator are separate processes (the runner, benchmark/spark/server.mjs,
 # starts both), so the server's single thread is not shared with the WebSocket clients. Every `load`
-# command prints one JSON object on stdout. See benchmark/spark/README.md for what the numbers mean.
+# command prints one JSON object on stdout. The `events` latencies are closed loop: a client sends its next
+# event only after the previous reply, so a stall delays the sends that would have queued behind it and the
+# percentiles understate the tail of an open-loop arrival (a lower bound, most of all p99). See benchmark/spark/README.md for what the numbers mean.
 require "benchmark"
 require "http/client"
 require "http/server"
@@ -125,11 +127,11 @@ module SparkBench
     config.heartbeat_interval = 10.minutes
   end
 
-  def self.serve : Nil
+  def self.serve(ttl : Int32) : Nil
     configure
-    # A server nobody stops (a crashed runner) ends itself.
+    # A server nobody stops (a crashed runner) ends itself after *ttl* seconds.
     spawn do
-      sleep ENV.fetch("BENCH_SERVER_TTL", "900").to_i.seconds
+      sleep ttl.seconds
       exit 0
     end
     server = HTTP::Server.new([Azu::Channel::Upgrader.new(Azu::Spark::Connection), Control.new])
@@ -372,7 +374,7 @@ end
 case ARGV[0]?
 when "serve"
   SparkBench.nodelay = ARGV.includes?("--nodelay")
-  SparkBench.serve
+  SparkBench.serve(option("--ttl", "900").to_i)
 when "micro" then SparkBench.micro
 when "load"
   SparkBench.client_nodelay = true

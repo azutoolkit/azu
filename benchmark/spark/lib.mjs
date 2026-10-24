@@ -81,7 +81,8 @@ export function captureEnv({ chromium } = {}) {
     chromium: chromium ?? null,
     crystal,
     git: run("git", ["rev-parse", "--short", "HEAD"]),
-    git_dirty: (run("git", ["status", "--porcelain"]) ?? "") !== "",
+    // BENCH_IGNORE_DIRTY: the CI baseline worktree is overlaid with this ref's benchmark scripts on purpose.
+    git_dirty: process.env.BENCH_IGNORE_DIRTY ? false : (run("git", ["status", "--porcelain"]) ?? "") !== "",
     container: Boolean(process.env.BENCH_CONTAINER) || null,
   };
 }

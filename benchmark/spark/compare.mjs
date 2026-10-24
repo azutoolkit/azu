@@ -4,14 +4,15 @@
 //   node benchmark/spark/compare.mjs BASE.json CANDIDATE.json [options]
 //
 //   --threshold PCT     regression limit on medians, in percent (default 15)
-//   --noise-cv RATIO    a run whose repetitions vary more than this (coefficient of variation) is "noisy" (default 0.2)
+//   --noise-cv RATIO    a run whose repetitions vary more than this (coefficient of variation) is "noisy" (default 0.2);
+//                       it excuses only a change below 3 x its cv, a larger one still fails
 //   --fail-on-noisy     a regression measured on a noisy run fails too (default: a warning)
 //   --min-delta VALUE   ignore a regression whose absolute change is below VALUE, in the metric's unit (default 0)
 //   --strict-missing    a metric present on one side only fails (default: listed)
 //   --only PREFIX       compare the metrics whose id starts with PREFIX
 //   --json              print the report as JSON
 //
-// Exit status: 0 no regression, 1 regression, 2 bad usage. Medians are compared, never means or minima.
+// Exit status: 0 no regression, 1 regression, 2 bad usage or invalid/incomparable files (NaN or missing median, schema/unit/direction mismatch, short vs full runs with different sample counts). Medians are compared, never means or minima.
 // A metric may carry a `floor` (an absolute change below which it is noise, e.g. a few KB of heap).
 // "Worse" follows each metric's `better` field: slower for "lower", less throughput for "higher".
 import { readFileSync } from "node:fs";
@@ -20,8 +21,13 @@ import { fileURLToPath } from "node:url";
 export const DEFAULTS = { threshold: 15, noiseCv: 0.2, failOnNoisy: false, minDelta: 0, strictMissing: false, only: "" };
 
 /** Percent by which *candidate* is worse than *base* (negative: better). */
+const UNBOUNDED = 1e9; // stands for "from zero to something": finite, so it survives JSON
+
 function worsening(base, candidate, better) {
-  if (base.median === 0) return candidate.median === 0 ? 0 : Infinity * (better === "lower" ? 1 : -1);
+  if (base.median === 0) {
+    if (candidate.median === 0) return 0;
+    return (candidate.median > 0) === (better === "lower") ? UNBOUNDED : -UNBOUNDED;
+  }
   const change = ((candidate.median - base.median) / Math.abs(base.median)) * 100;
   return better === "higher" ? -change : change;
 }
@@ -60,11 +66,27 @@ export function compareResults(base, candidate, options = {}) {
   const selected = (id) => id.startsWith(opts.only);
   const warnings = environmentWarnings(base, candidate);
   const rows = [];
+  const errors = [];
+  if (base.schema !== candidate.schema) errors.push(`schema differs: ${base.schema} vs ${candidate.schema}`);
+  const modesDiffer = base.mode && candidate.mode && base.mode !== candidate.mode;
   for (const [id, b] of baseById) {
     const c = candidateById.get(id);
     if (!c || !selected(id)) continue;
+    const bad = [["base", b], ["candidate", c]].filter(([, m]) => typeof m.median !== "number" || !Number.isFinite(m.median));
+    if (bad.length) {
+      errors.push(`${id}: the ${bad.map(([name]) => name).join(" and ")} median is not a finite number`);
+      continue;
+    }
+    if (b.unit !== c.unit) { errors.push(`${id}: unit differs (${b.unit} vs ${c.unit})`); continue; }
+    if ((b.better ?? "lower") !== (c.better ?? "lower")) { errors.push(`${id}: better differs (${b.better} vs ${c.better})`); continue; }
+    if (modesDiffer && b.n !== c.n) {
+      errors.push(`${id}: ${base.mode} and ${candidate.mode} runs took different numbers of samples (${b.n} vs ${c.n}); compare runs of the same mode (mode differs)`);
+      continue;
+    }
     const change = worsening(b, c, b.better ?? "lower");
-    const noisy = Math.max(b.cv ?? 0, c.cv ?? 0) > opts.noiseCv;
+    // A noisy run only excuses a change that its own spread could explain: within 3 coefficients of variation.
+    const spread = Math.max(b.cv ?? 0, c.cv ?? 0);
+    const noisy = spread > opts.noiseCv && change < 3 * spread * 100;
     let status = "ok";
     if (change > opts.threshold && Math.abs(c.median - b.median) >= Math.max(opts.minDelta, b.floor ?? 0)) {
       status = noisy ? "noisy" : "regression";
@@ -78,15 +100,20 @@ export function compareResults(base, candidate, options = {}) {
   const noisy = rows.filter((row) => row.status === "noisy");
   for (const row of noisy) warnings.push(`${row.id} looks ${row.change}% worse but the run was noisy (cv ${row.cv} > ${opts.noiseCv}); rerun on a quiet machine before believing it`);
   if (missing.length) warnings.push(`${missing.length} metric(s) exist on one side only: ${missing.join(", ")}`);
-  const ok = regressions.length === 0 && !(opts.failOnNoisy && noisy.length > 0) && !(opts.strictMissing && missing.length > 0);
-  return { ok, rows, regressions, missing, warnings, options: opts };
+  const ok = errors.length === 0 && regressions.length === 0 && !(opts.failOnNoisy && noisy.length > 0) && !(opts.strictMissing && missing.length > 0);
+  return { ok, rows, regressions, missing, errors, warnings, options: opts };
 }
 
 const pad = (text, width) => String(text).padEnd(width);
 
 export function formatReport(report) {
   const width = Math.max(6, ...report.rows.map((row) => row.id.length));
-  const lines = [`${pad("metric", width)}  ${pad("base", 12)} ${pad("candidate", 12)} ${pad("change", 9)} verdict`];
+  const lines = [];
+  const loud = report.warnings.filter((warning) => /differs/.test(warning));
+  if (loud.length) lines.push(`WARNING: NOT COMPARABLE, ${loud.join("; ")}`, "");
+  for (const error of report.errors) lines.push(`ERROR: ${error}`);
+  if (report.errors.length) lines.push("");
+  lines.push(`${pad("metric", width)}  ${pad("base", 12)} ${pad("candidate", 12)} ${pad("change", 9)} verdict`);
   for (const row of report.rows) {
     const sign = row.change > 0 ? "+" : "";
     const change = `${sign}${row.change.toFixed(1)}%`;
@@ -95,6 +122,10 @@ export function formatReport(report) {
   }
   lines.push("", "change is how much worse the candidate is (positive = worse, in the direction the metric prefers); medians only.");
   for (const warning of report.warnings) lines.push(`WARNING: ${warning}`);
+  if (report.errors.length) {
+    lines.push(`INVALID: ${report.errors.length} error(s); nothing can be concluded`);
+    return lines.join("\n");
+  }
   const { threshold } = report.options;
   lines.push(report.ok ? `OK: no regression above ${threshold}%` : `FAIL: ${report.regressions.length} regression(s) above ${threshold}%`);
   return lines.join("\n");
@@ -140,6 +171,7 @@ function main(argv) {
   const { json, ...options } = parsed.options;
   const report = compareResults(results[0], results[1], options);
   console.log(json ? JSON.stringify(report, null, 2) : formatReport(report));
+  if (report.errors.length) return 2;
   return report.ok ? 0 : 1;
 }
 

@@ -52,7 +52,9 @@ process:
 
 - *events*: closed-loop `increment` events over WebSockets, with N components per connection, with and
   without event numbers (`eid`), which isolates the cost of the dedupe and acknowledgement bookkeeping;
-  events per second and p50 and p99 round-trip latency.
+  events per second and p50 and p99 round-trip latency. The load is closed loop (a client sends its next
+  event after the previous reply), so a stall delays the sends that would have queued behind it: the
+  `closed_loop_p99_ms` metrics are a lower bound of the tail an open-loop arrival would see.
 - *fanout*: a PubSub message delivered to M subscribed connections; the latency from publish to the diff
   arriving (paced, so messages do not queue) and the delivery rate under a burst. Lost deliveries are
   recorded.
@@ -72,7 +74,11 @@ Client numbers are compared against two baselines that need no new dependencies:
 | `current` | the shipped script of this checkout |
 
 The arms run on the same pages, machine and session, interleaved: every repetition runs each arm once, in
-a rotating order, so a slow patch of the machine hits all arms alike. At least 10 repetitions are made.
+a rotating order, so a slow patch of the machine hits all arms alike. The patch, keystroke and frame
+metrics take 10 measured repetitions (15 in full mode) after one dropped warm-up repetition; the memory and
+micro metrics take fewer (3 to 6 cycles or processes), so their `cv` is a rough guide only. Every repetition
+checks that the page ended in the state the patch described, that Spark arms kept focus, value and caret,
+and that the last event frame carried the final input value; a failed check fails the run.
 
 ## Reading a result
 

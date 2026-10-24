@@ -1,7 +1,7 @@
 // The compare tool must detect regressions, ignore noise, and say when a number cannot be trusted.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { compareResults, DEFAULTS, formatReport } from "../compare.mjs";
@@ -115,5 +115,86 @@ describe("metric floors", () => {
     base.metrics[0].floor = 5; // 10 ms -> 13 ms is +30% but only 3 ms
     const report = compareResults(base, candidate);
     assert.equal(row(report, "client.patch.reorder1000.current").status, "ok");
+  });
+});
+
+describe("noise must not hide large regressions", () => {
+  it("fails a +300% regression even when the run was noisy (cv 0.25)", () => {
+    const candidate = fixture("base");
+    candidate.metrics[0] = { ...candidate.metrics[0], median: 40, cv: 0.25 };
+    const report = compareResults(fixture("base"), candidate);
+    assert.equal(row(report, "client.patch.reorder1000.current").status, "regression");
+    assert.equal(report.ok, false);
+  });
+
+  it("still downgrades a change within 3 x cv", () => {
+    const candidate = fixture("base");
+    candidate.metrics[0] = { ...candidate.metrics[0], median: 12.5, cv: 0.25 }; // +25% < 75%
+    assert.equal(row(compareResults(fixture("base"), candidate), "client.patch.reorder1000.current").status, "noisy");
+  });
+});
+
+describe("invalid and incomparable input", () => {
+  const withMetric = (change) => {
+    const result = fixture("base");
+    result.metrics[0] = { ...result.metrics[0], ...change };
+    return result;
+  };
+
+  it("treats a NaN or missing median as an error, not as ok", () => {
+    for (const median of [NaN, null, undefined, "7"]) {
+      const report = compareResults(fixture("base"), withMetric({ median }));
+      assert.equal(report.ok, false, `median ${median}`);
+      assert.match(report.errors.join("\n"), /median/);
+    }
+  });
+
+  it("reports a unit or direction mismatch as an error", () => {
+    assert.match(compareResults(fixture("base"), withMetric({ unit: "s" })).errors.join("\n"), /unit/);
+    assert.match(compareResults(fixture("base"), withMetric({ better: "higher" })).errors.join("\n"), /better/);
+  });
+
+  it("reports a schema mismatch as an error", () => {
+    const candidate = fixture("base");
+    candidate.schema = 2;
+    assert.match(compareResults(fixture("base"), candidate).errors.join("\n"), /schema/);
+  });
+
+  it("refuses to compare short and full runs whose sample counts differ", () => {
+    const candidate = fixture("base");
+    candidate.mode = "full";
+    candidate.metrics[0] = { ...candidate.metrics[0], n: 90 };
+    const report = compareResults(fixture("base"), candidate);
+    assert.equal(report.ok, false);
+    assert.match(report.errors.join("\n"), /short.*full|mode/);
+  });
+
+  it("keeps a finite change when the base was zero (JSON must not turn it into null)", () => {
+    const base = fixture("base");
+    base.metrics[0] = { ...base.metrics[0], median: 0 };
+    const report = compareResults(base, fixture("base"));
+    const r = row(report, "client.patch.reorder1000.current");
+    assert.equal(Number.isFinite(r.change), true);
+    assert.equal(JSON.parse(JSON.stringify(r)).change, r.change);
+    assert.equal(r.status, "regression");
+  });
+
+  it("starts the report with a loud notice when the machines differ", () => {
+    const text = formatReport(compareResults(fixture("base"), fixture("other_machine")));
+    assert.match(text.split("\n")[0], /NOT COMPARABLE|WARNING/);
+  });
+
+  it("exits 2 for an invalid or incomparable file", () => {
+    const dir = fileURLToPath(new URL("./fixtures/", import.meta.url));
+    const bad = fixture("base");
+    bad.metrics[0].median = null;
+    const file = `${process.env.TMPDIR || "/tmp"}/bad-${process.pid}.json`;
+    writeFileSync(file, JSON.stringify(bad));
+    try {
+      assert.equal(cli(path("base"), file).status, 2);
+    } finally {
+      rmSync(file, { force: true });
+    }
+    void dir;
   });
 });

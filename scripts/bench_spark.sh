@@ -22,7 +22,9 @@ suites=sizes,client,server
 out=benchmark/spark/results
 compare=""
 threshold=15
+need() { [ "$1" -ge 2 ] || { echo "$2 needs a value" >&2; exit 2; }; }
 while [ $# -gt 0 ]; do
+  case "$1" in --mode|--suite|--out|--compare|--threshold) need "$#" "$1" ;; esac
   case "$1" in
     --mode) mode="$2"; shift 2 ;;
     --suite) suites="$2"; shift 2 ;;

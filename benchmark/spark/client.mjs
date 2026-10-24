@@ -81,7 +81,7 @@ const BENCH = (arm) => {
     swap: (n) => { const a = Array.from({ length: n }, (_, i) => i); const b = a.slice(); [b[1], b[n - 2]] = [b[n - 2], b[1]]; return { states: [list(a), list(b)], expect: () => n }; },
     update: (n) => { const a = Array.from({ length: n }, (_, i) => i); return { states: [list(a), list(a, (k) => (k === Math.floor(n / 2) ? "Row changed" : null))], expect: () => n }; },
     plain: (n) => { const rows = (label) => `<ul>${Array.from({ length: n }, (_, k) => `<li><span>${k === Math.floor(n / 2) ? label : "Row " + k}</span> <button spark-click="pick">pick</button></li>`).join("")}</ul>`; return { states: [rows("a"), rows("b")], expect: () => n }; },
-    bigtext: (bytes) => { const words = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor".split(" "); const r = mulberry(3); let text = ""; while (text.length < bytes) text += words[Math.floor(r() * words.length)] + " "; const half = Math.floor(text.length / 2); const b = text.slice(0, half) + "EDITED " + text.slice(half + 7); return { states: [`<p id="big">${text}</p>`, `<p id="big">${b}</p>`], expect: () => 1 }; },
+    bigtext: (bytes) => { const words = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor".split(" "); const r = mulberry(3); let text = ""; while (text.length < bytes) text += words[Math.floor(r() * words.length)] + " "; const half = Math.floor(text.length / 2); const b = text.slice(0, half) + "EDITED " + text.slice(half + 7); return { states: [`<p id="big">${text}</p>`, `<p id="big">${b}</p>`], texts: [text, b], expect: () => 1 }; },
     form: (n) => { const inputs = (status) => `<form id="f"><p id="status">${status}</p>${Array.from({ length: n }, (_, i) => `<label>Field ${i} <input id="f${i}" name="f${i}" type="text" value=""></label>`).join("")}</form>`; return { states: [inputs("idle"), inputs("saving")], expect: () => n }; },
   };
   const bench = {
@@ -98,7 +98,8 @@ const BENCH = (arm) => {
       bench.current = { ...c, kind, size, frames: c.states.map((html) => bench.deliver(html)), htmls: c.states };
       bench.i = 0;
       bench.apply(0);
-      bench.apply(0); // warm
+      bench.apply(1); // a real toggle pair 0 -> 1 -> 0 before anything is measured
+      bench.apply(0);
     },
     apply(index) {
       const { frames, htmls } = bench.current;
@@ -117,8 +118,8 @@ const BENCH = (arm) => {
     },
     /** The page shows the state the last patch carried: row count and order, or the text. */
     verify() {
-      const { kind, size, htmls } = bench.current;
-      if (kind === "bigtext") return host.querySelector("#big").textContent === (htmls[bench.i].replace(/<[^>]+>/g, ""));
+      const { kind, size, htmls, texts } = bench.current;
+      if (kind === "bigtext") return host.querySelector("#big").textContent === texts[bench.i];
       if (kind === "plain") return host.querySelectorAll("li").length === size && host.querySelectorAll("li span")[Math.floor(size / 2)].textContent === (bench.i ? "b" : "a");
       if (kind === "form") return host.querySelectorAll("input").length === size && host.querySelector("#status").textContent === (bench.i ? "saving" : "idle");
       const want = [...htmls[bench.i].matchAll(/id="row-(\d+)"/g)].map((m) => m[1]);
@@ -155,12 +156,23 @@ async function openArm(browser, arm, script, body) {
   return { page, context, errors, arm };
 }
 
+/** Closes an arm's context, failing the run when its page raised an error. */
+async function closeArm(arm) {
+  const errors = arm.errors;
+  await arm.context.close();
+  if (errors.length) throw new Error(`${arm.arm} raised page errors: ${errors[0]}`);
+}
+
 const rotate = (list, by) => list.map((_, i) => list[(i + by) % list.length]);
 
+/** Runs *reps* measured repetitions after one more whose results are dropped (JIT, caches, first layout). */
 async function interleaved(arms, reps, work) {
   const results = Object.fromEntries(arms.map((a) => [a.arm, []]));
-  for (let rep = 0; rep < reps; rep++) {
-    for (const arm of rotate(arms, rep)) results[arm.arm].push(await work(arm, rep));
+  for (let rep = 0; rep <= reps; rep++) {
+    for (const arm of rotate(arms, rep)) {
+      const result = await work(arm, rep);
+      if (rep > 0) results[arm.arm].push(result);
+    }
   }
   return results;
 }
@@ -198,6 +210,8 @@ async function patchSuite(arms) {
     for (const arm of arms) {
       const extra = spec.kind === "form" ? { focus_kept: kept[arm.arm].filter(Boolean).length / kept[arm.arm].length } : undefined;
       if (bad.has(arm.arm)) throw new Error(`${arm.arm} did not produce the expected page in case ${spec.id}`);
+      // The naive arm is the baseline that loses focus; every Spark engine claims to keep it, so losing it fails the run.
+      if (spec.kind === "form" && arm.arm !== "naive" && extra.focus_kept !== 1) throw new Error(`${arm.arm} lost focus, value or caret in ${spec.id} (kept ${extra.focus_kept})`);
       metrics.push(metric(`client.patch.${spec.id}.${arm.arm}`, "ms", samples[arm.arm], { extra, floor: 0.05 }));
     }
     console.error(`  patch ${spec.id}: ${arms.map((a) => `${a.arm} ${metrics.at(-arms.length + arms.indexOf(a)).median} ms`).join(", ")}`);
@@ -239,17 +253,22 @@ async function pipelineSuite(browser, scripts) {
       const ms = performance.now() - t0;
       const frames = window.__sent.filter((m) => m.type === "event").length;
       settle();
-      return { ms, frames };
+      // The server must end up with the text the user ended with: the last frame carries the final value.
+      const events = window.__sent.filter((m) => m.type === "event");
+      const last = events[events.length - 1];
+      const finalOk = Boolean(last) && JSON.stringify(last.payload).includes(`key${n - 1}"`) && input.value === `key${n - 1}`;
+      return { ms, frames, finalOk };
     }, [knobs.keystrokes, ackEvery]));
     for (const arm of arms) {
       const runs = samples[arm.arm];
+      if (runs.some((r) => !r.finalOk)) throw new Error(`${arm.arm} ${name}: the last event frame did not carry the final input value`);
       if (runs.every((r) => r.frames === 0)) throw new Error(`${arm.arm} sent no event frames: the harness does not drive it`);
       metrics.push(metric(`client.keystrokes.${name}.${arm.arm}.ms`, "ms", runs.map((r) => [r.ms]), { floor: 0.2 }));
       metrics.push(metric(`client.keystrokes.${name}.${arm.arm}.frames`, "frames", runs.map((r) => [r.frames]), { floor: 1 }));
     }
     console.error(`  keystrokes ${name}: ${arms.map((a) => { const r = samples[a.arm]; return `${a.arm} ${(r.map((x) => x.ms).sort((x, y) => x - y)[Math.floor(r.length / 2)]).toFixed(2)} ms/${r[0].frames} frames`; }).join(", ")}`);
   }
-  for (const arm of arms) await arm.context.close();
+  for (const arm of arms) await closeArm(arm);
   return metrics;
 }
 
@@ -267,7 +286,7 @@ async function frameSuite(browser, scripts, moduleSource) {
   }, [text, knobs.frames, arm.arm === "naive"]));
   for (const arm of [...arms, baseline]) metrics.push(metric(`client.frame.heartbeat.${arm.arm === "naive" ? "json_parse_only" : arm.arm}`, "ns/frame", samples[arm.arm], { floor: 50 }));
   console.error(`  frame: ${[...arms, baseline].map((a) => `${a.arm} ${metrics[metrics.length - 1 - ([...arms, baseline].length - 1 - [...arms, baseline].indexOf(a))].median} ns`).join(", ")}`);
-  for (const arm of [...arms, baseline]) await arm.context.close();
+  for (const arm of [...arms, baseline]) await closeArm(arm);
 
   // The pure transition function of the state machine, from the module source.
   const context = await browser.newContext();
@@ -312,15 +331,19 @@ async function memorySuite(browser, scripts) {
       await cdp.send("HeapProfiler.enable");
       await arm.page.evaluate(() => window.__bench.prepare("reorder", 150));
       await arm.page.evaluate(() => { for (let i = 0; i < 150; i++) window.__bench.step(1); });
+      const check = async () => { if (!(await arm.page.evaluate(() => window.__bench.verify()))) throw new Error(`${name} did not produce the expected page in the memory case`); };
+      await check();
       const h0 = await heap(cdp);
       await arm.page.evaluate((n) => window.__bench.step(n), knobs.memoryPatches);
+      await check();
       const h1 = await heap(cdp);
       await arm.page.evaluate((n) => window.__bench.step(n), knobs.memoryPatches);
+      await check();
       const h2 = await heap(cdp);
       retained[name].push([h1.kb - h0.kb]);
       growth[name].push([((h2.kb - h1.kb) * 1000) / knobs.memoryPatches]);
       nodeDelta[name].push([h2.nodes - h0.nodes + (h2.listeners - h0.listeners)]);
-      await arm.context.close();
+      await closeArm(arm);
     }
   }
   for (const name of names) {
@@ -350,8 +373,7 @@ try {
     }
     metrics.push(...(await patchSuite(opened)));
     for (const arm of opened) {
-      if (arm.errors.length) throw new Error(`${arm.arm} raised page errors: ${arm.errors[0]}`);
-      await arm.context.close();
+      await closeArm(arm);
     }
   }
   if (only.includes("keystrokes")) metrics.push(...(await pipelineSuite(browser, scripts)));

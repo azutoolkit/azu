@@ -21,8 +21,11 @@ node --test "benchmark/spark/test/*.test.mjs"   # tests of the compare tool
 | `server` | `server_bench.cr`, `server.mjs` | events per second and latency through `Spark::Connection`, PubSub fan-out, memory per connection, and `Benchmark.ips` micro benchmarks of the delivery bookkeeping |
 
 The client suite compares three arms on the same inputs, same machine, same session, interleaved
-(repetition 1 runs naive, prev, current; repetition 2 runs prev, current, naive; and so on), at least
-10 repetitions:
+(repetition 1 runs naive, prev, current; repetition 2 runs prev, current, naive; and so on), 10
+measured repetitions (15 in full mode) after one dropped warm-up repetition. Memory and micro metrics use
+fewer cycles (3 to 6), so their `cv` is rough. Each repetition asserts the resulting page, that the Spark
+arms kept focus, value and caret (the naive arm is the baseline that does not), and that the last event
+frame carried the final input value:
 
 - `naive`: no Spark client, `innerHTML` replacement (and one frame per input event for the pipeline case)
 - `prev`: the client at the commit before slice 3 (`2c373cd`, override with `BENCH_PREV_COMMIT`), read from git
@@ -33,7 +36,8 @@ No network is used: pages are served from memory, the socket is a fake the harne
 "the new layout is computed". Painting and rasterising are not measured. The server suite runs the
 server and the load generator as two processes of one release build.
 
-Server numbers need three cautions. Both processes use one thread, so at many connections the load
+Server numbers need four cautions. The `closed_loop_*` latencies come from a closed loop and are a lower
+bound of the tail, most of all p99. Both processes use one thread, so at many connections the load
 generator can be the bottleneck: compare arms (`eid_on` against `eid_off`), not ceilings. Sockets are set to
 `TCP_NODELAY` (`serve --nodelay`) so the figures measure the server's work; Crystal's HTTP server leaves
 Nagle's algorithm on by default, and the `nagle_on` metric runs the same round trip on such sockets. And
@@ -67,6 +71,8 @@ Markdown rendering next to it, and `-sizes.md` (the size table). A result is:
 ```
 
 - `median` and `p95` are over every sample of the metric; `n` is how many.
+- `p95` is linearly interpolated. Client patch metrics pool every sample; server metrics have one sample per
+  repetition (10 to 15), so their p95 is a rough figure.
 - `cv` is the coefficient of variation (standard deviation over mean) of the per-repetition medians:
   the noise of that measurement on that run. A `cv` above 0.2 means the box was not steady.
 - `better` says whether lower or higher is an improvement; `floor` (some metrics) is an absolute change
@@ -82,7 +88,9 @@ node benchmark/spark/compare.mjs base.json candidate.json [--threshold 15] [--no
 It compares medians, per metric, in the direction the metric prefers. Exit 0: no regression above the
 threshold (default 15%). Exit 1: a regression. Exit 2: bad usage. A regression measured on a noisy
 run (`cv` above `--noise-cv` on either side) is a warning, not a failure, unless `--fail-on-noisy`.
-It also warns when the two files come from different CPUs, core counts, node or chromium versions or
+Exit 2 also covers invalid or incomparable files: a NaN or missing median, a schema, unit or `better`
+mismatch, and short against full runs with different sample counts. A noisy run excuses only a change
+below 3 x its `cv`; a larger one still fails. It also warns when the two files come from different CPUs, core counts, node or chromium versions or
 modes, when a run started under load (load average above 70% of the cores) or on a dirty tree, and
 lists metrics present on one side only.
 
