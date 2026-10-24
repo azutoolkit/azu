@@ -184,6 +184,34 @@ describe("resending", () => {
     assert.equal(next.events.length, 0);
   });
 
+  it("forgets an event whose ack arrived with a diff even if the connection closes before the patches are applied", async () => {
+    const socket = await connected();
+    click("go");
+    socket.receive({ type: "diff", seq: 1, patches: [{ id: "r", html: "<i></i>" }], events: [], snapshots: { r: "s2" }, ack: socket.events[0].eid });
+    socket.drop(); // before the animation frame that applies the patch
+    const next = await connected();
+    assert.equal(next.events.length, 0, "it was applied: the snapshot the page rejoins with already holds it");
+    assert.equal(next.of("join")[0].snapshot, "s2");
+  });
+
+  it("forgets an event whose reply arrived behind a patch even if the connection closes before the frame", async () => {
+    const socket = await connected();
+    click("go");
+    socket.receive({ type: "diff", seq: 1, patches: [{ id: "r", html: "<i></i>" }], events: [], snapshots: {} });
+    reply(socket, socket.events[0]);
+    socket.drop();
+    const next = await connected();
+    assert.equal(next.events.length, 0);
+  });
+
+  it("treats a rate_limited answer as the end of that event and reports it", async () => {
+    const socket = await connected();
+    click("go");
+    socket.receive({ type: "error", id: socket.events[0].id, code: "rate_limited", message: "x", ack: socket.events[0].eid });
+    assert.equal(window.AzuSpark.unacked, 0);
+    assert.deepEqual(dropped, [{ event: "go", reason: "rate_limited" }]);
+  });
+
   it("clears an event on its reply, also when the server says it was a duplicate", async () => {
     const socket = await connected();
     click("go");
@@ -237,6 +265,18 @@ describe("the bounded queue", () => {
     assert.equal(window.AzuSpark.queued, 50);
     assert.equal(dropped.length, 10);
     assert.ok(dropped.every((entry) => entry.reason === "queue_full"));
+  });
+
+  it("drops the oldest event when full, also when it is in flight and a newer one waits", async () => {
+    const socket = await connected();
+    type("a", "1"); // in flight
+    type("a", "12"); // waits for it, and holds back what follows
+    for (let i = 0; i < 48; i++) click("go");
+    assert.equal(window.AzuSpark.unacked + window.AzuSpark.queued, 50);
+    click("go");
+    assert.equal(dropped.length, 1);
+    assert.equal(window.AzuSpark.unacked, 0, "the text in flight was the oldest, not the one that waits");
+    void socket;
   });
 
   it("counts unacknowledged events against the same bound", async () => {

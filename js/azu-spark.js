@@ -145,12 +145,9 @@ function enqueue(entry) {
 // Waiting events and unacknowledged ones share one bound; the oldest goes first.
 function trim() {
   while (queue.length + pending.size > config.queueMax) {
-    var entry = queue.shift();
-    if (!entry) {
-      var oldest = pending.keys().next().value;
-      entry = pending.get(oldest);
-      pending.delete(oldest);
-    }
+    var oldest = pending.keys().next().value; // the oldest sent one, or the oldest waiting one: whichever is older
+    var entry = pending.get(oldest);
+    if (entry && (!queue.length || entry.at <= queue[0].at)) pending.delete(oldest); else entry = queue.shift();
     drop(entry, "queue_full");
     emit("error", { code: "queue_full", message: "too many unacknowledged events" });
   }
@@ -623,13 +620,26 @@ function receive(text) {
       joinsSettled();
       break;
     case "diff": applyDiff(message); break;
-    case "reply": learnGeneration(message); afterPatches(function () { settle(message.id); pump(); }); joinsSettled(); break;
+    case "reply": learnGeneration(message); answered(message.id); joinsSettled(); break;
     case "redirect": navigate(message.to, message.replace); break;
     case "heartbeat": break;
     case "error": failed(message); break;
   }
   // The server names the event a frame answers: done with it, even if its reply never comes.
-  if (message.ack) afterPatches(function () { acknowledge(message.ack); pump(); });
+  if (message.ack) acknowledge(message.ack);
+}
+
+// The event is answered: it is no longer unacknowledged at once (a close before the next frame must
+// not send it again, the snapshot that came with it already holds its effect), but the page shows it
+// as done only after the patches that came with the answer.
+function answered(id) {
+  var entry = pending.get(id);
+  pending.delete(id);
+  afterPatches(function () {
+    if (entry) release(entry);
+    pump();
+  });
+  return entry;
 }
 
 // A reply to a join names the generation of the root's state; events made for it carry that name.
@@ -641,7 +651,7 @@ function learnGeneration(message) {
 }
 
 function acknowledge(eid) {
-  pending.forEach(function (entry, id) { if (entry.message.eid === eid) settle(id); });
+  pending.forEach(function (entry, id) { if (entry.message.eid === eid) answered(id); });
 }
 
 /**
@@ -675,8 +685,10 @@ function navigate(to, replace) {
 }
 
 function failed(message) {
-  var entry = settle(message.id);
-  if (entry && message.code === "stale_event") emit("event_dropped", { event: entry.message.event, reason: "stale" });
+  var entry = answered(message.id);
+  if (entry && (message.code === "stale_event" || message.code === "rate_limited")) {
+    emit("event_dropped", { event: entry.message.event, reason: message.code === "stale_event" ? "stale" : "rate_limited" });
+  }
   var root = joining.get(message.id);
   joining.delete(message.id);
   emit("error", { code: message.code, message: message.message, id: message.id });
@@ -1121,15 +1133,6 @@ function push(element, event, payload, loading, how) {
   if (queue.indexOf(held) >= 0) emit("queued", { event: event, size: queue.length }, element);
 }
 
-// The event is answered (or acknowledged): its loading state ends. Returns the event.
-function settle(id) {
-  var entry = pending.get(id);
-  if (!entry) return;
-  pending.delete(id);
-  release(entry);
-  return entry;
-}
-
 // The connection is gone. What was sent and not acknowledged may or may not have been applied:
 // it goes back to the front of the queue to be sent again with its number (the server applies a
 // number once), except an at-most-once event, which is dropped.
@@ -1209,7 +1212,7 @@ var debounced = new Set(); // sends waiting for the pause to end: {element, time
 // last keystroke is not lost to a blur, a submit or a closing page, and keeps its place in line.
 function flushDebounced(within) {
   debounced.forEach(function (slot) {
-    if (within && within !== slot.element && !within.contains(slot.element)) return;
+    if (within && !within.contains(slot.element) && !slot.element.contains(within)) return;
     clearTimeout(slot.timer);
     debounced.delete(slot);
     slot.work();

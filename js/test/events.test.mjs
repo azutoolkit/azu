@@ -12,6 +12,7 @@ const ROOT = `
     <input id="slow" name="slow" spark-change="set" spark-debounce="30">
     <input id="keys" name="keys" spark-keydown="enter" spark-key="Enter">
     <form id="f" spark-submit="save"><input id="inf" name="inf" spark-change="set" spark-debounce="500"><button>go</button></form>
+    <div id="wrap" spark-change="wrapped" spark-debounce="500"><input id="inside" name="inside"></div>
     <button id="go" spark-click="go">go</button>
   </div>`;
 
@@ -128,6 +129,13 @@ describe("debounce", () => {
     assert.deepEqual(socket.events.map((frame) => frame.payload.value), ["typed"]);
     await tick(60);
     assert.equal(socket.events.length, 1, "the timer does not send it again");
+  });
+
+  it("flushes the debounced event of a wrapper when a control inside it loses focus", async () => {
+    const socket = await connected();
+    $("inside").value = "w"; input("inside");
+    $("inside").dispatchEvent(new window.FocusEvent("blur"));
+    assert.deepEqual(names(socket), ["wrapped"]);
   });
 
   it("flushes pending values before a submit, so the server sees them in the user's order", async () => {

@@ -74,7 +74,9 @@ module Azu
         close
       end
 
-      # Whether the event *eid* for *target* is new, and so to be applied with `event`. A client that
+      # Whether the event *eid* for *target* is new, and so to be applied with `event`. This guards
+      # one connection (a repeat on the same socket); a resend after a reconnect arrives on a new
+      # session, where the page was mounted from the client's snapshot, and is applied to it. A client that
       # sends no ids is always new. Otherwise the event is new when its id is above every id taken
       # for that root, which is all that is kept: one number per root, however many events came.
       # The position moves when the event is taken, before it runs, so an event that fails is not

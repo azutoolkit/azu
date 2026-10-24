@@ -170,10 +170,12 @@ breaks, unanswered events go to the front of the queue and are sent again in ord
 numbers, after the page has rejoined: **delivery is at least once**, and an event marked
 `spark-delivery="at-most-once"` is dropped instead.
 
-The server applies a number once. It keeps one number per root of the connection, the highest it took,
-and answers an event at or below it with a `reply` that has `"dup": true` and does nothing. So an older
-number that arrives late, or a repeat, is ignored, and nothing grows with the number of events. An event
-without `eid` (an older client) is always applied: protocol v1 is unchanged.
+The server keeps one number per root of the **connection**, the highest it took, and answers an event at or
+below it with a `reply` that has `"dup": true` and does nothing. So a repeat or an older number that arrives
+on the same connection is ignored, and nothing grows with the number of events. A resend after a reconnect
+arrives on a *new* connection with no such number, by design (see "What once covers" below): its protection
+comes from the snapshot the page is mounted from and from `gen`. An event without `eid` (an older client) is
+always applied: protocol v1 is unchanged.
 
 | Frame | Field | Meaning |
 | --- | --- | --- |
@@ -185,6 +187,10 @@ without `eid` (an older client) is always applied: protocol v1 is unchanged.
 
 All fields are optional in both directions and ignored by a peer that does not know them. `ack` is on the
 `diff` too, so an event whose diff arrived is cleared even when its reply is lost with the connection.
+
+An acknowledgement is recorded the moment the frame arrives, before its patches are applied, so a connection
+that closes right after cannot make the client send an event again whose effect the snapshot it rejoins
+with already holds.
 
 What "once" covers: the *state of the components*. After a reconnect the server mounts the page from the last
 snapshot the client holds, and applies the resent event to it, so a component that persists its state ends
@@ -223,16 +229,25 @@ events are applied (a repeat of one the old process had applied is possible, as 
 restored from the snapshot if the secret is the same (otherwise: `invalid_snapshot`, a fresh generation,
 `stale_event` for the old events).
 
+A queued event keeps the `gen` it was made with (a value merged into a waiting event keeps the older
+one's). If the root is rejoined before the event is sent and got a new generation, the event is refused
+with `stale_event` and dropped; that is the intended outcome, not a bug.
+
 ### Limits
 
 - At most 50 events wait or are unacknowledged (`queueMax`); beyond that the oldest is dropped, reported as
   `spark:event_dropped` (reason `queue_full`) and as the `queue_full` error.
+- `event_dropped` means the client forgot the event, **not** that the server did not apply it: a dropped
+  `queue_full` or `disconnect` event may have been applied (and its effect may arrive in a later diff).
+  The oldest event is dropped first, sent or waiting.
 - An event older than 60 s when it could be sent is dropped (`expired`).
+- A numbered event refused by the rate limiter is answered with `rate_limited` carrying its `id` and `ack`;
+  the client forgets it (`event_dropped`, reason `rate_limited`). The limiter still counts it.
 - A frame above `max_message_size` is refused by the client (`too_large`) and, if it gets to the server,
   closes the connection as before. The rate limit (`events_per_second`, `event_burst`) counts a resent
   event like any other. Event numbers add about 10 bytes to a frame.
 - `event_dropped` reasons: `queue_full`, `expired`, `disconnect` (an at-most-once event in flight),
-  `stale`, `stopped` (`Spark.disconnect()`).
+  `stale`, `rate_limited`, `stopped` (`Spark.disconnect()`).
 
 ## Client API
 

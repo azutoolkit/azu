@@ -37,10 +37,15 @@ module Azu
     # browser clears loading states and detects lost requests. `seq` orders server pushes.
     #
     # Delivery. A client that numbers its events (`eid`, increasing per page, kept across
-    # reconnects) resends the ones nobody acknowledged after a reconnect. The server keeps, per
-    # connection and root, the highest `eid` it has taken: an event at or below it is not applied
-    # again (the reply says `dup`), so a resend after a lost reply has no second effect on the
-    # connection that handled the original. `ack` carries the `eid` of the event a frame answers.
+    # reconnects) resends the ones nobody acknowledged after a reconnect, which always means on a NEW
+    # connection. The server keeps, per connection and root, the highest `eid` it has taken: an event
+    # at or below it is not applied again (the reply says `dup`). That protects against a repeat on
+    # the same connection (a buggy or replaying client, a proxy). It does not carry over to a new
+    # connection, on purpose: the page is mounted from the snapshot the client holds, and a resent
+    # event that the old connection handled is applied to that state, which is what keeps the state
+    # of the components exactly-once. `gen` keeps events of an older page from being applied to a
+    # page mounted afresh. `ack` carries the `eid` of the event a frame answers; a numbered event
+    # refused for rate limiting is answered the same way (`id` and `ack` in the error).
     # All of these fields are optional in both directions; a peer that does not know them ignores
     # them, and a client that sends no `eid` gets the behaviour of protocol v1 exactly.
     module Protocol
