@@ -237,6 +237,59 @@ describe Azu::Env do
       end
     end
 
+    it "denies the toolchain, trust-redirection and locale families, in any case" do
+      names = %w[CC CXX CPP CFLAGS CXXFLAGS LDFLAGS RUSTFLAGS GOFLAGS MAKEFLAGS LDLIBS LIBS AR AS LD COMPILER_PATH GCC_EXEC_PREFIX
+        OBJC_INCLUDE_PATH SDKROOT DEVELOPER_DIR CPATH LIBRARY_PATH OPENSSL_CONF OPENSSL_MODULES SSL_CERT_FILE SSL_CERT_DIR
+        CURL_CA_BUNDLE REQUESTS_CA_BUNDLE NODE_EXTRA_CA_CERTS HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY FTP_PROXY
+        CURL_HOME WGETRC HOSTALIASES LOCALDOMAIN RES_OPTIONS PERLLIB PERLIO PERL5LIB RUBYOPT RUBYLIB LUA_PATH LUA_CPATH
+        JAVA_TOOL_OPTIONS _JAVA_OPTIONS CLASSPATH GEM_HOME GEM_PATH BUNDLE_GEMFILE NPM_CONFIG_REGISTRY NODE_OPTIONS
+        HOMEBREW_PREFIX GOPROXY CARGO_HOME CARGO_BUILD_RUSTC RUSTC_WRAPPER TERMINFO TERMINFO_DIRS TERMCAP MANPATH
+        LANG LANGUAGE LC_ALL LC_CTYPE LOCALE_ARCHIVE TZ TZDIR MALLOC_CONF MALLOC_ARENA_MAX ARGV0 _ USER LOGNAME PWD OLDPWD
+        USERPROFILE TMPDIR XDG_CONFIG_HOME PYTHONPATH PKG_CONFIG_PATH EDITOR SHELLOPTS PS4 PROMPT_COMMAND CDPATH GLIBC_TUNABLES
+        CRYSTAL_WORKERS CRYSTAL_CACHE_DIR DOCKER_CONFIG COMPOSE_FILE SSH_AUTH_SOCK]
+      names.each do |name|
+        Azu::Env.unsafe_name?(name).should be_true
+        Azu::Env.unsafe_name?(name.downcase).should be_true
+      end
+    end
+
+    it "keeps application names, including CRYSTAL_ENV and CRYSTAL_LOG_*, loadable" do
+      names = %w[PORT HOST DATABASE_URL REDIS_URL CSRF_SECRET SESSION_SECRET GITHUB_TOKEN CRYSTAL_ENV CRYSTAL_LOG_LEVEL
+        CRYSTAL_LOG_SOURCES LANGUAGE_PACK CCACHE TZINFO USERNAME USER_ID FLAGSHIP AZU_STRICT_ENVS PATHS MY_PATH]
+      names.each { |name| Azu::Env.unsafe_name?(name).should be_false }
+    end
+
+    it "skips a new family from a file with a warning naming it (never the value), and loads a safe name beside it" do
+      with_dir do |dir|
+        path = File.join(dir, ".env")
+        File.write(path, "AZU_ENV_SPEC_OK=1\nCFLAGS=evil-value\nhttps_proxy=http://evil.example\nTZ=UTC\nLC_ALL=C\nGOPROXY=evil-value\n")
+        names = %w[AZU_ENV_SPEC_OK CFLAGS https_proxy TZ LC_ALL GOPROXY]
+        with_env(names.to_h { |name| {name, nil} }) do
+          Log.capture("azu.env") do |logs|
+            Azu::Env.load(path).should eq ["AZU_ENV_SPEC_OK"]
+            logs.check(:warn, /CFLAGS/)
+            logs.check(:warn, /https_proxy/)
+            logs.check(:warn, /TZ/)
+            logs.check(:warn, /LC_ALL/)
+            logs.check(:warn, /GOPROXY/)
+            logs.entry.message.should_not contain("evil")
+          end
+          (names - ["AZU_ENV_SPEC_OK"]).each { |name| ENV[name]?.should be_nil }
+        end
+      end
+    end
+
+    it "loads the new families with unsafe: true" do
+      with_dir do |dir|
+        path = File.join(dir, ".env")
+        File.write(path, "TZ=UTC\nCFLAGS=-O2\n")
+        with_env({"TZ" => nil, "CFLAGS" => nil}) do
+          Azu::Env.load(path, unsafe: true).sort!.should eq ["CFLAGS", "TZ"]
+          ENV["TZ"].should eq "UTC"
+        end
+      end
+    end
+
     it "refuses a file larger than 1 MB" do
       with_dir do |dir|
         path = File.join(dir, ".env")
