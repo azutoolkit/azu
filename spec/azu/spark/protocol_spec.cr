@@ -113,6 +113,13 @@ describe Azu::Spark::Protocol do
       Azu::Spark::Protocol.gzip("x" * Azu::Spark::Protocol::MAX_INFLATED, 1024).should_not be_nil
     end
 
+    it "sends as text a frame whose gzip would exceed what the client accepts on the wire" do
+      Azu::Spark::Protocol::MAX_COMPRESSED.should eq 524_288
+      noisy = String.new(Random::Secure.random_bytes(Azu::Spark::Protocol::MAX_INFLATED).map { |byte| (byte % 94 + 33).to_u8 })
+
+      Azu::Spark::Protocol.gzip(noisy, 1024).should be_nil # about 80% of 1 MiB: smaller than the frame, yet too big to send
+    end
+
     it "adds enc to the reply of a join only when it was negotiated" do
       JSON.parse(Azu::Spark::Protocol.reply(1, enc: "gzip")).as_h["enc"].as_s.should eq "gzip"
       JSON.parse(Azu::Spark::Protocol.reply(1)).as_h.has_key?("enc").should be_false

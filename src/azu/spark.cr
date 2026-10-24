@@ -79,6 +79,11 @@ module Azu
     end
 
     # :nodoc:
+    def self.connections : Array(Connection)
+      @@mutex.synchronize { @@connections.to_a }
+    end
+
+    # :nodoc:
     def self.track(connection : Connection) : Nil
       @@mutex.synchronize { @@connections << connection }
     end

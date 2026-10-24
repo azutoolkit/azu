@@ -47,6 +47,11 @@ module Azu
         @session = nil.as(Session?)
       end
 
+      # Jobs accepted and not yet finished (the one being handled included). :nodoc:
+      def backlog : Int32
+        @backlog.get
+      end
+
       def on_connect
         @session = Session.new(ConnectionInfo.new(id, context.request.remote_address.try(&.to_s), context.request.headers), true, @config) do |info|
           enqueue(info)
@@ -101,8 +106,11 @@ module Azu
       # the loop (a plain `receive` would raise on a closed channel).
       private def process : Nil
         while job = @inbox.receive?
-          handle(job)
-          @backlog.sub(1)
+          begin
+            handle(job)
+          ensure
+            @backlog.sub(1)
+          end
         end
       ensure
         @finished.close

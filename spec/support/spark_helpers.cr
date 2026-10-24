@@ -92,14 +92,20 @@ class SparkSpecClient
   # Sizes of the binary (compressed) frames received so far, in bytes on the wire.
   getter binary_sizes = [] of Int32
 
+  # The kind of every frame received so far, in order: :text or :binary.
+  getter kinds = [] of Symbol
+
   # Next frame as JSON. A binary frame is inflated (it is a gzip of the very JSON a text frame
   # would have carried) and its wire size recorded in `binary_sizes`.
   def frame(timeout : Time::Span = 2.seconds) : JSON::Any?
     case message = @probe.receive_frame(timeout)
     when Bytes
       @binary_sizes << message.size
+      @kinds << :binary
       JSON.parse(Compress::Gzip::Reader.open(IO::Memory.new(message), &.gets_to_end))
-    when String then JSON.parse(message)
+    when String
+      @kinds << :text
+      JSON.parse(message)
     end
   end
 

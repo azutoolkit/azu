@@ -65,6 +65,10 @@ module Azu
       # compresses a larger frame, and the browser client aborts an inflation that passes it.
       MAX_INFLATED = 1_048_576
 
+      # The most a compressed frame may weigh on the wire (bytes). The client rejects a larger binary
+      # frame before it inflates anything, so the server sends such a frame as text.
+      MAX_COMPRESSED = 524_288
+
       # The encoding negotiated in a join.
       GZIP = "gzip"
 
@@ -90,13 +94,13 @@ module Azu
       end
 
       # The gzip of *frame*, or nil when it should be sent as text: it is smaller than *threshold*
-      # bytes, larger than `MAX_INFLATED`, or compressing does not make it smaller. Level 1 (fastest):
+      # bytes, larger than `MAX_INFLATED`, or compressing does not make it smaller or leaves it over `MAX_COMPRESSED`. Level 1 (fastest):
       # the cost is bounded by the size cap, and a diff of markup shrinks a lot even at that level.
       def self.gzip(frame : String, threshold : Int32) : Bytes?
         return if threshold <= 0 || frame.bytesize < threshold || frame.bytesize > MAX_INFLATED
         io = IO::Memory.new
         Compress::Gzip::Writer.open(io, Compress::Deflate::BEST_SPEED, &.print(frame))
-        io.size < frame.bytesize ? io.to_slice : nil
+        io.size < frame.bytesize && io.size <= MAX_COMPRESSED ? io.to_slice : nil
       end
 
       def self.hello(heartbeat : Time::Span, max_size : Int32) : String

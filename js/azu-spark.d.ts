@@ -91,6 +91,7 @@ export declare var config: {
     queueMaxAge: number;
     idleMs: number;
     live: boolean;
+    inflateTimeout: number;
     busyDelay: number;
 };
 /** Forgets what was announced and what waits to be (for the tests). */
@@ -281,6 +282,8 @@ export declare function createMachine(deps: object, settings?: object): {
     /** The number of timers that are running. */
     timers: () => number;
 };
+/** Test hook: forgets that this page asked for plain frames. */
+export declare function allowCompression(): void;
 /**
  * Takes a diff frame: snapshots are kept at once, patches and pushed events wait for the next frame.
  * @param {{ patches?: {id: string, html: string}[], snapshots?: Record<string, string>, events?: {target: string, name: string, payload: unknown}[] }} message
