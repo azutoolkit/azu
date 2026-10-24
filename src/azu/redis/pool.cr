@@ -33,17 +33,39 @@ module Azu
         @capacity.times { @permits.send(true) }
       end
 
-      # Yields a connection and gives it back afterwards; one that raised an error `broken` accepts is discarded.
-      def run(& : T -> R) : R forall R
+      # Yields a connection and gives it back afterwards. A connection is discarded when the block raises an
+      # error `broken` accepts (or any error, with *strict*: a half-sent pipeline leaves replies on the socket), and
+      # also when the block does not finish at all (`return`, `break`, `next` out of it), since what is left on
+      # the connection is then unknown.
+      def run(strict : Bool = false, & : T -> R) : R forall R
         connection = checkout
+        keep = false # ameba:disable Lint/UselessAssign
         begin
           result = yield connection
+          keep = true
+          result
         rescue ex
-          @broken.call(ex) ? discard(connection) : checkin(connection)
+          keep = !strict && !@broken.call(ex)
           raise ex
+        ensure
+          keep ? checkin(connection) : discard(connection)
         end
-        checkin(connection)
-        result
+      end
+
+      # Closes every idle connection. After a connection failure the others are most likely dead too (the server
+      # restarted), and the next attempt should open a fresh one rather than take the next dead one.
+      def drop_idle : Nil
+        loop do
+          select
+          when idle = @idle.receive?
+            return unless idle
+            @mutex.synchronize { @discarded += 1 }
+            destroy(idle.connection)
+            release_permit
+          else
+            return
+          end
+        end
       end
 
       def checkout : T
@@ -58,12 +80,11 @@ module Azu
       end
 
       def checkin(connection : T) : Nil
-        @mutex.synchronize { @in_use -= 1 }
-        if closed?
-          destroy(connection)
-        else
-          @mutex.synchronize { @idle.send(Idle(T).new(connection, Clock.instant)) unless @closed }
+        closed = @mutex.synchronize do
+          @in_use -= 1
+          @closed.tap { |shut| @idle.send(Idle(T).new(connection, Clock.instant)) unless shut }
         end
+        destroy(connection) if closed
       end
 
       # Closes *connection* and frees its permit so another one can be opened.

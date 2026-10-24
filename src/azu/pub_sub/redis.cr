@@ -54,7 +54,7 @@ module Azu
       # A dead connection is discarded and the publish retried on a fresh one, as `Azu::Redis::Config#retry`
       # allows; a failure past that surfaces.
       def broadcast(topic : String, payload : String) : Nil
-        @client.run("publish") { |redis| redis.publish(channel_for(topic), payload) }
+        @client.run("publish", retry: true) { |redis| redis.publish(channel_for(topic), payload) }
       end
 
       def shutdown : Nil

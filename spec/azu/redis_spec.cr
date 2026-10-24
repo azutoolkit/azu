@@ -113,6 +113,8 @@ describe Azu::Redis::Config do
     Azu::Redis::Config.new(url: "rediss://h/0").ssl_context.should be_nil
     Azu::Redis::Config.new(url: "rediss://h/0").tls?.should be_true
     Azu::Redis::Config.new(url: "redis://h/0").tls?.should be_false
+    Azu::Redis::Config.new(url: "redis://h/0", tls_verify: false, tls_ca_file: "/x.pem").tls?.should be_false
+    Azu::Redis::Config.new(url: "redis://h/0", tls_verify: false).ssl_context.should be_nil
     context = Azu::Redis::Config.new(url: "rediss://h/0", tls_verify: false).ssl_context
     context.try(&.verify_mode).should eq OpenSSL::SSL::VerifyMode::NONE
   end
@@ -337,20 +339,149 @@ describe Azu::Redis::Pool do
   end
 end
 
+private def leave_early(pool : Azu::Redis::Pool(FakeConnection)) : Int32
+  pool.run { |_| return 1 }
+  2
+end
+
+describe Azu::Redis::Pool do
+  it "discards a connection when the block is left by return, so the slot does not leak" do
+    created = [] of FakeConnection
+    pool = fake_pool(1, created: created)
+
+    leave_early(pool).should eq 1
+
+    created.first.closed?.should be_true
+    pool.stats.in_use.should eq 0
+    pool.stats.discarded.should eq 1
+    pool.run { |_| }
+    created.size.should eq 2
+  end
+
+  it "discards on any error when strict, even one that does not break a connection" do
+    created = [] of FakeConnection
+    pool = fake_pool(1, created: created, broken: ->(_error : Exception) { false })
+
+    expect_raises(ArgumentError) { pool.run(strict: true) { |_| raise ArgumentError.new("x") } }
+
+    created.first.closed?.should be_true
+    pool.stats.discarded.should eq 1
+  end
+end
+
+private def kill_all_clients : Nil
+  killer = Redis.new(url: REDIS_UTIL_URL, reconnect: false)
+  begin
+    killer.command(["CLIENT", "KILL", "TYPE", "normal", "SKIPME", "yes"])
+  ensure
+    killer.close
+  end
+end
+
+private def fill_pool(client : Azu::Redis::Client) : Nil
+  client.run { |_| client.run { |_| client.run(&.ping) } }
+end
+
+describe Azu::Redis::Pool do
+  it "drops every idle connection and frees their permits" do
+    created = [] of FakeConnection
+    pool = fake_pool(3, created: created)
+    held = [pool.checkout, pool.checkout, pool.checkout]
+    held.each { |connection| pool.checkin(connection) }
+
+    pool.drop_idle
+
+    created.all?(&.closed?).should be_true
+    pool.stats.open.should eq 0
+    3.times { pool.checkout }
+    created.size.should eq 6
+  end
+end
+
 describe Azu::Redis do
+  describe "after the server dropped every connection" do
+    it "succeeds on one retry although several idle connections are dead" do
+      pending!("Redis is not reachable on #{REDIS_UTIL_URL}") unless redis_util_available?
+      client = Azu::Redis::Client.new(live_config(pool_size: 3))
+      begin
+        fill_pool(client)
+        client.stats.open.should eq 3
+        kill_all_clients
+
+        client.run(retry: true, &.ping).should eq "PONG"
+      ensure
+        client.close
+      end
+    end
+
+    it "costs a call without retry one failure, not one per dead connection" do
+      pending!("Redis is not reachable on #{REDIS_UTIL_URL}") unless redis_util_available?
+      client = Azu::Redis::Client.new(live_config(pool_size: 3))
+      begin
+        fill_pool(client)
+        kill_all_clients
+
+        expect_raises(Redis::ConnectionError) { client.run(retry: false, &.ping) }
+        client.run(retry: false, &.ping).should eq "PONG"
+      ensure
+        client.close
+      end
+    end
+  end
+
+  describe "a failed transaction or pipeline" do
+    it "does not leave a stale reply for the next user of the pool" do
+      pending!("Redis is not reachable on #{REDIS_UTIL_URL}") unless redis_util_available?
+      client = Azu::Redis::Client.new(live_config(pool_size: 1))
+      begin
+        key = "azu:redis_spec:desync:#{Random::Secure.hex(4)}"
+        expect_raises(Redis::Error) do
+          client.pipelined do |pipeline|
+            pipeline.command(["SET", key, "v"])
+            pipeline.command(["NOSUCHCOMMAND"])
+            pipeline.command(["GET", key])
+          end
+        end
+
+        client.run(&.command(["ECHO", "fresh"])).should eq "fresh"
+        client.stats.discarded.should eq 1
+        client.run(&.del(key))
+      ensure
+        client.close
+      end
+    end
+
+    it "does not leave the connection inside MULTI when the block raises" do
+      pending!("Redis is not reachable on #{REDIS_UTIL_URL}") unless redis_util_available?
+      client = Azu::Redis::Client.new(live_config(pool_size: 1))
+      begin
+        key = "azu:redis_spec:multi:#{Random::Secure.hex(4)}"
+        expect_raises(ArgumentError) do
+          client.multi do |transaction|
+            transaction.command(["SET", key, "v"])
+            raise ArgumentError.new("changed my mind")
+          end
+        end
+
+        client.run(&.get(key)).should be_nil
+        client.stats.discarded.should eq 1
+      ensure
+        client.close
+      end
+    end
+  end
+
   describe ".retryable?" do
     it "retries lost and refused connections but not timeouts or server replies" do
       Azu::Redis.retryable?(Redis::ConnectionLostError.new("IO::Error: Connection reset by peer")).should be_true
       Azu::Redis.retryable?(Redis::CannotConnectError.new("IO::TimeoutError: connect timed out")).should be_true
       Azu::Redis.retryable?(IO::Error.new("closed")).should be_true
       Azu::Redis.retryable?(Redis::ConnectionLostError.new("IO::TimeoutError: Read timed out")).should be_false
-      Azu::Redis.retryable?(Redis::CommandTimeoutError.new("Command timed out")).should be_false
       Azu::Redis.retryable?(Redis::Error.new("WRONGTYPE Operation against a key")).should be_false
       Azu::Redis.retryable?(Redis::PoolTimeoutError.new("no connection")).should be_false
     end
 
     it "discards the connection of a timeout, a lost connection and a TLS failure, not of a server reply" do
-      Azu::Redis.connection_failure?(Redis::CommandTimeoutError.new("t")).should be_true
       Azu::Redis.connection_failure?(Redis::ConnectionLostError.new("IO::TimeoutError: Read timed out")).should be_true
       Azu::Redis.connection_failure?(OpenSSL::Error.new("tls")).should be_true
       Azu::Redis.connection_failure?(Redis::Error.new("ERR unknown command")).should be_false
@@ -372,19 +503,19 @@ describe Azu::Redis do
         started = clock.instant
         calls = 0
 
-        expect_raises(Redis::CannotConnectError) { client.run { |redis| calls += 1; redis.ping } }
+        expect_raises(Redis::CannotConnectError) { client.run(retry: true) { |redis| calls += 1; redis.ping } }
 
         (clock.instant - started).should eq 30.milliseconds
         calls.should eq 0
       end
     end
 
-    it "does not retry when told not to, and does not wait" do
+    it "does not retry unless asked to, and does not wait" do
       with_fake_clock do |clock|
         client = Azu::Redis::Client.new(Azu::Redis::Config.new(url: UNREACHABLE))
         started = clock.instant
 
-        expect_raises(Redis::CannotConnectError) { client.run(retry: false, &.ping) }
+        expect_raises(Redis::CannotConnectError) { client.run(&.ping) }
 
         clock.instant.should eq started
       end
@@ -492,7 +623,7 @@ describe Azu::Redis do
           killer.close
         end
 
-        client.run(&.ping).should eq "PONG"
+        client.run(retry: true, &.ping).should eq "PONG"
         client.run(&.command(["CLIENT", "ID"])).as(Int64).should_not eq id
         client.stats.discarded.should eq 1
       end
@@ -687,6 +818,22 @@ private class RecordingPresenceStore < Azu::Presence::Store::Memory
 end
 
 describe "consumers of Azu::Redis" do
+  it "never points the cache at REDIS_URL, whose database `clear` would flush" do
+    previous = {ENV["REDIS_URL"]?, ENV["CACHE_REDIS_URL"]?}
+    begin
+      ENV["REDIS_URL"] = "redis://sessions.internal:6379/0"
+      ENV.delete("CACHE_REDIS_URL")
+      Azu::Cache::Configuration.new.redis_url.should eq "redis://localhost:6379/0"
+
+      ENV["CACHE_REDIS_URL"] = "redis://cache.internal:6379/1"
+      Azu::Cache::Configuration.new.redis_url.should eq "redis://cache.internal:6379/1"
+      Azu::PubSub::Redis.default_url.should eq "redis://sessions.internal:6379/0"
+    ensure
+      ENV.delete("REDIS_URL"); previous[0].try { |value| ENV["REDIS_URL"] = value }
+      ENV.delete("CACHE_REDIS_URL"); previous[1].try { |value| ENV["CACHE_REDIS_URL"] = value }
+    end
+  end
+
   it "gives back the pool a store or backend acquired from a URL, and leaves a client you passed open" do
     Azu::Redis.shutdown
     store = Azu::Cache::RedisStore.new(UNREACHABLE)

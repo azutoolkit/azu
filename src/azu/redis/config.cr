@@ -8,7 +8,7 @@ module Azu
     # `pool_key` is equal share one pool (see `Azu::Redis.acquire`).
     #
     # `command_timeout` bounds every read and write on a connection (the `redis` shard has one setting for both).
-    # `rediss://` URLs use TLS; `tls_ca_file` and `tls_verify` tune it. Neither `inspect` nor `to_s` show the URL's
+    # `rediss://` URLs use TLS; `tls_ca_file` and `tls_verify` tune it and are ignored for `redis://`. Neither `inspect` nor `to_s` show the URL's
     # password.
     struct Config
       DEFAULT_URL = "redis://localhost:6379/0"
@@ -93,13 +93,14 @@ module Azu
       end
 
       def tls? : Bool
-        URI.parse(@url).scheme == "rediss" || !@tls_ca_file.nil? || !@tls_verify
+        URI.parse(@url).scheme == "rediss"
       rescue URI::Error
         false
       end
 
       # A TLS context when `tls_ca_file` or `tls_verify` ask for one; otherwise the shard builds its default for `rediss://`.
       def ssl_context : OpenSSL::SSL::Context::Client?
+        return unless tls?
         return if @tls_ca_file.nil? && @tls_verify
         context = OpenSSL::SSL::Context::Client.new
         @tls_ca_file.try { |path| context.ca_certificates = path }
