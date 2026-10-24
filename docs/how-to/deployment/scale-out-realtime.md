@@ -45,20 +45,23 @@ previous life while old entries may still be expiring).
   15 s). **Broadcasts published while it was down are lost**: Redis pub/sub does not queue. After a reconnect a
   client should fetch current state (the page, `Presence.list`) instead of assuming it saw everything.
 - Presence heals itself: every beat re-asserts the node's metas, so a Redis restart or flush loses entries only
-  until the next beat (`ttl / 3`).
+  until the next beat (`ttl / 3`). `list` is right again then; the diffs for it (joins and `arrived`) are
+  published by the other nodes that watch the topic.
 - A failed beat is logged and retried at the next interval; if Redis stays down for more than the `ttl`, other
-  nodes consider this node gone and its users leave their lists, then come back on the first beat afterwards.
+  nodes consider this node gone and publish its users as departed, then publish them as arrived again after the
+  first beat that succeeds.
 
 ## Presence guarantees
 
 - A user with sockets on several nodes is one key with several metas; it `departed` only when the last one goes.
 - A node killed without cleanup (SIGKILL, OOM, lost host) disappears from every other node's `list` once its lease
   is `ttl` old, and the surviving nodes publish the `leaves`.
-- Diffs can be missed or repeated; `list` is the truth. See [Guarantees](../../reference/api/presence.md#guarantees).
+- Leases follow the Redis clock, so the nodes' own clocks do not matter.
+- Diffs can be missed or repeated (check the `seq` of each `node`); `list` is the truth. See [Guarantees](../../reference/api/presence.md#guarantees).
 
 ## Testing it
 
-`spec/azu/scale_out_spec.cr` compiles `spec/fixtures/scale_node.cr` once and starts it twice as real OS
+`spec/azu/scale_out_spec.cr` (opt-in with `AZU_TEST_SCALE=1`; CI sets it; the compiled fixture is cached) compiles `spec/fixtures/scale_node.cr` once and starts it twice as real OS
 processes against one Redis (`AZU_TEST_REDIS_URL`, default `redis://localhost:6379/0`). It connects a WebSocket
 client to each node, checks that a message from either reaches the other, that both users are listed by both
 nodes, then sends SIGKILL to one node and waits for its user to leave the other node's list. Separate processes

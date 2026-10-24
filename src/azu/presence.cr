@@ -24,13 +24,18 @@ module Azu
   #   owner adds or removes them, so the state of a topic is the union of per-node sets that never conflict:
   #   merging is commutative, idempotent and needs no coordination (a CRDT-lite grow/remove set per node).
   # * A node renews a lease every `ttl / 3` and re-asserts its metas with it. Once a lease is a `ttl` old
-  #   (crash, SIGKILL, partition), `list` stops returning that node's metas, and the next sweep or `list` on a
-  #   surviving node publishes their `leaves`.
+  #   (crash, SIGKILL, partition), `list` stops returning that node's metas, and the next sweep of a node that
+  #   watches the topic (`subscribe`, `watch`) publishes their `leaves`. A node that comes back re-asserts its
+  #   metas, and the watching nodes publish their `joins` again.
   # * Diffs are at-most-once hints and may repeat: apply them by `ref` (idempotent), and `list` is the truth,
   #   so re-list after a reconnect. `arrived` and `departed` are decided by the tracking node from what it
   #   saw, so two nodes tracking the same new key in the same instant may both report it `arrived`.
-  # * Expiry compares wall-clock times written by different nodes (`Azu::Clock.now`): keep node clocks within
-  #   a fraction of the `ttl`.
+  # * `Store::Redis` writes and judges leases with the Redis `TIME`, so nodes need no synchronized clocks;
+  #   `Store::Memory` (one process) uses `Azu::Clock`.
+  # * Every diff carries its publisher (`node`) and a per-node `seq`; a gap means missed diffs, so `list` again.
+  # * Every subscriber of a topic receives every meta: put nothing secret in them. `list`, `subscribe` and
+  #   `track` have no authorization hook, so check access to a topic before calling them with a client-chosen
+  #   one. Topics starting with `presence:` are refused by `Channel#subscribe` and `Channel#broadcast`.
   module Presence
     class LimitExceeded < ArgumentError
     end
@@ -71,6 +76,10 @@ module Azu
 
     def self.list(topic : String) : Hash(String, Array(Meta))
       default.list(topic)
+    end
+
+    def self.update(topic : String, key : String, ref : String, meta = nil) : Meta?
+      default.update(topic, key, ref, meta)
     end
 
     def self.subscribe(topic : String, &handler : Diff ->) : PubSub::Subscription

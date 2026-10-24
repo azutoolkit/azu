@@ -40,6 +40,8 @@ jobs:
       HOST: 0.0.0.0
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      AZU_TEST_REDIS_URL: redis://redis:6379/0
+      AZU_TEST_SCALE: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -145,6 +147,8 @@ jobs:
       HOST: 0.0.0.0
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      AZU_TEST_REDIS_URL: redis://redis:6379/0
+      AZU_TEST_SCALE: "1"
     steps:
       - uses: actions/checkout@v4
 

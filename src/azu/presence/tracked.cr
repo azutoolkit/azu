@@ -25,12 +25,15 @@ module Azu
 
       # Subscribes this socket to the diffs of *topic*; they reach `on_broadcast` as JSON.
       def presence_updates(topic : String) : Nil
-        subscribe(Presence.channel_for(topic))
+        Presence.default.watch(topic)
+        subscribe_topic(Presence.channel_for(topic))
       end
 
+      # Untracks last: a slow store must not hold up closing the socket.
       def teardown : Nil
-        untrack_presence
         super
+      ensure
+        untrack_presence
       end
 
       private def untrack_presence : Nil

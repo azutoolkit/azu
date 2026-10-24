@@ -30,6 +30,58 @@ private def diffs(tracker : Azu::Presence::Tracker, topic : String) : Array(Azu:
   received
 end
 
+# Wraps a store and, once armed, parks the next `put` until released: it forces the interleaving of a sweep
+# that is writing a meta while the meta is untracked.
+private class GatedStore < Azu::Presence::Store
+  getter entered = ::Channel(Nil).new(1)
+  getter released = ::Channel(Nil).new(1)
+  property? armed = false
+
+  def initialize(@inner : Azu::Presence::Store)
+  end
+
+  def put(topic : String, meta : Azu::Presence::Meta) : Nil
+    if armed?
+      @armed = false
+      @entered.send(nil)
+      @released.receive
+    end
+    @inner.put(topic, meta)
+  end
+
+  def delete(topic : String, meta : Azu::Presence::Meta) : Nil
+    @inner.delete(topic, meta)
+  end
+
+  def stored(topic : String) : Array(Azu::Presence::Meta)
+    @inner.stored(topic)
+  end
+
+  def renew(node : String, expires_at : Time) : Nil
+    @inner.renew(node, expires_at)
+  end
+
+  def leases : Hash(String, Time)
+    @inner.leases
+  end
+
+  def forget(nodes : Array(String)) : Nil
+    @inner.forget(nodes)
+  end
+
+  def evict(topic : String, metas : Array(Azu::Presence::Meta)) : Nil
+    @inner.evict(topic, metas)
+  end
+
+  def now : Time
+    @inner.now
+  end
+
+  def present?(topic : String, key : String, now : Time, grace : Time::Span) : Bool
+    @inner.present?(topic, key, now, grace)
+  end
+end
+
 # Shared by every store: *make* builds a cluster of two nodes over the store under test. A Redis bus
 # subscribes in its own fiber, so *settle* waits for the subscription to be live.
 private def presence_examples(make : -> Cluster, settle : -> Nil = -> { })
@@ -173,6 +225,190 @@ private def presence_examples(make : -> Cluster, settle : -> Nil = -> { })
     end
   end
 
+  it "publishes the joins again when a node that was declared dead comes back" do
+    topic = "room:#{Random::Secure.hex(4)}"
+    with_fake_clock do |clock|
+      cluster = make.call
+      alice = node(cluster.store_a, cluster.bus_a, "a")
+      bob = node(cluster.store_b, cluster.bus_b, "b")
+      alice.track(topic, "alice")
+      seen = diffs(bob, topic)
+      settle.call
+
+      clock.advance(31.seconds)
+      bob.sweep
+      wait_until { seen.size == 1 }.should be_true
+      seen.last.departed.should eq ["alice"]
+
+      alice.sweep
+      bob.sweep
+
+      wait_until { seen.size == 2 }.should be_true
+      seen.last.arrived.should eq ["alice"]
+      seen.last.joins["alice"].size.should eq 1
+      cluster.shutdown
+    end
+  end
+
+  it "publishes the leaves of a node whose joins no watcher heard" do
+    topic = "room:#{Random::Secure.hex(4)}"
+    with_fake_clock do |clock|
+      cluster = make.call
+      deaf_bus = Azu::PubSub::Memory.new
+      alice = node(cluster.store_a, deaf_bus, "a")
+      bob = node(cluster.store_b, cluster.bus_b, "b")
+      seen = diffs(bob, topic)
+      settle.call
+
+      alice.track(topic, "alice")
+      bob.sweep
+      wait_until { seen.size == 1 }.should be_true
+      seen.first.arrived.should eq ["alice"]
+
+      clock.advance(31.seconds)
+      bob.sweep
+
+      wait_until { seen.size == 2 }.should be_true
+      seen.last.departed.should eq ["alice"]
+      cluster.shutdown
+    end
+  end
+
+  it "does not put a meta back that was untracked while the sweep was writing it" do
+    topic = "room:#{Random::Secure.hex(4)}"
+    with_fake_clock do
+      cluster = make.call
+      gated = GatedStore.new(cluster.store_a)
+      alice = node(gated, cluster.bus_a, "a")
+      alice.track(topic, "alice")
+      gated.armed = true
+      done = ::Channel(Nil).new
+
+      spawn { alice.sweep; done.send(nil) }
+      gated.entered.receive
+      spawn { alice.untrack(topic, "alice"); done.send(nil) }
+      sleep 20.milliseconds
+      gated.released.send(nil)
+      2.times { done.receive }
+
+      alice.list(topic).should be_empty
+      gated.stored(topic).should be_empty
+      cluster.shutdown
+    end
+  end
+
+  it "replaces a meta without the key departing and arriving again" do
+    topic = "room:#{Random::Secure.hex(4)}"
+    with_fake_clock do
+      cluster = make.call
+      alice = node(cluster.store_a, cluster.bus_a, "a")
+      old = alice.track(topic, "alice", {status: "online"})
+      seen = diffs(alice, topic)
+      settle.call
+
+      fresh = alice.update(topic, "alice", old.ref, {status: "away"})
+      fresh.should_not be_nil
+      fresh = fresh.as(Azu::Presence::Meta)
+
+      alice.list(topic)["alice"].map(&.ref).should eq [fresh.ref]
+      alice.list(topic)["alice"].first.data["status"].as_s.should eq "away"
+      wait_until { seen.size == 2 }.should be_true
+      seen.flat_map(&.arrived).should be_empty
+      seen.flat_map(&.departed).should be_empty
+      alice.update(topic, "alice", old.ref).should be_nil
+      cluster.shutdown
+    end
+  end
+
+  it "numbers the diffs of a node and does not publish from list" do
+    topic = "room:#{Random::Secure.hex(4)}"
+    with_fake_clock do |clock|
+      cluster = make.call
+      alice = node(cluster.store_a, cluster.bus_a, "a")
+      bob = node(cluster.store_b, cluster.bus_b, "b")
+      seen = diffs(bob, topic)
+      settle.call
+
+      alice.track(topic, "alice")
+      alice.track(topic, "alice")
+      wait_until { seen.size == 2 }.should be_true
+      seen.map(&.node).should eq ["a", "a"]
+      seen.map(&.seq).should eq [1_i64, 2_i64]
+
+      clock.advance(31.seconds)
+      bob.list(topic)
+      sleep 50.milliseconds
+      seen.size.should eq 2
+      cluster.shutdown
+    end
+  end
+
+  it "reports a key as arrived once when fibers track it at the same time" do
+    topic = "room:#{Random::Secure.hex(4)}"
+    with_fake_clock do
+      cluster = make.call
+      alice = node(cluster.store_a, cluster.bus_a, "a")
+      seen = diffs(alice, topic)
+      settle.call
+      done = ::Channel(Nil).new
+      8.times { spawn { alice.track(topic, "carol"); done.send(nil) } }
+      8.times { done.receive }
+
+      wait_until { seen.size == 8 }.should be_true
+      seen.flat_map(&.arrived).should eq ["carol"]
+      cluster.shutdown
+    end
+  end
+
+  it "tells keys apart that only differ by glob characters" do
+    topic = "room:#{Random::Secure.hex(4)}"
+    with_fake_clock do
+      cluster = make.call
+      alice = node(cluster.store_a, cluster.bus_a, "a")
+      seen = diffs(alice, topic)
+      settle.call
+
+      alice.track(topic, "a*")
+      alice.track(topic, "ab")
+      alice.track(topic, "a[b]")
+
+      wait_until { seen.size == 3 }.should be_true
+      seen.flat_map(&.arrived).sort!.should eq ["a*", "a[b]", "ab"]
+      cluster.shutdown
+    end
+  end
+
+  it "bounds the length of a topic" do
+    with_fake_clock do
+      cluster = make.call
+      alice = node(cluster.store_a, cluster.bus_a, "a")
+      expect_raises(Azu::Presence::LimitExceeded, /topic/) { alice.track("t" * 300, "alice") }
+      expect_raises(Azu::Presence::LimitExceeded, /topic/) { alice.list("t" * 300) }
+      cluster.shutdown
+    end
+  end
+
+  it "keeps delivering diffs to a subscriber after its handler raised" do
+    topic = "room:#{Random::Secure.hex(4)}"
+    with_fake_clock do
+      cluster = make.call
+      alice = node(cluster.store_a, cluster.bus_a, "a")
+      received = [] of String
+      alice.subscribe(topic) do |diff|
+        received << diff.joins.keys.first
+        raise "handler failed" if received.size == 1
+      end
+      settle.call
+
+      alice.track(topic, "one")
+      alice.track(topic, "two")
+
+      wait_until { received.size == 2 }.should be_true
+      received.should eq ["one", "two"]
+      cluster.shutdown
+    end
+  end
+
   it "bounds the size of keys, metas and the metas one node tracks" do
     topic = "room:#{Random::Secure.hex(4)}"
     with_fake_clock do
@@ -231,7 +467,7 @@ describe Azu::Presence do
       -> {
         pending!("Redis is not reachable on #{PRESENCE_REDIS_URL}") unless presence_redis_available?
         bus_prefix = "#{prefix}bus:"
-        Cluster.new(Azu::Presence::Store::Redis.new(PRESENCE_REDIS_URL, prefix), Azu::Presence::Store::Redis.new(PRESENCE_REDIS_URL, prefix),
+        Cluster.new(Azu::Presence::Store::Redis.new(PRESENCE_REDIS_URL, prefix, server_time: false), Azu::Presence::Store::Redis.new(PRESENCE_REDIS_URL, prefix, server_time: false),
           Azu::PubSub::Redis.new(PRESENCE_REDIS_URL, bus_prefix), Azu::PubSub::Redis.new(PRESENCE_REDIS_URL, bus_prefix))
       },
       -> { sleep 200.milliseconds }
@@ -321,6 +557,54 @@ describe Azu::Presence::Tracker do
     wait_until { beating.list("t"); store.stored("t").map(&.key) == ["alive"] }.should be_true
     beating.shutdown
     store.stored("t").should be_empty
+  end
+
+  it "restarts the heartbeat when a tracker that was shut down tracks again" do
+    store = Azu::Presence::Store::Memory.new
+    bus = Azu::PubSub::Memory.new
+    first = Azu::Presence::Tracker.new(store, node: "first", ttl: 300.milliseconds, interval: 50.milliseconds, pub_sub: bus)
+    observer = Azu::Presence::Tracker.new(store, node: "observer", ttl: 300.milliseconds, heartbeat: false, pub_sub: bus)
+    first.track("t", "before")
+    first.shutdown
+
+    first.track("t", "after")
+    sleep 700.milliseconds
+
+    observer.list("t").keys.should eq ["after"]
+    first.shutdown
+  end
+
+  it "is stopped by Azu.shutdown, which removes the entries of the default tracker" do
+    store = Azu::Presence::Store::Memory.new
+    Azu::Presence.default = Azu::Presence::Tracker.new(store, heartbeat: false, pub_sub: Azu::PubSub::Memory.new)
+    Azu::Presence.track("t", "alice")
+
+    Azu.shutdown
+
+    store.stored("t").should be_empty
+  end
+
+  it "judges leases by the Redis clock unless told to follow Azu::Clock" do
+    pending!("Redis is not reachable on #{PRESENCE_REDIS_URL}") unless presence_redis_available?
+    store = Azu::Presence::Store::Redis.new(PRESENCE_REDIS_URL, "azu:test:presence:time:")
+    fake = Azu::Presence::Store::Redis.new(PRESENCE_REDIS_URL, "azu:test:presence:time:", server_time: false)
+
+    with_fake_clock do |clock|
+      clock.advance(1.day)
+      (store.now - Time.utc).abs.should be < 5.seconds
+      (fake.now - Time.utc).should be > 20.hours
+    end
+    store.shutdown
+    fake.shutdown
+  end
+
+  it "refuses to let a channel subscribe to or broadcast on a presence topic" do
+    channel = LobbyChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+
+    expect_raises(ArgumentError, /reserved/) { channel.subscribe("presence:lobby") }
+    expect_raises(ArgumentError, /reserved/) { channel.broadcast("presence:lobby", "{}") }
+    channel.subscribe("lobby")
+    channel.teardown
   end
 
   it "delegates the module API to the default tracker" do

@@ -2,14 +2,17 @@ require "../spec_helper"
 require "../support/spark_helpers"
 require "http/client"
 require "file_utils"
+require "digest/sha1"
 
 # Scale-out: two real OS processes of spec/fixtures/scale_node.cr (compiled once) share one Redis. They are
 # separate processes, not two apps in one, so the spec exercises what production has: separate PubSub
 # listener connections, separate heartbeats and a node that disappears without running any teardown.
 #
-# Needs a Redis (AZU_TEST_REDIS_URL, default localhost:6379) and `crystal` on the PATH; it is pending otherwise.
+# Opt-in: set AZU_TEST_SCALE=1 (CI does), since compiling the fixture takes about 30 seconds. The binary is cached
+# in the temp directory under a hash of src/ and the fixture, so only the first run after a change compiles. Needs
+# a Redis (AZU_TEST_REDIS_URL, default localhost:6379) and `crystal` on the PATH; it is pending otherwise.
 SCALE_REDIS_URL = ENV.fetch("AZU_TEST_REDIS_URL", "redis://localhost:6379/0")
-SCALE_TTL       = 2.seconds
+SCALE_TTL       = 3.seconds
 
 private def scale_redis_available? : Bool
   redis = Redis.new(url: SCALE_REDIS_URL, reconnect: false)
@@ -25,11 +28,20 @@ private def free_port : Int32
   server.local_address.port.tap { server.close }
 end
 
-private def compile_node(directory : String) : String
+# The compiled fixture, reused while neither src/ nor the fixture changed.
+private def compile_node : String
+  digest = Digest::SHA1.new
+  (Dir.glob("src/**/*.cr").sort << "spec/fixtures/scale_node.cr").each { |path| digest << File.read(path) }
+  directory = File.join(Dir.tempdir, "azu-scale-cache", digest.hexfinal)
   binary = File.join(directory, "scale_node")
+  return binary if File.exists?(binary)
+
+  Dir.mkdir_p(directory)
+  building = "#{binary}.#{Random::Secure.hex(4)}"
   output = IO::Memory.new
-  status = Process.run("crystal", ["build", "--no-debug", "-o", binary, "spec/fixtures/scale_node.cr"], output: output, error: output)
+  status = Process.run("crystal", ["build", "--no-debug", "-o", building, "spec/fixtures/scale_node.cr"], output: output, error: output)
   fail "could not compile spec/fixtures/scale_node.cr:\n#{output}" unless status.success?
+  File.rename(building, binary)
   binary
 end
 
@@ -77,6 +89,7 @@ end
 
 describe "scale-out" do
   it "shares broadcasts and presence between two processes and expires a node that was killed" do
+    pending!("set AZU_TEST_SCALE=1 to run the two-process scale-out spec") unless ENV["AZU_TEST_SCALE"]? == "1"
     pending!("Redis is not reachable on #{SCALE_REDIS_URL}") unless scale_redis_available?
     pending!("crystal is not on the PATH") unless Process.find_executable("crystal")
 
@@ -85,7 +98,7 @@ describe "scale-out" do
     prefix = "azu:test:scale:#{Random::Secure.hex(4)}:"
     nodes = [] of Node
     begin
-      binary = compile_node(directory)
+      binary = compile_node
       node_a = Node.new(binary, "node-a", prefix, File.join(directory, "a.log")).tap { |node| nodes << node }
       node_b = Node.new(binary, "node-b", prefix, File.join(directory, "b.log")).tap { |node| nodes << node }
       node_a.ready?.should be_true
@@ -107,7 +120,7 @@ describe "scale-out" do
 
       # SIGKILL runs no teardown: bob's entry leaves node A's list when node B's lease runs out.
       node_b.kill
-      wait_until(SCALE_TTL * 4) { node_a.presence == {"alice" => ["node-a"]} }.should be_true
+      wait_until(SCALE_TTL * 5) { node_a.presence == {"alice" => ["node-a"]} }.should be_true
       frame_where(alice, &.includes?(%("departed":["bob"]))).should_not be_nil
     ensure
       nodes.each(&.kill)

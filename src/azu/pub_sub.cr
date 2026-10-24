@@ -27,6 +27,15 @@ module Azu
       end
     end
 
+    # Topics that start with this belong to `Azu::Presence` (its diffs travel on `presence:<topic>`). A channel refuses
+    # to subscribe to or broadcast on them, since its topic often comes from the client; code that calls `PubSub`
+    # directly is trusted.
+    RESERVED_PREFIX = "presence:"
+
+    def self.reserved?(topic : String) : Bool
+      topic.starts_with?(RESERVED_PREFIX)
+    end
+
     @@backend : Backend? = nil
     @@mutex = Mutex.new
 
