@@ -39,12 +39,10 @@ module Azu
         end
 
         def put(topic : String, meta : Meta) : Nil
-          run do |redis|
-            redis.multi do |transaction|
-              transaction.command(["HSET", topic_key(topic), meta.ref, meta.to_json])
-              transaction.command(["HSET", index_key(topic, meta.key), meta.ref, meta.node])
-              expire(transaction, topic, meta.key)
-            end
+          @client.multi("presence") do |transaction|
+            transaction.command(["HSET", topic_key(topic), meta.ref, meta.to_json])
+            transaction.command(["HSET", index_key(topic, meta.key), meta.ref, meta.node])
+            expire(transaction, topic, meta.key)
           end
         end
 
@@ -61,12 +59,10 @@ module Azu
         end
 
         def refresh(topic : String, metas : Array(Meta)) : Nil
-          run do |redis|
-            redis.pipelined do |pipeline|
-              metas.each do |meta|
-                pipeline.command(["HSET", index_key(topic, meta.key), meta.ref, meta.node])
-                expire(pipeline, topic, meta.key)
-              end
+          @client.pipelined("presence") do |pipeline|
+            metas.each do |meta|
+              pipeline.command(["HSET", index_key(topic, meta.key), meta.ref, meta.node])
+              expire(pipeline, topic, meta.key)
             end
           end
         end
@@ -86,11 +82,9 @@ module Azu
 
         def evict(topic : String, metas : Array(Meta)) : Nil
           return if metas.empty?
-          run do |redis|
-            redis.multi do |transaction|
-              transaction.command(["HDEL", topic_key(topic)] + metas.map(&.ref))
-              metas.each { |meta| transaction.command(["HDEL", index_key(topic, meta.key), meta.ref]) }
-            end
+          @client.multi("presence") do |transaction|
+            transaction.command(["HDEL", topic_key(topic)] + metas.map(&.ref))
+            metas.each { |meta| transaction.command(["HDEL", index_key(topic, meta.key), meta.ref]) }
           end
         end
 

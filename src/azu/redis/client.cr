@@ -42,13 +42,20 @@ module Azu
 
       # Runs the commands the block issues on the transaction in one `MULTI`/`EXEC`.
       # The block may run twice if the connection fails and the call is retried: only issue commands in it.
+      # The connection is discarded after any error, since an error reply inside the transaction leaves the other
+      # replies unread on the socket.
       def multi(operation : String = "multi", retry : Bool = true, & : ::Redis::TransactionApi -> _) : Array(::Redis::RedisValue)
-        run(operation, retry) { |connection| connection.multi { |transaction| yield transaction } }
+        Instrumentation.redis(operation, @config.name) do
+          attempt(retry, strict: true) { |connection| connection.multi { |transaction| yield transaction } }
+        end
       end
 
       # Sends the commands the block issues on the pipeline in one round trip.
+      # The connection is discarded after any error, as for `multi`.
       def pipelined(operation : String = "pipeline", retry : Bool = true, & : ::Redis::PipelineApi -> _) : Array(::Redis::RedisValue)
-        run(operation, retry) { |connection| connection.pipelined { |pipeline| yield pipeline } }
+        Instrumentation.redis(operation, @config.name) do
+          attempt(retry, strict: true) { |connection| connection.pipelined { |pipeline| yield pipeline } }
+        end
       end
 
       # A connection of its own that is not taken from the pool, for something that holds it for good (a
@@ -113,10 +120,10 @@ module Azu
         to_s(io)
       end
 
-      private def attempt(retry : Bool, & : ::Redis -> T) : T forall T
+      private def attempt(retry : Bool, strict : Bool = false, & : ::Redis -> T) : T forall T
         tries = 0
         loop do
-          return @pool.run { |connection| yield connection }
+          return @pool.run(strict) { |connection| yield connection }
         rescue ex
           raise ex unless retry && Redis.retryable?(ex) && @config.retry.retry?(tries)
           Clock.sleep(@config.retry.delay(tries))

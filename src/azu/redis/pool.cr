@@ -33,17 +33,23 @@ module Azu
         @capacity.times { @permits.send(true) }
       end
 
-      # Yields a connection and gives it back afterwards; one that raised an error `broken` accepts is discarded.
-      def run(& : T -> R) : R forall R
+      # Yields a connection and gives it back afterwards. A connection is discarded when the block raises an
+      # error `broken` accepts (or any error, with *strict*: a half-sent pipeline leaves replies on the socket), and
+      # also when the block does not finish at all (`return`, `break`, `next` out of it), since what is left on
+      # the connection is then unknown.
+      def run(strict : Bool = false, & : T -> R) : R forall R
         connection = checkout
+        keep = false
         begin
           result = yield connection
+          keep = true
+          result
         rescue ex
-          @broken.call(ex) ? discard(connection) : checkin(connection)
+          keep = !strict && !@broken.call(ex)
           raise ex
+        ensure
+          keep ? checkin(connection) : discard(connection)
         end
-        checkin(connection)
-        result
       end
 
       def checkout : T

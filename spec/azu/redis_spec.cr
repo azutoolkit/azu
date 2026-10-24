@@ -337,7 +337,79 @@ describe Azu::Redis::Pool do
   end
 end
 
+private def leave_early(pool : Azu::Redis::Pool(FakeConnection)) : Int32
+  pool.run { |_| return 1 }
+  2
+end
+
+describe Azu::Redis::Pool do
+  it "discards a connection when the block is left by return, so the slot does not leak" do
+    created = [] of FakeConnection
+    pool = fake_pool(1, created: created)
+
+    leave_early(pool).should eq 1
+
+    created.first.closed?.should be_true
+    pool.stats.in_use.should eq 0
+    pool.stats.discarded.should eq 1
+    pool.run { |_| }
+    created.size.should eq 2
+  end
+
+  it "discards on any error when strict, even one that does not break a connection" do
+    created = [] of FakeConnection
+    pool = fake_pool(1, created: created, broken: ->(error : Exception) { false })
+
+    expect_raises(ArgumentError) { pool.run(strict: true) { |_| raise ArgumentError.new("x") } }
+
+    created.first.closed?.should be_true
+    pool.stats.discarded.should eq 1
+  end
+end
+
 describe Azu::Redis do
+  describe "a failed transaction or pipeline" do
+    it "does not leave a stale reply for the next user of the pool" do
+      pending!("Redis is not reachable on #{REDIS_UTIL_URL}") unless redis_util_available?
+      client = Azu::Redis::Client.new(live_config(pool_size: 1))
+      begin
+        key = "azu:redis_spec:desync:#{Random::Secure.hex(4)}"
+        expect_raises(Redis::Error) do
+          client.pipelined do |pipeline|
+            pipeline.command(["SET", key, "v"])
+            pipeline.command(["NOSUCHCOMMAND"])
+            pipeline.command(["GET", key])
+          end
+        end
+
+        client.run(&.command(["ECHO", "fresh"])).should eq "fresh"
+        client.stats.discarded.should eq 1
+        client.run(&.del(key))
+      ensure
+        client.close
+      end
+    end
+
+    it "does not leave the connection inside MULTI when the block raises" do
+      pending!("Redis is not reachable on #{REDIS_UTIL_URL}") unless redis_util_available?
+      client = Azu::Redis::Client.new(live_config(pool_size: 1))
+      begin
+        key = "azu:redis_spec:multi:#{Random::Secure.hex(4)}"
+        expect_raises(ArgumentError) do
+          client.multi do |transaction|
+            transaction.command(["SET", key, "v"])
+            raise ArgumentError.new("changed my mind")
+          end
+        end
+
+        client.run(&.get(key)).should be_nil
+        client.stats.discarded.should eq 1
+      ensure
+        client.close
+      end
+    end
+  end
+
   describe ".retryable?" do
     it "retries lost and refused connections but not timeouts or server replies" do
       Azu::Redis.retryable?(Redis::ConnectionLostError.new("IO::Error: Connection reset by peer")).should be_true
