@@ -20,6 +20,8 @@ let URL_;
 const REQUIRED = process.env.SPARK_BROWSER_REQUIRED === "1";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const IDLE_MS = 1500;
+// Everything that is a live region, whatever it was made with: there must be exactly one.
+const LIVE_SELECTOR = "[aria-live], [role=status], [role=alert], [role=log]";
 
 function skip(reason) {
   console.log(`SKIP spark idle browser test: ${reason}`);
@@ -83,6 +85,7 @@ async function demoPage(browser) {
     const body = (await response.text()).replace("data-spark-path=", `data-spark-hidden-idle="${IDLE_MS}" data-spark-path=`);
     await route.fulfill({ response, body });
   });
+  await page.addInitScript((q) => { window.LIVE = q; }, LIVE_SELECTOR);
   await page.addInitScript(() => {
     window.__sockets = [];
     const Native = window.WebSocket;
@@ -162,8 +165,8 @@ async function idleClose(browser) {
   await page.waitForFunction(() => document.documentElement.dataset.sparkStatus === "connected", null, { timeout: 15000 });
   await page.context().setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event("offline")));
-  await page.waitForFunction(() => document.querySelector("[aria-live]") && document.querySelector("[aria-live]").textContent.startsWith("Offline"), null, { timeout: 5000 });
-  assert.strictEqual(await page.evaluate(() => document.querySelectorAll("[aria-live]").length), 1, "exactly one live region");
+  await page.waitForFunction(() => document.querySelector(window.LIVE) && document.querySelector(window.LIVE).textContent.startsWith("Offline"), null, { timeout: 5000 });
+  assert.strictEqual(await page.evaluate((q) => document.querySelectorAll(q).length, LIVE_SELECTOR), 1, "exactly one live region");
   await page.context().setOffline(false);
   await page.close();
   console.log("ok   offline is announced in the live region");
@@ -181,6 +184,7 @@ async function strictPage(browser) {
       <button id="go" spark-click="go">go</button><input id="a"></div></div><script src="/azu_spark.js"></script>`,
   }));
   await page.route("http://test.local/azu_spark.js", (route) => route.fulfill({ contentType: "text/javascript", body: script }));
+  await page.addInitScript((q) => { window.LIVE = q; }, LIVE_SELECTOR);
   await page.addInitScript(() => {
     window.__violations = [];
     document.addEventListener("securitypolicyviolation", (e) => window.__violations.push(e.violatedDirective));
@@ -200,7 +204,7 @@ async function strictPage(browser) {
   await frame({ type: "hello", heartbeat: 20000, max_size: 65536 });
   const join = await page.evaluate(() => window.__sent.filter((m) => m.type === "join").pop());
   await frame({ type: "reply", id: join.id });
-  assert.strictEqual(await page.evaluate(() => document.querySelectorAll("[aria-live]").length), 0, "no region before something is announced");
+  assert.strictEqual(await page.evaluate((q) => document.querySelectorAll(q).length, LIVE_SELECTOR), 0, "no region before something is announced");
 
   // aria-busy: absent for a quick answer, present for a slow one, gone with the answer.
   await page.focus("#a");
@@ -222,12 +226,12 @@ async function strictPage(browser) {
   await page.focus("#a");
   // A lost connection is announced once, in one region that styles itself without a style attribute.
   await page.evaluate(() => window.__ws.onclose({ code: 1006, reason: "lost" }));
-  await page.waitForFunction(() => document.querySelector("[aria-live]") && document.querySelector("[aria-live]").textContent === "Reconnecting...", null, { timeout: 4000 });
+  await page.waitForFunction(() => document.querySelector(window.LIVE) && document.querySelector(window.LIVE).textContent === "Reconnecting...", null, { timeout: 4000 });
   const region = await page.evaluate(() => {
-    const el = document.querySelector("[aria-live]");
+    const el = document.querySelector(window.LIVE);
     const box = getComputedStyle(el);
     return {
-      count: document.querySelectorAll("[aria-live]").length, role: el.getAttribute("role"), live: el.getAttribute("aria-live"),
+      count: document.querySelectorAll(window.LIVE).length, role: el.getAttribute("role"), live: el.getAttribute("aria-live"),
       width: box.width, height: box.height, position: box.position, overflow: box.overflow,
       rect: el.getBoundingClientRect().width, active: document.activeElement && document.activeElement.id,
     };
@@ -241,10 +245,122 @@ async function strictPage(browser) {
   await frame({ type: "hello", heartbeat: 20000, max_size: 65536 });
   const joins = await page.evaluate(() => window.__sent.filter((m) => m.type === "join"));
   await frame({ type: "reply", id: joins[1].id });
-  await page.waitForFunction(() => document.querySelector("[aria-live]").textContent === "Back online.", null, { timeout: 2000 });
-  assert.strictEqual(await page.evaluate(() => document.querySelectorAll("[aria-live]").length), 1);
+  await page.waitForFunction(() => document.querySelector(window.LIVE).textContent === "Back online.", null, { timeout: 2000 });
+  assert.strictEqual(await page.evaluate((q) => document.querySelectorAll(q).length, LIVE_SELECTOR), 1);
   await page.close();
   console.log("ok   one polite live region, visually hidden under a strict CSP, announces lost and restored");
+}
+
+// ---- part three: the edges of the idle close, on a scripted socket --------------------------
+
+async function scriptedIdle(browser) {
+  const page = await (await browser.newContext()).newPage();
+  const script = await fetchText(`${URL_}_spark/azu_spark.js`);
+  await page.route("http://test.local/", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<div id="root" data-spark-root data-spark-id="r" data-spark-token="t"><div data-spark-id="r~c">
+      <button id="go" spark-click="go">go</button></div></div><script src="/azu_spark.js" data-spark-hidden-idle="300"></script>`,
+  }));
+  await page.route("http://test.local/azu_spark.js", (route) => route.fulfill({ contentType: "text/javascript", body: script }));
+  await page.addInitScript((q) => { window.LIVE = q; }, LIVE_SELECTOR);
+  await page.addInitScript(() => {
+    window.__sent = [];
+    window.__made = 0;
+    window.__closes = [];
+    window.FakeWS = class {
+      constructor() { this.readyState = 1; window.__ws = this; window.__made++; }
+      send(text) { window.__sent.push({ socket: window.__made, ...JSON.parse(text) }); }
+      close(code, reason) { window.__closes.push({ socket: window.__made, code, reason }); if (!window.__holdClose) this.finish(code, reason); }
+      finish(code, reason) { this.readyState = 3; this.onclose({ code, reason }); }
+    };
+    Object.assign(FakeWS, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
+    window.WebSocket = FakeWS;
+    window.__frame = (frame) => window.__ws.onmessage({ data: JSON.stringify({ v: 1, ...frame }) });
+    window.__serve = () => { // hello, then an answer to the last join
+      window.__frame({ type: "hello", heartbeat: 20000, max_size: 65536 });
+      const join = window.__sent.filter((m) => m.type === "join").pop();
+      window.__frame({ type: "reply", id: join.id });
+    };
+  });
+  await page.goto("http://test.local/");
+  await page.waitForFunction(() => window.__ws);
+  await page.evaluate(() => window.__serve());
+  const state = () => page.evaluate(() => AzuSpark.stats().state);
+  const made = () => page.evaluate(() => window.__made);
+  const waitState = (name) => page.waitForFunction((n) => AzuSpark.stats().state === n, name, { timeout: 5000 });
+  const live = () => page.evaluate((q) => document.querySelectorAll(q).length, LIVE_SELECTOR);
+  return { page, state, made, waitState, live, serve: () => page.evaluate(() => window.__serve()) };
+}
+
+async function idleEdges(browser) {
+  // Hidden while backing off: the retry is cancelled, nothing connects until the tab returns.
+  let t = await scriptedIdle(browser);
+  await t.page.evaluate(() => window.__ws.finish(1006, "lost"));
+  await t.waitState("backoff");
+  await visibility(t.page, "hidden");
+  await t.waitState("hidden-idle");
+  const before = await t.made();
+  await sleep(1200);
+  assert.strictEqual(await t.made(), before, "no retry while hidden-idle");
+  await visibility(t.page, "visible");
+  await t.page.waitForFunction((n) => window.__made === n + 1, before, { timeout: 3000 });
+  await t.page.close();
+  console.log("ok   hidden while backing off: no retry until the tab returns");
+
+  // Hidden while offline.
+  t = await scriptedIdle(browser);
+  await t.page.context().setOffline(true);
+  await t.page.evaluate(() => window.dispatchEvent(new Event("offline")));
+  await t.waitState("offline");
+  await visibility(t.page, "hidden");
+  await t.waitState("hidden-idle");
+  await t.page.context().setOffline(false);
+  await visibility(t.page, "visible");
+  await t.page.waitForFunction(() => window.__made === 2, null, { timeout: 3000 });
+  await t.page.close();
+  console.log("ok   hidden while offline: idles, reconnects on return");
+
+  // Hidden while connecting (the socket was made, the server never greeted): closed cleanly, then idle.
+  t = await scriptedIdle(browser);
+  await t.page.evaluate(() => window.__ws.finish(1006, "lost"));
+  await t.page.waitForFunction(() => window.__made === 2, null, { timeout: 3000 }); // the retry: connecting
+  assert.strictEqual(await t.state(), "connecting");
+  await visibility(t.page, "hidden");
+  await t.waitState("hidden-idle");
+  assert.deepStrictEqual(await t.page.evaluate(() => window.__closes.filter((c) => c.socket === 2).map((c) => [c.code, c.reason])), [[1000, "hidden idle"]]);
+  await t.page.close();
+  console.log("ok   hidden while connecting: closed with 1000, idle");
+
+  // An event during the close wait wakes the connection once the close is done, and is delivered once.
+  t = await scriptedIdle(browser);
+  await t.page.evaluate(() => { window.__holdClose = true; });
+  await visibility(t.page, "hidden");
+  await t.waitState("closing");
+  await t.page.evaluate(() => AzuSpark.push(document.querySelector("#go"), "go", {}));
+  assert.strictEqual(await t.page.evaluate(() => AzuSpark.queued), 1);
+  await t.page.evaluate(() => window.__ws.finish(1000, "hidden idle"));
+  await t.page.waitForFunction(() => window.__made === 2, null, { timeout: 3000 });
+  await t.serve();
+  await t.page.waitForFunction(() => window.__sent.filter((m) => m.type === "event").length === 1, null, { timeout: 3000 });
+  assert.strictEqual(await t.page.evaluate(() => window.__sent.find((m) => m.type === "event").socket), 2);
+  await t.page.close();
+  console.log("ok   an event made during the close wait is delivered after the reconnect");
+
+  // Repeated hide/show cycles: one socket per cycle, no announcement, no live region, state back to open.
+  t = await scriptedIdle(browser);
+  for (let cycle = 1; cycle <= 5; cycle++) {
+    await visibility(t.page, "hidden");
+    await t.waitState("hidden-idle");
+    await visibility(t.page, "visible");
+    await t.page.waitForFunction((n) => window.__made === n + 1, cycle, { timeout: 3000 });
+    await t.serve();
+    await t.waitState("open");
+  }
+  assert.strictEqual(await t.live(), 0, "idling is silent: no live region was made");
+  assert.strictEqual(await t.page.evaluate(() => AzuSpark.stats().reconnects), 0, "an idle return is not a reconnect after a loss");
+  assert.strictEqual(await t.page.evaluate(() => window.__closes.filter((c) => c.code === 1000).length), 5);
+  await t.page.close();
+  console.log("ok   five hide/show cycles: five clean closes and rejoins, nothing announced");
 }
 
 async function main() {
@@ -260,6 +376,7 @@ async function main() {
     } catch (e) { return skip(`chromium cannot start (${e.message.split("\n")[0]})`); }
     await idleClose(browser);
     await strictPage(browser);
+    await idleEdges(browser);
     console.log("spark idle browser test passed");
   } finally {
     if (browser) await browser.close().catch(() => {});

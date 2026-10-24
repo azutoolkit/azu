@@ -23,11 +23,12 @@ describe Azu::Spark::Client do
   end
 
   # 8 KB held until the delivery layer (numbered events, an unacknowledged-event queue, coalescing,
-  # IME and debounce handling) was added; 10 KB is the budget for the whole client with it.
-  it "stays within the 10 KB gzip budget" do
+  # IME and debounce handling) was added; 10 KB held for the whole client with it. Observability, the
+  # live region and the idle close (slice 5) raised the budget to 10.5 KB (10_752).
+  it "stays within the 10.5 KB gzip budget" do
     io = IO::Memory.new
     Compress::Gzip::Writer.open(io, Compress::Deflate::BEST_COMPRESSION, &.print(Azu::Spark::Client::SOURCE))
-    io.size.should be <= 10_240, "the client grew to #{io.size} bytes gzipped (budget 10240)"
+    io.size.should be <= 10_752, "the client grew to #{io.size} bytes gzipped (budget 10752)"
   end
 
   it "ships the script inside the shard, with no CDN or library dependency" do

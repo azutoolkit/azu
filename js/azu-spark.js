@@ -141,9 +141,9 @@ var TEXT = {
 };
 var HIDDEN = { position: "absolute", width: "1px", height: "1px", overflow: "hidden", clip: "rect(0 0 0 0)" };
 var region = null;
-var regionText = "";
-var problem = ""; // what was announced and not yet resolved
+var problem = ""; // the connection announcement that was made and not yet resolved
 var speaking = 0;
+var waiting = {}; // key -> the timer of an announcement not yet made
 
 function words(key) {
   var own = text[key];
@@ -151,40 +151,54 @@ function words(key) {
   return own === undefined || own === null ? TEXT[key] : own;
 }
 
+// Blanked first, so the same words are read again; set a moment later, because a live region is
+// announced when its content changes, not when it appears.
 function say(message) {
-  regionText = message;
   if (!region || !region.isConnected) {
-    region = document.querySelector("[data-spark-live-region]");
+    // The page's own region, unless it is inside a component: a patch could overwrite it.
+    region = Array.prototype.filter.call(document.querySelectorAll("[data-spark-live-region]"), function (el) { return !el.closest("[data-spark-id]"); })[0];
     if (!region) {
       region = document.createElement("div");
-      region.setAttribute("data-spark-live-region", "");
       region.setAttribute("role", "status");
       region.setAttribute("aria-live", "polite");
-      region.setAttribute("aria-atomic", "true");
       region.className = "azu-spark-live";
       Object.assign(region.style, HIDDEN);
       document.body.appendChild(region);
-      // A live region is announced when its content changes, not when it appears.
-      setTimeout(function () { region.textContent = regionText; }, 100);
-      return;
     }
   }
-  region.textContent = message;
+  region.textContent = "";
+  clearTimeout(speaking);
+  speaking = setTimeout(function () { region.textContent = message; }, 100);
 }
 
+// Each key has its own timer: a stale event never cancels a pending connection announcement.
 function announce(key, delay) {
-  if (!config.live || (key !== "restored" && key === problem)) return;
-  clearTimeout(speaking);
+  if (!config.live || key === problem) return;
   if (key === "restored") {
-    var back = problem === "reconnecting" || problem === "offline";
+    quiet();
+    var back = problem;
     problem = "";
     if (!back) return;
   }
-  speaking = setTimeout(function () {
-    if (key !== "restored") problem = key;
+  clearTimeout(waiting[key]);
+  waiting[key] = setTimeout(function () {
+    if (key === "reconnecting" || key === "offline") problem = key;
     var message = words(key);
-    if (message) say(message);
+    if (message || key === "restored") say(message);
   }, delay);
+}
+
+/** Forgets what was announced and what waits to be (for the tests). */
+export function resetAnnouncements() {
+  Object.keys(waiting).forEach(function (key) { clearTimeout(waiting[key]); });
+  clearTimeout(speaking);
+  problem = "";
+  region = null;
+}
+
+function quiet() {
+  clearTimeout(waiting.reconnecting);
+  clearTimeout(waiting.offline);
 }
 
 function feel(to) {
@@ -192,6 +206,7 @@ function feel(to) {
   if (name === "open") announce("restored", 0);
   else if (name === "offline") announce("offline", 100);
   else if (name === "backoff") announce("reconnecting", 1000);
+  else if (name === "hidden-idle") quiet(); // nobody is looking
 }
 
 function startBusy(root) {
@@ -456,9 +471,15 @@ function withSocket(own) {
   return Object.assign({}, WITH_SOCKET, own);
 }
 
+// "resuming" is "connecting" for a tab that returned from an idle close: its attempts stand.
+function wakeAfterClose(state) { return state.then === "hidden-idle" || state.then === "resuming" ? go(st("closing", state.attempts, "resuming")) : go(state); }
+
 function afterClose(state, event) {
   var teardown = { type: "teardown", code: event.code, reason: event.reason };
-  if (state.then === "connecting") return go(st("connecting", 0), [teardown].concat(connectNow(0).effects));
+  if (state.then === "connecting" || state.then === "resuming") {
+    var attempts = state.then === "resuming" ? state.attempts : 0;
+    return go(st("connecting", attempts), [teardown].concat(connectNow(attempts).effects));
+  }
   return go(st(state.then, state.attempts), [teardown]);
 }
 
@@ -496,10 +517,10 @@ export var TRANSITIONS = {
     dead: afterClose,
     stop: function (state) { return go(st("closing", state.attempts, "stopped")); },
     pagehide: function (state) { return go(st("closing", state.attempts, state.then === "stopped" ? "stopped" : "idle")); },
-    connect: function (state) { return go(st("closing", state.attempts, "connecting")); },
+    connect: function (state) { return state.then === "hidden-idle" || state.then === "resuming" ? wakeAfterClose(state) : go(st("closing", state.attempts, "connecting")); },
     // The tab went idle and came back before the close finished (or the other way round): follow it.
-    visible: function (state) { return state.then === "hidden-idle" ? go(st("closing", state.attempts, "connecting")) : go(state); },
-    hide_idle: function (state) { return state.then === "connecting" ? go(st("closing", state.attempts, "hidden-idle")) : go(state); },
+    visible: wakeAfterClose,
+    hide_idle: function (state) { return state.then === "connecting" || state.then === "resuming" ? go(st("closing", state.attempts, "hidden-idle")) : go(state); },
     // Restored from the back/forward cache before the close finished: connect once it has (a stopped client stays stopped).
     pageshow: function (state) { return state.then === "stopped" ? go(state) : go(st("closing", state.attempts, "connecting")); }
   },
@@ -1347,7 +1368,7 @@ function push(element, event, payload, loading, how) {
   pump();
   trim();
   if (queue.indexOf(held) >= 0) emit("queued", { event: event, size: queue.length }, element);
-  if (machine.state.name === "hidden-idle") machine.dispatch({ type: "connect" }); // an event made while idle wakes the connection
+  wake(); // an event made while idle wakes the connection
 }
 
 // The connection is gone. What was sent and not acknowledged may or may not have been applied:
@@ -1368,6 +1389,12 @@ function cancelPending() {
 function expirePending() {
   var current = now();
   pending.forEach(function (entry) { if (current - entry.sentAt > config.requestTimeout) release(entry); });
+}
+
+// An idle tab (or one closing to idle) connects again.
+function wake() {
+  var state = machine.state;
+  if (state.name === "hidden-idle" || state.then === "hidden-idle") machine.dispatch({ type: "connect" });
 }
 
 function loadingStates(element) {
@@ -1563,7 +1590,7 @@ function start() {
     if (document.visibilityState !== "visible") flushDebounced();
     machine.dispatch({ type: document.visibilityState === "visible" ? "visible" : "hidden" });
   });
-  window.addEventListener("focus", function () { machine.dispatch({ type: "visible" }); }); // also wakes an idle tab whose visibilitychange was missed
+  window.addEventListener("focus", wake); // also wakes an idle tab whose visibilitychange was missed
   if (document.visibilityState === "hidden") machine.dispatch({ type: "hidden" });
   window.addEventListener("pageshow", function (event) { if (event.persisted) machine.dispatch({ type: "pageshow" }); });
   window.addEventListener("pagehide", function () {
