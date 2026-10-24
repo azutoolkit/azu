@@ -43,14 +43,55 @@ rebuilds the script and fails on any diff. Commit the source, the script and the
 
 ## Connection lifecycle
 
-- **Backoff.** After a lost connection the client reconnects after `500 ms * 2^attempt` (half of it
-  plus random jitter, capped at 15 s). The counter resets once the server greets the new socket.
+The connection is always in exactly one of nine states. `next(state, event)` in `js/azu-spark.js`
+is a pure function from a state and an event to the next state and the effects to run; a small
+runner executes the effects and owns the timers, and entering a state cancels the timers of the
+one it left, so no timer outlives its state.
+
+| State | Meaning | `data-spark-status` | Timers it owns |
+| --- | --- | --- | --- |
+| `idle` | not connected, nothing scheduled (before start, or the page went into the back/forward cache) | `disconnected` | none |
+| `connecting` | socket created, the server has not greeted us | `connecting` (`reconnecting` after a loss) | give up after 10 s |
+| `joining` | greeted; waiting for the join of every page root to be answered | `connected` | heartbeat, watchdog, give up after 10 s |
+| `open` | joined; events are sent | `connected` | heartbeat, watchdog |
+| `closing` | we asked the socket to close (`disconnect()`, `pagehide`) and wait for it | `disconnected` | give up waiting after 3 s |
+| `backoff` | the connection was lost; waiting to try again | `disconnected` | the retry delay |
+| `offline` | the browser has no network; waiting for `online` | `disconnected` | none |
+| `hidden-idle` | closed on purpose while the tab is hidden (reserved: nothing enters it yet) | `disconnected` | none |
+| `stopped` | stopped until `connect()`: `disconnect()`, or a token that can never join | `disconnected` | none |
+
+```text
+            connect                 hello                joins answered
+   idle ------------> connecting ---------> joining ---------------------> open
+                          ^  |                 |  ^                          |  |
+          retry elapsed / |  | lost, or        |  | a root is added          |  |
+          online / visible|  | no hello in 10 s|  +--------------------------+  |
+                          |  v                 v                                |
+                       backoff <---------- (connection lost: close, dead, ... ) <+
+                          |  ^
+          offline event   |  | online: reconnect at once, attempts reset
+                          v  |
+                        offline
+
+   any state with a socket --stop / pagehide--> closing --closed--> stopped / idle
+   stopped / idle / hidden-idle --connect / pageshow--> connecting
+```
+
+- **Backoff.** After a lost connection the client waits a random time between 0 and
+  `min(15 s, 500 ms * 2^attempt)` (full jitter, so clients that lost the same server do not return
+  together). The attempt counter resets only after a connection stayed open for 10 s: a server
+  that accepts a socket and closes it again keeps being backed off from. Tab visibility never
+  resets it; the `online` event does (the network changed, not the server).
 - **Heartbeat.** The server proposes an interval in `hello` (`config.heartbeat_interval`). The client
   sends a heartbeat each interval and drops a connection that has been silent for 2.5 intervals:
   a half open connection (a vanished Wi-Fi, a NAT that forgot the flow) never reports `close`.
+  Silence is measured with `performance.now()`, and a watchdog that itself ran late (a throttled
+  or frozen background tab; frames may be waiting unread behind it) does not drop the connection:
+  it sends a heartbeat and drops the connection only if no frame arrives within 3 s.
 - **Browser events.** `offline` drops the socket at once and waits for `online` instead of retrying
-  into the void; a tab that becomes visible reconnects immediately or probes the connection with a
-  heartbeat that must be answered within 3 s.
+  into the void. A tab that becomes visible while backing off retries at once (keeping the attempt
+  counter, so the delays keep growing); with an open connection it probes it with a heartbeat that
+  must be answered within 3 s.
 - **Server going away.** A close with 1001 or 1012 (`Azu::Spark.shutdown`, a restart or the idle
   timeout) is handled like any lost connection: the client backs off and reconnects to the next
   process.
@@ -152,6 +193,9 @@ end
 
 `spec/browser/run.sh` drives the example app with Chromium through a TCP proxy that cuts the
 connection, refuses new ones, swallows traffic and sends a 1012 close, and asserts backoff,
-rehydration, exactly-once delivery of a queued click and heartbeat detection. It needs
+rehydration, exactly-once delivery of a queued click, heartbeat detection and the probe of a tab
+that becomes visible. It starts the app on free ports with `SPARK_HEARTBEAT_INTERVAL=1` and fails at
+once, naming the cause, when the server does not propose a 1 s heartbeat: a command that runs the
+app in a container has to forward that variable. It needs
 `npm i playwright` with a chromium and prints `SKIP` (exit 0) when they are missing; it is not part
 of `crystal spec`. `SPARK_SERVER_CMD`, `CHROMIUM_PATH` and `PLAYWRIGHT_MODULE` adapt it to other setups.

@@ -20,18 +20,166 @@ export type SparkMessage = {
     id?: number;
     [field: string]: unknown;
 };
+export declare var STATES: string[];
+export declare var EVENTS: string[];
+declare function connectFresh(): {
+    state: any;
+    effects: any;
+};
+declare function stopped(state: any): {
+    state: any;
+    effects: any;
+};
+declare function paused(state: any): {
+    state: any;
+    effects: any;
+};
+declare function afterClose(state: any, event: any): {
+    state: any;
+    effects: any;
+};
+declare function retry(state: any): {
+    state: any;
+    effects: any;
+};
+declare function resume(state: any, event: any): {
+    state: any;
+    effects: any;
+};
+/** The transition table: TRANSITIONS[state][event] is (state, event) -> {state, effects}. A missing entry ignores the event. */
+export declare var TRANSITIONS: {
+    idle: {
+        connect: typeof connectFresh;
+        pageshow: typeof connectFresh;
+        stop: typeof stopped;
+    };
+    connecting: any;
+    joining: any;
+    open: any;
+    closing: {
+        closed: typeof afterClose;
+        dead: typeof afterClose;
+        stop: (state: any) => {
+            state: any;
+            effects: any;
+        };
+        pagehide: (state: any) => {
+            state: any;
+            effects: any;
+        };
+        connect: (state: any) => {
+            state: any;
+            effects: any;
+        };
+    };
+    backoff: {
+        backoff_elapsed: typeof retry;
+        connect: typeof retry;
+        visible: typeof resume;
+        online: typeof connectFresh;
+        offline: (state: any) => {
+            state: any;
+            effects: any;
+        };
+        hide_idle: (state: any) => {
+            state: any;
+            effects: any;
+        };
+        stop: typeof stopped;
+        pagehide: typeof paused;
+    };
+    offline: {
+        online: typeof connectFresh;
+        connect: typeof retry;
+        visible: typeof resume;
+        stop: typeof stopped;
+        pagehide: typeof paused;
+    };
+    "hidden-idle": {
+        visible: typeof connectFresh;
+        connect: typeof connectFresh;
+        stop: typeof stopped;
+        pagehide: typeof paused;
+    };
+    stopped: {
+        connect: typeof connectFresh;
+    };
+};
+/**
+ * The pure transition function.
+ * @param {{name: string, attempts: number, then?: string}} state
+ * @param {{type: string, online?: boolean, code?: number, reason?: string}} event
+ * @returns {{state: object, effects: object[]}}
+ */
+export declare function next(state: {
+    name: string;
+    attempts: number;
+    then?: string;
+}, event: {
+    type: string;
+    online?: boolean;
+    code?: number;
+    reason?: string;
+}): {
+    state: object;
+    effects: object[];
+};
+/**
+ * The public status (data-spark-status) of a state.
+ * @param {{name: string, attempts: number}} state
+ * @returns {SparkStatus}
+ */
+export declare function statusOf(state: {
+    name: string;
+    attempts: number;
+}): SparkStatus;
 /**
  * Delay before reconnect attempt number *attempt* (0 based), in milliseconds.
  * @param {number} attempt
+ * @param {() => number} [random] uniform in [0, 1)
  * @returns {number}
  */
-export declare function backoff(attempt: number): number;
+export declare function backoff(attempt: number, random?: () => number): number;
 /**
  * The supported heartbeat interval for the server's proposal, in milliseconds.
  * @param {unknown} proposed
  * @returns {number}
  */
 export declare function heartbeatInterval(proposed: unknown): number;
+/**
+ * Whether a connection that has been silent for *silence* ms is dead. A half open connection never
+ * fires `close`, so silence is the only sign. But a throttled or frozen tab runs its watchdog late
+ * (*gap* is the time since its previous run, *period* how often it should run), and frames may sit
+ * unread behind it: then the silence proves nothing and the server is asked instead.
+ * @param {{silence: number, gap: number, interval: number, period: number}} measure all in milliseconds
+ * @returns {"alive" | "suspect" | "dead"}
+ */
+export declare function heartbeatVerdict(measure: {
+    silence: number;
+    gap: number;
+    interval: number;
+    period: number;
+}): "alive" | "suspect" | "dead";
+/**
+ * Runs the machine: executes the effects of each transition and owns the timers. Everything it
+ * touches comes in through *deps*, so it runs against a fake clock in tests.
+ * @param {object} deps timers {setTimeout, clearTimeout, setInterval, clearInterval}, now(), random(), online(),
+ *   interval() (heartbeat ms), beat() (sends a heartbeat, true when sent), tick(), status(name, state),
+ *   and the host effects open, close, teardown, opened, backingOff
+ * @param {object} [settings] backoffMin, backoffMax, probeTimeout, stableAfter (ms)
+ */
+export declare function createMachine(deps: object, settings?: object): {
+    readonly state: {
+        name: any;
+        attempts: any;
+    };
+    /** Feeds an event to the machine (events raised by effects wait until the current one is done). */
+    dispatch: (event: any) => void;
+    /** Records that a frame arrived: the proof of life the heartbeat looks for. */
+    frame: () => void;
+    /** The number of timers that are running. */
+    timers: () => number;
+};
 /**
  * Parses a patch into an inert fragment.
  * @param {string} html
@@ -51,3 +199,4 @@ export declare function scriptUrl(value: unknown, name: string): boolean;
  * @returns {void}
  */
 export declare function sanitize(root: ParentNode): void;
+export {};

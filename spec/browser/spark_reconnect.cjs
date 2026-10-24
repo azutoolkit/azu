@@ -12,14 +12,25 @@ const http = require("http");
 const assert = require("assert");
 const { spawn } = require("child_process");
 
-const APP_PORT = Number(process.env.BROWSER_TEST_PORT || 3917);
-const PROXY_PORT = APP_PORT + 1;
-const URL_ = `http://127.0.0.1:${PROXY_PORT}/`;
+// Free ports, chosen per run (BROWSER_TEST_PORT pins the app port, the proxy takes the next one). A fixed
+// port was a trap: a server left behind by an earlier run (a container outlives the process that
+// started it) keeps answering on it, ignores this run's SPARK_HEARTBEAT_INTERVAL, and the new app
+// silently fails to bind.
+let APP_PORT;
+let PROXY_PORT;
+let URL_;
 const REQUIRED = process.env.SPARK_BROWSER_REQUIRED === "1";
 
 function skip(reason) {
   console.log(`SKIP spark browser test: ${reason}`);
   process.exit(REQUIRED ? 1 : 0);
+}
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer().on("error", reject);
+    probe.listen(0, "127.0.0.1", () => { const { port } = probe.address(); probe.close(() => resolve(port)); });
+  });
 }
 
 function loadPlaywright() {
@@ -92,8 +103,9 @@ function ready(deadline) {
 
 // ---- scenarios ---
 
-// The client against a scripted socket: what is sent when, with no server involved.
-async function scriptedSocket(browser) {
+// A page with one Spark root whose WebSocket is scripted by the test: what the client sends, when,
+// with no server involved.
+async function scriptedPage(browser) {
   const page = await (await browser.newContext()).newPage();
   await page.route("http://test.local/", (route) => route.fulfill({
     contentType: "text/html",
@@ -111,7 +123,7 @@ async function scriptedSocket(browser) {
     window.FakeWS = class {
       constructor() { this.readyState = 1; window.__ws = this; window.__sockets = (window.__sockets || 0) + 1; }
       send(text) { window.__sent.push(JSON.parse(text)); }
-      close() {}
+      close(code, reason) { window.__closed = (window.__closed || []).concat({ code, reason }); }
     };
     Object.assign(FakeWS, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
     window.WebSocket = FakeWS;
@@ -121,10 +133,17 @@ async function scriptedSocket(browser) {
   await page.waitForFunction(() => window.__ws);
   const sent = (type) => page.evaluate((t) => window.__sent.filter((m) => m.type === t), type);
   const frame = (f) => page.evaluate((x) => window.__frame(x), f);
+  const open = async () => {
+    await frame({ type: "hello", heartbeat: 20000, max_size: 65536 });
+    const joins = await sent("join");
+    await frame({ type: "reply", id: joins[joins.length - 1].id });
+  };
+  return { page, sent, frame, open };
+}
 
-  await frame({ type: "hello", heartbeat: 20000, max_size: 65536 });
-  const [join] = await sent("join");
-  await frame({ type: "reply", id: join.id });
+async function scriptedSocket(browser) {
+  const { page, sent, frame, open } = await scriptedPage(browser);
+  await open();
   await frame({ type: "diff", seq: 1, patches: [], events: [], snapshots: { r: "token-1" } });
 
   // The connection is lost; two different inputs change while offline.
@@ -154,11 +173,41 @@ async function scriptedSocket(browser) {
   await page.close();
 }
 
+// A tab that becomes visible asks the server for a sign of life, and drops a connection that does
+// not answer (the visibilitychange handler used to lose this probe to a comment).
+async function visibilityProbe(browser) {
+  const { page, sent, frame, open } = await scriptedPage(browser);
+  await open();
+  await page.waitForSelector("html[data-spark-status=connected]");
+  assert.strictEqual((await sent("heartbeat")).length, 0, "no heartbeat yet: the server proposed 20 s");
+  const show = () => page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+
+  await show();
+  assert.strictEqual((await sent("heartbeat")).length, 1, "becoming visible probes the connection");
+  await frame({ type: "heartbeat", id: 1 });
+  await sleep(3500);
+  assert.strictEqual(await page.evaluate(() => document.documentElement.dataset.sparkStatus), "connected", "an answered probe keeps the connection");
+
+  await show();
+  assert.strictEqual((await sent("heartbeat")).length, 2);
+  await page.waitForSelector("html:not([data-spark-status=connected])", { timeout: 5000 });
+  const closed = await page.evaluate(() => window.__closed);
+  assert.strictEqual(closed[0].reason, "heartbeat timeout", "an unanswered probe drops the connection");
+  assert.strictEqual(closed[0].code, 4000);
+  await page.waitForFunction(() => window.__sockets === 2, null, { timeout: 5000 });
+  await page.close();
+}
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main() {
   const { chromium } = loadPlaywright();
+  APP_PORT = Number(process.env.BROWSER_TEST_PORT) || (await freePort());
+  PROXY_PORT = Number(process.env.BROWSER_TEST_PORT) ? APP_PORT + 1 : await freePort();
+  URL_ = `http://127.0.0.1:${PROXY_PORT}/`;
   const app = startApp();
   const proxy = new Proxy();
   let browser;
@@ -171,6 +220,19 @@ async function main() {
 
     const page = await (await browser.newContext()).newPage();
     page.on("pageerror", (error) => { throw error; });
+    // Record the heartbeat interval the server proposes: the half open scenario depends on it.
+    await page.addInitScript(() => {
+      const Native = window.WebSocket;
+      window.WebSocket = class extends Native {
+        constructor(...args) {
+          super(...args);
+          this.addEventListener("message", (event) => {
+            const frame = JSON.parse(event.data);
+            if (frame.type === "hello") window.__heartbeat = frame.heartbeat;
+          });
+        }
+      };
+    });
     await page.goto(URL_);
     const connected = () => page.waitForSelector("html[data-spark-status=connected]", { timeout: 20000 });
     const count = () => page.textContent("#count");
@@ -179,6 +241,8 @@ async function main() {
       for (const name of ["open", "close", "reconnect", "error"]) AzuSpark.on(name, (detail) => window.__log.push({ name, ...detail }));
     });
     await connected();
+    const heartbeat = await page.evaluate(() => window.__heartbeat);
+    assert.strictEqual(heartbeat, 1000, `the server proposed a ${heartbeat} ms heartbeat, the test needs 1000: the command that starts the app must pass SPARK_HEARTBEAT_INTERVAL=1 to it (a docker wrapper has to forward the variable), and nothing else may be listening on its port`);
     await page.click("#inc10");
     await page.waitForFunction(() => document.querySelector("#count").textContent === "Clicks: 10");
     const log = (name) => page.evaluate((n) => window.__log.filter((entry) => entry.name === n), name);
@@ -190,11 +254,14 @@ async function main() {
     await page.waitForSelector("html:not([data-spark-status=connected])");
     await page.click("#inc");
     assert.strictEqual(await page.evaluate(() => AzuSpark.queued), 1, "the click waits in the queue");
-    await sleep(9000);
-    const gaps = proxy.attempts.slice(1).map((at, i) => at - proxy.attempts[i]);
+    // Full jitter: each delay is random between 0 and a ceiling that doubles (500 ms, 1 s, 2 s ...) up to 15 s.
+    for (const deadline = Date.now() + 25000; proxy.attempts.length < 4 && Date.now() < deadline;) await sleep(250);
     assert(proxy.attempts.length >= 4, `expected several reconnect attempts, got ${proxy.attempts.length}`);
-    gaps.forEach((gap, i) => { if (i > 0) assert(gap >= gaps[i - 1] - 150, `backoff must not shrink: ${gaps}`); });
-    assert(gaps[gaps.length - 1] >= gaps[0] * 1.5, `backoff must grow: ${gaps}`);
+    const delays = (await log("reconnect")).map((entry) => entry.delay);
+    (await log("reconnect")).forEach((entry) => {
+      const ceiling = Math.min(15000, 500 * 2 ** (entry.attempts - 1));
+      assert(entry.delay >= 0 && entry.delay <= ceiling, `delay ${entry.delay} outside 0..${ceiling} for attempt ${entry.attempts}`);
+    });
     proxy.refusing = false;
     await connected();
     await page.waitForFunction(() => document.querySelector("#count").textContent === "Clicks: 11", null, { timeout: 20000 });
@@ -202,7 +269,7 @@ async function main() {
     assert.strictEqual(await count(), "Clicks: 11", "state rehydrated and the queued click delivered exactly once");
     assert.strictEqual(await page.evaluate(() => AzuSpark.queued), 0);
     assert((await log("reconnect")).length >= 4 && (await log("open")).length >= 1);
-    console.log(`ok   backoff gaps ${gaps.join(", ")} ms, rehydrated, queued click delivered once`);
+    console.log(`ok   backoff delays ${delays.join(", ")} ms, rehydrated, queued click delivered once`);
 
     // 2. A half open connection (traffic vanishes, nothing closes) is found by the heartbeat.
     proxy.blackhole = true;
@@ -238,6 +305,9 @@ async function main() {
 
     await scriptedSocket(browser);
     console.log("ok   queue keeps one event per control and waits for the rejoin after a refused snapshot");
+
+    await visibilityProbe(browser);
+    console.log("ok   a tab that becomes visible probes the connection and drops it when unanswered");
   } finally {
     if (browser) await browser.close();
     proxy.server.close();

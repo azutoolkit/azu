@@ -6,7 +6,8 @@
 # Needs crystal, node and playwright with chromium (npm i playwright && npx playwright install
 # chromium). Without them it prints SKIP and exits 0; SPARK_BROWSER_REQUIRED=1 makes that a failure.
 # The app is playground/spark_demo/app.cr; override how it starts with SPARK_SERVER_CMD (it gets
-# PORT, HOST and SPARK_HEARTBEAT_INTERVAL in its environment), the browser with CHROMIUM_PATH and
+# PORT, HOST and SPARK_HEARTBEAT_INTERVAL=1 in its environment; a docker wrapper must forward them, and
+# should stop its container when the command ends: the test kills only its own process group), the browser with CHROMIUM_PATH and
 # the module with PLAYWRIGHT_MODULE. It is not part of `crystal spec`.
 set -euo pipefail
 cd "$(dirname "$0")/../.."

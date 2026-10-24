@@ -23,11 +23,11 @@ describe("azu-spark.js", () => {
     assert.equal(typeof window.AzuSpark.on, "function");
   });
 
-  it("backs off exponentially within [ceiling / 2, ceiling], capped at 15 s", () => {
+  it("backs off within [0, ceiling], the ceiling doubling up to 15 s", () => {
     for (let attempt = 0; attempt < 12; attempt++) {
       const ceiling = Math.min(15000, 500 * 2 ** attempt);
       const delay = spark.backoff(attempt);
-      assert.ok(delay >= ceiling / 2 && delay <= ceiling, `attempt ${attempt}: ${delay} outside ${ceiling / 2}..${ceiling}`);
+      assert.ok(delay >= 0 && delay <= ceiling, `attempt ${attempt}: ${delay} outside 0..${ceiling}`);
     }
   });
 

@@ -42,6 +42,13 @@ describe Azu::Spark::Client do
     source.should contain("snapshots.get(id)")
   end
 
+  it "drives the connection with an explicit state machine" do
+    source = CLIENT_JS
+    source.should contain("export var TRANSITIONS")
+    source.should contain("export function next(")
+    source.should contain("performance.now()")
+  end
+
   it "queues events while offline and reacts to the browser's offline and visibility events" do
     source = CLIENT_JS
     source.should contain("queueMax")
