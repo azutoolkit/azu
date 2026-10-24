@@ -109,6 +109,7 @@
 - [Presence](reference/api/presence.md)
 - [Component](reference/api/component.md)
 - [Cache](reference/api/cache.md)
+- [Redis](reference/api/redis.md)
 - [Router](reference/api/router.md)
 - [CQL Bridge](reference/api/cql-bridge.md)
 - [Testing](reference/api/testing.md)

@@ -11,6 +11,12 @@ module Azu
     abstract class Source
       abstract def now : Time
       abstract def instant : Time::Instant
+
+      # Waits for *span*. The system clock sleeps; a fake one advances instead, so retry and backoff code
+      # runs in a spec without waiting.
+      def sleep(span : Time::Span) : Nil
+        ::sleep(span)
+      end
     end
 
     class System < Source
@@ -38,6 +44,11 @@ module Azu
 
       def instant : Time::Instant
         @origin + elapsed
+      end
+
+      def sleep(span : Time::Span) : Nil
+        advance(span)
+        Fiber.yield
       end
 
       def advance(span : Time::Span) : Nil
@@ -70,6 +81,10 @@ module Azu
 
     def self.instant : Time::Instant
       @@source.instant
+    end
+
+    def self.sleep(span : Time::Span) : Nil
+      @@source.sleep(span)
     end
 
     # Runs the block with *source* installed, restoring the previous one afterwards.

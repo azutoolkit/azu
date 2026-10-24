@@ -7,21 +7,34 @@ module Azu
     # Redis backend: broadcasts reach every node, so Spark views and channels stay in sync
     # across processes.
     #
-    # Nothing connects until the first `subscribe` or `broadcast`. One dedicated connection
-    # listens on `PSUBSCRIBE <prefix>*` (reconnecting with backoff) and fans messages out to the
-    # local subscribers; a second, mutex-guarded connection publishes.
+    # Nothing connects until the first `subscribe` or `broadcast`. One dedicated connection (not taken from
+    # the pool) listens on `PSUBSCRIBE <prefix>*`, reconnecting with bounded, jittered backoff, and fans messages
+    # out to the local subscribers; publishes go through the shared `Azu::Redis::Client` pool.
+    #
+    # Built from a URL it acquires the shared client for it (so the cache and presence on the same Redis share
+    # its pool); pass a *client* to choose one yourself. A client you pass is yours to close.
     class Redis < Backend
       DEFAULT_PREFIX = "azu:pubsub:"
       MAX_BACKOFF    = 15.seconds
-      # Upper bound for connecting and for each publish, so a hung Redis cannot hold the
-      # publish mutex (and with it every broadcaster) indefinitely.
+      # Upper bound for connecting and for each publish, so a hung Redis cannot hold a broadcaster
+      # indefinitely.
       PUBLISH_TIMEOUT = 5.seconds
+      # Pooled connections for publishing when built from a URL: publishes are short, so a few are plenty.
+      POOL_SIZE = 2
 
-      def initialize(@url : String = ENV.fetch("PUBSUB_REDIS_URL", "redis://localhost:6379/0"),
-                     @prefix : String = DEFAULT_PREFIX)
+      # `PUBSUB_REDIS_URL`, then `REDIS_URL`, then localhost.
+      def self.default_url : String
+        Azu::Redis::Config.url_from_env("PUBSUB_REDIS_URL")
+      end
+
+      def initialize(url : String = Redis.default_url, prefix : String = DEFAULT_PREFIX)
+        config = Azu::Redis::Config.new(url: url, pool_size: POOL_SIZE, connect_timeout: PUBLISH_TIMEOUT, command_timeout: PUBLISH_TIMEOUT)
+        initialize(Azu::Redis.acquire(config), prefix, true)
+      end
+
+      def initialize(@client : Azu::Redis::Client, @prefix : String = DEFAULT_PREFIX, @owned : Bool = false)
         @subscribers = Subscribers.new
         @mutex = Mutex.new
-        @publisher = nil.as(::Redis?)
         @listener = nil.as(::Redis?)
         @done = ::Channel(Nil).new
         @listening = false
@@ -38,36 +51,19 @@ module Azu
         @subscribers.remove(subscription)
       end
 
+      # A dead connection is discarded and the publish retried on a fresh one, as `Azu::Redis::Config#retry`
+      # allows; a failure past that surfaces.
       def broadcast(topic : String, payload : String) : Nil
-        @mutex.synchronize { publish(channel_for(topic), payload) }
+        @client.run("publish") { |redis| redis.publish(channel_for(topic), payload) }
       end
 
       def shutdown : Nil
         return if @done.closed?
         @done.close
-        @mutex.synchronize do
-          @listener.try(&.close)
-          @publisher.try(&.close)
-          @listener = @publisher = nil
-        end
+        listener = @mutex.synchronize { @listener.tap { @listener = nil } }
+        listener.try { |connection| @client.release(connection) }
         @subscribers.clear
-      end
-
-      # Publishes over the shared connection. A dead connection (restart, failover, idle drop,
-      # timeout) is discarded and the publish retried once on a fresh one; a second failure surfaces.
-      private def publish(channel : String, payload : String) : Nil
-        (@publisher ||= connect(PUBLISH_TIMEOUT)).publish(channel, payload)
-      rescue ::Redis::Error | IO::Error
-        discard_publisher
-        (@publisher = connect(PUBLISH_TIMEOUT)).publish(channel, payload)
-      end
-
-      private def discard_publisher : Nil
-        publisher, @publisher = @publisher, nil
-        begin
-          publisher.try(&.close)
-        rescue ::Redis::Error | IO::Error
-        end
+        @client.close if @owned
       end
 
       private def ensure_listening : Nil
@@ -80,24 +76,31 @@ module Azu
 
       # Runs until `shutdown`: a dropped connection is retried with exponential backoff.
       private def listen : Nil
-        backoff = 0.5.seconds
+        policy = Azu::Redis::Retry.forever(max: MAX_BACKOFF)
+        attempt = 0
         until @done.closed?
           begin
             listen_once
-            backoff = 0.5.seconds
+            attempt = 0
           rescue ex
-            Log.for("Azu::PubSub").warn(exception: ex) { "Redis listener lost, retrying in #{backoff}" } unless @done.closed?
+            Log.for("Azu::PubSub").warn(exception: ex) { "Redis listener lost, retrying" } unless @done.closed?
           end
-          break unless wait(backoff)
-          backoff = {backoff * 2, MAX_BACKOFF}.min
+          break unless wait(policy.delay(attempt))
+          attempt += 1
         end
       end
 
       private def listen_once : Nil
-        listener = connect
+        listener = @client.dedicated(name: "pubsub-listener")
         @mutex.synchronize { @listener = listener }
-        listener.psubscribe("#{@prefix}*") do |on|
-          on.pmessage { |_pattern, channel, payload| dispatch(channel, payload) }
+        begin
+          return if @done.closed?
+          listener.psubscribe("#{@prefix}*") do |on|
+            on.pmessage { |_pattern, channel, payload| dispatch(channel, payload) }
+          end
+        ensure
+          @mutex.synchronize { @listener = nil if @listener == listener }
+          @client.release(listener)
         end
       end
 
@@ -113,11 +116,6 @@ module Azu
         when timeout(span)
           true
         end
-      end
-
-      # *command_timeout* is left unset for the listener, which blocks on an idle subscription.
-      private def connect(command_timeout : Time::Span? = nil) : ::Redis
-        ::Redis.new(url: @url, reconnect: false, connect_timeout: command_timeout, command_timeout: command_timeout)
       end
 
       private def channel_for(topic : String) : String

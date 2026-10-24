@@ -57,6 +57,7 @@ docs/reference/configuration/options.md
 docs/reference/configuration/environments.md
 docs/reference/configuration/env.md
 docs/reference/api/cache.md
+docs/reference/api/redis.md
 docs/how-to/caching/setup-redis-cache.md
 docs/how-to/caching/setup-memory-cache.md
 docs/explanation/architecture/performance-design.md

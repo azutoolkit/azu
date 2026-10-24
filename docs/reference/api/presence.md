@@ -95,6 +95,10 @@ Azu::PubSub.backend = Azu::PubSub::Redis.new(url)
 Azu::Presence.default = Azu::Presence::Tracker.new(Azu::Presence::Store::Redis.new(url), ttl: 30.seconds)
 ```
 
+Both build their connections with [`Azu::Redis`](redis.md) and share one pool when they use the same URL; to choose
+the pool yourself pass an `Azu::Redis::Client` instead of the URL (`Store::Redis.new(client)`). Without an argument
+they read `PRESENCE_REDIS_URL` (`PUBSUB_REDIS_URL` for the backend), then `REDIS_URL`.
+
 `Tracker.new(store, node:, ttl:, heartbeat:, interval:, pub_sub:, max_meta_bytes:, max_entries:)`:
 
 | Option | Default | Meaning |

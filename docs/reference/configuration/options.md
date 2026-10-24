@@ -184,6 +184,7 @@ Assigning a store (`config.cache = ...`) is not possible.
 | `cache_config.redis_pool_size` | `Int32` | 5 | `CACHE_REDIS_POOL_SIZE` |
 | `cache_config.redis_timeout` | `Int32` (seconds) | 5 | `CACHE_REDIS_TIMEOUT` |
 | `cache_config.redis_operation_timeout` | `Int32` (seconds) | 2 | `CACHE_REDIS_OPERATION_TIMEOUT` |
+| `cache_config.redis_client` | `Azu::Redis::Client?` | `nil` | none (shares an existing client and pool) |
 | `cache_config.cache_connection_retries` | `Int32` | 3 | `CACHE_CONNECTION_RETRIES` |
 | `cache_config.cache_connection_retry_delay` | `Int32` (seconds) | 1 | `CACHE_CONNECTION_RETRY_DELAY` |
 
@@ -253,8 +254,10 @@ what the server runs. `router` is the app's `Azu::Router`.
 
 ## Environment Variables
 
-Every variable Azu reads is in the tables above. `AZU_ENV`, `REDIS_URL` and `SECRET_KEY` are not read: the Redis
-URL is `CACHE_REDIS_URL`, and the signing secret of Spark live views is `SPARK_SECRET`.
+Every variable Azu reads is in the tables above, plus the `REDIS_*` variables of
+[`Azu::Redis::Config.from_env`](../api/redis.md#config). `REDIS_URL` is the fallback of `CACHE_REDIS_URL`,
+`PUBSUB_REDIS_URL` and `PRESENCE_REDIS_URL`. `AZU_ENV` and `SECRET_KEY` are not read: the signing secret of Spark
+live views is `SPARK_SECRET`.
 
 | Variable | Option |
 |---|---|
