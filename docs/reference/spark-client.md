@@ -312,6 +312,9 @@ end
    WebSocket frame holding the gzip of the exact JSON** the text frame would have carried, but only
    when that is smaller. Everything else (`reply`, `error`, `heartbeat`, `redirect`, small diffs) stays text.
 
+`enc` is a choice of the *connection*, not of a root: the latest `join` decides. A later join that
+announces nothing turns compression off for the whole connection, and one that announces `gzip` turns it on.
+
 A client that announced no encoding is sent text frames only, byte for byte as before; an old client
 never receives a binary frame. The protocol version stays 1: `enc` is an optional field both sides ignore
 when they do not know it.
@@ -332,6 +335,9 @@ that works with the standard library.
   A text `reply` that follows a binary diff is handled after the diff's patches, so the
   acknowledgement rules of [Numbers, acknowledgements and resending](#numbers-acknowledgements-and-resending)
   hold unchanged. A text frame with nothing ahead of it is handled at once, as before.
+- **Compressed size.** A binary frame larger than 524,288 bytes (`Protocol::MAX_COMPRESSED`) on the wire is
+  rejected before anything is inflated (Chrome's `DecompressionStream` may emit many chunks before a cancel
+  lands), and the server sends such a frame as text.
 - **Size.** A frame may inflate to at most 1,048,576 bytes (`Azu::Spark::Protocol::MAX_INFLATED`). The
   server never compresses a larger frame (it is sent as text), and the client counts the bytes while it
   streams the inflation and stops at the limit, so a bomb is never held in memory whole. This is not
@@ -339,7 +345,14 @@ that works with the standard library.
 - **Failure.** A frame that cannot be inflated (corrupt, truncated or over the limit) is reported as the
   `patch_failed` error; the client resets the connection and rejoins from its last snapshot (so the lost diff
   is not skipped), and **asks for plain frames for the rest of the page's life**, so a frame that fails
-  once cannot make the page loop.
+  once cannot make the page loop. A frame that has not inflated after 5 seconds (not configurable;
+  `config.inflateTimeout` in the source) is treated the same way: otherwise it would hold every later
+  frame, heartbeats included, behind it.
+- **Proxies that dislike binary frames.** If a connection ends (other than a normal or going-away close)
+  after the first binary frame it received and before any text frame was applied since, the client
+  concludes that something on the path rejects binary frames and asks for plain frames for the rest of
+  the page. The server side escape hatch is `SPARK_COMPRESS_THRESHOLD=0` (or
+  `config.compress_threshold = 0`): no binary frame is ever sent.
 - **Cost.** The server compresses at gzip level 1 in the connection's own processing fiber, never in the
   read loop, and not at all while more work waits behind the current job (a busy connection sends text).
   Cost is bounded by the size cap, and below the threshold it is zero.
@@ -354,7 +367,9 @@ a compressed one is listed as "Binary Message" with its (small) length. The join
 run `delete window.DecompressionStream` in a script that runs before the page's (or the Playwright
 `addInitScript` of `spec/browser/spark_compress.cjs`) and reload: the join announces nothing and every
 frame is text. Measured on the demo app's report component (150 rows, one "Next page" click): 12.1 KB as
-text, 3.0 KB compressed.
+text, 3.0 KB compressed. To reproduce, run `spec/browser/run.sh` (or `node spec/browser/spark_compress.cjs`
+with the same environment): it prints the bytes of the six diffs of each tab and the totals on the wire
+(DevTools protocol frame sizes: payload bytes, no WebSocket headers).
 
 ## Client API
 

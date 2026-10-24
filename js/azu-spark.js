@@ -30,6 +30,7 @@ export var config = {
   queueMaxAge: 60000,
   idleMs: attr("hidden-idle") === null ? 300000 : Math.max(0, parseInt(attr("hidden-idle"), 10) || 0), // a tab hidden this long closes its socket (0: never)
   live: attr("live") !== "off", // the live region for assistive technology
+  inflateTimeout: 5000, // a compressed frame that has not inflated by then is given up (and with it the connection)
   busyDelay: 150 // aria-busy appears only for an event unanswered this long
 };
 var debug = false; // console tracing: localStorage["azu-spark:debug"] = "1", or AzuSpark.debug = true
@@ -804,8 +805,10 @@ function openSocket() {
   ws = socket;
   socket.binaryType = "arraybuffer";
   socket.onmessage = function (event) { if (ws === socket) arrive(socket, event.data); };
-  socket.onclose = function (event) { if (ws === socket) machine.dispatch({ type: "closed", code: event.code, reason: event.reason }); };
+  socket.onclose = function (event) { if (ws === socket) ended(event.code); if (ws === socket) machine.dispatch({ type: "closed", code: event.code, reason: event.reason }); };
   socket.onerror = function () { /* onclose follows */ };
+  binaries = 0;
+  suspect = false;
 }
 
 // Closes the socket. An abandoned one (*detach*) is forgotten at once, not waited for: a dead
@@ -849,18 +852,25 @@ function joinRoots(scope) {
 // the binary ones before it and frames are applied strictly in the order they arrived. Text frames
 // with nothing ahead of them are handled at once, as ever.
 var INFLATE_MAX = 1048576; // bytes a frame may inflate to: the server never sends more, we never accept more
+var COMPRESSED_MAX = 524288; // bytes a compressed frame may have on the wire (checked before inflating)
 var inflating = 0; // frames waiting for, or behind, an inflation
 var behind = Promise.resolve(); // the end of that line
-var plain = false; // a frame could not be read: ask for text frames from now on
+var plain = false; // a frame could not be read, or the path dislikes binary frames: ask for text frames from now on
+var binaries = 0; // binary frames received on this connection
+var suspect = false; // the first binary frame came and no text frame has been applied since
 
 function arrive(socket, data) {
   machine.frame();
-  if (!inflating && typeof data === "string") return receive(data);
+  var binary = typeof data !== "string";
+  if (binary && !binaries++) suspect = true;
+  if (!inflating && !binary) { receive(data); suspect = false; return; }
   inflating++;
   behind = behind.then(function () {
-    return ws === socket && typeof data !== "string" ? inflate(data) : data;
+    if (ws !== socket || !binary) return data;
+    if (data.byteLength > COMPRESSED_MAX) throw new Error("compressed frame exceeds " + COMPRESSED_MAX + " bytes");
+    return inflate(data);
   }).then(function (text) {
-    if (ws === socket) receive(text, data.byteLength);
+    if (ws === socket) { receive(text, binary && data.byteLength); if (!binary) suspect = false; }
   }).catch(function (error) {
     if (ws !== socket) return;
     plain = true;
@@ -869,28 +879,46 @@ function arrive(socket, data) {
   }).then(function () { inflating--; });
 }
 
+// A connection that ends right after its first binary frame, before any text frame was applied since
+// (and not because we closed it), is a middlebox that dislikes binary frames: do not announce gzip again.
+/** Test hook: forgets that this page asked for plain frames. */
+export function allowCompression() { plain = false; }
+
+function ended(code) {
+  if (suspect && code !== 1000 && code !== 1001) plain = true;
+  suspect = false;
+  binaries = 0;
+}
+
 // Inflates a gzip frame as a stream and gives up the moment it passes INFLATE_MAX (a bomb is
-// never held in memory whole).
+// never held in memory whole), or after config.inflateTimeout (a stream that never ends must not
+// hold every later frame, heartbeats included, behind it).
 function inflate(buffer) {
   var reader = new Blob([buffer]).stream().pipeThrough(new DecompressionStream("gzip")).getReader();
   var decoder = new TextDecoder();
   var size = 0;
   var out = "";
-  return reader.read().then(function step(chunk) {
-    if (chunk.done) return out + decoder.decode();
-    if ((size += chunk.value.length) > INFLATE_MAX) {
-      reader.cancel();
-      throw new Error("compressed frame exceeds " + INFLATE_MAX + " bytes");
-    }
-    out += decoder.decode(chunk.value, { stream: true });
-    return reader.read().then(step);
+  return new Promise(function (resolve, reject) {
+    var timer = setTimeout(function () {
+      reader.cancel().catch(function () { /* already failed */ });
+      reject(new Error("inflating took too long"));
+    }, config.inflateTimeout);
+    reader.read().then(function step(chunk) {
+      if (chunk.done) return out + decoder.decode();
+      if ((size += chunk.value.length) > INFLATE_MAX) {
+        reader.cancel();
+        throw new Error("compressed frame exceeds " + INFLATE_MAX + " bytes");
+      }
+      out += decoder.decode(chunk.value, { stream: true });
+      return reader.read().then(step);
+    }).then(resolve, reject).then(function () { clearTimeout(timer); });
   });
 }
 
 function receive(text, wire) {
   var message;
   machine.frame();
-  tally.bytesIn += wire || text.length;
+  tally.bytesIn += wire || text.length; // bytes that crossed the wire: a binary frame's compressed size, a text frame's length in characters
   try { message = JSON.parse(text); } catch (e) { return; }
   switch (message.type) {
     case "hello":

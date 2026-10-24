@@ -13,6 +13,15 @@ module SparkCompressionSpec
       self.count += 1
     end
 
+    event def slow : Nil
+      sleep 150.milliseconds
+      self.count += 1
+    end
+
+    event def explode : Nil
+      raise "secret internal detail"
+    end
+
     def render
       div do
         span "count=#{count}"
@@ -139,6 +148,60 @@ describe "compressed Spark frames" do
       conversation(client, ["gzip"], events: 1)
       client.binary_sizes.should be_empty
       client.close
+    end
+  end
+
+  describe "the backlog guard" do
+    backlog = -> { Azu::Spark.connections.last.backlog }
+
+    it "keeps a diff as text while more work waits behind its job, and compresses the next one" do
+      with_threshold(1024) do |port|
+        client = SparkSpecClient.new(port, table)
+        client.frame
+        client.join(enc: ["gzip"])
+        2.times { client.frame } # the join's diff and reply
+        client.event("slow")
+        client.event("increment") # arrives while "slow" sleeps: queued behind it
+        4.times { client.frame }
+        client.kinds.last(4).should eq [:text, :text, :binary, :text] # diff of slow (text), its reply, diff of increment, reply
+        client.close
+      end
+    end
+
+    it "returns to zero after the work completes" do
+      with_threshold(1024) do |port|
+        client = SparkSpecClient.new(port, table)
+        client.frame
+        client.join
+        2.times { client.frame }
+        client.event("slow")
+        client.event("increment")
+        4.times { client.frame }
+        backlog.call.should eq 0
+        client.close
+      end
+    end
+
+    it "returns to zero after a handler raised" do
+      with_threshold(1024) do |port|
+        client = SparkSpecClient.new(port, table)
+        client.frame
+        client.join
+        2.times { client.frame }
+        client.event("explode")
+        client.await("error")["code"].as_s.should eq "internal"
+        backlog.call.should eq 0
+        client.close
+      end
+    end
+
+    it "returns to zero when the inbox was closed under the enqueue" do
+      socket = HTTP::WebSocket.new(IO::Memory.new)
+      connection = Azu::Spark::Connection.new(socket)
+      connection.on_close(nil, nil)
+      connection.on_message(%({"v":1,"type":"heartbeat","id":1}))
+
+      connection.backlog.should eq 0
     end
   end
 end
