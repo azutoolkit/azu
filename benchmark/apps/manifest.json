@@ -1,0 +1,21 @@
+{
+  "comment": "Apps and scenarios of the benchmark suite. `dir` is a directory of benchmark/apps; `flags` are extra compiler flags; an app is built to benchmark/apps/<dir>/bin/<name>. `default: false` apps run only when named in --apps.",
+  "apps": [
+    { "name": "baseline", "dir": "baseline", "flags": [], "websocket": true, "default": true, "stack": "HTTP::Server, hand-written dispatch, ECR, crystal-sqlite3, HTTP::WebSocketHandler" },
+    { "name": "azu", "dir": "azu", "flags": [], "websocket": true, "default": true, "stack": "Azu::App, default handlers without the request logger, Crinja, CQL (SQLite), Azu::Channel" },
+    { "name": "kemal", "dir": "kemal", "flags": [], "websocket": true, "default": true, "stack": "Kemal 1.9.0 default handlers, logging off, ECR, crystal-sqlite3, Kemal ws" },
+    { "name": "athena", "dir": "athena", "flags": [], "websocket": false, "default": true, "stack": "Athena 0.23.0 default listeners, ECR, crystal-sqlite3; no WebSocket support" },
+    { "name": "lucky", "dir": "lucky", "flags": [], "websocket": false, "default": true, "stack": "Lucky 1.5.0 ErrorHandler/RouteHandler, HTMLPage, crystal-sqlite3; no WebSocket support" },
+    { "name": "azu-min", "dir": "azu", "flags": ["-Dbench_minimal_handlers"], "websocket": true, "default": false, "stack": "azu with only Handler::Rescuer: isolates router and endpoint cost from the default middleware" },
+    { "name": "azu-rawdb", "dir": "azu", "flags": ["-Dbench_raw_db"], "websocket": true, "default": false, "stack": "azu with crystal-sqlite3 instead of CQL: isolates the ORM cost in the DB scenarios" }
+  ],
+  "scenarios": [
+    { "name": "plaintext", "kind": "http", "path": "/plaintext" },
+    { "name": "json", "kind": "http", "path": "/json" },
+    { "name": "routing", "kind": "http", "path": "/api/v1/resource0/1", "script": "routing.lua" },
+    { "name": "template", "kind": "http", "path": "/template" },
+    { "name": "db_single", "kind": "http", "path": "/db/item/1", "script": "db_single.lua" },
+    { "name": "db_multi", "kind": "http", "path": "/db/items" },
+    { "name": "websocket", "kind": "websocket", "path": "/ws" }
+  ]
+}

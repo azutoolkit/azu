@@ -1,0 +1,10 @@
+name: bench_lucky
+version: 0.0.0
+crystal: ">= 1.19.1"
+dependencies:
+  lucky:
+    github: luckyframework/lucky
+    version: 1.5.0
+  sqlite3:
+    github: crystal-lang/crystal-sqlite3
+    version: 0.21.0

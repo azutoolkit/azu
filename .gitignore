@@ -19,3 +19,9 @@ playground/bin/
 # Spark benchmark: the built server binary and the result files
 /benchmark/spark/bin/
 /benchmark/spark/results/
+
+# Framework benchmark suite: built apps, installed shards, the seeded database and the result files
+/benchmark/apps/*/bin/
+/benchmark/apps/*/lib/
+/benchmark/db/*.sqlite3*
+/benchmark/results/

@@ -1,0 +1,1 @@
+<!DOCTYPE html><html><head><title>Items</title></head><body><h1>Items</h1><ul><% items.each do |item| %><li class="item-<%= item.id %>"><%= HTML.escape(item.name) %> (<%= item.price %>)</li><% end %></ul></body></html>

@@ -1,0 +1,42 @@
+version: 2.0
+shards:
+  athena:
+    git: https://github.com/athena-framework/framework.git
+    version: 0.23.0
+
+  athena-contracts:
+    git: https://github.com/athena-framework/contracts.git
+    version: 0.1.1
+
+  athena-dependency_injection:
+    git: https://github.com/athena-framework/dependency-injection.git
+    version: 0.4.6
+
+  athena-event_dispatcher:
+    git: https://github.com/athena-framework/event-dispatcher.git
+    version: 0.4.2
+
+  athena-http:
+    git: https://github.com/athena-framework/http.git
+    version: 0.1.1
+
+  athena-http_kernel:
+    git: https://github.com/athena-framework/http-kernel.git
+    version: 0.2.0
+
+  athena-mime:
+    git: https://github.com/athena-framework/mime.git
+    version: 0.2.2
+
+  athena-routing:
+    git: https://github.com/athena-framework/routing.git
+    version: 0.2.1
+
+  db:
+    git: https://github.com/crystal-lang/crystal-db.git
+    version: 0.13.1
+
+  sqlite3:
+    git: https://github.com/crystal-lang/crystal-sqlite3.git
+    version: 0.21.0
+

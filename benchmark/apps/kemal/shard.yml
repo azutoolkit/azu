@@ -1,0 +1,10 @@
+name: bench_kemal
+version: 0.0.0
+crystal: ">= 1.19.1"
+dependencies:
+  kemal:
+    github: kemalcr/kemal
+    version: 1.9.0
+  sqlite3:
+    github: crystal-lang/crystal-sqlite3
+    version: 0.21.0

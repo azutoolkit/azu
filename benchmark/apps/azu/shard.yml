@@ -1,0 +1,12 @@
+name: bench_azu
+version: 0.0.0
+crystal: ">= 1.19.1"
+dependencies:
+  azu:
+    path: ../../..
+  cql:
+    github: azutoolkit/cql
+    version: 0.0.541
+  sqlite3:
+    github: crystal-lang/crystal-sqlite3
+    version: 0.21.0
