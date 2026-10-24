@@ -254,15 +254,22 @@ describe("hidden idle (client)", () => {
     assert.equal(window.AzuSpark.queued, 0);
   });
 
-  it("focus wakes an idle tab and does not probe a connected one", async () => {
+  it("focus does not probe a connected tab", async () => {
     const socket = await connected();
     window.dispatchEvent(new window.Event("focus"));
-    assert.equal(socket.of("heartbeat").length, 0, "no probe on the focus of a visible tab");
+    assert.equal(socket.of("heartbeat").length, 0);
+  });
+
+  it("focus wakes an idle tab whose visibilitychange was missed, and it does not idle again while visible", async () => {
+    await connected();
     visibility("hidden");
     await until(() => window.AzuSpark.stats().state === "hidden-idle", "hidden-idle");
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true }); // no visibilitychange event
     const before = FakeSocket.all.length;
     window.dispatchEvent(new window.Event("focus"));
     await connected({ before });
+    await tick(150); // well past the 40 ms window
+    assert.equal(window.AzuSpark.stats().state, "open");
   });
 
   it("a visible tab never idles", async () => {

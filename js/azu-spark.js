@@ -143,6 +143,7 @@ var HIDDEN = { position: "absolute", width: "1px", height: "1px", overflow: "hid
 var region = null;
 var problem = ""; // the connection announcement that was made and not yet resolved
 var speaking = 0;
+var spoken = []; // messages waiting to be spoken, the first is being spoken
 var waiting = {}; // key -> the timer of an announcement not yet made
 
 function words(key) {
@@ -151,9 +152,14 @@ function words(key) {
   return own === undefined || own === null ? TEXT[key] : own;
 }
 
-// Blanked first, so the same words are read again; set a moment later, because a live region is
-// announced when its content changes, not when it appears.
+// Messages are spoken one after the other, none replaced: the region is blanked first, so the same
+// words are read again, and set a moment later, because a live region is announced when its content
+// changes, not when it appears.
 function say(message) {
+  if (spoken.push(message) === 1) speak();
+}
+
+function speak() {
   if (!region || !region.isConnected) {
     // The page's own region, unless it is inside a component: a patch could overwrite it.
     region = Array.prototype.filter.call(document.querySelectorAll("[data-spark-live-region]"), function (el) { return !el.closest("[data-spark-id]"); })[0];
@@ -167,8 +173,13 @@ function say(message) {
     }
   }
   region.textContent = "";
-  clearTimeout(speaking);
-  speaking = setTimeout(function () { region.textContent = message; }, 100);
+  speaking = setTimeout(function () {
+    region.textContent = spoken[0];
+    speaking = setTimeout(function () {
+      spoken.shift();
+      if (spoken.length) speak();
+    }, 100);
+  }, 100);
 }
 
 // Each key has its own timer: a stale event never cancels a pending connection announcement.
@@ -191,14 +202,20 @@ function announce(key, delay) {
 /** Forgets what was announced and what waits to be (for the tests). */
 export function resetAnnouncements() {
   Object.keys(waiting).forEach(function (key) { clearTimeout(waiting[key]); });
-  clearTimeout(speaking);
+  quiet(true);
   problem = "";
   region = null;
 }
 
-function quiet() {
+// Cancels what waits to be announced: the connection messages, and with *all* the rest.
+function quiet(all) {
   clearTimeout(waiting.reconnecting);
   clearTimeout(waiting.offline);
+  if (all) {
+    clearTimeout(waiting.stale);
+    clearTimeout(speaking);
+    spoken = [];
+  }
 }
 
 function feel(to) {
@@ -206,7 +223,7 @@ function feel(to) {
   if (name === "open") announce("restored", 0);
   else if (name === "offline") announce("offline", 100);
   else if (name === "backoff") announce("reconnecting", 1000);
-  else if (name === "hidden-idle") quiet(); // nobody is looking
+  else if (/^(hidden-idle|stopped|idle)$/.test(name)) quiet(true); // nobody is looking, or nobody is listening
 }
 
 function startBusy(root) {
@@ -1368,7 +1385,7 @@ function push(element, event, payload, loading, how) {
   pump();
   trim();
   if (queue.indexOf(held) >= 0) emit("queued", { event: event, size: queue.length }, element);
-  wake(); // an event made while idle wakes the connection
+  wake("connect"); // an event made while idle wakes the connection
 }
 
 // The connection is gone. What was sent and not acknowledged may or may not have been applied:
@@ -1391,10 +1408,10 @@ function expirePending() {
   pending.forEach(function (entry) { if (current - entry.sentAt > config.requestTimeout) release(entry); });
 }
 
-// An idle tab (or one closing to idle) connects again.
-function wake() {
+// An idle tab (or one closing to idle) connects again. *type* is "visible" when the tab is known to be shown (focus), so it stops counting as hidden.
+function wake(type) {
   var state = machine.state;
-  if (state.name === "hidden-idle" || state.then === "hidden-idle") machine.dispatch({ type: "connect" });
+  if (state.name === "hidden-idle" || state.then === "hidden-idle") machine.dispatch({ type: type });
 }
 
 function loadingStates(element) {
@@ -1590,7 +1607,7 @@ function start() {
     if (document.visibilityState !== "visible") flushDebounced();
     machine.dispatch({ type: document.visibilityState === "visible" ? "visible" : "hidden" });
   });
-  window.addEventListener("focus", wake); // also wakes an idle tab whose visibilitychange was missed
+  window.addEventListener("focus", function () { wake("visible"); }); // also wakes an idle tab whose visibilitychange was missed
   if (document.visibilityState === "hidden") machine.dispatch({ type: "hidden" });
   window.addEventListener("pageshow", function (event) { if (event.persisted) machine.dispatch({ type: "pageshow" }); });
   window.addEventListener("pagehide", function () {

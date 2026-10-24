@@ -118,6 +118,50 @@ describe("live region", () => {
     window.AzuSpark.configure({ hiddenIdle: 300000 });
   });
 
+  // Everything the region said, in order (it is blanked between messages).
+  function listen() {
+    const heard = [];
+    const timer = setInterval(() => { if (said() && heard.at(-1) !== said()) heard.push(said()); }, 5);
+    return { heard, stop: () => clearInterval(timer) };
+  }
+
+  it("speaks overlapping announcements one after the other: offline and stale in the same tick", async () => {
+    const socket = await connected();
+    const { heard, stop } = listen();
+    click("go");
+    socket.receive({ type: "error", id: socket.events[0].id, code: "stale_event", message: "x" });
+    window.dispatchEvent(new window.Event("offline"));
+    await until(() => heard.length === 2, "both messages", 3000);
+    stop();
+    assert.deepEqual([...heard].sort(), ["Offline. Live updates are paused.", "This page may be out of date."]);
+  });
+
+  it("speaks stale and then restored when they land together", async () => {
+    const first = await connected();
+    const before = FakeSocket.all.length;
+    first.drop();
+    await until(() => said() === "Reconnecting...", "reconnecting", 6000);
+    const { heard, stop } = listen();
+    const second = await connected({ before });
+    click("go");
+    second.receive({ type: "error", id: second.events[0].id, code: "stale_event", message: "x" });
+    await until(() => heard.includes("Back online.") && heard.includes("This page may be out of date."), "both messages", 3000);
+    stop();
+  });
+
+  it("a stopped client announces nothing it was about to say", async () => {
+    const socket = await connected();
+    socket.drop();
+    await tick(100);
+    window.AzuSpark.disconnect();
+    await tick(1300);
+    assert.equal(regions().length, 0, "no Reconnecting... on a stopped client");
+    const before = FakeSocket.all.length;
+    window.AzuSpark.connect();
+    await connected({ before });
+    assert.equal(regions().length, 0, "and no stale all clear: nothing was said");
+  });
+
   it("announces offline", async () => {
     await connected();
     window.dispatchEvent(new window.Event("offline"));

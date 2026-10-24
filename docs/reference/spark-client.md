@@ -18,7 +18,7 @@ Azu::Spark.script_tag  # <script src="..." data-spark-path="/spark" defer></scri
 ```
 
 The tag has no inline code, so `script-src 'self'` is enough. The served script is minified: about
-29 KB, 10,328 bytes gzipped (it includes the patch engine, the HTML sanitiser, the delivery layer,
+29 KB, 10,383 bytes gzipped (it includes the patch engine, the HTML sanitiser, the delivery layer,
 the observability counters and the live region, see the security model). A spec keeps it under
 10,752 bytes (10.5 KB) gzipped. Options go on the tag as `data-spark-*` attributes (see
 [Hidden tabs](#hidden-tabs), [Accessibility](#accessibility)):
@@ -119,7 +119,8 @@ cannot be relied on, and a tab nobody looks at still holds a socket, a mounted c
 its subscriptions on the server. After the tab has been **hidden for 5 minutes** the client closes
 the socket cleanly (code `1000`, reason `hidden idle`) and enters `hidden-idle`. When the tab is
 visible again (`visibilitychange`, `pageshow` from the back/forward cache, or the window gaining
-focus; focus on a connected tab does nothing) it reconnects and rejoins every root from the latest stored snapshot, the same path as after
+focus; focus on a connected tab does nothing, and focus on an idle tab counts as the tab being
+shown, so it does not idle again) it reconnects and rejoins every root from the latest stored snapshot, the same path as after
 a lost connection, so persisted state survives (see [Rehydration](#rehydration)).
 
 - **The window.** `data-spark-hidden-idle="<milliseconds>"` on the script tag changes it (default
@@ -138,8 +139,8 @@ a lost connection, so persisted state survives (see [Rehydration](#rehydration))
   while backing off keeps its attempt counter, so a server that is down still gets longer delays;
   one that idled from a healthy connection starts at attempt 0. The same holds for a tab that
   returns, or makes an event, while the idle close is still finishing.
-- **Status while idle.** `data-spark-status` is `disconnected` while the tab idles and `connecting`
-  on its way back, like any other gap, so a banner keyed to `disconnected` flashes for one round
+- **Status while idle.** `data-spark-status` is `disconnected` while the tab idles and `connecting` (`reconnecting` when it
+  idled with attempts kept) on its way back, like any other gap, so a banner keyed to `disconnected` flashes for one round
   trip when a tab returns. Tell the two apart with `Spark.stats().state === "hidden-idle"` or the
   `state` event (`to: "hidden-idle"`), or keep such a banner hidden while `document.hidden`.
 - **Server.** A client close with `1000` is an ordinary disconnect: the connection ends without a
@@ -368,7 +369,9 @@ overwrite it), so there is never more than one. It never takes focus and does no
 Each announcement blanks the region and sets the text 100 ms later, so the same words are read
 again when they repeat. Connection announcements (`reconnecting`, `offline`, `restored`) and
 `stale` have separate timers: a dropped event never cancels the announcement of a lost
-connection or the all clear. Messages:
+connection or the all clear. Messages that fall together are spoken one after the other (each
+one for 200 ms, blank then text), none replaced. Disconnecting the client cancels what waits to be
+said. Messages:
 
 | Key | Said when | Default text |
 | --- | --- | --- |
