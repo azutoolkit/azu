@@ -106,22 +106,24 @@ describe "Spark::Session#subscribe" do
     end
   end
 
-  it "lets a second event subscribe again when the first one's subscribe failed" do
+  it "makes a second caller fail with the first one's error, and lets a later call try anew" do
     with_slow_pub_sub do |backend|
       backend.fail_first = true
       session = cold_session
-      outcome = ::Channel(Exception?).new(1)
+      failure = ::Channel(Exception?).new(1)
       spawn do
         session.subscribe("root", "flaky")
-        outcome.send(nil)
+        failure.send(nil)
       rescue ex
-        outcome.send(ex)
+        failure.send(ex)
       end
       wait_until { backend.subscribe_calls == 1 }.should be_true
 
-      session.subscribe("root", "flaky")
+      expect_raises(Exception, "the backend failed") { session.subscribe("root", "flaky") }
 
-      outcome.receive.should_not be_nil
+      failure.receive.should_not be_nil
+      backend.topics.count("flaky").should eq 1
+      session.subscribe("root", "flaky")
       backend.topics.count("flaky").should eq 2
       backend.subscriber_count.should eq 1
     end
@@ -148,6 +150,90 @@ describe "Spark::Session#subscribe" do
       session.unsubscribe("root", "gone")
 
       wait_until { backend.confirmed_at && backend.subscriber_count == 0 }.should be_true
+    end
+  end
+
+  it "ends unsubscribed when subscribe, subscribe, unsubscribe happen during one wait" do
+    with_slow_pub_sub do |backend|
+      session = cold_session
+      finished = ::Channel(Nil).new(2)
+      2.times { spawn { session.subscribe("root", "order"); finished.send(nil) } }
+      wait_until { backend.subscribe_calls == 1 }.should be_true
+      Fiber.yield
+
+      session.unsubscribe("root", "order")
+
+      2.times { finished.receive }
+      backend.topics.count("order").should eq 1
+      backend.subscriber_count.should eq 0
+    end
+  end
+
+  it "fails every waiter at once when the backend keeps failing" do
+    with_slow_pub_sub(200.milliseconds) do |backend|
+      backend.fail_always = true
+      session = cold_session
+      outcomes = ::Channel(Exception?).new(4)
+      4.times do
+        spawn do
+          session.subscribe("root", "down")
+          outcomes.send(nil)
+        rescue ex
+          outcomes.send(ex)
+        end
+      end
+      started = Time.instant
+
+      4.times { outcomes.receive.should_not be_nil }
+
+      (Time.instant - started).should be < 500.milliseconds
+      backend.topics.count("down").should eq 1
+    end
+  end
+
+  it "does not subscribe a waiter that was woken by an unmount" do
+    with_slow_pub_sub do |backend|
+      session = cold_session
+      finished = ::Channel(Nil).new(2)
+      2.times { spawn { session.subscribe("root", "bye"); finished.send(nil) } }
+      wait_until { backend.subscribe_calls == 1 }.should be_true
+      Fiber.yield
+
+      session.close
+
+      2.times { finished.receive }
+      backend.topics.count("bye").should eq 1
+      backend.subscriber_count.should eq 0
+    end
+  end
+
+  it "gives a component mounted again under the same id its own subscription" do
+    with_slow_pub_sub do |backend|
+      session = cold_session
+      spawn { session.subscribe("root", "t") }
+      wait_until { backend.subscribe_calls == 1 }.should be_true
+      session.close
+      session.start(SparkSessionSpec::Board.new, "root", {} of String => String, Azu::Spark::Params.new)
+
+      wait_until { backend.confirmed_at && backend.subscriber_count == 0 }.should be_true # the old one was cancelled
+      session.subscribe("root", "t")
+
+      backend.subscriber_count.should eq 1
+    end
+  end
+
+  it "does not hang when the backend subscribes again from the subscribing fiber" do
+    with_slow_pub_sub do |backend|
+      session = cold_session
+      backend.on_subscribe = -> { session.subscribe("root", "again"); nil }
+      finished = ::Channel(Nil).new(1)
+      spawn { session.subscribe("root", "again"); finished.send(nil) }
+
+      select
+      when finished.receive
+      when timeout(2.seconds)
+        fail "a re-entrant subscribe waited for itself"
+      end
     end
   end
 
