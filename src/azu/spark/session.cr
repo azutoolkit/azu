@@ -37,6 +37,7 @@ module Azu
       def initialize(@connection : ConnectionInfo, @connected : Bool = true,
                      @config : Configuration = Spark.config, &@sink : Info ->)
         @registry = Registry.new(@connection.id, @config.max_components)
+        @subscribing = Set({String, String}).new
         @dirty = {} of String => Entry
         @pushes = [] of Update::Push
         @redirect = nil.as(Update::Redirect?)
@@ -150,8 +151,21 @@ module Azu
       # :nodoc:
       def subscribe(id : String, topic : String) : Nil
         return unless entry = @registry[id]?
-        return if entry.subscriptions.has_key?(topic)
-        entry.subscriptions[topic] = PubSub.subscribe(topic) { |message| @sink.call(Info.new(id, message)) }
+        key = {id, topic}
+        return if entry.subscriptions.has_key?(topic) || @subscribing.includes?(key)
+        # Reserved before the call and released after: a backend may wait (Redis confirms the first subscription),
+        # and a second event for the same topic must not subscribe again meanwhile.
+        @subscribing << key
+        begin
+          subscription = PubSub.subscribe(topic) { |message| @sink.call(Info.new(id, message)) }
+          if @registry[id]?.same?(entry)
+            entry.subscriptions[topic] = subscription
+          else
+            subscription.cancel
+          end
+        ensure
+          @subscribing.delete(key)
+        end
       end
 
       # :nodoc:

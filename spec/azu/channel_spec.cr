@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "../support/slow_pub_sub"
 
 # Test channel classes defined outside test blocks
 class TestChannel < Azu::Channel
@@ -79,6 +80,46 @@ describe Azu::Channel do
   end
 
   describe "Channel lifecycle" do
+    it "subscribes once when two events ask for the same cold topic while the backend waits" do
+      with_slow_pub_sub do |backend|
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+        done = ::Channel(Nil).new
+        2.times { spawn { channel.subscribe("cold"); done.send(nil) } }
+        2.times { done.receive }
+        sleep 150.milliseconds
+
+        backend.subscribe_calls.should eq 1
+        backend.subscriber_count.should eq 1
+        channel.teardown
+        backend.subscriber_count.should eq 0
+      end
+    end
+
+    it "does not hold its lock while the backend waits, so unsubscribe and teardown are not stalled" do
+      with_slow_pub_sub do |backend|
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+        spawn { channel.subscribe("slow") }
+        Fiber.yield
+
+        started = Time.instant
+        channel.unsubscribe("other")
+        (Time.instant - started).should be < 50.milliseconds
+        channel.teardown
+      end
+    end
+
+    it "cancels a subscription that finishes after the channel was torn down" do
+      with_slow_pub_sub do |backend|
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+        spawn { channel.subscribe("late") }
+        Fiber.yield
+        channel.teardown
+        sleep 200.milliseconds
+
+        backend.subscriber_count.should eq 0
+      end
+    end
+
     it "initializes with a WebSocket" do
       # Create a mock WebSocket using IO::Memory instead of real connection
       io = IO::Memory.new
