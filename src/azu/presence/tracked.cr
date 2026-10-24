@@ -15,6 +15,7 @@ module Azu
     # ```
     module Tracked
       @presence_tracked = [] of {String, Meta}
+      @presence_watches = {} of String => Watch
       @presence_mutex = Mutex.new
 
       def track_presence(topic : String, key : String, meta = nil) : Meta
@@ -25,7 +26,7 @@ module Azu
 
       # Subscribes this socket to the diffs of *topic*; they reach `on_broadcast` as JSON.
       def presence_updates(topic : String) : Nil
-        Presence.default.watch(topic)
+        @presence_mutex.synchronize { @presence_watches[topic] ||= Presence.default.watch(topic) }
         subscribe_topic(Presence.channel_for(topic))
       end
 
@@ -37,7 +38,10 @@ module Azu
       end
 
       private def untrack_presence : Nil
-        tracked = @presence_mutex.synchronize { @presence_tracked.dup.tap { @presence_tracked.clear } }
+        tracked, watches = @presence_mutex.synchronize do
+          {@presence_tracked.dup.tap { @presence_tracked.clear }, @presence_watches.values.tap { @presence_watches = {} of String => Watch }}
+        end
+        watches.each(&.cancel)
         tracked.each do |topic, entry|
           Presence.untrack(topic, entry.key, entry.ref)
         rescue ex

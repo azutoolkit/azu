@@ -106,6 +106,10 @@ Azu::Presence.default = Azu::Presence::Tracker.new(Azu::Presence::Store::Redis.n
 | `max_meta_bytes` | 1024 | Largest meta, as JSON. |
 | `max_entries` | 10 000 | Most metas this node tracks. |
 
+`watch(topic)` returns a `Watch` and `subscribe` a `Subscription`; both are counted per topic, and the node stops
+following a topic (and drops its subscription and its remembered view) when the last of them is cancelled. A
+`Tracked` channel gives its watches back in `teardown`.
+
 `update(topic, key, ref, meta)` replaces a meta (it tracks the new one before it untracks the old one, so the key
 neither departs nor arrives). `shutdown` untracks everything this node tracked and stops the heartbeat; a later
 `track` starts it again, and `Azu.shutdown` calls it for the default tracker.
@@ -138,4 +142,7 @@ A store is a Strategy: implement `Azu::Presence::Store` (`put`, `delete`, `store
   passing a client-chosen one. Topics are limited to 256 bytes. `Channel#subscribe` and `Channel#broadcast` refuse
   topics starting with `presence:` (`PubSub::RESERVED_PREFIX`), so a client cannot forge a diff; code that calls
   `Azu::PubSub` directly is trusted.
-- **Cost.** `list` reads the whole topic; track users per room, not one global topic with millions of metas.
+- **Cost.** `list` and a sweep of a watched topic read the whole topic, so track users per room, not one global
+  topic with millions of metas. `track` and `untrack` read only the small index of the key (`Store::Redis`
+  keeps one hash per key), and a sweep writes only what the store lost, then extends the retention of the rest
+  in one pipelined call per topic.

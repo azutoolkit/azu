@@ -4,23 +4,22 @@ require "../store"
 module Azu
   module Presence
     class Store
-      # Redis store shared by every node. A topic is the hash `<prefix>t:<topic>` (`ref` => meta JSON) and the
-      # leases are the hash `<prefix>nodes` (`node` => expiry in unix milliseconds). Expiry is decided by
-      # readers from the leases, not by Redis key TTLs, so it follows `Azu::Clock`; the topic hashes carry
-      # a long Redis TTL only as a last resort for topics nobody reads or renews any more.
+      # Redis store shared by every node. A topic is the hash `<prefix>t:<topic>` (`ref` => meta JSON), each key of
+      # a topic has an index hash `<prefix>k:<topic>\u001f<key>` (`ref` => node, so "is this key present" reads one
+      # small hash, not the topic), and the leases are the hash `<prefix>nodes` (`node` => expiry in unix
+      # milliseconds). Expiry is decided by readers from the leases, not by Redis key TTLs, so it follows
+      # `Azu::Clock`; the hashes carry a long Redis TTL only as a last resort for topics nobody renews any more.
       #
       # With `server_time: true` (the default) leases are written and judged against the Redis `TIME`, so the
       # nodes need no synchronized clocks. `server_time: false` uses `Azu::Clock` instead, which lets specs drive
       # expiry with a fake clock.
       #
       # One mutex-guarded connection is opened on first use. A dead connection is discarded and the command
-      # retried once on a fresh one.
+      # retried once on a fresh one. Writes of one meta (topic hash and key index) are pipelined.
       class Redis < Store
         DEFAULT_PREFIX = "azu:presence:"
         RETENTION      = 1.day
         TIMEOUT        = 5.seconds
-
-        FIELD_SEPARATOR = '\u001f'
 
         def initialize(@url : String = ENV.fetch("PRESENCE_REDIS_URL", ENV.fetch("PUBSUB_REDIS_URL", "redis://localhost:6379/0")),
                        @prefix : String = DEFAULT_PREFIX, @server_time : Bool = true)
@@ -29,10 +28,12 @@ module Azu
         end
 
         def put(topic : String, meta : Meta) : Nil
-          key = topic_key(topic)
           run do |redis|
-            redis.hset(key, field(meta), meta.to_json)
-            redis.expire(key, RETENTION.total_seconds.to_i)
+            redis.pipelined do |pipeline|
+              pipeline.command(["HSET", topic_key(topic), meta.ref, meta.to_json])
+              pipeline.command(["HSET", index_key(topic, meta.key), meta.ref, meta.node])
+              expire(pipeline, topic, meta.key)
+            end
           end
         end
 
@@ -42,6 +43,18 @@ module Azu
 
         def stored(topic : String) : Array(Meta)
           run(&.hgetall(topic_key(topic))).values.compact_map { |json| parse(json) }
+        end
+
+        def refs(topic : String) : Array(String)
+          run(&.command(["HKEYS", topic_key(topic)])).as(Array).map(&.as(String))
+        end
+
+        def refresh(topic : String, metas : Array(Meta)) : Nil
+          run do |redis|
+            redis.pipelined do |pipeline|
+              metas.each { |meta| expire(pipeline, topic, meta.key) }
+            end
+          end
         end
 
         def renew(node : String, expires_at : Time) : Nil
@@ -59,7 +72,12 @@ module Azu
 
         def evict(topic : String, metas : Array(Meta)) : Nil
           return if metas.empty?
-          run(&.command(["HDEL", topic_key(topic)] + metas.map { |meta| field(meta) }))
+          run do |redis|
+            redis.pipelined do |pipeline|
+              pipeline.command(["HDEL", topic_key(topic)] + metas.map(&.ref))
+              metas.each { |meta| pipeline.command(["HDEL", index_key(topic, meta.key), meta.ref]) }
+            end
+          end
         end
 
         def now : Time
@@ -68,11 +86,12 @@ module Azu
           Time.unix(seconds) + micros.microseconds
         end
 
-        # Scans only the fields of *key* (`<key>\u001f<ref>`), so tracking does not read the whole topic.
+        # Reads the index hash of *key* only, so the cost does not grow with the topic.
         def present?(topic : String, key : String, now : Time, grace : Time::Span) : Bool
-          alive = leases.select { |_, expires_at| expires_at > now }
-          fields = run { |redis| matching_fields(redis, topic_key(topic), "#{escape_glob(key)}#{FIELD_SEPARATOR}*") }
-          fields.any? { |field| alive.has_key?(node_of(field)) }
+          nodes = run(&.hgetall(index_key(topic, key))).values
+          return false if nodes.empty?
+          alive = leases
+          nodes.any? { |node| (lease = alive[node]?) && lease > now }
         end
 
         def shutdown : Nil
@@ -91,29 +110,10 @@ module Azu
           end
         end
 
-        private def matching_fields(redis : ::Redis, hash : String, pattern : String) : Array(String)
-          cursor = "0"
-          fields = [] of String
-          loop do
-            reply = redis.command(["HSCAN", hash, cursor, "MATCH", pattern, "COUNT", "500"]).as(Array)
-            cursor = reply[0].as(String)
-            reply[1].as(Array).each_slice(2) { |pair| fields << pair[0].as(String) }
-            break if cursor == "0"
-          end
-          fields
-        end
-
-        private def field(meta : Meta) : String
-          "#{meta.key}#{FIELD_SEPARATOR}#{meta.ref}"
-        end
-
-        # The node of a field: its ref is `<node>.<counter>`.
-        private def node_of(field : String) : String
-          field.partition(FIELD_SEPARATOR)[2].rpartition('.')[0]
-        end
-
-        private def escape_glob(text : String) : String
-          text.gsub(/[\\*?\[\]]/) { |char| "\\#{char}" }
+        private def expire(pipeline, topic : String, key : String) : Nil
+          seconds = RETENTION.total_seconds.to_i.to_s
+          pipeline.command(["EXPIRE", topic_key(topic), seconds])
+          pipeline.command(["EXPIRE", index_key(topic, key), seconds])
         end
 
         private def discard : Nil
@@ -136,6 +136,10 @@ module Azu
 
         private def topic_key(topic : String) : String
           "#{@prefix}t:#{topic}"
+        end
+
+        private def index_key(topic : String, key : String) : String
+          "#{@prefix}k:#{topic}\u001f#{key}"
         end
 
         private def nodes_key : String

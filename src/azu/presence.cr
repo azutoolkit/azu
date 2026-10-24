@@ -82,7 +82,7 @@ module Azu
       default.update(topic, key, ref, meta)
     end
 
-    def self.subscribe(topic : String, &handler : Diff ->) : PubSub::Subscription
+    def self.subscribe(topic : String, &handler : Diff ->) : Subscription
       default.subscribe(topic, &handler)
     end
   end
