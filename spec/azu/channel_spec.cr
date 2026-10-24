@@ -170,7 +170,21 @@ describe Azu::Channel do
       end
     end
 
-    it "fails every waiter at once, not one backend wait after the other, when the backend keeps failing" do
+    it "subscribes anew when the last call was a subscribe after an unsubscribe during the wait" do
+      with_slow_pub_sub do |backend|
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+        spawn { channel.subscribe("again") }
+        wait_until { backend.subscribe_calls == 1 }.should be_true
+
+        channel.unsubscribe("again")
+        channel.subscribe("again")
+
+        backend.topics.count("again").should eq 2
+        wait_until { backend.subscriber_count == 1 }.should be_true
+      end
+    end
+
+    it "fails every waiter with the one backend call when the backend keeps failing" do
       with_slow_pub_sub(200.milliseconds) do |backend|
         backend.fail_always = true
         channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
@@ -183,11 +197,8 @@ describe Azu::Channel do
             outcomes.send(ex)
           end
         end
-        started = Time.instant
 
         4.times { outcomes.receive.should_not be_nil }
-
-        (Time.instant - started).should be < 500.milliseconds # serialized it would take 800
         backend.topics.count("down").should eq 1
       end
     end

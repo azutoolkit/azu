@@ -183,13 +183,15 @@ module Azu
       reservation.fail(ex)
       raise ex
     ensure
-      @subscriptions_mutex.synchronize { @subscribing.delete(topic) }
+      @subscriptions_mutex.synchronize { @subscribing.delete(topic) if @subscribing[topic]?.same?(reservation) }
       reservation.finish
     end
 
     def unsubscribe(topic : String) : Nil
       subscription = @subscriptions_mutex.synchronize do
-        @subscribing[topic]?.try(&.cancel) # the subscribe in flight must not store itself
+        # The subscribe in flight must not store itself, and a later subscribe must start a reservation of its own
+        # rather than wait for (and follow) this cancelled one.
+        @subscribing.delete(topic).try(&.cancel)
         @subscriptions.delete(topic)
       end
       subscription.try(&.cancel)

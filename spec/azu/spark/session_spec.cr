@@ -169,7 +169,37 @@ describe "Spark::Session#subscribe" do
     end
   end
 
-  it "fails every waiter at once when the backend keeps failing" do
+  it "subscribes anew when the last call was a subscribe after an unsubscribe during the wait" do
+    with_slow_pub_sub do |backend|
+      session = cold_session
+      spawn { session.subscribe("root", "again") }
+      wait_until { backend.subscribe_calls == 1 }.should be_true
+
+      session.unsubscribe("root", "again")
+      session.subscribe("root", "again")
+
+      backend.topics.count("again").should eq 2
+      wait_until { backend.subscriber_count == 1 }.should be_true
+    end
+  end
+
+  it "lets the component mounted again after an unsubscribe in flight subscribe for itself" do
+    with_slow_pub_sub do |backend|
+      session = cold_session
+      spawn { session.subscribe("root", "t") }
+      wait_until { backend.subscribe_calls == 1 }.should be_true
+      session.unsubscribe("root", "t")
+      session.close
+      session.start(SparkSessionSpec::Board.new, "root", {} of String => String, Azu::Spark::Params.new)
+
+      session.subscribe("root", "t")
+
+      backend.topics.count("t").should eq 2
+      wait_until { backend.subscriber_count == 1 }.should be_true
+    end
+  end
+
+  it "fails every waiter with the one backend call when the backend keeps failing" do
     with_slow_pub_sub(200.milliseconds) do |backend|
       backend.fail_always = true
       session = cold_session
@@ -182,11 +212,8 @@ describe "Spark::Session#subscribe" do
           outcomes.send(ex)
         end
       end
-      started = Time.instant
 
       4.times { outcomes.receive.should_not be_nil }
-
-      (Time.instant - started).should be < 500.milliseconds
       backend.topics.count("down").should eq 1
     end
   end

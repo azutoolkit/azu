@@ -37,6 +37,8 @@ module Azu
       def initialize(@connection : ConnectionInfo, @connected : Bool = true,
                      @config : Configuration = Spark.config, &@sink : Info ->)
         @registry = Registry.new(@connection.id, @config.max_components)
+        # In-flight subscribes. Like the rest of the session this assumes one driver fiber on one thread: there is no
+        # lock and no memory barrier here (under -Dpreview_mt it would need one).
         @subscribing = {} of {String, String} => PubSub::Reservation
         @dirty = {} of String => Entry
         @pushes = [] of Update::Push
@@ -181,7 +183,7 @@ module Azu
             reservation.fail(ex)
             raise ex
           ensure
-            @subscribing.delete(key)
+            @subscribing.delete(key) if @subscribing[key]?.same?(reservation)
             reservation.finish
           end
           return
@@ -190,7 +192,8 @@ module Azu
 
       # :nodoc:
       def unsubscribe(id : String, topic : String) : Nil
-        @subscribing[{id, topic}]?.try(&.cancel) # the subscribe in flight must not store itself
+        # The subscribe in flight must not store itself, and a later subscribe must start a reservation of its own.
+        @subscribing.delete({id, topic}).try(&.cancel)
         @registry[id]?.try(&.subscriptions.delete(topic)).try(&.cancel)
       end
 
