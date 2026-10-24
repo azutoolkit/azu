@@ -199,6 +199,48 @@ describe "Spark::Session#subscribe" do
     end
   end
 
+  it "ends unsubscribed when a second unsubscribe cancels the subscribe that replaced the first" do
+    with_slow_pub_sub do |backend|
+      session = cold_session
+      finished = ::Channel(Nil).new(2)
+      spawn { session.subscribe("root", "twice"); finished.send(nil) }
+      wait_until { backend.subscribe_calls == 1 }.should be_true
+      session.unsubscribe("root", "twice")
+      spawn { session.subscribe("root", "twice"); finished.send(nil) }
+      wait_until { backend.subscribe_calls == 2 }.should be_true
+
+      session.unsubscribe("root", "twice")
+
+      2.times { finished.receive }
+      wait_until { backend.confirmed_at && backend.subscriber_count == 0 }.should be_true
+    end
+  end
+
+  it "leaves the reservation of a newer subscribe alone when the old owner fails after being replaced" do
+    with_slow_pub_sub do |backend|
+      backend.fail_first = true
+      backend.delays = [50.milliseconds, 600.milliseconds]
+      session = cold_session
+      old_owner = ::Channel(Exception?).new(1)
+      spawn do
+        session.subscribe("root", "swap")
+        old_owner.send(nil)
+      rescue ex
+        old_owner.send(ex)
+      end
+      wait_until { backend.subscribe_calls == 1 }.should be_true
+      session.unsubscribe("root", "swap")
+      spawn { session.subscribe("root", "swap") }
+      wait_until { backend.subscribe_calls == 2 }.should be_true
+      old_owner.receive.should_not be_nil
+
+      session.subscribe("root", "swap")
+
+      backend.topics.count("swap").should eq 2
+      backend.subscriber_count.should eq 1
+    end
+  end
+
   it "fails every waiter with the one backend call when the backend keeps failing" do
     with_slow_pub_sub(200.milliseconds) do |backend|
       backend.fail_always = true

@@ -184,6 +184,48 @@ describe Azu::Channel do
       end
     end
 
+    it "ends unsubscribed when a second unsubscribe cancels the subscribe that replaced the first" do
+      with_slow_pub_sub do |backend|
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+        finished = ::Channel(Nil).new(2)
+        spawn { channel.subscribe("twice"); finished.send(nil) }
+        wait_until { backend.subscribe_calls == 1 }.should be_true
+        channel.unsubscribe("twice")
+        spawn { channel.subscribe("twice"); finished.send(nil) }
+        wait_until { backend.subscribe_calls == 2 }.should be_true
+
+        channel.unsubscribe("twice")
+
+        2.times { finished.receive }
+        wait_until { backend.confirmed_at && backend.subscriber_count == 0 }.should be_true
+      end
+    end
+
+    it "leaves the reservation of a newer subscribe alone when the old owner fails after being replaced" do
+      with_slow_pub_sub do |backend|
+        backend.fail_first = true
+        backend.delays = [50.milliseconds, 600.milliseconds]
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+        old_owner = ::Channel(Exception?).new(1)
+        spawn do
+          channel.subscribe("swap")
+          old_owner.send(nil)
+        rescue ex
+          old_owner.send(ex)
+        end
+        wait_until { backend.subscribe_calls == 1 }.should be_true
+        channel.unsubscribe("swap")
+        spawn { channel.subscribe("swap") }
+        wait_until { backend.subscribe_calls == 2 }.should be_true
+        old_owner.receive.should_not be_nil # the old owner failed; the newer subscribe is still in flight
+
+        channel.subscribe("swap") # must wait for the newer one, not start a third backend call
+
+        backend.topics.count("swap").should eq 2
+        backend.subscriber_count.should eq 1
+      end
+    end
+
     it "fails every waiter with the one backend call when the backend keeps failing" do
       with_slow_pub_sub(200.milliseconds) do |backend|
         backend.fail_always = true

@@ -8,6 +8,8 @@ class SlowPubSub < Azu::PubSub::Memory
   property? fail_first = false
   property? fail_always = false
   property on_subscribe : Proc(Nil)? = nil
+  # Waits for the calls in order, then falls back to the default delay.
+  property delays = [] of Time::Span
 
   def initialize(@delay : Time::Span = 150.milliseconds)
     super()
@@ -18,7 +20,7 @@ class SlowPubSub < Azu::PubSub::Memory
     @topics << topic
     first = @subscribe_calls == 1
     on_subscribe.try(&.call)
-    sleep @delay
+    sleep(delays.shift? || @delay)
     raise "the backend failed" if fail_always? || (first && fail_first?)
     super(topic, &handler).tap { @confirmed_at = Time.instant }
   end
