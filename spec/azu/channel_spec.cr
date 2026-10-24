@@ -94,7 +94,7 @@ describe Azu::Channel do
       end
     end
 
-    it "lets a second caller subscribe again when the first one's subscribe failed" do
+    it "makes a second caller fail with the first one's error, and lets a later call try anew" do
       with_slow_pub_sub do |backend|
         backend.fail_first = true
         channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
@@ -107,9 +107,11 @@ describe Azu::Channel do
         end
         wait_until { backend.subscribe_calls == 1 }.should be_true
 
-        channel.subscribe("flaky") # waits for the failed first, then subscribes itself
+        expect_raises(Exception, "the backend failed") { channel.subscribe("flaky") }
 
         failure.receive.should_not be_nil
+        backend.topics.count("flaky").should eq 1
+        channel.subscribe("flaky")
         backend.topics.count("flaky").should eq 2
         backend.subscriber_count.should eq 1
       end
@@ -128,15 +130,15 @@ describe Azu::Channel do
     end
 
     it "does not hold its lock while the backend waits, so unsubscribe is not stalled" do
-      with_slow_pub_sub do |backend|
+      with_slow_pub_sub(500.milliseconds) do |backend|
         channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
         spawn { channel.subscribe("slow") }
         wait_until { backend.subscribe_calls == 1 }.should be_true
         unsubscribed = false
         spawn { channel.unsubscribe("other"); unsubscribed = true }
 
-        wait_until(100.milliseconds) { unsubscribed }.should be_true
-        backend.confirmed_at.should be_nil # the slow subscribe was still waiting
+        wait_until(100.milliseconds) { unsubscribed }.should be_true # long before the 500 ms wait ends
+        backend.confirmed_at.should be_nil                           # the slow subscribe was still waiting
       end
     end
 
@@ -149,6 +151,128 @@ describe Azu::Channel do
         channel.unsubscribe("gone")
 
         wait_until { backend.confirmed_at && backend.subscriber_count == 0 }.should be_true
+      end
+    end
+
+    it "ends unsubscribed when subscribe, subscribe, unsubscribe happen during one wait" do
+      with_slow_pub_sub do |backend|
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+        finished = ::Channel(Nil).new(2)
+        2.times { spawn { channel.subscribe("order"); finished.send(nil) } }
+        wait_until { backend.subscribe_calls == 1 }.should be_true
+        Fiber.yield
+
+        channel.unsubscribe("order")
+
+        2.times { finished.receive }
+        backend.topics.count("order").should eq 1
+        backend.subscriber_count.should eq 0
+      end
+    end
+
+    it "subscribes anew when the last call was a subscribe after an unsubscribe during the wait" do
+      with_slow_pub_sub do |backend|
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+        spawn { channel.subscribe("again") }
+        wait_until { backend.subscribe_calls == 1 }.should be_true
+
+        channel.unsubscribe("again")
+        channel.subscribe("again")
+
+        backend.topics.count("again").should eq 2
+        wait_until { backend.subscriber_count == 1 }.should be_true
+      end
+    end
+
+    it "ends unsubscribed when a second unsubscribe cancels the subscribe that replaced the first" do
+      with_slow_pub_sub do |backend|
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+        finished = ::Channel(Nil).new(2)
+        spawn { channel.subscribe("twice"); finished.send(nil) }
+        wait_until { backend.subscribe_calls == 1 }.should be_true
+        channel.unsubscribe("twice")
+        spawn { channel.subscribe("twice"); finished.send(nil) }
+        wait_until { backend.subscribe_calls == 2 }.should be_true
+
+        channel.unsubscribe("twice")
+
+        2.times { finished.receive }
+        wait_until { backend.confirmed_at && backend.subscriber_count == 0 }.should be_true
+      end
+    end
+
+    it "leaves the reservation of a newer subscribe alone when the old owner fails after being replaced" do
+      with_slow_pub_sub do |backend|
+        backend.fail_first = true
+        backend.delays = [50.milliseconds, 600.milliseconds]
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+        old_owner = ::Channel(Exception?).new(1)
+        spawn do
+          channel.subscribe("swap")
+          old_owner.send(nil)
+        rescue ex
+          old_owner.send(ex)
+        end
+        wait_until { backend.subscribe_calls == 1 }.should be_true
+        channel.unsubscribe("swap")
+        spawn { channel.subscribe("swap") }
+        wait_until { backend.subscribe_calls == 2 }.should be_true
+        old_owner.receive.should_not be_nil # the old owner failed; the newer subscribe is still in flight
+
+        channel.subscribe("swap") # must wait for the newer one, not start a third backend call
+
+        backend.topics.count("swap").should eq 2
+        backend.subscriber_count.should eq 1
+      end
+    end
+
+    it "fails every waiter with the one backend call when the backend keeps failing" do
+      with_slow_pub_sub(200.milliseconds) do |backend|
+        backend.fail_always = true
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+        outcomes = ::Channel(Exception?).new(4)
+        4.times do
+          spawn do
+            channel.subscribe("down")
+            outcomes.send(nil)
+          rescue ex
+            outcomes.send(ex)
+          end
+        end
+
+        4.times { outcomes.receive.should_not be_nil }
+        backend.topics.count("down").should eq 1
+      end
+    end
+
+    it "does not subscribe a waiter that was woken by teardown" do
+      with_slow_pub_sub do |backend|
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+        finished = ::Channel(Nil).new(2)
+        2.times { spawn { channel.subscribe("bye"); finished.send(nil) } }
+        wait_until { backend.subscribe_calls == 1 }.should be_true
+        Fiber.yield
+
+        channel.teardown
+
+        2.times { finished.receive }
+        backend.topics.count("bye").should eq 1
+        backend.subscriber_count.should eq 0
+      end
+    end
+
+    it "does not hang when the backend subscribes again from the subscribing fiber" do
+      with_slow_pub_sub do |backend|
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+        backend.on_subscribe = -> { channel.subscribe("again"); nil }
+        finished = ::Channel(Nil).new(1)
+        spawn { channel.subscribe("again"); finished.send(nil) }
+
+        select
+        when finished.receive
+        when timeout(2.seconds)
+          fail "a re-entrant subscribe waited for itself"
+        end
       end
     end
 
