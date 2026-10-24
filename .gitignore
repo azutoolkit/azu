@@ -15,3 +15,7 @@ playground/bin/
 
 # SQLite file the CQL demo recreates on every start
 /playground/azu_cql_demo.db
+
+# Spark benchmark: the built server binary and the result files
+/benchmark/spark/bin/
+/benchmark/spark/results/

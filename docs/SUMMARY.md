@@ -129,6 +129,7 @@
 ### Real-Time
 
 - [Spark Client and Reconnects](reference/spark-client.md)
+- [Spark Benchmarks](reference/spark-benchmarks.md)
 
 ### Database
 

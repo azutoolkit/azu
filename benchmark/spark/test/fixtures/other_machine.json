@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "tool": "azu-spark-bench",
+  "suite": "client",
+  "mode": "short",
+  "created": "2026-10-24T00:00:00Z",
+  "env": {
+    "cpu": "Other CPU",
+    "cores": 2,
+    "node": "v20.0.0",
+    "load_before": [
+      5.5,
+      4,
+      3
+    ],
+    "git": "aaaaaaa",
+    "git_dirty": false
+  },
+  "metrics": [
+    {
+      "id": "client.patch.reorder1000.current",
+      "unit": "ms",
+      "better": "lower",
+      "median": 10,
+      "p95": 13,
+      "cv": 0.05,
+      "n": 30
+    },
+    {
+      "id": "client.patch.update1000.current",
+      "unit": "ms",
+      "better": "lower",
+      "median": 2,
+      "p95": 2.6,
+      "cv": 0.05,
+      "n": 30
+    },
+    {
+      "id": "server.events_per_s.n1",
+      "unit": "events/s",
+      "better": "higher",
+      "median": 10000,
+      "p95": 10000,
+      "cv": 0.04,
+      "n": 10
+    },
+    {
+      "id": "client.patch.bigtext.current",
+      "unit": "ms",
+      "better": "lower",
+      "median": 4,
+      "p95": 5.2,
+      "cv": 0.05,
+      "n": 30
+    }
+  ]
+}
