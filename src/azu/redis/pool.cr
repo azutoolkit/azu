@@ -52,16 +52,22 @@ module Azu
         end
       end
 
-      # Closes every idle connection. After a connection failure the others are most likely dead too (the server
-      # restarted), and the next attempt should open a fresh one rather than take the next dead one.
-      def drop_idle : Nil
-        loop do
+      # Closes the idle connections that have been idle since *before* the given instant. After a connection
+      # failure the others are most likely dead too (the server restarted), and the next attempt should open a
+      # fresh one rather than take the next dead one. Pass the instant the failed attempt started: a connection
+      # another fiber checked in since is newer and healthy, and stays.
+      def drop_idle(before : Time::Instant = Clock.instant) : Nil
+        @capacity.times do
           select
           when idle = @idle.receive?
             return unless idle
-            @mutex.synchronize { @discarded += 1 }
-            destroy(idle.connection)
-            release_permit
+            if idle.since <= before
+              @mutex.synchronize { @discarded += 1 }
+              destroy(idle.connection)
+              release_permit
+            else
+              keep_idle(idle)
+            end
           else
             return
           end
@@ -80,11 +86,8 @@ module Azu
       end
 
       def checkin(connection : T) : Nil
-        closed = @mutex.synchronize do
-          @in_use -= 1
-          @closed.tap { |shut| @idle.send(Idle(T).new(connection, Clock.instant)) unless shut }
-        end
-        destroy(connection) if closed
+        @mutex.synchronize { @in_use -= 1 }
+        keep_idle(Idle(T).new(connection, Clock.instant))
       end
 
       # Closes *connection* and frees its permit so another one can be opened.
@@ -198,6 +201,12 @@ module Azu
       private def destroy(connection : T) : Nil
         @mutex.synchronize { @open -= 1 }
         quietly { connection.close }
+      end
+
+      # Puts *idle* back, or closes it when the pool closed in the meantime.
+      private def keep_idle(idle : Idle(T)) : Nil
+        closed = @mutex.synchronize { @closed.tap { |shut| @idle.send(idle) unless shut } }
+        destroy(idle.connection) if closed
       end
 
       private def release_permit : Nil

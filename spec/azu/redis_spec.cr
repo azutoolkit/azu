@@ -398,6 +398,40 @@ describe Azu::Redis::Pool do
   end
 end
 
+describe Azu::Redis::Pool do
+  it "keeps a connection that was checked in after the failed attempt started" do
+    with_fake_clock do |clock|
+      created = [] of FakeConnection
+      pool = fake_pool(3, created: created)
+      old = [pool.checkout, pool.checkout]
+      fresh = pool.checkout
+      old.each { |connection| pool.checkin(connection) }
+      clock.advance(1.second)
+      attempt_started = clock.instant
+      clock.advance(1.second)
+      pool.checkin(fresh)
+
+      pool.drop_idle(attempt_started)
+
+      old.all?(&.closed?).should be_true
+      fresh.closed?.should be_false
+      pool.checkout.should be fresh
+    end
+  end
+
+  it "closes a connection checked in after the pool closed" do
+    created = [] of FakeConnection
+    pool = fake_pool(1, created: created)
+    connection = pool.checkout
+    pool.close
+
+    pool.checkin(connection)
+
+    connection.closed?.should be_true
+    pool.stats.open.should eq 0
+  end
+end
+
 describe Azu::Redis do
   describe "after the server dropped every connection" do
     it "succeeds on one retry although several idle connections are dead" do
