@@ -474,3 +474,49 @@ describe("Trusted Types", () => {
     assert.equal(used, 0);
   });
 });
+
+describe("cost grows linearly with the siblings", () => {
+  /** Attribute reads the engine makes while it patches *n* unkeyed siblings: one changed, or (insert) one new at the front. */
+  function reads(n, insert) {
+    const rows = (changed, extra = "") => extra + Array.from({ length: n }, (_, i) => `<p>${i === n >> 1 ? changed : "row"}</p>`).join("");
+    page.innerHTML = rows("a");
+    const proto = window.Element.prototype;
+    const original = { get: proto.getAttribute, has: proto.hasAttribute };
+    let count = 0;
+    proto.getAttribute = function (name) { count++; return original.get.call(this, name); };
+    proto.hasAttribute = function (name) { count++; return original.has.call(this, name); };
+    try { patch(rows("b", insert ? "<p>new</p>" : "")); } finally { Object.assign(proto, { getAttribute: original.get, hasAttribute: original.has }); }
+    assert.equal(page.children.length, n + (insert ? 1 : 0));
+    return count;
+  }
+
+  it("reads a bounded number of attributes per unkeyed sibling, not one pass over the rest per sibling", () => {
+    const small = reads(100);
+    const large = reads(400);
+    assert.ok(large <= small * 5, `4x the siblings made ${large} reads against ${small}: quadratic`);
+    assert.ok(large <= 400 * 40, `${large} attribute reads for 400 siblings`);
+  });
+
+  it("stays linear when a sibling is inserted and every other one has to be matched by its kind", () => {
+    const small = reads(100, true);
+    const large = reads(400, true);
+    assert.ok(large <= small * 5, `4x the siblings made ${large} reads against ${small}: quadratic`);
+    assert.ok(large <= 400 * 40, `${large} attribute reads for 400 siblings`);
+  });
+
+  it("still resyncs after a dropped sibling and keeps the node identity of the others", () => {
+    page.innerHTML = "<p>a</p><i>x</i><p>b</p><p>c</p>";
+    const [a, , b, c] = [...page.childNodes];
+    patch("<p>a</p><p>b</p><p>c</p>");
+    assert.deepEqual([...page.childNodes], [a, b, c]);
+  });
+
+  it("treats an inserted unkeyed sibling as an insertion and keeps the following nodes", () => {
+    page.innerHTML = "<p>a</p><p>b</p>";
+    const [a, b] = [...page.childNodes];
+    patch("<p>a</p><i>new</i><p>b</p>");
+    assert.deepEqual([...page.childNodes].map((n) => n.nodeName), ["P", "I", "P"]);
+    assert.equal(page.childNodes[0], a);
+    assert.equal(page.childNodes[2], b);
+  });
+});

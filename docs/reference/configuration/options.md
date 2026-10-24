@@ -155,6 +155,14 @@ There is no `max_request_size` or `request_timeout` option; the size of uploaded
 | `websocket.allowed_origins` | `Array(String)` | `[]` (own origin only) | `WEBSOCKET_ALLOWED_ORIGINS` (comma separated, `"*"` allows all) |
 | `websocket.max_message_size` | `Int32` | 1 MB | `WEBSOCKET_MAX_MESSAGE_SIZE` |
 | `websocket.ping_interval` | `Time::Span?` | 30 seconds | `WEBSOCKET_PING_INTERVAL` (seconds, `0` disables) |
+| `websocket.tcp_nodelay` | `Bool` | `true` | `WEBSOCKET_TCP_NODELAY` (`false` keeps the operating system's default) |
+
+`websocket.tcp_nodelay` turns Nagle's algorithm off on the socket of an upgraded connection. A WebSocket reply
+is often several small writes (a Spark event is answered by a diff, then a reply), and with Nagle on the
+second waits for the peer's delayed ACK, about 40 ms per round trip on a Linux peer. Plain TCP sockets are set at
+the upgrade, whatever server hosts the channel; the TLS listener `Azu.start` builds sets every connection it
+accepts (the TCP socket under TLS is out of reach at the upgrade). Ordinary HTTP connections on a plain listener are
+not touched. A server you bind to TLS yourself can use `Azu.bind_tls(server, host, port, context, reuse_port, true)`.
 
 Spark live views have their own `spark` section (`SPARK_*` variables, `Azu::Spark.configure`), described in
 [Spark live views](../../explanation/spark-live-views.md).

@@ -284,6 +284,13 @@ module Azu
       seconds = ENV.fetch("WEBSOCKET_PING_INTERVAL", "30").to_i
       seconds > 0 ? seconds.seconds : nil
     end
+
+    # Turns Nagle's algorithm off on upgraded sockets (`TCP_NODELAY`). On by default: a Spark event is
+    # answered by two small writes, and with Nagle on the second waits for the peer's delayed ACK
+    # (about 40 ms per round trip on a Linux peer). Set `WEBSOCKET_TCP_NODELAY=false` to keep the
+    # operating system's default. Plain TCP sockets are set at the upgrade; a TLS listener started by
+    # `Azu.start` is built on `Azu::NoDelayTCPServer`, so every connection it accepts is set.
+    property? tcp_nodelay : Bool = ENV.fetch("WEBSOCKET_TCP_NODELAY", "true") != "false"
   end
 
   # Configuration for internationalization (i18n)

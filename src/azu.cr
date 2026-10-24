@@ -230,7 +230,7 @@ module Azu
       server = Azu::App.default.server(handlers)
 
       if config.tls?
-        server.bind_tls config.host, config.port, config.tls, config.port_reuse?
+        Azu.bind_tls server, config.host, config.port, config.tls, config.port_reuse?, config.websocket.tcp_nodelay?
       else
         server.bind_tcp config.host, config.port, config.port_reuse?
       end
