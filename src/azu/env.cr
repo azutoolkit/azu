@@ -25,10 +25,11 @@ module Azu
   # Errors name the variable (or file and line) and never print a value. One bad line fails the whole file (it sets
   # nothing), and a file larger than 1 MB is refused.
   #
-  # Trust: an application loads its own `.env`, but a variable that changes how processes are started
-  # (`LD_*`, `DYLD_*`, `PATH`, `SHELL`, `IFS`, `BASH_ENV`, `ENV`, `SHARDS_*`, `CRYSTAL_PATH`, `CRYSTAL_OPTS`,
-  # `CRYSTAL_LIBRARY_PATH`, `GIT_*`, `DOCKER_HOST`, `HOME`) is skipped with a warning naming it, so a copied file
-  # cannot hijack the process or the tools it spawns. Pass `unsafe: true` to load them anyway.
+  # Trust: an application loads its own `.env`, but a variable that changes how processes are started or how the
+  # toolchain, the resolver, TLS or proxies behave (`LD_*`, `DYLD_*`, `PATH`, `SHELL`, `HOME`, `CRYSTAL_*` except
+  # `CRYSTAL_ENV` and `CRYSTAL_LOG_*`, `GIT_*`, `SHARDS_*`, `DOCKER_*`, `CC`, `*FLAGS`, `*_PROXY`, `SSL_CERT_*`,
+  # `LANG`, `LC_*`, `TZ`, ...; see `UNSAFE_NAME`) is skipped with a warning naming it, so a copied file cannot hijack
+  # the process or the tools it spawns. Pass `unsafe: true` to load them anyway.
   module Env
     class Error < Exception
     end
@@ -69,8 +70,23 @@ module Azu
     SENSITIVE     = /SECRET|PASSWORD|PASSWD|TOKEN|PRIVATE|CREDENTIAL|KEY\z|(\A|_)KEY_|COOKIE|AUTH|DSN|SALT|SIGNING/i
     URL_SECRET    = %r{\A([a-z][a-z0-9+.\-]*://[^:/@\s]*):[^\s]*@}i
     MAX_FILE_SIZE = 1_048_576
-    # Names that change how processes start or where they look for code; `.env` files may not set them by default.
-    UNSAFE_NAME = /\A(?:LD_.*|DYLD_.*|SHARDS_.*|GIT_.*|PATH|SHELL|IFS|BASH_ENV|ENV|CRYSTAL_PATH|CRYSTAL_OPTS|CRYSTAL_LIBRARY_PATH|DOCKER_HOST|HOME)\z/i
+    # Names that change how processes start, where they look for code, libraries, certificates or proxies, or how the
+    # toolchain behaves; `.env` files may not set them by default. Matched case-insensitively. This is the same set as
+    # `AzuCLI::DotEnv::UNSAFE_NAME` in the azu CLI (minus the CLI's own `AZU_OUTPUT_PATH` / `AZU_TEMPLATES_PATH`), so the
+    # CLI and the app agree on what a file may set. `CRYSTAL_ENV` and `CRYSTAL_LOG_*` are the only `CRYSTAL_*` names allowed.
+    # BASH_FUNC_*%% (exported shell functions) is unreachable: the parser rejects a name with `%`.
+    UNSAFE_NAME = /\A(?:
+      LD_.*|DYLD_.*|SHARDS_.*|GIT_.*|CRYSTAL_(?!ENV\z|LOG_).*|DOCKER_.*|COMPOSE_.*|SSH_.*|PKG_CONFIG(?:_.*)?|PYTHON.*|PERL5.*|RUBY.*|XDG_.*
+      |PATH|SHELL|IFS|BASH_ENV|ENV|HOME|TMPDIR|SHELLOPTS|PS4|PROMPT_COMMAND|CDPATH|GLOBIGNORE
+      |CC|CXX|CPP|.*FLAGS|LDLIBS|LIBS|AR|AS|LD|COMPILER_PATH|GCC_EXEC_PREFIX|OBJC_INCLUDE_PATH|SDKROOT|DEVELOPER_DIR|CPATH|C_INCLUDE_PATH|CPLUS_INCLUDE_PATH|LIBRARY_PATH
+      |GLIBC_TUNABLES|GCONV_PATH|LOCPATH|NLSPATH|SSL_CERT_FILE|SSL_CERT_DIR
+      |HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|NO_PROXY|FTP_PROXY|EDITOR|VISUAL|PAGER|BROWSER|NODE_OPTIONS
+      |OPENSSL_CONF|OPENSSL_MODULES|CURL_CA_BUNDLE|REQUESTS_CA_BUNDLE|NODE_EXTRA_CA_CERTS|CURL_HOME|WGETRC|HOSTALIASES|LOCALDOMAIN|RES_OPTIONS
+      |PERLLIB|PERLIO|RUBYOPT|LUA_PATH|LUA_CPATH|JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|CLASSPATH|GEM_HOME|GEM_PATH
+      |BUNDLE_.*|NPM_CONFIG_.*|HOMEBREW_.*|GOPROXY|GOFLAGS|CARGO_.*|RUSTC_WRAPPER|MAKEFLAGS
+      |TERMINFO|TERMINFO_DIRS|TERMCAP|MANPATH|LANG|LANGUAGE|LC_.*|LOCALE_ARCHIVE|TZ|TZDIR|MALLOC_.*|ARGV0|_
+      |USER|LOGNAME|PWD|OLDPWD|USERPROFILE
+    )\z/ix
     TRUE_WORDS  = %w[1 true yes on t y]
     FALSE_WORDS = %w[0 false no off f n]
 
