@@ -5,7 +5,7 @@ CQL (Crystal Query Language) is the ORM used with Azu for database operations. I
 `shard.yml`. Azu core does not depend on it; the optional bridge `require "azu/cql"` connects CQL to the dev dashboard
 (see [Database dashboard](../database-dashboard.md)).
 
-This page lists the API as it exists in the CQL release Azu is tested against (0.0.536). For task-oriented guides see
+This page lists the API as it exists in the CQL release Azu is tested against (0.0.536; the bridge specs also pass on 0.0.604, which adds `CQL.build_schema`, `CQL.build_migrator` and SQLite defaults). For task-oriented guides see
 [Define Schema](../../how-to/database/define-schema.md), [Create Models](../../how-to/database/create-models.md),
 [Query Data](../../how-to/database/query-data.md), [Handle Transactions](../../how-to/database/handle-transactions.md)
 and [Run Migrations](../../how-to/database/run-migrations.md).

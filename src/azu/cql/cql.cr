@@ -117,17 +117,20 @@ module Azu
 
     # The URL handed to CQL: `base` unchanged, plus the crystal-db pool parameters it does not
     # already set (`initial_pool_size=0` when lazy; the pool size, idle size and checkout
-    # timeout of `config.pool` when `pool` is true). Parameters already on the URL always win and
-    # nothing before the `?` is touched. Deliberately not `config.full_db_url`, which drops the
-    # query string of `c.db` and injects SSL and authentication settings.
+    # timeout of `config.pool`, and for SQLite its `config.sqlite` pragmas (journal_mode, foreign_keys,
+    # busy_timeout, ...), when `pool` is true). Parameters already on the URL always win and nothing
+    # before the `?` is touched. Deliberately not `config.full_db_url`, which also injects SSL,
+    # authentication and retry settings.
     def self.connection_url(base : String, config : ::CQL::Configure::Config = ::CQL.config, lazy : Bool = true, pool : Bool = false) : String
-      location, _, query = base.partition('?')
+      without_fragment, hash, fragment = base.partition('#')
+      location, _, query = without_fragment.partition('?')
       params = HTTP::Params.parse(query)
       wanted = {} of String => String
       if pool
         wanted["max_pool_size"] = config.pool.size.to_s
         wanted["max_idle_pool_size"] = config.pool.max_idle_size.to_s
         wanted["checkout_timeout"] = config.pool.checkout_timeout.total_seconds.to_s
+        sqlite_pragmas(base, config).each { |key, value| wanted[key] = value }
       end
       if lazy
         wanted["initial_pool_size"] = "0"
@@ -137,7 +140,18 @@ module Azu
       wanted.reject! { |key, _| params.has_key?(key) }
       return base if wanted.empty?
       wanted.each { |key, value| params[key] = value }
-      "#{location}?#{params}"
+      "#{location}?#{params}#{hash}#{fragment}"
+    end
+
+    # CQL's SQLite defaults (WAL, foreign keys on, a busy timeout) as URL parameters. crystal-sqlite3
+    # applies them on every pooled connection; without them a bare `sqlite3://` URL runs with foreign
+    # keys off and no busy timeout.
+    private def self.sqlite_pragmas(url : String, config : ::CQL::Configure::Config) : Hash(String, String)
+      params = HTTP::Params.new
+      config.sqlite.apply_to_params(params) if url.starts_with?("sqlite3:")
+      pragmas = {} of String => String
+      params.each { |key, value| pragmas[key] = value }
+      pragmas
     end
 
     # {URL, whether it came from CQL.config}
