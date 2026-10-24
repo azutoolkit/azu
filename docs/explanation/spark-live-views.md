@@ -89,6 +89,17 @@ the bindings, patches the DOM with the HTML the server sends, heartbeats, and re
 backoff and the last signed state snapshot, so the page continues where it was. See
 [Spark client and reconnects](../reference/spark-client.md).
 
+### Background tabs and accessibility
+
+A tab that stays hidden for five minutes closes its socket cleanly and rejoins from its last state
+snapshot when it is shown again, so idle tabs do not hold server resources and nothing is lost: the
+events that were unanswered are sent again in order (`data-spark-hidden-idle` changes the window,
+`0` disables it). Connection trouble (reconnecting, offline, an event that was dropped) is announced
+through one polite live region that never takes focus, and a component root is marked
+`aria-busy` while one of its events is in flight. `Spark.on(...)` and `Spark.stats()` expose the
+connection state, round trips, patch timings and delivery counters, redacted when traced. The
+[client reference](../reference/spark-client.md#hidden-tabs) has the details and the CSS.
+
 ### Event delivery
 
 A click or an edit is sent as an *event*, and the connection can break at any moment. Spark numbers

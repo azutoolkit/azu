@@ -11,10 +11,10 @@ before(async () => { spark = await loadSpark(); });
 const TABLE = [
   ["idle", "connect", "connecting", 0], ["idle", "pageshow", "connecting", 0], ["idle", "stop", "stopped", 2],
   ["connecting", "hello", "joining", 2], ["connecting", "closed", "backoff", 3], ["connecting", "dead", "backoff", 3],
-  ["connecting", "offline", "offline", 2], ["connecting", "stop", "closing", 2], ["connecting", "pagehide", "closing", 2],
+  ["connecting", "offline", "offline", 2], ["connecting", "stop", "closing", 2], ["connecting", "pagehide", "closing", 2], ["connecting", "hide_idle", "closing", 2],
   ["joining", "joins_settled", "open", 2], ["joining", "stable", "joining", 0], ["joining", "closed", "backoff", 3],
   ["joining", "dead", "backoff", 3], ["joining", "offline", "offline", 2], ["joining", "stop", "closing", 2],
-  ["joining", "pagehide", "closing", 2], ["joining", "visible", "joining", 2], ["joining", "online", "joining", 2],
+  ["joining", "pagehide", "closing", 2], ["joining", "hide_idle", "closing", 2], ["joining", "visible", "joining", 2], ["joining", "online", "joining", 2],
   ["open", "joins_pending", "joining", 2], ["open", "stable", "open", 0], ["open", "visible", "open", 2], ["open", "online", "open", 2],
   ["open", "hide_idle", "closing", 2], ["open", "closed", "backoff", 3], ["open", "dead", "backoff", 3],
   ["open", "offline", "offline", 2], ["open", "stop", "closing", 2], ["open", "pagehide", "closing", 2],
@@ -22,8 +22,9 @@ const TABLE = [
   ["backoff", "online", "backoff", 2], ["backoff", "offline", "offline", 2], ["backoff", "hide_idle", "hidden-idle", 2],
   ["backoff", "stop", "stopped", 2], ["backoff", "pagehide", "idle", 2],
   ["offline", "online", "backoff", 2], ["offline", "connect", "connecting", 2], ["offline", "visible", "connecting", 2],
-  ["offline", "stop", "stopped", 2], ["offline", "pagehide", "idle", 2],
-  ["hidden-idle", "visible", "connecting", 0], ["hidden-idle", "connect", "connecting", 0],
+  ["offline", "stop", "stopped", 2], ["offline", "pagehide", "idle", 2], ["offline", "hide_idle", "hidden-idle", 2],
+  // Back from an idle close the backoff goes on where it was: a server that is down keeps getting longer delays.
+  ["hidden-idle", "visible", "connecting", 2], ["hidden-idle", "connect", "connecting", 2], ["hidden-idle", "pageshow", "connecting", 2],
   ["hidden-idle", "stop", "stopped", 2], ["hidden-idle", "pagehide", "idle", 2],
   ["stopped", "connect", "connecting", 0],
 ];
@@ -36,6 +37,7 @@ const CLOSING = [
   ["stopped", "pageshow", "closing", "stopped"], ["connecting", "pageshow", "closing", "connecting"],
   ["idle", "closed", "idle"], ["idle", "stop", "closing", "stopped"], ["idle", "pagehide", "closing", "idle"], ["idle", "connect", "closing", "connecting"],
   ["hidden-idle", "closed", "hidden-idle"], ["hidden-idle", "pagehide", "closing", "idle"],
+  ["connecting", "hide_idle", "closing", "hidden-idle"], ["hidden-idle", "visible", "closing", "connecting"],
   ["connecting", "closed", "connecting"], ["connecting", "stop", "closing", "stopped"],
 ];
 

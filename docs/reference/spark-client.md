@@ -18,8 +18,10 @@ Azu::Spark.script_tag  # <script src="..." data-spark-path="/spark" defer></scri
 ```
 
 The tag has no inline code, so `script-src 'self'` is enough. The served script is minified: about
-24 KB, 8.7 KB gzipped (it includes the patch engine, the HTML sanitiser and the delivery layer, see
-the security model). A spec keeps it under 10 KB gzipped.
+28 KB, 10,217 bytes gzipped (it includes the patch engine, the HTML sanitiser, the delivery layer,
+the observability counters and the live region, see the security model). A spec keeps it under
+10,240 bytes (10 KB) gzipped. Options go on the tag as `data-spark-*` attributes (see
+[Hidden tabs](#hidden-tabs), [Accessibility](#accessibility)):
 
 ## How the client is built
 
@@ -57,7 +59,7 @@ one it left, so no timer outlives its state.
 | `closing` | we asked the socket to close (`disconnect()`, `pagehide`) and wait for it | `disconnected` | give up waiting after 3 s |
 | `backoff` | the connection was lost; waiting to try again | `disconnected` | the retry delay |
 | `offline` | the browser has no network; waiting for `online` | `disconnected` | none |
-| `hidden-idle` | closed on purpose while the tab is hidden (reserved: nothing enters it yet) | `disconnected` | none |
+| `hidden-idle` | closed on purpose (code 1000) after the tab was hidden for the idle window; the tab's return rejoins | `disconnected` | none |
 | `stopped` | stopped until `connect()`: `disconnect()`, or a token that can never join | `disconnected` | none |
 
 ```text
@@ -74,7 +76,9 @@ one it left, so no timer outlives its state.
                         offline
 
    any state with a socket --stop / pagehide--> closing --closed--> stopped / idle
-   stopped / idle / hidden-idle --connect / pageshow--> connecting
+   open / joining / connecting / backoff / offline --hidden for idleMs--> closing(1000) --closed--> hidden-idle
+   hidden-idle --visible / focus / pageshow / an event is made--> connecting (attempts kept)
+   stopped / idle --connect / pageshow--> connecting
    closing --pageshow (restored from the bfcache)--> connecting once the close finished
 ```
 
@@ -107,6 +111,35 @@ one it left, so no timer outlives its state.
   and a fresh join). An event that was already on the wire when the connection broke has an unknown
   fate: it is sent again with its number and the server applies it once (see
   [Events and delivery](#events-and-delivery)).
+
+## Hidden tabs
+
+A browser throttles the timers of a background tab (down to one run a minute), so its heartbeat
+cannot be relied on, and a tab nobody looks at still holds a socket, a mounted component tree and
+its subscriptions on the server. After the tab has been **hidden for 5 minutes** the client closes
+the socket cleanly (code `1000`, reason `hidden idle`) and enters `hidden-idle`. When the tab is
+visible again (`visibilitychange`, `pageshow` from the back/forward cache, or the window gaining
+focus; focus on an open connection just probes it like any return to a tab) it reconnects and rejoins every root from the latest stored snapshot, the same path as after
+a lost connection, so persisted state survives (see [Rehydration](#rehydration)).
+
+- **The window.** `data-spark-hidden-idle="<milliseconds>"` on the script tag changes it (default
+  `300000`); `0` turns the idle close off. `AzuSpark.configure({ hiddenIdle: ms })` does the same at
+  runtime for the next time the tab is hidden. The window restarts every time the tab hides; a tab
+  that is hidden when the page loads idles from then on.
+- **Healthy and hidden is left alone.** Inside the window nothing changes: the heartbeat and the
+  watchdog run as before (a late watchdog asks the server instead of dropping the connection), no
+  state changes and no event is emitted.
+- **No event is lost.** Events that were sent and not answered when the socket closed go back to the
+  front of the queue with their numbers, in order, and are resent after the rejoin; the server
+  applies each number once. An `at-most-once` event in flight is dropped with the reason
+  `disconnect`, as for any lost connection. An event made while the tab sits idle (a timer, a
+  `Spark.push`) wakes the connection and is delivered after the join.
+- **Backoff stays honest.** An idle close is not a failure and starts no backoff. A tab that idled
+  while backing off keeps its attempt counter, so a server that is down still gets longer delays;
+  one that idled from a healthy connection starts at attempt 0.
+- **Server.** A client close with `1000` is an ordinary disconnect: the connection ends without a
+  warning or error log, its components are unmounted and their subscriptions released, exactly as
+  for any other close. The idle close needs no server change.
 
 ## Events and delivery
 
@@ -254,6 +287,7 @@ with `stale_event` and dropped; that is the intended outcome, not a bug.
 
 <!-- skip -->
 ```javascript
+Spark.on("state", ({ from, to, reason, attempts }) => {}); // see Observability
 Spark.on("open", ({ attempts }) => {});            // connected and greeted
 Spark.on("close", ({ code, reason }) => {});       // 1012 = server restart, 4000 = heartbeat timeout
 Spark.on("reconnect", ({ delay, attempts }) => {}); // a reconnect is scheduled in `delay` ms
@@ -265,11 +299,112 @@ Spark.queued;     // events waiting to be sent
 Spark.unacked;    // events sent and not yet answered
 Spark.connect();  // start again after Spark.disconnect()
 Spark.disconnect();
+Spark.stats();    // a snapshot of counters, see Observability
+Spark.configure({ hiddenIdle: 60000, live: true, debug: false, text: { stale: "Veraltet" } });
 ```
 
 `Spark` is an alias of `AzuSpark`. The same occasions are dispatched as DOM events on `document`
 (`spark:open`, `spark:close`, `spark:reconnect`, `spark:error`, `spark:queued`, `spark:event_dropped`) and the page status
 is mirrored in `<html data-spark-status="...">`, which stylesheets can use.
+
+## Observability
+
+`Spark.on(name, fn)` subscribes to the events below (and to the ones above); `Spark.off` removes the
+handler. The same occasions are dispatched as `spark:<name>` DOM events (a `CustomEvent`, `detail`
+holds the object shown) on `document`. The first four are **telemetry**: they cost a few integer
+increments while nobody listens, because the detail object and the DOM event are only made for a
+name somebody subscribed to with `Spark.on` (a plain `addEventListener("spark:rtt", ...)` hears
+nothing unless some `Spark.on("rtt", ...)` or debug tracing is active).
+
+| Event | `detail` | When |
+| --- | --- | --- |
+| `state` | `{ from, to, reason, attempts }` | every change of the connection state (`idle`, `connecting`, `joining`, `open`, `closing`, `backoff`, `offline`, `hidden-idle`, `stopped`); `reason` names the machine event that caused it (`hello`, `closed`, `dead`, `hide_idle`, `visible`, ...) |
+| `reconnect` | `{ delay, attempts }` | a reconnect is scheduled in `delay` ms; `attempts` counts the failed attempts so far (always emitted, with `backoff`) |
+| `rtt` | `{ ms, p50 }` | a heartbeat was answered: its round trip and the median of the last 16 |
+| `timing` | `{ patches, ms }` | one animation frame applied `patches` patches in `ms` milliseconds |
+| `delivery` | `{ phase, event, eid }` | an event was `sent` for the first time, `resent` after a reconnect, `acked` (answered), or `dropped` |
+| `event_dropped` | `{ event, reason }` | an event will never be delivered (always emitted) |
+
+`Spark.stats()` returns a fresh snapshot object (cheap, no listener needed):
+
+<!-- skip -->
+```javascript
+Spark.stats();
+// {
+//   state: "open", attempts: 0,
+//   rtt: { last: 12.4, p50: 11.8 },           // null until a heartbeat was answered
+//   queue: { waiting: 0, unacked: 1 },        // waiting to be sent / sent and not answered
+//   bytes: { in: 18342, out: 2210 },          // characters of the text frames (close to bytes for ASCII)
+//   patches: { applied: 41 },
+//   delivery: { sent: 12, resent: 1, acked: 12, dropped: 0 },
+//   reconnects: 1                             // reconnects scheduled since the page loaded
+// }
+```
+
+**Debug tracing.** `localStorage.setItem("azu-spark:debug", "1")` (then reload) or
+`Spark.configure({ debug: true })` prints every event as `console.debug("[azu-spark]", name, detail)`
+and also turns the telemetry events on. The detail is **redacted**: numbers and booleans are shown,
+strings only for the keys `from`, `to`, `reason`, `code`, `event` and `phase` (states, reasons,
+error codes, event names); every other value (error messages, payloads, tokens, snapshots, HTML)
+shows as `"<string>"` or `"<object>"`. Events that the server pushes to a component carry the
+application's data and are never traced. Nothing is traced by default.
+
+## Accessibility
+
+**Live region.** Connection trouble is announced to assistive technology through one polite live
+region. It is created on the first announcement (`role="status"`, `aria-live="polite"`,
+`aria-atomic="true"`, class `azu-spark-live`) and appended to `<body>`; if the page already has an
+element with `data-spark-live-region`, that element is used instead and nothing is created, so
+there is never more than one. It never takes focus and does not move the caret. Messages:
+
+| Key | Said when | Default text |
+| --- | --- | --- |
+| `reconnecting` | the connection was lost and is still down after 1 s (a quick reconnect says nothing) | `Reconnecting...` |
+| `offline` | the browser went offline | `Offline. Live updates are paused.` |
+| `stale` | an event was dropped (`stale_event`, `rate_limited`, a full or expired queue, a connection that broke an `at-most-once` event) | `This page may be out of date.` |
+| `restored` | the connection is back after `reconnecting` or `offline` was said | `Back online.` |
+
+An idle close of a hidden tab says nothing, and neither does the return from it.
+
+**Words.** Defaults are English. Replace one with an attribute on the script tag, or a dictionary
+(the dictionary wins); an empty string silences that message, and `data-spark-live="off"` (or
+`Spark.configure({ live: false })`) turns the region off:
+
+```html
+<script src="/_spark/azu_spark.js?v=3f9c1d2a4b7e" data-spark-path="/spark" defer
+        data-spark-text-reconnecting="Verbindung verloren, neuer Versuch..."
+        data-spark-text-offline="Offline"
+        data-spark-text-restored=""></script>
+```
+
+<!-- skip -->
+```javascript
+Spark.configure({ text: { stale: "Diese Seite ist vielleicht veraltet." } });
+```
+
+**Visually hidden without an inline style.** The client hides its region by setting CSSOM
+properties (`element.style.position = "absolute"`, ...), which a `style-src` without
+`'unsafe-inline'` allows (a `style=""` attribute in markup would not be); it is verified in
+Chromium under `default-src 'none'`. If you would rather own the look, or supply your own region,
+this is all it needs:
+
+```css
+.azu-spark-live, [data-spark-live-region] {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
+}
+```
+
+**`aria-busy`.** While an event of a component root is in flight (from the user's action to the
+answer and the paint of its patches), the root gets `aria-busy="true"`, and loses it when the last
+such event is done. The attribute appears only if the event is still unanswered after 150 ms, so a
+quick round trip never makes it flicker (a root that already uses `aria-busy` yourself is
+overwritten). It is cleared too when the event is dropped, expires (10 s without an answer) or
+the client stops.
+
+**Motion.** The client has no animation or transition of its own: it never scrolls, animates or
+sets a transition, so there is nothing to switch off for `prefers-reduced-motion`. Loading states
+you add with `spark-optimistic-class` are your CSS; guard their transitions with
+`@media (prefers-reduced-motion: reduce)`.
 
 ## Patch semantics
 
@@ -454,6 +589,16 @@ selection, an open IME composition (driven through the DevTools `Input.imeSetCom
 scrolled list, and none of them may change. Scripted pages then check keyed moves with and without
 `moveBefore`, scripts with and without the opt-in, and patches under a Content-Security-Policy that
 enforces Trusted Types, with and without `azu-spark` in the `trusted-types` list.
+
+`spec/browser/spark_idle.cjs` (also run by `run.sh`) gives the example app's script tag a 1.5 s
+`data-spark-hidden-idle` and fakes a hidden tab by overriding `document.visibilityState` (headless
+Chromium has no hidden tabs): a short absence leaves the socket alone, a long one closes it with
+code 1000 and `hidden idle` (checked on what the client asked for: the browser reports the server's
+echo, which carries no status, as 1005), no socket is opened while it idles, and the return rejoins
+with the counter intact. An event made while idle wakes the connection and takes effect once. A
+scripted page under `default-src 'none'` checks `aria-busy` (absent for a 50 ms answer, present
+after 150 ms), that exactly one live region exists, is 1x1 px and absolute without a CSP violation,
+announces the lost and the restored connection, and that focus stays where it was.
 
 `spec/browser/spark_delivery.cjs` (also run by `run.sh`) checks event delivery on the example app through the
 same kind of proxy: 22 keystrokes typed faster than the server answers (it takes 120 ms per edit) become

@@ -1,4 +1,5 @@
 require "../../spec_helper"
+require "log/spec"
 require "../../support/spark_helpers"
 
 module SparkConnectionSpec
@@ -478,6 +479,38 @@ describe Azu::Spark::Connection do
         client.close
 
         wait_until { backend.subscriber_count == baseline }.should be_true
+      end
+    end
+
+    # The browser closes the socket of a tab that was hidden for minutes (code 1000, "hidden idle")
+    # and rejoins from the snapshot when the tab returns: for the server that is an ordinary
+    # disconnect, not an error.
+    it "treats a client's idle close (1000) as a normal disconnect: no warning, components released, rejoin from the snapshot" do
+      with_spark do |port|
+        backend = Azu::PubSub.backend.as(Azu::PubSub::Memory)
+        baseline = backend.subscriber_count
+        connections = Azu::Spark.connection_count
+        same_page = page
+        Log.capture("*", level: ::Log::Severity::Warn) do |logs|
+          client = SparkSpecClient.new(port, same_page)
+          client.join
+          client.await("reply")
+          client.event("increment", eid: 1_i64)
+          snapshot = client.await("diff")["snapshots"][client.root_id].as_s
+          backend.subscriber_count.should eq baseline + 1
+
+          client.close(HTTP::WebSocket::CloseCode::NormalClosure, "hidden idle")
+
+          wait_until { backend.subscriber_count == baseline && Azu::Spark.connection_count == connections }.should be_true
+          logs.empty
+
+          back = SparkSpecClient.new(port, same_page)
+          back.join(snapshot: snapshot)
+          back.await("reply")
+          back.event("increment", eid: 1_i64)
+          back.await("diff")["patches"][0]["html"].as_s.should contain "count=2"
+          back.close
+        end
       end
     end
   end

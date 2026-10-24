@@ -1,0 +1,156 @@
+// Accessibility: one polite live region for reconnecting/offline/stale, aria-busy while an event is in flight.
+import assert from "node:assert/strict";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import { FakeSocket, connected, loadSpark, tick, until } from "./helpers.mjs";
+
+let spark;
+const ROOT = `<div id="root" data-spark-root data-spark-id="r" data-spark-token="t">
+  <input id="a" name="a" spark-change="set"><button id="go" spark-click="go">go</button></div>`;
+const $ = (id) => document.getElementById(id);
+const click = (id) => $(id).dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+const regions = () => [...document.querySelectorAll("[aria-live]")];
+const said = () => (regions()[0] ? regions()[0].textContent : "");
+
+beforeEach(async () => {
+  spark = await loadSpark();
+  document.body.innerHTML = ROOT;
+  window.AzuSpark.configure({ live: true, text: {} });
+  await tick();
+});
+
+afterEach(async () => {
+  window.AzuSpark.disconnect();
+  await tick(5);
+  document.querySelectorAll("[aria-live]").forEach((el) => el.remove());
+  window.AzuSpark.configure({ live: true, text: {} });
+});
+
+describe("live region", () => {
+  it("does not exist until something is announced, and then there is exactly one", async () => {
+    const socket = await connected();
+    assert.equal(regions().length, 0);
+    socket.drop(); // reconnecting waits a second before it says anything
+    await until(() => said() === "Reconnecting...", "the announcement", 6000);
+    assert.equal(regions().length, 1);
+    const [region] = regions();
+    assert.equal(region.getAttribute("aria-live"), "polite");
+    assert.equal(region.getAttribute("role"), "status");
+    assert.equal(region.getAttribute("aria-atomic"), "true");
+    assert.ok(region.classList.contains("azu-spark-live"));
+    assert.equal(region.style.position, "absolute", "hidden visually through CSSOM, not markup");
+  });
+
+  it("a reconnect that is quick says nothing; one that was announced says it is back", async () => {
+    const first = await connected();
+    let before = FakeSocket.all.length;
+    first.drop();
+    const quick = await connected({ before });
+    assert.equal(regions().length, 0, "back before the delay: silence");
+    before = FakeSocket.all.length;
+    quick.drop();
+    await until(() => said() === "Reconnecting...", "the announcement", 6000);
+    await connected({ before });
+    await until(() => said() === "Back online.", "the all clear", 3000);
+    assert.equal(regions().length, 1);
+  });
+
+  it("announces offline", async () => {
+    await connected();
+    window.dispatchEvent(new window.Event("offline"));
+    await until(() => said() === "Offline. Live updates are paused.", "the announcement", 3000);
+  });
+
+  it("announces a stale event", async () => {
+    const socket = await connected();
+    click("go");
+    const frame = socket.events[0];
+    socket.receive({ type: "error", id: frame.id, code: "stale_event", message: "x" });
+    await until(() => said() === "This page may be out of date.", "the announcement", 3000);
+  });
+
+  it("takes its words from the dictionary, and an empty word is silence", async () => {
+    window.AzuSpark.configure({ text: { stale: "Veraltet", offline: "" } });
+    const socket = await connected();
+    click("go");
+    socket.receive({ type: "error", id: socket.events[0].id, code: "stale_event", message: "x" });
+    await until(() => said() === "Veraltet", "the announcement", 3000);
+    window.dispatchEvent(new window.Event("offline"));
+    await tick(400);
+    assert.equal(said(), "Veraltet", "an empty text announces nothing");
+  });
+
+  it("can be switched off", async () => {
+    window.AzuSpark.configure({ live: false });
+    const socket = await connected();
+    socket.drop();
+    await tick(1200);
+    assert.equal(regions().length, 0);
+  });
+
+  it("uses a region the page provides instead of making another", async () => {
+    document.body.insertAdjacentHTML("beforeend", '<p data-spark-live-region aria-live="polite" id="mine"></p>');
+    const socket = await connected();
+    socket.drop();
+    await until(() => $("mine").textContent === "Reconnecting...", "the announcement", 6000);
+    assert.equal(regions().length, 1);
+  });
+
+  it("never moves focus", async () => {
+    const socket = await connected();
+    $("a").focus();
+    socket.drop();
+    await until(() => regions().length === 1 && said() !== "", "the announcement", 6000);
+    assert.equal(document.activeElement, $("a"));
+  });
+});
+
+describe("aria-busy", () => {
+  const busy = () => $("root").getAttribute("aria-busy");
+
+  it("is not set for an answer that comes quickly, without flicker", async () => {
+    const socket = await connected();
+    spark.config.busyDelay = 1500; // far from the 30 ms of the answer, however slow the machine
+    const seen = [];
+    new window.MutationObserver((records) => records.forEach((r) => r.attributeName === "aria-busy" && seen.push(busy()))).observe($("root"), { attributes: true });
+    click("go");
+    await tick(30);
+    const frame = socket.events[0];
+    socket.receive({ type: "reply", id: frame.id, target: frame.target });
+    await tick(250);
+    assert.deepEqual(seen, [], "never touched");
+    assert.equal(busy(), null);
+    spark.config.busyDelay = 150;
+  });
+
+  it("is set on the root of an event still unanswered after the delay, and cleared with the answer", async () => {
+    const socket = await connected();
+    click("go");
+    assert.equal(busy(), null);
+    await until(() => busy() === "true", "aria-busy", 3000);
+    const frame = socket.events[0];
+    socket.receive({ type: "reply", id: frame.id, target: frame.target });
+    await tick(80);
+    assert.equal(busy(), null);
+  });
+
+  it("counts events: it stays until the last one is answered", async () => {
+    const socket = await connected();
+    click("go"); click("go");
+    await until(() => busy() === "true", "aria-busy", 3000);
+    socket.receive({ type: "reply", id: socket.events[0].id, target: "r" });
+    await tick(80);
+    assert.equal(busy(), "true");
+    socket.receive({ type: "reply", id: socket.events[1].id, target: "r" });
+    await tick(80);
+    assert.equal(busy(), null);
+  });
+
+  it("is cleared when the client stops and drops what it held", async () => {
+    await connected();
+    click("go");
+    await until(() => busy() === "true", "aria-busy", 3000);
+    window.AzuSpark.disconnect();
+    await tick(20);
+    assert.equal(busy(), null);
+  });
+});

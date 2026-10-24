@@ -60,8 +60,8 @@ class WsProbe
     @messages.closed?
   end
 
-  def close : Nil
-    @socket.close
+  def close(code : HTTP::WebSocket::CloseCode? = nil, reason : String? = nil) : Nil
+    @socket.close(code, reason)
   end
 end
 
@@ -106,7 +106,7 @@ class SparkSpecClient
     raise "no #{type} frame arrived"
   end
 
-  def close : Nil
-    @probe.close
+  def close(code : HTTP::WebSocket::CloseCode? = nil, reason : String? = nil) : Nil
+    @probe.close(code, reason)
   end
 end
