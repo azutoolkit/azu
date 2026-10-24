@@ -18,7 +18,7 @@ Azu::Spark.script_tag  # <script src="..." data-spark-path="/spark" defer></scri
 ```
 
 The tag has no inline code, so `script-src 'self'` is enough. The served script is minified: about
-12 KB, under 5 KB gzipped (it includes the DOM patcher and the HTML sanitiser, see the security
+21 KB, under 8 KB gzipped (it includes the patch engine and the HTML sanitiser, see the security
 model). A spec keeps it under 8 KB gzipped.
 
 ## How the client is built
@@ -128,6 +128,94 @@ Spark.disconnect();
 (`spark:open`, `spark:close`, `spark:reconnect`, `spark:error`, `spark:queued`) and the page status
 is mirrored in `<html data-spark-status="...">`, which stylesheets can use.
 
+## Patch semantics
+
+The server sends the new inner HTML of a component and the client edits the live DOM into it; it
+never assigns `innerHTML` to a live node. Patches that arrive within one frame are applied together
+in a single `requestAnimationFrame` (or after 50 ms in a hidden tab): everything that has to be
+read (focus, caret, scroll offsets) is read first, then all patches are written, then the state is
+restored. A `patch` event (`Spark.on("patch", ({ id }) => ...)`, `spark:patch` on the component)
+fires after each one.
+
+**Matching.** Children of a node are matched to the new children by key, then by position:
+
+| Key (first present wins) | Used for |
+| --- | --- |
+| `data-spark-id` | child components (never morphed by the parent: they patch themselves) |
+| `data-spark-key` | the items of a list; any element |
+| `id` | any element |
+
+A keyed node keeps its identity when it moves, so its focus, scroll offset, media playback and
+form state go with it. Nodes without a key match the next unkeyed node of the same type. Only
+the nodes outside the longest run that is already in order are moved (rotating a 1000 item list moves
+one node), a key that disappeared is removed, a new key is inserted, and where the browser has
+`moveBefore` it is used, so a moved node is not even detached. Keys match among siblings and must be
+unique there. Give list items a stable key:
+
+```crystal
+class Todos < Azu::Spark::Component
+  mountable
+
+  state items : Array(String) = [] of String
+
+  def render
+    ul do
+      items.each_with_index do |item, index|
+        li item, "data-spark-key": "item-#{index}"
+      end
+    end
+  end
+end
+```
+
+A child component that did not change is sent as an empty slot and keeps its live element, also
+when the parent now wraps it in a new element.
+
+**What a patch does not disturb.**
+
+| State | Rule |
+| --- | --- |
+| Focus, caret, selection | Kept. A control that had to be moved is focused again with its selection (contenteditable too). |
+| Scroll offsets | Of every element in the patched components, restored if a move reset them. |
+| Text inputs, textareas | The user's text wins while the control is focused or an IME is composing in it (no value is written, and the server's new value stays pending for the next patch). Otherwise the property follows the attribute only when the server *changed* the attribute: a half typed, unfocused value survives re-renders that do not mention it. To clear a field from the server, render a different `value`, or give the element another `data-spark-key`. |
+| `checked`, `selected` | Same rule: applied when the server's attribute changed. |
+| `<details>`, `<dialog>` | What the user opened or closed stays until the server's `open` changes. |
+| Media (`audio`, `video`) | The element is edited in place, so playback continues; only attributes that changed are written. |
+| Contenteditable | The content of a focused editable region is not patched. |
+| `spark-ignore` | A subtree with this attribute is never touched. |
+
+Boolean attributes (`disabled`, `hidden`, ...) are added and removed, and `data-*` attributes are
+synced like any other.
+
+**Scripts.** `script` elements in a patch are removed. A component inside an element with
+`data-spark-allow-scripts` keeps them: the client creates a fresh copy of each new script so
+it runs once (an unchanged script is not run again). That needs `'unsafe-inline'` or a nonce in the
+CSP and is refused under Trusted Types, so it is off by default and not recommended. Event handler
+attributes, `javascript:` URLs, `iframe`, `object` and the other blocked elements are removed always.
+
+## Content-Security-Policy and Trusted Types
+
+The client works under a strict policy with no inline script and no `eval`:
+
+```text
+Content-Security-Policy: script-src 'self'; require-trusted-types-for 'script'; trusted-types azu-spark
+```
+
+Parsing a patch is a Trusted Types sink. When `window.trustedTypes` exists, the client creates one
+policy named **`azu-spark`** and uses it for exactly one thing: turning the patch string into
+`TrustedHTML` for `DOMParser`, which builds an inert document. The nodes are sanitised (see the
+security model) before any of them reaches the page. The policy is not exposed, has only
+`createHTML` (no `createScript` or `createScriptURL`), and the client never registers a `default`
+policy. Your `trusted-types` list has to name `azu-spark`; without it the client falls back to
+plain strings, which the browser rejects when `require-trusted-types-for 'script'` is on. The patch
+is then not applied and a `spark:error` with the code `patch_failed` reports it. With `SecurityHeaders`:
+
+```crystal
+Azu::Handler::SecurityHeaders.new(
+  content_security_policy: "script-src 'self'; require-trusted-types-for 'script'; trusted-types azu-spark"
+)
+```
+
 ## Rehydration
 
 Components declare what must survive a reconnect with `persist: true`. Whenever persisted state
@@ -205,3 +293,10 @@ once, naming the cause, when the server does not propose a 1 s heartbeat: a comm
 app in a container has to forward that variable. It needs
 `npm i playwright` with a chromium and prints `SKIP` (exit 0) when they are missing; it is not part
 of `crystal spec`. `SPARK_SERVER_CMD`, `CHROMIUM_PATH` and `PLAYWRIGHT_MODULE` adapt it to other setups.
+
+`spec/browser/spark_patch.cjs` (run by the same `run.sh`) checks the patch engine in Chromium: with
+two tabs on the example app, a patch lands while the other tab has a half typed value, a caret
+selection, an open IME composition (driven through the DevTools `Input.imeSetComposition`) and a
+scrolled list, and none of them may change. Scripted pages then check keyed moves with and without
+`moveBefore`, scripts with and without the opt-in, and patches under a Content-Security-Policy that
+enforces Trusted Types, with and without `azu-spark` in the `trusted-types` list.

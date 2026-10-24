@@ -193,6 +193,35 @@ export declare function createMachine(deps: object, settings?: object): {
     timers: () => number;
 };
 /**
+ * Takes a diff frame: snapshots are kept at once, patches and pushed events wait for the next frame.
+ * @param {{ patches?: {id: string, html: string}[], snapshots?: Record<string, string>, events?: {target: string, name: string, payload: unknown}[] }} message
+ * @returns {void}
+ */
+export declare function applyDiff(message: {
+    patches?: {
+        id: string;
+        html: string;
+    }[];
+    snapshots?: Record<string, string>;
+    events?: {
+        target: string;
+        name: string;
+        payload: unknown;
+    }[];
+}): void;
+/**
+ * Queues a patch for the component *id*: its content becomes *html*.
+ * @param {string} id
+ * @param {string} html
+ * @returns {void}
+ */
+export declare function applyPatch(id: string, html: string): void;
+/**
+ * Runs the queued jobs: reads first, then every write, then restores focus, selection and scroll.
+ * @returns {void}
+ */
+export declare function flushPatches(): void;
+/**
  * Parses a patch into an inert fragment.
  * @param {string} html
  * @returns {DocumentFragment}
@@ -208,7 +237,8 @@ export declare function scriptUrl(value: unknown, name: string): boolean;
 /**
  * Removes blocked elements, event handler attributes and script URLs from *root*, in place.
  * @param {ParentNode} root
+ * @param {boolean} [scripts] keep scripts, as copies that can run (the root opted in)
  * @returns {void}
  */
-export declare function sanitize(root: ParentNode): void;
+export declare function sanitize(root: ParentNode, scripts?: boolean): void;
 export {};
