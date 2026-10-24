@@ -29,18 +29,18 @@ module Azu
         Azu::Redis::Config.url_from_env("PUBSUB_REDIS_URL")
       end
 
-      def initialize(url : String = Redis.default_url, prefix : String = DEFAULT_PREFIX)
+      def initialize(url : String = Redis.default_url, prefix : String = DEFAULT_PREFIX, listen_timeout : Time::Span = LISTEN_TIMEOUT)
         config = Azu::Redis::Config.new(url: url, pool_size: POOL_SIZE, connect_timeout: PUBLISH_TIMEOUT, command_timeout: PUBLISH_TIMEOUT)
-        initialize(Azu::Redis.acquire(config), prefix, true)
+        initialize(Azu::Redis.acquire(config), prefix, true, listen_timeout)
       end
 
-      def initialize(@client : Azu::Redis::Client, @prefix : String = DEFAULT_PREFIX, @owned : Bool = false)
+      def initialize(@client : Azu::Redis::Client, @prefix : String = DEFAULT_PREFIX, @owned : Bool = false, @listen_timeout : Time::Span = LISTEN_TIMEOUT)
         @subscribers = Subscribers.new
         @mutex = Mutex.new
         @listener = nil.as(::Redis?)
         @done = ::Channel(Nil).new
         @listening = false
-        @waited = false
+        @gave_up = false
         @confirmed = ::Channel(Nil).new
       end
 
@@ -48,7 +48,7 @@ module Azu
         subscription = Subscription.new(topic, self, &handler)
         @subscribers.add(subscription)
         ensure_listening
-        await_first_confirmation
+        await_confirmation
         subscription
       end
 
@@ -65,26 +65,36 @@ module Azu
       def shutdown : Nil
         return if @done.closed?
         @done.close
+        confirm_listening
         listener = @mutex.synchronize { @listener.tap { @listener = nil } }
         listener.try { |connection| @client.release(connection) }
         @subscribers.clear
         @client.close if @owned
       end
 
-      # The first `subscribe` of a backend returns once Redis has confirmed the pattern subscription (or after
-      # `LISTEN_TIMEOUT`), so a broadcast right after it, from any node, reaches that subscriber. Later
-      # subscriptions only add a local handler and never wait.
-      private def await_first_confirmation : Nil
-        first = @mutex.synchronize { @waited.tap { @waited = true } == false }
-        return unless first
+      # Until Redis has confirmed the pattern subscription a broadcast would be lost, so `subscribe` returns only
+      # after the confirmation (every subscriber, including ones that subscribe at the same moment as the first;
+      # once confirmed the wait is instant). If it does not come within the listen timeout, a warning is logged and
+      # later subscribers stop waiting until it does, so a Redis that is down costs one wait, not one per subscriber.
+      private def await_confirmation : Nil
+        return if @done.closed? || @mutex.synchronize { @gave_up }
         select
         when @confirmed.receive?
-        when timeout(LISTEN_TIMEOUT)
+        when timeout(@listen_timeout)
+          give_up
         end
       end
 
+      private def give_up : Nil
+        first = @mutex.synchronize { !@gave_up && !@confirmed.closed? && (@gave_up = true) }
+        Log.for("Azu::PubSub").warn { "Redis did not confirm the subscription within #{@listen_timeout.total_seconds}s; broadcasts made now may be lost" } if first
+      end
+
       private def confirm_listening : Nil
-        @mutex.synchronize { @confirmed.close unless @confirmed.closed? }
+        @mutex.synchronize do
+          @gave_up = false
+          @confirmed.close unless @confirmed.closed?
+        end
       end
 
       private def ensure_listening : Nil

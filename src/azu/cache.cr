@@ -611,6 +611,13 @@ module Azu
         @file_cache_permissions = ENV.fetch("CACHE_FILE_PERMISSIONS", "755").to_i(8)
       end
 
+      # Raises when `store = "redis"` has nowhere to connect: no URL and no client. `Azu::Configuration#prepare`
+      # (so `start`) calls it, and the manager does too.
+      def validate! : Nil
+        return unless enabled? && @store == "redis" && @redis_client.nil? && @redis_url.nil?
+        raise ArgumentError.new("store \"redis\" needs CACHE_REDIS_URL, cache_config.redis_url or cache_config.redis_client: the cache has no default Redis")
+      end
+
       def ttl_span : Time::Span
         Time::Span.new(seconds: @default_ttl)
       end
@@ -803,15 +810,19 @@ module Azu
         # If caching is disabled, always return a NullStore
         return NullStore.new unless @config.enabled?
 
+        @config.validate!
         case @config.store
         when "memory"
           MemoryStore.new(@config.max_size, @config.ttl_span, @config.cache_cleanup_interval_span)
         when "redis"
-          if client = @config.redis_client
+          client = @config.redis_client
+          url = @config.redis_url
+          if client
             RedisStore.new(client, @config.ttl_span)
-          else
-            url = @config.redis_url || raise ArgumentError.new("store \"redis\" needs CACHE_REDIS_URL, cache_config.redis_url or cache_config.redis_client: the cache has no default Redis")
+          elsif url
             RedisStore.new(url, @config.redis_pool_size, @config.redis_timeout_span, @config.ttl_span, @config.redis_operation_timeout_span)
+          else
+            raise ArgumentError.new("unreachable: validate! rejects a Redis cache without a URL")
           end
         when "null"
           NullStore.new

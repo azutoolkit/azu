@@ -152,7 +152,7 @@ On Redis, `clear` scans for the keys that start with `"<key_prefix>:"` and `UNLI
 key of the database stays. `clear(all: true)` is `FLUSHDB` on the selected database; `RedisStore#clear` (the store
 used directly, which has no prefix) is `FLUSHDB` too. With `store = "redis"` and no URL the cache refuses to build
 (`ArgumentError` naming `CACHE_REDIS_URL`): there is no default Redis, and `Azu.cache` does not swallow that error
-into a disabled cache (an unreachable Redis still does). The prefix `clear` walks the whole keyspace (`SCAN`, so it
+into a disabled cache (an unreachable Redis still does); `start` checks it too, without connecting. The prefix `clear` walks the whole keyspace (`SCAN`, so it
 costs O(keys in the database)), is not atomic (`false` means some keys may be gone), needs Redis 4.0 (`UNLINK`) and
 does not support Redis Cluster (`SCAN` visits one node, `UNLINK` across slots fails).
 

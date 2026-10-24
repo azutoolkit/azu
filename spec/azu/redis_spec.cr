@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "log/spec"
 
 REDIS_UTIL_URL = ENV.fetch("AZU_TEST_REDIS_URL", "redis://localhost:6379/0")
 
@@ -992,27 +993,83 @@ private class RecordingPresenceStore < Azu::Presence::Store::Memory
   end
 end
 
+# Delays the confirmation of the pattern subscription, to prove that subscribe waits for it.
+private class SlowConfirmPubSub < Azu::PubSub::Redis
+  getter confirmed_at : Time::Instant? = nil
+
+  private def confirm_listening : Nil
+    sleep 300.milliseconds unless @confirmed_at
+    super
+    @confirmed_at ||= Time.instant
+  end
+end
+
 describe "consumers of Azu::Redis" do
-  it "delivers a broadcast made right after the first subscribe returns" do
+  it "does not return from subscribe before Redis confirmed it, for concurrent first subscribers too" do
     pending!("Redis is not reachable on #{REDIS_UTIL_URL}") unless redis_util_available?
     prefix = "azu:redis_spec:first:#{Random::Secure.hex(4)}:"
-    receiver = Azu::PubSub::Redis.new(REDIS_UTIL_URL, prefix)
+    receiver = SlowConfirmPubSub.new(REDIS_UTIL_URL, prefix)
     sender = Azu::PubSub::Redis.new(REDIS_UTIL_URL, prefix)
     begin
-      received = ::Channel(String).new(1)
-      receiver.subscribe("t") { |message| received.send(message.payload) }
+      returned = ::Channel(Time::Instant).new(2)
+      received = ::Channel(String).new(2)
+      2.times do
+        spawn do
+          receiver.subscribe("t") { |message| received.send(message.payload) }
+          returned.send(Time.instant)
+        end
+      end
 
+      2.times { returned.receive.should be >= (receiver.confirmed_at || Time.instant) }
       sender.broadcast("t", "immediately")
-
-      select
-      when payload = received.receive
-        payload.should eq "immediately"
-      when timeout(2.seconds)
-        fail "the broadcast was lost"
+      2.times do
+        select
+        when payload = received.receive
+          payload.should eq "immediately"
+        when timeout(2.seconds)
+          fail "the broadcast was lost"
+        end
       end
     ensure
       receiver.shutdown
       sender.shutdown
+    end
+  end
+
+  it "stops waiting after the listen timeout when Redis does not answer, and says so" do
+    backend = Azu::PubSub::Redis.new(UNREACHABLE, "azu:redis_spec:down:", 100.milliseconds)
+    begin
+      started = Time.instant
+      Log.capture("Azu::PubSub") do |logs|
+        backend.subscribe("t") { |_| }
+        (Time.instant - started).should be >= 90.milliseconds
+
+        second = Time.instant
+        backend.subscribe("t") { |_| }
+        (Time.instant - second).should be < 90.milliseconds
+        logs.check(:warn, /did not confirm/)
+      end
+    ensure
+      backend.shutdown
+    end
+  end
+
+  it "wakes a subscriber that waits when the backend shuts down" do
+    backend = Azu::PubSub::Redis.new(UNREACHABLE, "azu:redis_spec:down2:", 5.seconds)
+    done = ::Channel(Time::Span).new(1)
+    spawn do
+      started = Time.instant
+      backend.subscribe("t") { |_| }
+      done.send(Time.instant - started)
+    end
+    Fiber.yield
+    backend.shutdown
+
+    select
+    when elapsed = done.receive
+      elapsed.should be < 2.seconds
+    when timeout(3.seconds)
+      fail "subscribe kept waiting after shutdown"
     end
   end
 
@@ -1080,6 +1137,22 @@ describe "consumers of Azu::Redis" do
       configuration.cache_config.store = "redis"
 
       expect_raises(ArgumentError, /CACHE_REDIS_URL/) { configuration.cache }
+    ensure
+      previous.try { |value| ENV["CACHE_REDIS_URL"] = value }
+    end
+  end
+
+  it "checks the cache configuration at prepare, without connecting" do
+    previous = ENV["CACHE_REDIS_URL"]?
+    begin
+      ENV.delete("CACHE_REDIS_URL")
+      configuration = Azu::Configuration.new
+      configuration.cache_config.store = "redis"
+
+      expect_raises(ArgumentError, /CACHE_REDIS_URL/) { configuration.prepare }
+
+      configuration.cache_config.redis_url = UNREACHABLE
+      configuration.prepare # no error, and nothing connected
     ensure
       previous.try { |value| ENV["CACHE_REDIS_URL"] = value }
     end
