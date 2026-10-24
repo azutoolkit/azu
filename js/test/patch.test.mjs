@@ -174,6 +174,17 @@ describe("review fixes", () => {
     assert.deepEqual([...page.children], [span, em]);
   });
 
+  it("keeps the form being typed in when a new element is inserted ahead of it", () => {
+    page.innerHTML = '<form><input name="q"></form><div class="footer">f</div>';
+    const [form, footer] = [...page.children];
+    form.firstChild.value = "typing";
+    patch('<div class="flash">new</div><form><input name="q"></form><div class="footer">f</div>');
+    assert.equal(page.children[1], form);
+    assert.equal(page.children[2], footer);
+    assert.equal(form.firstChild.value, "typing");
+    assert.equal(page.children[0].className, "flash");
+  });
+
   it("tolerates duplicate keys: the second one is new, nothing is lost", () => {
     page.innerHTML = '<i id="d">1</i><i id="d">2</i>';
     patch('<i id="d">1</i><i id="d">2</i><i id="d">3</i>');

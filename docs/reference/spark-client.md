@@ -132,7 +132,8 @@ is mirrored in `<html data-spark-status="...">`, which stylesheets can use.
 
 The server sends the new inner HTML of a component and the client edits the live DOM into it; it
 never assigns `innerHTML` to a live node. Patches that arrive within one frame are applied together
-in a single `requestAnimationFrame` (a 50 ms timer is the fallback; background tabs throttle timers to about once a second, so queued patches are also applied when the tab becomes visible): everything that has to be
+in a single `requestAnimationFrame`. A 50 ms timer is the fallback; background tabs throttle
+timers to about once a second, so queued patches are also applied when the tab becomes visible: everything that has to be
 read (focus, caret, scroll offsets) is read first, then all patches are written, then the state is
 restored. A `patch` event (`Spark.on("patch", ({ id }) => ...)`, `spark:patch` on the component)
 fires after each one.
@@ -146,8 +147,11 @@ fires after each one.
 | `id` | any element |
 
 A keyed node keeps its identity when it moves, so its focus, scroll offset, media playback and
-form state go with it (preserving media and iframe state across a move needs a browser with `moveBefore`, Chrome 133 and newer; elsewhere a moved element is re-inserted and may restart). Nodes without a key match the next unkeyed node of the same type. Only
-the nodes outside the longest run that is already in order are moved (rotating a 1000 item list moves
+form state go with it. Preserving media and iframe state across a move needs a browser with
+`moveBefore` (Chrome 133 and newer); elsewhere a moved element is re-inserted and may restart.
+Nodes without a key match the next unkeyed node of the same type; a node the server inserted does
+not steal the match of a later one. Only the nodes outside the longest run that is already in
+order are moved (rotating a 1000 item list moves
 one node), a key that disappeared is removed, a new key is inserted, and where the browser has
 `moveBefore` it is used, so a moved node is not even detached. Keys match among siblings and must be
 unique there. Give list items a stable key:
@@ -194,7 +198,9 @@ from patch HTML. The client then creates a fresh copy of each new script so
 it runs once (an unchanged script is not run again). That needs `'unsafe-inline'` or a nonce in the
 CSP and is refused under Trusted Types, so it is off by default and not recommended. Event handler
 attributes, `javascript:` URLs, `iframe`, `object` and the other blocked elements are removed always,
-and so is an `action` or `formaction` that points to another origin. `<style>` elements are **not**
+and so is an `action` or `formaction` that points to another origin. The server-rendered first
+page is not filtered, so a component that posts to another origin works until its first patch and
+then loses the attribute: post to your own origin and redirect instead. `<style>` elements are **not**
 stripped: a style can reach the page through `@import` and attribute selectors, so keep untrusted
 text out of styles and set `style-src` (and `connect-src`/`img-src`) in your CSP.
 

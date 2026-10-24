@@ -810,7 +810,7 @@ function revive(old) {
 // A form that posts to another origin would hand the user's data away: only this origin is a target.
 function foreignTarget(name, value) {
   if (name !== "action" && name !== "formaction") return false;
-  try { return new URL(value, location.href).origin !== location.origin; } catch (e) { return true; }
+  try { return new URL(value, document.baseURI).origin !== location.origin; } catch (e) { return true; }
 }
 
 /**
@@ -872,6 +872,10 @@ function place(parent, node, ref) {
 // Children match by key (data-spark-id, data-spark-key, id), unkeyed ones by position; a key that
 // is gone is inserted, a node nobody wants is removed, and only nodes outside the longest
 // already-ordered run move.
+function sameKind(a, b) {
+  return a.nodeType === b.nodeType && a.nodeName === b.nodeName;
+}
+
 function morphChildren(from, to, live) {
   var old = Array.prototype.slice.call(from.childNodes);
   var wanted = Array.prototype.slice.call(to.childNodes);
@@ -885,7 +889,7 @@ function morphChildren(from, to, live) {
     if (key === null) loose.push(node); else if (!keyed.has(key)) keyed.set(key, node);
   });
   var claimed = new Set();
-  var matches = wanted.map(function (want) {
+  var matches = wanted.map(function (want, i) {
     var key = keyOf(want);
     var node = null;
     if (key !== null) {
@@ -893,9 +897,13 @@ function morphChildren(from, to, live) {
       keyed.delete(key);
       if (want.hasAttribute("data-spark-slot") && live.has(want.getAttribute("data-spark-id"))) node = live.get(want.getAttribute("data-spark-id"));
     } else {
+      // A mismatch is an insertion when the following wanted node fits the old node, else a deletion: skip what the server dropped.
       var from = next;
-      while (from < loose.length && !(loose[from].nodeType === want.nodeType && loose[from].nodeName === want.nodeName)) from++;
-      if (from < loose.length) { node = loose[from]; next = from + 1; } // skips the nodes the server dropped
+      var after = wanted.slice(i + 1).filter(function (w) { return keyOf(w) === null; })[0];
+      if (!(loose[next] && after && sameKind(loose[next], after))) {
+        while (from < loose.length && !sameKind(loose[from], want)) from++;
+      }
+      if (from < loose.length && sameKind(loose[from], want)) { node = loose[from]; next = from + 1; }
     }
     if (node) claimed.add(node);
     return node;
