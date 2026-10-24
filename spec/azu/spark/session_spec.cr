@@ -86,17 +86,80 @@ module SparkSessionSpec
   end
 end
 
-describe "Spark::Session#subscribe" do
-  it "subscribes once when two events ask for the same cold topic while the backend waits" do
-    with_slow_pub_sub do |backend|
-      session = Azu::Spark::Session.new(Azu::Spark::ConnectionInfo.detached, true) { |_| }
-      session.start(SparkSessionSpec::Board.new, "root", {} of String => String, Azu::Spark::Params.new)
-      done = ::Channel(Nil).new
-      2.times { spawn { session.subscribe("root", "cold"); done.send(nil) } }
-      2.times { done.receive }
-      sleep 150.milliseconds
+# A session that is not connected, so mounting the board subscribes to nothing.
+private def cold_session : Azu::Spark::Session
+  session = Azu::Spark::Session.new(Azu::Spark::ConnectionInfo.detached, false) { |_| }
+  session.start(SparkSessionSpec::Board.new, "root", {} of String => String, Azu::Spark::Params.new)
+  session
+end
 
+describe "Spark::Session#subscribe" do
+  it "subscribes once, and no event returns before the backend confirmed, for two events on a cold topic" do
+    with_slow_pub_sub do |backend|
+      session = cold_session
+      returned = ::Channel(Time::Instant).new(2)
+      2.times { spawn { session.subscribe("root", "cold"); returned.send(Time.instant) } }
+
+      2.times { returned.receive.should be >= (backend.confirmed_at || Time.instant + 1.hour) }
       backend.topics.count("cold").should eq 1
+      backend.subscriber_count.should eq 1
+    end
+  end
+
+  it "lets a second event subscribe again when the first one's subscribe failed" do
+    with_slow_pub_sub do |backend|
+      backend.fail_first = true
+      session = cold_session
+      outcome = ::Channel(Exception?).new(1)
+      spawn do
+        session.subscribe("root", "flaky")
+        outcome.send(nil)
+      rescue ex
+        outcome.send(ex)
+      end
+      wait_until { backend.subscribe_calls == 1 }.should be_true
+
+      session.subscribe("root", "flaky")
+
+      outcome.receive.should_not be_nil
+      backend.topics.count("flaky").should eq 2
+      backend.subscriber_count.should eq 1
+    end
+  end
+
+  it "releases the reservation when the subscribe raises, so a retry works" do
+    with_slow_pub_sub do |backend|
+      backend.fail_first = true
+      session = cold_session
+
+      expect_raises(Exception, "the backend failed") { session.subscribe("root", "retry") }
+      session.subscribe("root", "retry")
+
+      backend.subscriber_count.should eq 1
+    end
+  end
+
+  it "honours an unsubscribe that arrives while the subscribe is in flight" do
+    with_slow_pub_sub do |backend|
+      session = cold_session
+      spawn { session.subscribe("root", "gone") }
+      wait_until { backend.subscribe_calls == 1 }.should be_true
+
+      session.unsubscribe("root", "gone")
+
+      wait_until { backend.confirmed_at && backend.subscriber_count == 0 }.should be_true
+    end
+  end
+
+  it "cancels a subscription that finishes after the component was unmounted" do
+    with_slow_pub_sub do |backend|
+      session = cold_session
+      spawn { session.subscribe("root", "late") }
+      wait_until { backend.subscribe_calls == 1 }.should be_true
+
+      session.close
+
+      wait_until { backend.confirmed_at && backend.subscriber_count == 0 }.should be_true
     end
   end
 end
