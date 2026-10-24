@@ -44,6 +44,7 @@ module Azu
       @send_mutex = Mutex.new
       @subscriptions = {} of String => PubSub::Subscription
       @subscriptions_mutex = Mutex.new
+      @subscribing = Set(String).new
       @closed = ::Channel(Nil).new
       @torn_down = false
     end
@@ -148,9 +149,28 @@ module Azu
     end
 
     protected def subscribe_topic(topic : String) : Nil
-      @subscriptions_mutex.synchronize do
-        @subscriptions[topic] ||= PubSub.subscribe(topic) { |message| deliver(message) }
+      # The topic is reserved under the lock and subscribed outside it, since a backend may wait (a Redis backend
+      # waits for Redis to confirm the first subscription). A second caller for a topic being subscribed returns at
+      # once: the first one is on its way.
+      reserved = @subscriptions_mutex.synchronize do
+        next false if @torn_down || @subscriptions.has_key?(topic) || @subscribing.includes?(topic)
+        @subscribing << topic
+        true
       end
+      return unless reserved
+      subscription = begin
+        PubSub.subscribe(topic) { |message| deliver(message) }
+      rescue ex
+        @subscriptions_mutex.synchronize { @subscribing.delete(topic) }
+        raise ex
+      end
+      kept = @subscriptions_mutex.synchronize do
+        @subscribing.delete(topic)
+        next false if @torn_down
+        @subscriptions[topic] = subscription
+        true
+      end
+      subscription.cancel unless kept
     end
 
     def unsubscribe(topic : String) : Nil

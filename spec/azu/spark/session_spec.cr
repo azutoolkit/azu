@@ -1,5 +1,6 @@
 require "../../spec_helper"
 require "../../support/spark_helpers"
+require "../../support/slow_pub_sub"
 
 module SparkSessionSpec
   record Todo, id : Int32, title : String
@@ -81,6 +82,21 @@ module SparkSessionSpec
     def render
       self.ticks += 1
       span ticks.to_s
+    end
+  end
+end
+
+describe "Spark::Session#subscribe" do
+  it "subscribes once when two events ask for the same cold topic while the backend waits" do
+    with_slow_pub_sub do |backend|
+      session = Azu::Spark::Session.new(Azu::Spark::ConnectionInfo.detached, true) { |_| }
+      session.start(SparkSessionSpec::Board.new, "root", {} of String => String, Azu::Spark::Params.new)
+      done = ::Channel(Nil).new
+      2.times { spawn { session.subscribe("root", "cold"); done.send(nil) } }
+      2.times { done.receive }
+      sleep 150.milliseconds
+
+      backend.topics.count("cold").should eq 1
     end
   end
 end
