@@ -15,7 +15,9 @@ module Azu
       # expiry with a fake clock.
       #
       # One mutex-guarded connection is opened on first use. A dead connection is discarded and the command
-      # retried once on a fresh one. The topic hash and the key index of a meta are written in one `MULTI`, so they cannot drift apart on a retry; `refresh` writes the index entries of the metas a node owns again, which repairs an index that lost one.
+      # retried once on a fresh one. The topic hash and the key index of a meta are written in one `MULTI`, so
+      # they cannot drift apart on a retry. `refresh` writes the index entries of the metas a node owns again,
+      # which repairs an index that lost one; the caller must pass only metas that are still owned.
       class Redis < Store
         DEFAULT_PREFIX = "azu:presence:"
         RETENTION      = 1.day

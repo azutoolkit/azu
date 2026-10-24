@@ -37,6 +37,7 @@ private class GatedStore < Azu::Presence::Store
   getter released = ::Channel(Nil).new(1)
   property? armed = false
   property? armed_read = false
+  property? armed_refs = false
 
   def initialize(@inner : Azu::Presence::Store)
   end
@@ -81,8 +82,15 @@ private class GatedStore < Azu::Presence::Store
     @inner.evict(topic, metas)
   end
 
+  # Once armed, parks the sweep after it read the refs of a topic, i.e. between its snapshot and its writes.
   def refs(topic : String) : Array(String)
-    @inner.refs(topic)
+    result = @inner.refs(topic)
+    if armed_refs?
+      @armed_refs = false
+      @entered.send(nil)
+      @released.receive
+    end
+    result
   end
 
   def refresh(topic : String, metas : Array(Azu::Presence::Meta)) : Nil
@@ -524,6 +532,28 @@ private def presence_examples(make : -> Cluster, settle : -> Nil = -> { })
       alice.watching?(topic).should be_true
       fresh.cancel
       alice.watching?(topic).should be_false
+      cluster.shutdown
+    end
+  end
+
+  it "does not bring back the index of a meta that was untracked between the sweep's snapshot and its refresh" do
+    topic = "room:#{Random::Secure.hex(4)}"
+    with_fake_clock do
+      cluster = make.call
+      gated = GatedStore.new(cluster.store_a)
+      alice = node(gated, cluster.bus_a, "a")
+      meta = alice.track(topic, "alice")
+      gated.armed_refs = true
+      done = ::Channel(Nil).new
+
+      spawn { alice.sweep; done.send(nil) }
+      gated.entered.receive # the sweep holds a snapshot that still contains the meta
+      alice.untrack(topic, "alice", meta.ref)
+      gated.released.send(nil)
+      done.receive
+
+      cluster.store_b.present?(topic, "alice", cluster.store_b.now, 30.seconds).should be_false
+      cluster.store_b.stored(topic).should be_empty
       cluster.shutdown
     end
   end
