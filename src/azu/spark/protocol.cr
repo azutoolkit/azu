@@ -1,3 +1,4 @@
+require "compress/gzip"
 require "json"
 require "./update"
 
@@ -6,7 +7,8 @@ module Azu
     # The wire format: one JSON object per WebSocket text frame, `{"v": 1, "type": ..., ...}`.
     #
     # Client to server
-    # - `join`      `id`, `token`, optional `snapshot` and `params` (the page's query string). The
+    # - `join`      `id`, `token`, optional `snapshot` and `params` (the page's query string), and
+    #               `enc` (the frame encodings the client can decode, see Compression below). The
     #               `snapshot` is the latest signed state of the page (see `Snapshot`): after a
     #               reconnect the server mounts the components from it, so the page continues
     #               where it was. A bad snapshot answers `invalid_snapshot` and mounts nothing.
@@ -22,7 +24,8 @@ module Azu
     #               and `ack` when the diff answers a numbered event
     # - `reply`     `id`, `target`; acknowledges a request, sent after the diff it caused. Optional:
     #               `gen` (in the reply to a join of a root that persists state), `ack`, and `dup`
-    #               (the event had been applied before: nothing was done)
+    #               (the event had been applied before: nothing was done), and `enc` (in the reply to
+    #               a join: the encoding the server will use for large frames)
     # - `redirect`  `to`, `replace`
     # - `heartbeat` `id`
     # - `error`     `code`, `message`, and the `id` of the request it answers (null otherwise); `ack`
@@ -48,8 +51,22 @@ module Azu
     # refused for rate limiting is answered the same way (`id` and `ack` in the error).
     # All of these fields are optional in both directions; a peer that does not know them ignores
     # them, and a client that sends no `eid` gets the behaviour of protocol v1 exactly.
+    #
+    # Compression. A client that can inflate gzip (`DecompressionStream`) says so in its join with
+    # `"enc": ["gzip"]`. From then on the server sends a diff of at least `compress_threshold` bytes
+    # as ONE BINARY frame holding the gzip of the exact JSON text it would have sent otherwise, when
+    # that is smaller; every other frame stays text. A client that announces nothing is sent text
+    # frames only, byte for byte as before. The sender never inflates past `MAX_INFLATED` bytes and
+    # the receiver enforces the same limit while inflating. Frames keep their order across both kinds.
     module Protocol
       VERSION = 1
+
+      # The most a compressed frame may inflate to (bytes). Part of the protocol: the server never
+      # compresses a larger frame, and the browser client aborts an inflation that passes it.
+      MAX_INFLATED = 1_048_576
+
+      # The encoding negotiated in a join.
+      GZIP = "gzip"
 
       struct Inbound
         include JSON::Serializable
@@ -65,6 +82,21 @@ module Azu
         getter token : String? = nil
         getter snapshot : String? = nil
         getter params : Hash(String, String)? = nil
+        getter enc : Array(String)? = nil
+
+        def gzip? : Bool
+          enc.try(&.includes?(GZIP)) || false
+        end
+      end
+
+      # The gzip of *frame*, or nil when it should be sent as text: it is smaller than *threshold*
+      # bytes, larger than `MAX_INFLATED`, or compressing does not make it smaller. Level 1 (fastest):
+      # the cost is bounded by the size cap, and a diff of markup shrinks a lot even at that level.
+      def self.gzip(frame : String, threshold : Int32) : Bytes?
+        return if threshold <= 0 || frame.bytesize < threshold || frame.bytesize > MAX_INFLATED
+        io = IO::Memory.new
+        Compress::Gzip::Writer.open(io, Compress::Deflate::BEST_SPEED, &.print(frame))
+        io.size < frame.bytesize ? io.to_slice : nil
       end
 
       def self.hello(heartbeat : Time::Span, max_size : Int32) : String
@@ -110,13 +142,14 @@ module Azu
         end
       end
 
-      def self.reply(id : Int64?, target : String? = nil, gen : String? = nil, ack : Int64? = nil, dup : Bool = false) : String
+      def self.reply(id : Int64?, target : String? = nil, gen : String? = nil, ack : Int64? = nil, dup : Bool = false, enc : String? = nil) : String
         frame("reply") do |json|
           json.field "id", id
           json.field "target", target if target
           json.field "gen", gen if gen
           json.field "ack", ack if ack
           json.field "dup", true if dup
+          json.field "enc", enc if enc
         end
       end
 

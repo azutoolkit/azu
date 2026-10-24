@@ -44,6 +44,12 @@ export class FakeSocket {
 
   receive(frame) { this.onmessage({ data: JSON.stringify({ v: 1, ...frame }) }); }
 
+  /** The server sends a binary frame: *bytes* (a Buffer or Uint8Array), as the browser hands it over with binaryType "arraybuffer". */
+  receiveBinary(bytes) {
+    const copy = new Uint8Array(bytes).buffer;
+    this.onmessage({ data: copy });
+  }
+
   /** The connection breaks: the client sees a close without a handshake. */
   drop() {
     this.readyState = FakeSocket.CLOSED;

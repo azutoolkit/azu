@@ -24,11 +24,22 @@ describe Azu::Spark::Client do
 
   # 8 KB held until the delivery layer (numbered events, an unacknowledged-event queue, coalescing,
   # IME and debounce handling) was added; 10 KB held for the whole client with it. Observability, the
-  # live region and the idle close (slice 5) raised the budget to 10.5 KB (10_752).
-  it "stays within the 10.5 KB gzip budget" do
+  # live region and the idle close (slice 5) raised the budget to 10.5 KB (10_752). Optional gzip
+  # frames (slice 6: announcing them, the ordered inflate line, the streaming size limit and the
+  # recovery from an unreadable frame, about 350 bytes) raised it to 11 KB (11_264).
+  it "stays within the 11 KB gzip budget" do
     io = IO::Memory.new
     Compress::Gzip::Writer.open(io, Compress::Deflate::BEST_COMPRESSION, &.print(Azu::Spark::Client::SOURCE))
-    io.size.should be <= 10_752, "the client grew to #{io.size} bytes gzipped (budget 10752)"
+    io.size.should be <= 11_264, "the client grew to #{io.size} bytes gzipped (budget 11264)"
+  end
+
+  it "announces gzip only where DecompressionStream exists, and inflates with a size limit" do
+    source = Azu::Spark::Client::SOURCE
+    source.should contain("DecompressionStream")
+    source.should contain(%("gzip"))
+    source.should contain(Azu::Spark::Protocol::MAX_INFLATED.to_s)
+    CLIENT_JS.should contain(%(typeof DecompressionStream === "function"))
+    CLIENT_JS.should contain(%(binaryType = "arraybuffer"))
   end
 
   it "ships the script inside the shard, with no CDN or library dependency" do

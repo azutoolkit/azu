@@ -40,6 +40,8 @@ module Azu
         @violations = 0
         @sequence = 0_i64
         @ack = nil.as(Int64?)
+        @gzip = false
+        @backlog = Atomic(Int32).new(0)
         @started = Time.instant
         @last_seen = Atomic(Int64).new(0)
         @session = nil.as(Session?)
@@ -100,6 +102,7 @@ module Azu
       private def process : Nil
         while job = @inbox.receive?
           handle(job)
+          @backlog.sub(1)
         end
       ensure
         @finished.close
@@ -119,13 +122,16 @@ module Azu
       end
 
       private def enqueue(job : Job) : Nil
+        @backlog.add(1)
         select
         when @inbox.send(job)
         else
+          @backlog.sub(1)
           close(HTTP::WebSocket::CloseCode::TryAgainLater, "overloaded")
         end
       rescue ::Channel::ClosedError
         # The connection is closing; whatever arrives now is moot.
+        @backlog.sub(1)
       end
 
       private def handle(job : Job) : Nil
@@ -158,9 +164,10 @@ module Azu
         when "join"
           token = inbound.token || raise BadRequest.new("missing token")
           params = Params.from_strings(inbound.params || {} of String => String)
+          @gzip = @config.compress_threshold > 0 && inbound.gzip?
           joined = session.join(token, inbound.snapshot, params)
           publish(joined.update)
-          transmit(Protocol.reply(inbound.id, gen: joined.generation))
+          transmit(Protocol.reply(inbound.id, gen: joined.generation, enc: @gzip ? Protocol::GZIP : nil))
         when "event"
           deliver(inbound)
         when "heartbeat"
@@ -209,9 +216,20 @@ module Azu
 
       private def publish(update : Update) : Nil
         unless update.patches.empty? && update.pushes.empty? && update.snapshots.empty?
-          transmit(Protocol.diff(@sequence += 1, update, @ack))
+          transmit_diff(Protocol.diff(@sequence += 1, update, @ack))
         end
         update.redirect.try { |redirect| transmit(Protocol.redirect(redirect)) }
+      end
+
+      # A large diff goes out gzipped, as a binary frame, to a client that asked for it. This runs in
+      # the connection's own processing fiber, never in the read loop, and is skipped while more work
+      # waits behind the job being handled: a busy connection spends its time on events, not on saving bytes.
+      private def transmit_diff(frame : String) : Nil
+        packed = Protocol.gzip(frame, @config.compress_threshold) if @gzip && @backlog.get <= 1
+        return transmit(frame) unless packed
+        send(packed)
+      rescue IO::Error
+        # The peer disconnected; the close callback ends the loop.
       end
 
       private def transmit(frame : String) : Nil
