@@ -89,6 +89,39 @@ describe "Azu::CQL configuration" do
     end
   end
 
+  describe "SQLite defaults" do
+    it "adds CQL's SQLite pragmas with the pool settings, never over the URL" do
+      config = ::CQL::Configure::Config.new
+      config.sqlite.busy_timeout = 1234
+
+      params = URI.parse(Azu::CQL.connection_url("sqlite3://./x.db", config, lazy: false, pool: true)).query_params
+      params["journal_mode"].should eq config.sqlite.journal_mode
+      params["foreign_keys"].should eq "1"
+      params["busy_timeout"].should eq "1234"
+
+      url = Azu::CQL.connection_url("sqlite3://./x.db?foreign_keys=0", config, lazy: false, pool: true)
+      URI.parse(url).query_params["foreign_keys"].should eq "0"
+    end
+
+    it "leaves the pragmas off an explicit URL and off other databases" do
+      config = ::CQL::Configure::Config.new
+      Azu::CQL.connection_url("sqlite3://./x.db", config, lazy: false).should eq "sqlite3://./x.db"
+      Azu::CQL.connection_url("postgres://u@h/db", config, lazy: false, pool: true).should_not contain("journal_mode")
+    end
+
+    it "opens schema connections with them when the URL comes from CQL.config" do
+      with_cql_config do
+        Azu::CQL.configure { |c| c.db = "sqlite3://#{DB_FILE}" }
+        schema = Azu::CQL.schema(:sqlite_defaults) { table(:t) { primary :id, Int64 } }
+        schema.with_connection do |connection|
+          connection.scalar("PRAGMA foreign_keys").should eq 1
+          connection.scalar("PRAGMA busy_timeout").should eq 5000
+          connection.scalar("PRAGMA journal_mode").should eq ::CQL.config.sqlite.journal_mode
+        end
+      end
+    end
+  end
+
   describe ".adapter_for" do
     it "maps every supported scheme and rejects the rest" do
       Azu::CQL.adapter_for("postgres://h/x").should eq ::CQL::Adapter::Postgres

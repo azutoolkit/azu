@@ -64,8 +64,11 @@ ran it. A runnable PostgreSQL example laid out like this is
   The adapter comes from the scheme (`postgres://`, `postgresql://`, `mysql://`, `sqlite3://`; anything else raises).
 * **Pool settings.** When the URL comes from `CQL.config`, `c.pool.size`, `c.pool.max_idle_size` and `c.pool.checkout_timeout`
   are appended to it as crystal-db parameters (`max_pool_size`, ...). Parameters already in the URL always win.
-  Azu does not use `CQL.config.full_db_url`, which drops the URL's own query string and injects SSL and auth settings:
+  Azu does not use `CQL.config.full_db_url`, which also injects SSL, authentication and retry settings:
   put `?sslmode=require` in the URL yourself.
+* **SQLite defaults.** For a `sqlite3://` URL taken from `CQL.config`, the `c.sqlite` settings (`journal_mode` WAL,
+  `foreign_keys` on, `busy_timeout` 5000, `synchronous`, `cache_size`) are appended the same way, so the schema opens
+  connections the way `CQL.build_schema` does. An explicit `uri` argument is used as given.
 * **Lazy connection.** The schema is created without opening a socket (`initial_pool_size=0`), so the app, console and tasks boot
   without a database and the first query connects. Turn it off with `Azu.configure { |c| c.database.lazy_connect = false }`
   (`AZU_DB_LAZY=false`), per schema with `Azu::CQL.schema(:app, lazy: false)`, or with `initial_pool_size` in the URL.
@@ -79,7 +82,7 @@ CQL's types are also reachable under the Azu namespace (`Azu::CQL::Schema`,
 
 ## CQL on PostgreSQL: things to know
 
-* `User.create!(...)` needs a CQL release that includes the PostgreSQL fix (cql#13, newer than 0.0.536 on `master`).
+* `User.create!(...)` needs a CQL release that includes the PostgreSQL fix (cql#13, newer than 0.0.536; checked on 0.0.604).
   Older releases insert the row and then fail looking up id 0; build records with `User.new(...)` and `save!` there.
 * Use `Model(Int64)` with `primary :id, Int64`, and `class` for models.
 * Declare real indexes with `schema.alter(:users) { create_index :users_email, [:email], unique: true }`. `index:` inside
