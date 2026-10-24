@@ -818,12 +818,61 @@ private class RecordingPresenceStore < Azu::Presence::Store::Memory
 end
 
 describe "consumers of Azu::Redis" do
+  it "refuses to build a Redis cache that has no URL, instead of picking localhost" do
+    previous = ENV["CACHE_REDIS_URL"]?
+    begin
+      ENV.delete("CACHE_REDIS_URL")
+      config = Azu::Cache::Configuration.new
+      config.store = "redis"
+      config.redis_url.should be_nil
+
+      expect_raises(ArgumentError, /CACHE_REDIS_URL/) { Azu::Cache::Manager.new(config) }
+
+      config.redis_url = "redis://localhost:6379/0" # an explicit opt-in to localhost
+      Azu::Cache::Manager.new(config).store.should be_a Azu::Cache::RedisStore
+    ensure
+      previous.try { |value| ENV["CACHE_REDIS_URL"] = value }
+    end
+  end
+
+  it "clears only the keys under the cache's prefix, leaving the rest of the database alone" do
+    pending!("Redis is not reachable on #{REDIS_UTIL_URL}") unless redis_util_available?
+    url = REDIS_UTIL_URL.sub(%r{/\d+\z}, "") + "/14"
+    probe = Redis.new(url: url, reconnect: false)
+    token = Random::Secure.hex(4)
+    config = Azu::Cache::Configuration.new
+    config.store = "redis"
+    config.redis_url = url
+    config.key_prefix = "clr#{token}"
+    manager = Azu::Cache::Manager.new(config)
+    begin
+      700.times { |index| manager.set("k#{index}", "v") }
+      manager.set("we[ird*", "v")
+      probe.set("other:#{token}", "keep")
+      probe.set("clr#{token}x", "keep too") # shares the text of the prefix but not the "prefix:" boundary
+
+      manager.clear.should be_true
+
+      probe.keys("clr#{token}:*").should be_empty
+      probe.get("other:#{token}").should eq "keep"
+      probe.get("clr#{token}x").should eq "keep too"
+
+      manager.set("again", "1")
+      manager.clear(all: true).should be_true
+      probe.get("other:#{token}").should be_nil
+    ensure
+      probe.flushdb
+      probe.close
+      manager.store.as(Azu::Cache::RedisStore).close
+    end
+  end
+
   it "never points the cache at REDIS_URL, whose database `clear` would flush" do
     previous = {ENV["REDIS_URL"]?, ENV["CACHE_REDIS_URL"]?}
     begin
       ENV["REDIS_URL"] = "redis://sessions.internal:6379/0"
       ENV.delete("CACHE_REDIS_URL")
-      Azu::Cache::Configuration.new.redis_url.should eq "redis://localhost:6379/0"
+      Azu::Cache::Configuration.new.redis_url.should be_nil
 
       ENV["CACHE_REDIS_URL"] = "redis://cache.internal:6379/1"
       Azu::Cache::Configuration.new.redis_url.should eq "redis://cache.internal:6379/1"

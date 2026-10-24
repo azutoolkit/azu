@@ -26,7 +26,9 @@ end
 ```
 
 The same settings can come from the environment, with no code: `CACHE_STORE=redis` and
-`CACHE_REDIS_URL=redis://localhost:6379/0`; `REDIS_URL` is **not** read, because `clear` runs `FLUSHDB` and that variable often names a Redis used for something else. There is no
+`CACHE_REDIS_URL=redis://localhost:6379/0`. There is **no default** URL and `REDIS_URL` is not read, because it often
+names a Redis used for something else: `store = "redis"` without `CACHE_REDIS_URL`, `cache_config.redis_url` or a
+`redis_client` raises an `ArgumentError` when the cache is built. To use localhost, say so in the URL. There is no
 `config.cache = RedisStore.new(...)`. To put the cache on the same connections as PubSub and Presence, share one
 [`Azu::Redis::Client`](../../reference/api/redis.md) with `config.cache_config.redis_client = client`.
 
@@ -150,8 +152,9 @@ require "azu"
 Azu::CONFIG.cache_config.key_prefix = "myapp:production"
 ```
 
-`Azu.cache.clear` runs `FLUSHDB`, which removes **every** key of the Redis database, not only keys with your prefix.
-Use a database (`/1`) that only the cache uses if you call `clear`.
+`Azu.cache.clear` removes only the keys that start with `"<key_prefix>:"` (a `SCAN` and `UNLINK` in batches), so other
+keys in the same Redis database survive. `Azu.cache.clear(all: true)` runs `FLUSHDB` and removes **every** key of
+the database: use a database only the cache uses if you call it.
 
 ## Caching Complex Objects
 

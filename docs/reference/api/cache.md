@@ -144,11 +144,14 @@ require "azu"
 Azu.cache.delete("key")  # => Bool, true when the key existed
 Azu.cache.exists?("key") # => Bool
 Azu.cache.size           # => Int32
-Azu.cache.clear          # removes everything in the store
+Azu.cache.clear          # removes the cache's entries (the keys under key_prefix)
+Azu.cache.clear(all: true) # empties the whole store
 ```
 
-On Redis, `clear` is `FLUSHDB` on the selected database (it emptied database 1 and left database 0 alone); use a
-dedicated database for the cache.
+On Redis, `clear` scans for the keys that start with `"<key_prefix>:"` and `UNLINK`s them in batches; every other
+key of the database stays. `clear(all: true)` is `FLUSHDB` on the selected database; `RedisStore#clear` (the store
+used directly, which has no prefix) is `FLUSHDB` too. With `store = "redis"` and no URL the cache refuses to build
+(`ArgumentError` naming `CACHE_REDIS_URL`): there is no default Redis.
 
 ### get_multi, set_multi
 

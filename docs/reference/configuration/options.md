@@ -180,7 +180,7 @@ Assigning a store (`config.cache = ...`) is not possible.
 | `cache_config.default_ttl` | `Int32` (seconds) | 3600 | `CACHE_DEFAULT_TTL` |
 | `cache_config.key_prefix` | `String` | `"azu"` | `CACHE_KEY_PREFIX` |
 | `cache_config.cache_cleanup_interval` | `Int32` (seconds) | 300 | `CACHE_CLEANUP_INTERVAL` |
-| `cache_config.redis_url` | `String` | `"redis://localhost:6379/0"` | `CACHE_REDIS_URL` |
+| `cache_config.redis_url` | `String?` | `nil` (required for `store = "redis"`, unless `redis_client` is set) | `CACHE_REDIS_URL` |
 | `cache_config.redis_pool_size` | `Int32` | 5 | `CACHE_REDIS_POOL_SIZE` |
 | `cache_config.redis_timeout` | `Int32` (seconds) | 5 | `CACHE_REDIS_TIMEOUT` |
 | `cache_config.redis_operation_timeout` | `Int32` (seconds) | 2 | `CACHE_REDIS_OPERATION_TIMEOUT` |
@@ -256,7 +256,7 @@ what the server runs. `router` is the app's `Azu::Router`.
 
 Every variable Azu reads is in the tables above, plus the `REDIS_*` variables of
 [`Azu::Redis::Config.from_env`](../api/redis.md#config). `REDIS_URL` is the fallback of `PUBSUB_REDIS_URL` and
-`PRESENCE_REDIS_URL`, and deliberately not of `CACHE_REDIS_URL` (`clear` is `FLUSHDB`). `AZU_ENV` and `SECRET_KEY` are not read: the signing secret of Spark
+`PRESENCE_REDIS_URL`, and deliberately not of `CACHE_REDIS_URL` (a Redis cache has no default URL). `AZU_ENV` and `SECRET_KEY` are not read: the signing secret of Spark
 live views is `SPARK_SECRET`.
 
 | Variable | Option |
