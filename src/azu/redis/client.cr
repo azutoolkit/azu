@@ -15,11 +15,12 @@ module Azu
     # redis.close
     # ```
     #
-    # `run` borrows a connection, and when the connection turns out to be dead (reset, restarted server, idle
-    # drop) discards it and tries again on a fresh one, as often as `Config#retry` allows, waiting a bounded,
-    # jittered time between attempts. A command that merely timed out is not retried (it may have been applied)
-    # but its connection is discarded, since a late reply would answer the wrong command. Pass `retry: false` for
-    # a command that must not run twice.
+    # `run` borrows a connection. When the connection turns out to be dead (reset, restarted server, idle drop) it
+    # is discarded and, with `retry: true`, the block runs again on a fresh one, as often as `Config#retry`
+    # allows, waiting a bounded, jittered time between attempts. Retrying is opt-in because the block runs twice:
+    # pass it for idempotent commands only. A command that merely timed out is not retried (it may have been
+    # applied) but its connection is discarded, since a late reply would answer the wrong command. Timeouts are
+    # per socket read and write (`Config#command_timeout`), not a deadline for the whole call.
     #
     # A lost connection also closes the other idle connections, which are most likely dead as well (a restarted
     # server), so the next attempt, retried or not, opens a fresh one.
@@ -30,6 +31,7 @@ module Azu
 
       # *on_close* runs once on `close`; a view made by `with_prefix` has none, so it never closes the shared pool.
       def initialize(@config : Config, @pool : ConnectionPool, @on_close : Proc(Nil)? = nil)
+        @close_lock = Mutex.new
       end
 
       # A client with a pool of its own, closed by `close`. Most code wants `Azu::Redis.acquire`, which shares.
@@ -39,7 +41,7 @@ module Azu
       end
 
       # Runs the block with a pooled connection. *operation* names the call for `Instrumentation.redis`.
-      def run(operation : String = "command", retry : Bool = true, & : ::Redis -> T) : T forall T
+      def run(operation : String = "command", retry : Bool = false, & : ::Redis -> T) : T forall T
         Instrumentation.redis(operation, @config.name) { attempt(retry) { |connection| yield connection } }
       end
 
@@ -47,7 +49,7 @@ module Azu
       # The block may run twice if the connection fails and the call is retried: only issue commands in it.
       # The connection is discarded after any error, since an error reply inside the transaction leaves the other
       # replies unread on the socket.
-      def multi(operation : String = "multi", retry : Bool = true, & : ::Redis::TransactionApi -> _) : Array(::Redis::RedisValue)
+      def multi(operation : String = "multi", retry : Bool = false, & : ::Redis::TransactionApi -> _) : Array(::Redis::RedisValue)
         Instrumentation.redis(operation, @config.name) do
           attempt(retry, strict: true) { |connection| connection.multi { |transaction| yield transaction } }
         end
@@ -55,14 +57,14 @@ module Azu
 
       # Sends the commands the block issues on the pipeline in one round trip.
       # The connection is discarded after any error, as for `multi`.
-      def pipelined(operation : String = "pipeline", retry : Bool = true, & : ::Redis::PipelineApi -> _) : Array(::Redis::RedisValue)
+      def pipelined(operation : String = "pipeline", retry : Bool = false, & : ::Redis::PipelineApi -> _) : Array(::Redis::RedisValue)
         Instrumentation.redis(operation, @config.name) do
           attempt(retry, strict: true) { |connection| connection.pipelined { |pipeline| yield pipeline } }
         end
       end
 
       # A connection of its own that is not taken from the pool, for something that holds it for good (a
-      # `SUBSCRIBE` loop). Reads are unbounded unless *command_timeout* is given. `close` ends it with the client;
+      # `SUBSCRIBE` loop, or a blocking command such as `BLPOP` or `XREAD BLOCK` that outlasts `command_timeout`). Reads are unbounded unless *command_timeout* is given. `close` ends it with the client;
       # `release` ends it earlier.
       def dedicated(command_timeout : Time::Span? = nil, name : String = "#{@config.name}-subscriber") : ::Redis
         @pool.adopt(@config.connect(command_timeout, name))
@@ -74,7 +76,7 @@ module Azu
 
       # The Redis server's clock (`TIME`), so nodes that write and judge expiry need no synchronized clocks.
       def time : Time
-        seconds, micros = run("time", &.command(["TIME"])).as(Array).map(&.as(String).to_i64)
+        seconds, micros = run("time", retry: true, &.command(["TIME"])).as(Array).map(&.as(String).to_i64)
         Time.unix(seconds) + micros.microseconds
       end
 
@@ -111,8 +113,8 @@ module Azu
       # Gives this handle back. The pool closes with its last handle (see `Azu::Redis.acquire`), after which the
       # client raises `Pool::ClosedError`. Closing twice does nothing.
       def close : Nil
-        @on_close.try(&.call)
-        @on_close = nil
+        callback = @close_lock.synchronize { @on_close.tap { @on_close = nil } }
+        callback.try(&.call)
       end
 
       def to_s(io : IO) : Nil

@@ -39,7 +39,7 @@ module Azu
         end
 
         def put(topic : String, meta : Meta) : Nil
-          @client.multi("presence") do |transaction|
+          @client.multi("presence", retry: true) do |transaction|
             transaction.command(["HSET", topic_key(topic), meta.ref, meta.to_json])
             transaction.command(["HSET", index_key(topic, meta.key), meta.ref, meta.node])
             expire(transaction, topic, meta.key)
@@ -59,7 +59,7 @@ module Azu
         end
 
         def refresh(topic : String, metas : Array(Meta)) : Nil
-          @client.pipelined("presence") do |pipeline|
+          @client.pipelined("presence", retry: true) do |pipeline|
             metas.each do |meta|
               pipeline.command(["HSET", index_key(topic, meta.key), meta.ref, meta.node])
               expire(pipeline, topic, meta.key)
@@ -82,7 +82,7 @@ module Azu
 
         def evict(topic : String, metas : Array(Meta)) : Nil
           return if metas.empty?
-          @client.multi("presence") do |transaction|
+          @client.multi("presence", retry: true) do |transaction|
             transaction.command(["HDEL", topic_key(topic)] + metas.map(&.ref))
             metas.each { |meta| transaction.command(["HDEL", index_key(topic, meta.key), meta.ref]) }
           end
@@ -106,7 +106,7 @@ module Azu
         end
 
         private def run(& : ::Redis -> T) : T forall T
-          @client.run("presence") { |redis| yield redis }
+          @client.run("presence", retry: true) { |redis| yield redis }
         end
 
         private def expire(commands, topic : String, key : String) : Nil

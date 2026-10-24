@@ -39,7 +39,7 @@ module Azu
       # the connection is then unknown.
       def run(strict : Bool = false, & : T -> R) : R forall R
         connection = checkout
-        keep = false
+        keep = false # ameba:disable Lint/UselessAssign
         begin
           result = yield connection
           keep = true
@@ -80,12 +80,11 @@ module Azu
       end
 
       def checkin(connection : T) : Nil
-        @mutex.synchronize { @in_use -= 1 }
-        if closed?
-          destroy(connection)
-        else
-          @mutex.synchronize { @idle.send(Idle(T).new(connection, Clock.instant)) unless @closed }
+        closed = @mutex.synchronize do
+          @in_use -= 1
+          @closed.tap { |shut| @idle.send(Idle(T).new(connection, Clock.instant)) unless shut }
         end
+        destroy(connection) if closed
       end
 
       # Closes *connection* and frees its permit so another one can be opened.

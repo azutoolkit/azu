@@ -56,13 +56,13 @@ module Azu
 
     # True when *error* means the connection can no longer be trusted (lost, refused, timed out, TLS failure).
     def self.connection_failure?(error : Exception) : Bool
-      error.is_a?(::Redis::ConnectionError | ::Redis::CommandTimeoutError | IO::Error | OpenSSL::Error)
+      error.is_a?(::Redis::ConnectionError | IO::Error | OpenSSL::Error)
     end
 
     # True when a command timed out. The `redis` shard reports a read timeout as a `ConnectionLostError` whose
     # message starts with `IO::TimeoutError`.
     def self.timeout?(error : Exception) : Bool
-      return true if error.is_a?(::Redis::CommandTimeoutError | IO::TimeoutError)
+      return true if error.is_a?(IO::TimeoutError)
       error.is_a?(::Redis::ConnectionLostError) && error.message.try(&.starts_with?("IO::TimeoutError")) == true
     end
 

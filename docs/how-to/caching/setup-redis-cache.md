@@ -3,14 +3,6 @@
 This guide shows how to make `Azu.cache` use Redis, so several processes or servers share one cache that survives
 restarts.
 
-> **Known issue in this checkout.** The Redis store does not work against a running Redis. Every `RedisStore`
-> command that returns a value (`get`, `exists?`, `delete`, `increment`, `size`, `ping`, `info`) returns `nil`, `false`
-> or `0` even though the command reaches the server, so `Azu.cache` with `store = "redis"` fails its start-up
-> `ping` and [falls back to a disabled cache](#what-happens-when-redis-is-unreachable). Writes (`set`, `set_multi`,
-> `clear`) do arrive in Redis. This was found by running the examples below against Redis 7.0.15; the code in the
-> rest of this guide is **type-checked only**, which is why it describes the intended behaviour. Use the
-> [memory cache](setup-memory-cache.md) until this is fixed.
-
 ## Prerequisites
 
 A running Redis. Azu depends on the `redis` shard (`stefanwille/crystal-redis ~> 2.9.0`) itself, so `shards install`
@@ -104,9 +96,9 @@ Azu.cache.increment("api_calls:user:1", 1, 1.minute)
 Azu.cache.decrement("available_slots")
 ```
 
-`increment(key, amount = 1, ttl = nil)` uses Redis `INCR` / `INCRBY` and is meant to return the new value, or `nil`
-if Redis failed. In this checkout the counter is incremented in Redis but the call returns `nil` and no TTL is set
-(see the known issue above).
+`increment(key, amount = 1, ttl = nil)` returns the new value, or `nil` if Redis failed. The TTL is set once, when
+the counter is created, and later hits do not renew it. It is not retried after a lost connection: it may already
+have been applied.
 
 ## Connection Pool and Timeouts
 
@@ -275,14 +267,12 @@ health = Azu::Handler::HealthCheck.new(
 ```
 
 Use it in the handler array of `start`; `/health` answers `200`, or `503 {"status":"unavailable","failing":["redis"]}`.
-With the known issue above it answers `503` even when Redis is up (checked).
 `Azu.cache.redis_info` returns the parsed `INFO` of the server.
 
 ## What Was Checked
 
-The code blocks were **type-checked only**. Against a real Redis 7.0.15 and a closed port the following was run:
-the fall-back to a disabled cache (3.0 s, `NullStore`), writes of a directly built `RedisStore` (keys, whole-second
-TTLs, `set_multi`, no key prefix) and the failing reads and `ping` described in the known issue.
+The store is exercised against a live Redis 7 by `spec/azu/cache_spec.cr` (reads, counters with their TTL, multi-key
+operations, pooling, the operation timeout) and `spec/azu/redis_spec.cr`; both go pending without a server.
 
 ## See Also
 

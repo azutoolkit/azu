@@ -113,6 +113,8 @@ describe Azu::Redis::Config do
     Azu::Redis::Config.new(url: "rediss://h/0").ssl_context.should be_nil
     Azu::Redis::Config.new(url: "rediss://h/0").tls?.should be_true
     Azu::Redis::Config.new(url: "redis://h/0").tls?.should be_false
+    Azu::Redis::Config.new(url: "redis://h/0", tls_verify: false, tls_ca_file: "/x.pem").tls?.should be_false
+    Azu::Redis::Config.new(url: "redis://h/0", tls_verify: false).ssl_context.should be_nil
     context = Azu::Redis::Config.new(url: "rediss://h/0", tls_verify: false).ssl_context
     context.try(&.verify_mode).should eq OpenSSL::SSL::VerifyMode::NONE
   end
@@ -358,7 +360,7 @@ describe Azu::Redis::Pool do
 
   it "discards on any error when strict, even one that does not break a connection" do
     created = [] of FakeConnection
-    pool = fake_pool(1, created: created, broken: ->(error : Exception) { false })
+    pool = fake_pool(1, created: created, broken: ->(_error : Exception) { false })
 
     expect_raises(ArgumentError) { pool.run(strict: true) { |_| raise ArgumentError.new("x") } }
 
@@ -475,13 +477,11 @@ describe Azu::Redis do
       Azu::Redis.retryable?(Redis::CannotConnectError.new("IO::TimeoutError: connect timed out")).should be_true
       Azu::Redis.retryable?(IO::Error.new("closed")).should be_true
       Azu::Redis.retryable?(Redis::ConnectionLostError.new("IO::TimeoutError: Read timed out")).should be_false
-      Azu::Redis.retryable?(Redis::CommandTimeoutError.new("Command timed out")).should be_false
       Azu::Redis.retryable?(Redis::Error.new("WRONGTYPE Operation against a key")).should be_false
       Azu::Redis.retryable?(Redis::PoolTimeoutError.new("no connection")).should be_false
     end
 
     it "discards the connection of a timeout, a lost connection and a TLS failure, not of a server reply" do
-      Azu::Redis.connection_failure?(Redis::CommandTimeoutError.new("t")).should be_true
       Azu::Redis.connection_failure?(Redis::ConnectionLostError.new("IO::TimeoutError: Read timed out")).should be_true
       Azu::Redis.connection_failure?(OpenSSL::Error.new("tls")).should be_true
       Azu::Redis.connection_failure?(Redis::Error.new("ERR unknown command")).should be_false
@@ -503,19 +503,19 @@ describe Azu::Redis do
         started = clock.instant
         calls = 0
 
-        expect_raises(Redis::CannotConnectError) { client.run { |redis| calls += 1; redis.ping } }
+        expect_raises(Redis::CannotConnectError) { client.run(retry: true) { |redis| calls += 1; redis.ping } }
 
         (clock.instant - started).should eq 30.milliseconds
         calls.should eq 0
       end
     end
 
-    it "does not retry when told not to, and does not wait" do
+    it "does not retry unless asked to, and does not wait" do
       with_fake_clock do |clock|
         client = Azu::Redis::Client.new(Azu::Redis::Config.new(url: UNREACHABLE))
         started = clock.instant
 
-        expect_raises(Redis::CannotConnectError) { client.run(retry: false, &.ping) }
+        expect_raises(Redis::CannotConnectError) { client.run(&.ping) }
 
         clock.instant.should eq started
       end
@@ -623,7 +623,7 @@ describe Azu::Redis do
           killer.close
         end
 
-        client.run(&.ping).should eq "PONG"
+        client.run(retry: true, &.ping).should eq "PONG"
         client.run(&.command(["CLIENT", "ID"])).as(Int64).should_not eq id
         client.stats.discarded.should eq 1
       end

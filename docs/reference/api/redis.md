@@ -102,9 +102,13 @@ redis.key("sessions:1") # => "<prefix>sessions:1"
 redis.close
 ```
 
-- `run(operation = "command", retry: true) { |connection| ... }` borrows a pooled connection. The block runs again
-  on a fresh connection if the first one was dead, so it should not have effects other than Redis commands.
-- `multi` and `pipelined` take the shard's transaction and pipeline objects and return the array of replies.
+- `run(operation = "command", retry: false) { |connection| ... }` borrows a pooled connection. With `retry: true`
+  the block runs again on a fresh connection if the first one was dead, so pass it for idempotent commands only
+  and keep the block free of effects other than Redis commands. Cache reads and writes, Presence and PubSub
+  publishing do; `increment` does not.
+- `multi` and `pipelined` take the shard's transaction and pipeline objects and return the array of replies. They
+  discard the connection after **any** error (an error reply mid-pipeline leaves the other replies unread, a block
+  that raises leaves the connection inside `MULTI`), and so does a block left by `return` or `break`.
 - `with_prefix(prefix)` returns a view with another `key` prefix on the same pool; closing a view does nothing.
 - `time` reads `TIME`, so nodes that write and judge expiry (Presence) need no synchronized clocks.
 - `stats` returns `capacity`, `open`, `in_use`, `idle`, `discarded` (connections thrown away after an error) and
@@ -116,17 +120,24 @@ redis.close
 - A connection whose use failed with a connection error, a timeout or a TLS failure is closed and replaced; one
   that only saw a server error reply (`WRONGTYPE`) is kept.
 - A connection idle for `health_check_after` is probed with `PING` on checkout and replaced if it fails.
+- After a connection failure the other idle connections are closed too (after a server restart they are all dead),
+  so the next attempt, retried or not, gets a fresh one.
+- Connections are named (`CLIENT SETNAME`) after the `name` of the handle that first opened the pool; handles
+  sharing a pool do not each name their own.
 - A waiter is woken when a connection is discarded, because that frees room to open a new one.
 - Closing the pool closes idle connections at once and checked out ones as they return; fibers still waiting fail
   with `Azu::Redis::ClosedError`.
 
 ### Retries
 
+Timeouts are per socket read and write (`command_timeout`), not a deadline for the whole call: a command can take
+longer than `command_timeout` in total when it needs several reads.
+
 `Azu::Redis::Retry.new(retries: 1, base: 10.milliseconds, max: 1.second, jitter: 0.5)`: after a lost or refused
 connection a command is tried again up to `retries` times, waiting `base * 2^attempt` (at most `max`, shortened by
 up to `jitter` of itself) before each. The wait goes through `Azu::Clock.sleep`, so a spec with
-`Azu::Clock::Fake` retries without sleeping. `Retry.none` turns retries off, and `run(retry: false)` does so for
-one call (the cache does this for `increment`, which must not be applied twice).
+`Azu::Clock::Fake` retries without sleeping. `Retry.none` turns retries off for the whole config. A call retries only when it passes `retry: true`
+(the default is `false`; the cache's `increment` never does, because it must not be applied twice).
 
 A command that **timed out** is not retried, since it may have been applied; its connection is discarded because a
 late reply would answer the next command. A server error reply and a pool timeout are not retried either.
@@ -144,7 +155,7 @@ redis.release(subscriber)
 ```
 
 `dedicated` opens a connection that is not taken from the pool and has no read timeout, for something that holds
-it for good, such as a `SUBSCRIBE` loop (`PubSub::Redis` uses one). It does not count against `pool_size` and ends
+it for good, such as a `SUBSCRIBE` loop or a blocking command (`BLPOP`, `XREAD BLOCK`) that outlasts `command_timeout` (`PubSub::Redis` uses one). It does not count against `pool_size` and ends
 with the client or with `release`.
 
 ## Health check

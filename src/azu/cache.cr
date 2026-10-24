@@ -325,7 +325,7 @@ module Azu
       end
 
       def get(key : String) : String?
-        @redis.run("get", &.get(key))
+        @redis.run("get", retry: true, &.get(key))
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) {
           "Redis GET operation failed for key '#{key}' - #{classify_redis_error(ex)}"
@@ -336,9 +336,9 @@ module Azu
       def set(key : String, value : String, ttl : Time::Span? = nil) : Bool
         ttl = ttl || @default_ttl
         if ttl
-          @redis.run("setex", &.setex(key, ttl.total_seconds.to_i, value))
+          @redis.run("setex", retry: true, &.setex(key, ttl.total_seconds.to_i, value))
         else
-          @redis.run("set", &.set(key, value))
+          @redis.run("set", retry: true, &.set(key, value))
         end
         true
       rescue ex
@@ -349,7 +349,7 @@ module Azu
       end
 
       def delete(key : String) : Bool
-        result = @redis.run("del", &.del(key))
+        result = @redis.run("del", retry: true, &.del(key))
         (result || 0) > 0
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to delete key: #{key}" }
@@ -357,7 +357,7 @@ module Azu
       end
 
       def exists?(key : String) : Bool
-        result = @redis.run("exists", &.exists(key))
+        result = @redis.run("exists", retry: true, &.exists(key))
         (result || 0) > 0
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to check existence of key: #{key}" }
@@ -365,7 +365,7 @@ module Azu
       end
 
       def clear : Bool
-        @redis.run("flushdb", &.flushdb)
+        @redis.run("flushdb", retry: true, &.flushdb)
         true
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to clear cache" }
@@ -373,7 +373,7 @@ module Azu
       end
 
       def size : Int32
-        keyspace = @redis.run("info", &.info("keyspace"))["db#{@database}"]?
+        keyspace = @redis.run("info", retry: true, &.info("keyspace"))["db#{@database}"]?
         keyspace && keyspace =~ /keys=(\d+)/ ? $1.to_i : 0
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to get cache size" }
@@ -394,7 +394,7 @@ module Azu
       # Not retried on a lost connection: the increment may already have been applied.
       def increment(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
         seconds = ttl ? ttl.total_seconds.to_i : 0
-        @redis.run("incrby", retry: false, &.eval(INCREMENT_SCRIPT, [key], [amount.to_s, seconds.to_s])).as(Int).to_i
+        @redis.run("incrby", &.eval(INCREMENT_SCRIPT, [key], [amount.to_s, seconds.to_s])).as(Int).to_i
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to increment key: #{key}" }
         nil
@@ -408,7 +408,7 @@ module Azu
       def get_multi(keys : Array(String)) : Hash(String, String?)
         return Hash(String, String?).new if keys.empty?
 
-        values = @redis.run("mget", &.mget(keys))
+        values = @redis.run("mget", retry: true, &.mget(keys))
         return Hash(String, String?).new unless values
 
         result = Hash(String, String?).new
@@ -427,7 +427,7 @@ module Azu
         return true if values.empty?
 
         # Use Redis pipeline for better performance
-        @redis.pipelined("mset") do |pipeline|
+        @redis.pipelined("mset", retry: true) do |pipeline|
           values.each do |key, value|
             if ttl
               pipeline.setex(key, ttl.total_seconds.to_i, value)
@@ -445,14 +445,14 @@ module Azu
 
       # Redis-specific methods
       def ping : String?
-        @redis.run("ping", &.ping)
+        @redis.run("ping", retry: true, &.ping)
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Redis ping failed" }
         nil
       end
 
       def info : Hash(String, String)?
-        @redis.run("info", &.info)
+        @redis.run("info", retry: true, &.info)
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Redis info failed" }
         nil
