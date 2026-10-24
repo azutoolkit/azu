@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the browser tests of the Spark client (reconnect, rehydration, queue, heartbeat; patch engine).
+# Runs the browser tests of the Spark client (reconnect, rehydration, queue, heartbeat; event delivery; patch engine).
 #
 #   spec/browser/run.sh
 #
@@ -16,4 +16,5 @@ if ! command -v node >/dev/null; then
   [ "${SPARK_BROWSER_REQUIRED:-}" = 1 ] && exit 1 || exit 0
 fi
 node spec/browser/spark_reconnect.cjs
+node spec/browser/spark_delivery.cjs
 exec node spec/browser/spark_patch.cjs

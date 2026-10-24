@@ -10,7 +10,7 @@
 
 /**
  * @typedef {"connecting" | "connected" | "reconnecting" | "disconnected"} SparkStatus
- * @typedef {{ message: Record<string, unknown>, undo?: (() => void) | null, key?: string | null, at: number }} QueuedEvent
+ * @typedef {{ message: Record<string, unknown>, undo?: (() => void) | null, key?: string | null, at: number, root: string, once: boolean, sentAt?: number }} QueuedEvent
  * @typedef {{ v: number, type: string, id?: number, [field: string]: unknown }} SparkMessage
  */
 
@@ -31,9 +31,11 @@ var ws = null;
 var status = "disconnected";
 var hello = null;
 var nextId = 0;
+var lastEid = 0; // the number of the last event sent for the first time: events are numbered per page, not per connection
 var booted = false;
-var pending = new Map(); // request id -> {undo, sentAt}
-var queue = []; // events waiting for a connection: {message, undo, key, at}
+var gens = new Map(); // root id -> the generation of its state, as the server named it in the reply to the join
+var pending = new Map(); // request id -> the event sent on it and not yet acknowledged
+var queue = []; // events waiting to be sent: first those to resend (they keep their number), then the new ones
 var joining = new Map(); // join request id -> root id
 var handlers = {}; // Spark.on(...)
 var joined = new Set(); // root ids joined on the current socket
@@ -80,51 +82,103 @@ function pageParams() {
   return params;
 }
 
-// Sends *entry* (a queued or fresh event) now; false when there is no open socket.
+// ---- delivery ---------------------------------------------------------------------------
+//
+// Every event is numbered (`eid`) when it is first sent and keeps its number until the server
+// acknowledges it, so a resend after a reconnect is recognised: the server applies an `eid` once.
+// Unacknowledged events stay in `pending`; when the connection is lost they go back to the front
+// of the queue, in order, and are sent again once the page has rejoined (at least once).
+//
+// Order: the events of one root reach the server in the order they were made. An event that
+// replaces a value (text input) waits while an earlier one for the same control is in flight, and
+// anything made after it for that root waits behind it; meanwhile newer values of the same
+// control merge into it, so the latest value wins and no stale one is overtaken. Value events of
+// different controls may swap places among themselves; nothing else is ever reordered.
+
+// Sends *entry* now; false when there is no open socket.
 function send(entry) {
   // Not before the server greeted us and every page root has rejoined: earlier, the target does not exist yet.
   if (machine.state.name !== "open") return false;
   var id = ++nextId;
   entry.message.id = id;
-  if (transmit(entry.message)) pending.set(id, { undo: entry.undo, sentAt: now() });
-  else release(entry); // too large for the server: reported as an error, never retried
+  if (!entry.message.eid) entry.message.eid = ++lastEid;
+  if (transmit(entry.message)) {
+    entry.sentAt = now();
+    pending.set(id, entry);
+  } else release(entry); // too large for the server: reported as an error, never retried
   return true;
 }
 
+// Ends the loading state of *entry* (once).
 function release(entry) {
-  if (entry.undo) entry.undo();
+  var undo = entry.undo;
+  entry.undo = null;
+  if (undo) undo();
 }
 
-// Events wait here while there is no connection: bounded (the oldest is dropped), and an event
-// that carries a whole value (a text input) replaces the older one for the same target.
+// Forgets *entry* without delivering it, and says so.
+function drop(entry, reason) {
+  release(entry);
+  emit("event_dropped", { event: entry.message.event, reason: reason });
+}
+
+// Adds *entry* to the queue, or merges it into a waiting event of its root that carries the same
+// value of the same control (the newer value replaces the older one in place). Only value events of
+// other controls may lie in between: any other event, or one that was sent once (it may have been
+// applied, its number must keep standing for what it carried), is a barrier. Returns the entry
+// that holds the event.
 function enqueue(entry) {
-  if (entry.key) {
-    queue = queue.filter(function (queued) {
-      if (queued.key !== entry.key) return true;
-      release(queued);
-      return false;
-    });
+  for (var i = queue.length - 1; entry.key && i >= 0; i--) {
+    var other = queue[i];
+    if (other.root !== entry.root) continue;
+    if (!other.key || other.message.eid) break;
+    if (other.key !== entry.key) continue;
+    other.message.payload = entry.message.payload;
+    other.at = entry.at;
+    release(entry);
+    return other;
   }
   queue.push(entry);
-  while (queue.length > config.queueMax) {
-    release(queue.shift());
-    emit("error", { code: "queue_full", message: "too many events while offline" });
+  return entry;
+}
+
+// Waiting events and unacknowledged ones share one bound; the oldest goes first.
+function trim() {
+  while (queue.length + pending.size > config.queueMax) {
+    var oldest = pending.keys().next().value; // the oldest sent one, or the oldest waiting one: whichever is older
+    var entry = pending.get(oldest);
+    if (entry && (!queue.length || entry.at <= queue[0].at)) pending.delete(oldest); else entry = queue.shift();
+    drop(entry, "queue_full");
+    emit("error", { code: "queue_full", message: "too many unacknowledged events" });
   }
+}
+
+function inFlight(key) {
+  var found = false;
+  pending.forEach(function (entry) { if (entry.key === key) found = true; });
+  return found;
 }
 
 function joinsSettled() {
   if (joining.size > 0) return;
   machine.dispatch({ type: "joins_settled" });
-  flushQueue();
+  pump();
 }
 
-function flushQueue() {
+// Sends what may be sent, in order: not an event that is too old, nor one that has to wait for
+// an earlier value of its control (and then nothing after it for the same root).
+function pump() {
+  if (machine.state.name !== "open") return;
   var waiting = queue;
-  queue = [];
+  var held = {};
   var current = now();
+  queue = [];
   waiting.forEach(function (entry) {
-    if (current - entry.at > config.queueMaxAge) release(entry);
-    else if (!send(entry)) queue.push(entry);
+    if (current - entry.at > config.queueMaxAge) return drop(entry, "expired");
+    if (held[entry.root] || (entry.key && inFlight(entry.key))) {
+      held[entry.root] = true;
+      queue.push(entry);
+    } else if (!send(entry)) queue.push(entry);
   });
 }
 
@@ -566,11 +620,38 @@ function receive(text) {
       joinsSettled();
       break;
     case "diff": applyDiff(message); break;
-    case "reply": joining.delete(message.id); afterPatches(function () { settle(message.id); }); joinsSettled(); break;
+    case "reply": learnGeneration(message); answered(message.id); joinsSettled(); break;
     case "redirect": navigate(message.to, message.replace); break;
     case "heartbeat": break;
     case "error": failed(message); break;
   }
+  // The server names the event a frame answers: done with it, even if its reply never comes.
+  if (message.ack) acknowledge(message.ack);
+}
+
+// The event is answered: it is no longer unacknowledged at once (a close before the next frame must
+// not send it again, the snapshot that came with it already holds its effect), but the page shows it
+// as done only after the patches that came with the answer.
+function answered(id) {
+  var entry = pending.get(id);
+  pending.delete(id);
+  afterPatches(function () {
+    if (entry) release(entry);
+    pump();
+  });
+  return entry;
+}
+
+// A reply to a join names the generation of the root's state; events made for it carry that name.
+function learnGeneration(message) {
+  var root = joining.get(message.id);
+  joining.delete(message.id);
+  if (root === undefined) return;
+  if (message.gen) gens.set(root, message.gen); else gens.delete(root);
+}
+
+function acknowledge(eid) {
+  pending.forEach(function (entry, id) { if (entry.message.eid === eid) answered(id); });
 }
 
 /**
@@ -604,7 +685,10 @@ function navigate(to, replace) {
 }
 
 function failed(message) {
-  settle(message.id);
+  var entry = answered(message.id);
+  if (entry && (message.code === "stale_event" || message.code === "rate_limited")) {
+    emit("event_dropped", { event: entry.message.event, reason: message.code === "stale_event" ? "stale" : "rate_limited" });
+  }
   var root = joining.get(message.id);
   joining.delete(message.id);
   emit("error", { code: message.code, message: message.message, id: message.id });
@@ -989,7 +1073,10 @@ function watchUser() {
   document.addEventListener("close", mark, true);
   document.addEventListener("visibilitychange", flushPatches); // background timers are throttled
   document.addEventListener("compositionstart", function (event) { composing = event.target; }, true);
-  document.addEventListener("compositionend", function () { composing = null; }, true);
+  document.addEventListener("compositionend", function (event) {
+    composing = null;
+    route(event, "change", ofText);
+  }, true);
 }
 
 // ---- requests ---------------------------------------------------------------------------
@@ -1003,7 +1090,15 @@ function controlKey(element) {
   return controlIds.get(element);
 }
 
-function push(element, event, payload, loading, coalesce) {
+function rootOf(target) {
+  var root = target.closest("[data-spark-root]") || target;
+  return root.getAttribute("data-spark-id");
+}
+
+// Turns a user action into an event and delivers it. *how*: `coalesce` (the event carries a whole
+// value, so a newer one replaces an older one that waits), `dom` (the DOM event kind, part of the
+// key), `once` (at-most-once delivery).
+function push(element, event, payload, loading, how) {
   var undo = loading ? loading() : null;
   var target = element.closest("[data-spark-id]");
   if (!target) return;
@@ -1019,35 +1114,43 @@ function push(element, event, payload, loading, coalesce) {
     var selected = document.querySelector(targetName);
     target = (selected && selected.closest("[data-spark-id]")) || target;
   }
+  how = how || {};
   var targetId = target.getAttribute("data-spark-id");
+  var root = rootOf(target);
   var entry = {
     message: { v: PROTOCOL, type: "event", target: targetId, event: event, payload: payload },
-    undo: undo, key: coalesce ? targetId + "|" + event + "|" + controlKey(element) : null, at: now()
+    undo: undo, at: now(), root: root, once: !!how.once,
+    key: how.coalesce ? targetId + "|" + event + "|" + controlKey(element) + "|" + how.dom : null
   };
-  if (send(entry)) return;
+  if (gens.has(root)) entry.message.gen = gens.get(root); // the page state this event was made against
   if (machine.state.name === "stopped" || machine.state.name === "idle") {
     release(entry);
     return emit("offline", { event: event }, element);
   }
-  enqueue(entry);
-  emit("queued", { event: event, size: queue.length }, element);
+  var held = enqueue(entry);
+  pump();
+  trim();
+  if (queue.indexOf(held) >= 0) emit("queued", { event: event, size: queue.length }, element);
 }
 
-function settle(id) {
-  var entry = pending.get(id);
-  if (!entry) return;
-  pending.delete(id);
-  if (entry.undo) entry.undo();
-}
-
+// The connection is gone. What was sent and not acknowledged may or may not have been applied:
+// it goes back to the front of the queue to be sent again with its number (the server applies a
+// number once), except an at-most-once event, which is dropped.
 function cancelPending() {
-  pending.forEach(function (entry) { if (entry.undo) entry.undo(); });
+  var again = [];
+  pending.forEach(function (entry) {
+    if (entry.once) drop(entry, "disconnect"); else again.push(entry);
+  });
   pending.clear();
+  again.sort(function (a, b) { return a.message.eid - b.message.eid; });
+  queue = again.concat(queue);
+  trim();
 }
 
+// A request nobody answered stops looking busy; it stays unacknowledged.
 function expirePending() {
   var current = now();
-  pending.forEach(function (entry, id) { if (current - entry.sentAt > config.requestTimeout) settle(id); });
+  pending.forEach(function (entry) { if (current - entry.sentAt > config.requestTimeout) release(entry); });
 }
 
 function loadingStates(element) {
@@ -1103,13 +1206,31 @@ function assign(target, source) {
   return target;
 }
 
+var debounced = new Set(); // sends waiting for the pause to end: {element, timer, work}
+
+// Sends the debounced events of *within* (an element or a container; all when omitted) now, so the
+// last keystroke is not lost to a blur, a submit or a closing page, and keeps its place in line.
+function flushDebounced(within) {
+  debounced.forEach(function (slot) {
+    if (within && !within.contains(slot.element) && !slot.element.contains(within)) return;
+    clearTimeout(slot.timer);
+    debounced.delete(slot);
+    slot.work();
+  });
+}
+
 function throttled(element, kind, name, ms, work, mode) {
   var state = timers.get(element) || {};
   timers.set(element, state);
   var key = kind + ":" + name;
   if (mode === "debounce") {
-    clearTimeout(state[key]);
-    state[key] = setTimeout(work, ms);
+    if (state[key]) {
+      clearTimeout(state[key].timer);
+      debounced.delete(state[key]);
+    }
+    var slot = state[key] = { element: element, work: work };
+    slot.timer = setTimeout(function () { debounced.delete(slot); work(); }, ms);
+    debounced.add(slot);
   } else {
     var now = Date.now();
     if (state[key] && now - state[key] < ms) return;
@@ -1123,13 +1244,19 @@ function dispatch(kind, domEvent, element) {
   var key = element.getAttribute("spark-key");
   if (key && domEvent.key !== key) return;
   var confirmText = element.getAttribute("spark-confirm");
-  if (kind === "submit" || kind === "click" || key) domEvent.preventDefault();
+  // Only the events that can be cancelled and are not passive: a keyup (or input) cannot be.
+  if (kind === "submit" || kind === "click" || (key && domEvent.type === "keydown")) domEvent.preventDefault();
+  var how = {
+    coalesce: kind === "change" && textual(element),
+    dom: domEvent.type === "compositionend" ? "input" : domEvent.type,
+    once: element.getAttribute("spark-delivery") === "at-most-once"
+  };
   var send = function () {
     if (confirmText && !window.confirm(confirmText)) return;
     var payload = valuesOf(element);
     if (element.nodeName === "FORM") assign(payload, formPayload(element));
     else if (/^(INPUT|SELECT|TEXTAREA)$/.test(element.nodeName) && kind !== "click") assign(payload, controlPayload(element));
-    push(element, name, payload, loadingStates(element), kind === "change");
+    push(element, name, payload, loadingStates(element), how);
   };
   var debounce = parseInt(element.getAttribute("spark-debounce"), 10);
   var throttle = parseInt(element.getAttribute("spark-throttle"), 10);
@@ -1138,31 +1265,42 @@ function dispatch(kind, domEvent, element) {
   else send();
 }
 
-function listen(domEvent, kind, capture, accepts) {
-  document.addEventListener(domEvent, function (event) {
-    var start = event.target;
-    if (!(start instanceof Element)) return;
-    var element = start.closest("[spark-" + kind + "]");
-    if (!element || !element.closest("[data-spark-id]")) return;
-    if (accepts && !accepts(event, element)) return;
-    dispatch(kind, event, element);
-  }, capture);
+// One handler for a DOM event, from any of the listeners below: finds the element that asked for
+// it (`spark-<kind>`) and sends. Nothing is sent while an IME composes: the text is not final, and
+// the key that confirms it is not a key press. `compositionend` sends the final text instead.
+function route(event, kind, accepts) {
+  var start = event.target;
+  if (!(start instanceof Element)) return;
+  if (event.type === "blur" || event.type === "submit") flushDebounced(start);
+  if (event.isComposing || event.keyCode === 229) return;
+  var element = start.closest("[spark-" + kind + "]");
+  if (!element || !element.closest("[data-spark-id]")) return;
+  if (accepts && !accepts(event, element)) return;
+  dispatch(kind, event, element);
+}
+
+// One listener per event type, on the document: elements come and go with every patch. Those that
+// never cancel the event are passive, so the browser does not wait for them.
+function listen(domEvent, kind, capture, passive, accepts) {
+  document.addEventListener(domEvent, function (event) { route(event, kind, accepts); }, { capture: capture, passive: passive });
 }
 
 function textual(control) {
   return control.nodeName === "TEXTAREA" || (control.nodeName === "INPUT" && !/^(checkbox|radio|file|range|color|button|submit)$/.test(control.type));
 }
 
+function ofText(event) { return textual(event.target); }
+
 function bind() {
-  listen("click", "click", false);
-  listen("submit", "submit", false);
-  listen("keydown", "keydown", false);
-  listen("keyup", "keyup", false);
-  listen("blur", "blur", true);
-  listen("focus", "focus", true);
+  listen("click", "click", false, false);
+  listen("submit", "submit", false, false);
+  listen("keydown", "keydown", false, false);
+  listen("keyup", "keyup", false, true);
+  listen("blur", "blur", true, true);
+  listen("focus", "focus", true, true);
   // Text controls report every keystroke (`input`); everything else reports on `change`.
-  listen("input", "change", false, function (event) { return textual(event.target); });
-  listen("change", "change", false, function (event) { return !textual(event.target); });
+  listen("input", "change", false, true, ofText);
+  listen("change", "change", false, true, function (event) { return !textual(event.target); });
 }
 
 // ---- page changes -----------------------------------------------------------------------
@@ -1180,6 +1318,7 @@ function observe() {
           var id = root.getAttribute("data-spark-id");
           if (!joined.delete(id)) return;
           snapshots.delete(id);
+          gens.delete(id);
           transmit({ v: PROTOCOL, type: "leave", target: id });
         });
       });
@@ -1188,7 +1327,10 @@ function observe() {
 }
 
 function stop() {
-  queue.splice(0).forEach(release);
+  var forgotten = queue.splice(0);
+  pending.forEach(function (entry) { forgotten.push(entry); });
+  pending.clear();
+  forgotten.forEach(function (entry) { drop(entry, "stopped"); });
   machine.dispatch({ type: "stop" });
 }
 
@@ -1201,10 +1343,14 @@ function start() {
   window.addEventListener("online", function () { machine.dispatch({ type: "online" }); });
   window.addEventListener("offline", function () { machine.dispatch({ type: "offline" }); });
   document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState !== "visible") flushDebounced();
     machine.dispatch({ type: document.visibilityState === "visible" ? "visible" : "hidden" });
   });
   window.addEventListener("pageshow", function (event) { if (event.persisted) machine.dispatch({ type: "pageshow" }); });
-  window.addEventListener("pagehide", function () { machine.dispatch({ type: "pagehide" }); });
+  window.addEventListener("pagehide", function () {
+    flushDebounced();
+    machine.dispatch({ type: "pagehide" });
+  });
   if (roots().length > 0) machine.dispatch({ type: "connect" });
   else document.addEventListener("DOMContentLoaded", function () { if (roots().length > 0) machine.dispatch({ type: "connect" }); });
 }
@@ -1212,6 +1358,7 @@ function start() {
 window.AzuSpark = {
   get status() { return status; },
   get queued() { return queue.length; },
+  get unacked() { return pending.size; },
   connect: function () { machine.dispatch({ type: "connect" }); },
   disconnect: stop,
   on: function (name, fn) { (handlers[name] = handlers[name] || []).push(fn); return this; },

@@ -70,7 +70,7 @@ module SparkComponentSpec
     def render
       div class: "counter" do
         h2 "#{label}: #{count}"
-        button "+", **spark_click(:increment, debounce: 100, id: 7)
+        button "+", **spark_click(:increment, debounce: 100, id: 7, delivery: "at-most-once")
         input **spark_change(:set_step, throttle: 50), type: "text", name: "step", value: step.to_s
         span errors_on(signup, :name).join(",") unless signup.name.presence
       end
@@ -187,6 +187,7 @@ describe Azu::Spark::Component do
         view.html.should contain "spark-click='increment'"
         view.html.should contain "spark-debounce='100'"
         view.html.should contain "spark-value-id='7'"
+        view.html.should contain "spark-delivery='at-most-once'"
         view.html.should contain "spark-change='set_step'"
         view.html.should contain "spark-throttle='50'"
       end

@@ -3,17 +3,80 @@ import { Window } from "happy-dom";
 
 let loaded;
 
-/** Loads azu-spark.js once, in a DOM without a Spark root (so it opens no socket). */
-export async function loadSpark() {
+/**
+ * Loads azu-spark.js once, in a DOM without a Spark root (so it opens no socket). *prepare* runs on
+ * the window before the module boots (to spy on what it registers).
+ */
+export async function loadSpark(prepare) {
   if (!loaded) {
     const window = new Window({ url: "http://localhost/" });
-    for (const name of ["window", "document", "location", "navigator", "DOMParser", "CustomEvent", "URL", "URLSearchParams", "MutationObserver", "Node", "Element"]) {
+    for (const name of ["window", "document", "location", "navigator", "DOMParser", "CustomEvent", "URL", "URLSearchParams", "MutationObserver", "Node", "Element", "FormData"]) {
       if (name === "window") globalThis.window = window;
       else Object.defineProperty(globalThis, name, { value: window[name], configurable: true, writable: true });
     }
+    if (prepare) prepare(window);
     loaded = import("../azu-spark.js");
   }
   return loaded;
+}
+
+/** A WebSocket the test drives: `sent` holds the frames the client wrote, `receive` plays the server. */
+export class FakeSocket {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
+  static all = [];
+
+  constructor(url) {
+    this.url = url;
+    this.readyState = FakeSocket.OPEN;
+    this.sent = [];
+    FakeSocket.all.push(this);
+  }
+
+  send(text) { this.sent.push(JSON.parse(text)); }
+  close(code, reason) {
+    if (this.readyState === FakeSocket.CLOSED) return;
+    this.readyState = FakeSocket.CLOSED;
+    queueMicrotask(() => this.onclose && this.onclose({ code, reason }));
+  }
+
+  receive(frame) { this.onmessage({ data: JSON.stringify({ v: 1, ...frame }) }); }
+
+  /** The connection breaks: the client sees a close without a handshake. */
+  drop() {
+    this.readyState = FakeSocket.CLOSED;
+    this.onclose({ code: 1006, reason: "lost" });
+  }
+
+  of(type) { return this.sent.filter((frame) => frame.type === type); }
+  get events() { return this.of("event"); }
+}
+
+export const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function until(check, what = "condition", limit = 3000) {
+  const end = Date.now() + limit;
+  while (!check()) {
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    await tick(5);
+  }
+}
+
+/**
+ * Connects the client (the DOM must hold a Spark root) and plays the server's side of the
+ * handshake: hello, then a reply to every join (with *gen* when given).
+ */
+export async function connected({ gen, before = FakeSocket.all.length } = {}) {
+  globalThis.WebSocket = FakeSocket;
+  if (window.AzuSpark.status === "disconnected" && before === FakeSocket.all.length) window.AzuSpark.connect();
+  await until(() => FakeSocket.all.length > before, "a socket");
+  const socket = FakeSocket.all[FakeSocket.all.length - 1];
+  socket.receive({ type: "hello", heartbeat: 20000, max_size: 65536 });
+  for (const join of socket.of("join")) socket.receive({ type: "reply", id: join.id, ...(gen ? { gen } : {}) });
+  await until(() => window.AzuSpark.status === "connected", "the connection");
+  return socket;
 }
 
 /** A clock and timers that only move when the test says so. */

@@ -9,13 +9,18 @@ module Azu
     # session mounts it (children are mounted while the parent renders, so states wait here until
     # their turn).
     class Rehydrator
+      # The generation of the snapshot that was loaded, if it named one.
+      getter generation : String? = nil
+
       def initialize(@config : Configuration)
         @pending = {} of String => Snapshot::Member
       end
 
       def load(token : String?, root_id : String, session : Hash(String, String)) : Nil
         return unless token
-        @pending.merge!(Snapshot.open(token, root_id, session, @config.secret, @config.max_snapshot_size))
+        opened = Snapshot.read(token, root_id, session, @config.secret, @config.max_snapshot_size)
+        @generation = opened.generation
+        @pending.merge!(opened.members)
       end
 
       # Restores *component* (mounted as *id*) from its pending state, if any. A state recorded for
@@ -32,6 +37,7 @@ module Azu
       end
 
       def clear : Nil
+        @generation = nil
         @pending.clear
       end
     end

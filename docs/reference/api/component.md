@@ -233,7 +233,8 @@ end
 
 `spark_click`, `spark_submit`, `spark_change`, `spark_keydown`, `spark_keyup`, `spark_blur` and
 `spark_focus` accept these options: `debounce: ms`, `throttle: ms`, `target: :parent | :root | "css selector"`,
-`key: "Enter"`, `confirm: "text"`, `disable_with: "text"` and `optimistic_class: "css-class"`. Any other
+`key: "Enter"`, `confirm: "text"`, `disable_with: "text"`, `optimistic_class: "css-class"` and
+`delivery: "at-most-once"` (see [event delivery](../spark-client.md#events-and-delivery)). Any other
 option is sent to the handler as a parameter (`index: 3` reaches `def remove(index : Int32)`).
 Crystal requires double splats before named arguments: write `button "+", **spark_click(:inc), class: "btn"`.
 

@@ -1,4 +1,5 @@
 require "digest/sha256"
+require "random/secure"
 require "json"
 require "log"
 require "./component"
@@ -15,6 +16,10 @@ module Azu
   module Spark
     # A message for `handle_info` of component *target*, produced by PubSub subscriptions and timers.
     record Info, target : String, message : PubSub::Message
+
+    # The result of a join: the initial render and the generation of the page's state (nil when
+    # nothing of it is persisted).
+    record Joined, update : Update, generation : String?
 
     # Topic of messages a component sends to itself.
     SELF_TOPIC = "@self"
@@ -38,15 +43,18 @@ module Azu
         @claims = {} of String => Hash(String, String)
         @rehydrator = Rehydrator.new(@config)
         @sent_snapshots = {} of String => String
+        @generations = {} of String => String
+        @applied = {} of String => Int64
         @expanding = false
       end
 
-      # Mounts the view of a join token and returns the initial render.
-      def join(token : String, snapshot : String?, params : Params) : Update
+      # Mounts the view of a join token and returns the initial render with the generation of its state.
+      def join(token : String, snapshot : String?, params : Params) : Joined
         claims = Token.verify("join", token, @config.secret)
         root_id = claims["id"].as_s
         component = Catalog.build(claims["view"].as_s, claims["props"])
-        start(component, root_id, claims["session"].as_h.transform_values(&.as_s), params, snapshot)
+        update = start(component, root_id, claims["session"].as_h.transform_values(&.as_s), params, snapshot)
+        Joined.new(update, generation(root_id))
       end
 
       # Mounts *component* as the root *id* and returns its initial render. A snapshot token
@@ -64,6 +72,30 @@ module Azu
         wrap(entry, **attributes)
       ensure
         close
+      end
+
+      # Whether the event *eid* for *target* is new, and so to be applied with `event`. This guards
+      # one connection (a repeat on the same socket); a resend after a reconnect arrives on a new
+      # session, where the page was mounted from the client's snapshot, and is applied to it. A client that
+      # sends no ids is always new. Otherwise the event is new when its id is above every id taken
+      # for that root, which is all that is kept: one number per root, however many events came.
+      # The position moves when the event is taken, before it runs, so an event that fails is not
+      # tried again either. *generation* is the one the client saw when it joined; a root that
+      # names a different one was mounted afresh since, and the event raises `StaleEvent`.
+      def accept(target : String, eid : Int64?, generation : String?) : Bool
+        root_id = @registry[target].root_id
+        if generation && (current = @generations[root_id]?) && generation != current
+          raise StaleEvent.new("the page was mounted afresh since this event was made")
+        end
+        return true unless eid
+        return false if eid <= @applied.fetch(root_id, 0_i64)
+        @applied[root_id] = eid
+        true
+      end
+
+      # The generation of the state lineage of the root *id*; nil when the root persists nothing.
+      def generation(id : String) : String?
+        @generations[id]?
       end
 
       # Delivers a client event to its target component and returns the resulting changes.
@@ -90,8 +122,7 @@ module Azu
       # Unmounts the root *id* and everything below it.
       def leave(id : String) : Nil
         unmount_tree(id)
-        @claims.delete(id)
-        @sent_snapshots.delete(id)
+        forget(id)
       end
 
       # Unmounts everything; call exactly once when the client is gone.
@@ -182,7 +213,8 @@ module Azu
         @claims[id] = claims
         @rehydrator.load(snapshot, id, claims)
         mount(component, id, nil, params)
-        flush
+        @generations[id] = @rehydrator.generation || Random::Secure.hex(6)
+        flush.tap { @generations.delete(id) unless persists?(id) }
       rescue ex
         abandon(id)
         raise ex
@@ -190,13 +222,23 @@ module Azu
         @rehydrator.clear
       end
 
+      private def persists?(root_id : String) : Bool
+        @registry.entries.any? { |entry| entry.root_id == root_id && entry.component.__spark_snapshot }
+      end
+
       private def abandon(root_id : String) : Nil
         @registry.entries.select { |entry| entry.root_id == root_id }.sort_by { |entry| -entry.depth }.each do |entry|
           @registry.delete(entry.id)
           retire(entry)
         end
+        forget(root_id)
+      end
+
+      private def forget(root_id : String) : Nil
         @claims.delete(root_id)
         @sent_snapshots.delete(root_id)
+        @generations.delete(root_id)
+        @applied.delete(root_id)
       end
 
       private def mount(component : Component, id : String, parent : Entry?, params : Params) : Entry
@@ -296,7 +338,7 @@ module Azu
 
         encoded = members.to_json
         return if @sent_snapshots[root_id]? == encoded
-        token = Snapshot.sign(root_id, @claims[root_id]? || {} of String => String, members, @config.snapshot_ttl, @config.secret, @config.max_snapshot_size)
+        token = Snapshot.sign(root_id, @claims[root_id]? || {} of String => String, members, @config.snapshot_ttl, @config.secret, @config.max_snapshot_size, @generations[root_id]?)
         unless token
           Log.for("Azu::Spark").warn { "Persisted state of #{root_id} exceeds #{@config.max_snapshot_size} bytes and was not saved" }
           return

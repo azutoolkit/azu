@@ -28,23 +28,35 @@ module Azu
         end
       end
 
-      # Signs *members* (component id => state) for the page *root_id*. Returns nil when the token
-      # would exceed *max_size* bytes.
+      # What a snapshot holds: the persisted *members* and the *generation* of the component tree
+      # they came from (nil for snapshots signed without one).
+      record Opened, members : Hash(String, Member), generation : String?
+
+      # Signs *members* (component id => state) for the page *root_id*; *generation* names the
+      # lineage of the page's state, which a restore keeps (see `Session#accept`). Returns nil when
+      # the token would exceed *max_size* bytes.
       def self.sign(root_id : String, session : Hash(String, String), members : Hash(String, Member),
-                    ttl : Time::Span, secret : String, max_size : Int32) : String?
-        claims = JSON.parse({v: VERSION, root: root_id, sid: digest(session), components: members}.to_json)
+                    ttl : Time::Span, secret : String, max_size : Int32, generation : String? = nil) : String?
+        claims = {v: VERSION, root: root_id, sid: digest(session), components: members}
+        claims = claims.merge(gen: generation) if generation
+        claims = JSON.parse(claims.to_json)
         token = Token.sign("snapshot", claims, ttl, secret)
         token unless token.bytesize > max_size
       end
 
       # The members of a valid *token* issued for *root_id* and *session*; raises `InvalidSnapshot` otherwise.
       def self.open(token : String, root_id : String, session : Hash(String, String), secret : String, max_size : Int32) : Hash(String, Member)
+        read(token, root_id, session, secret, max_size).members
+      end
+
+      # Like `open`, with the generation.
+      def self.read(token : String, root_id : String, session : Hash(String, String), secret : String, max_size : Int32) : Opened
         raise InvalidSnapshot.new("snapshot too large") if token.bytesize > max_size
         claims = Token.verify("snapshot", token, secret)
         raise InvalidSnapshot.new("unsupported snapshot version") unless claims["v"]?.try(&.as_i?) == VERSION
         raise InvalidSnapshot.new("snapshot belongs to another page") unless claims["root"]?.try(&.as_s?) == root_id
         raise InvalidSnapshot.new("snapshot belongs to another session") unless claims["sid"]?.try(&.as_s?) == digest(session)
-        Hash(String, Member).from_json(claims["components"].to_json)
+        Opened.new(Hash(String, Member).from_json(claims["components"].to_json), claims["gen"]?.try(&.as_s?))
       rescue ex : InvalidToken
         raise InvalidSnapshot.new(ex.message)
       rescue JSON::ParseException | JSON::SerializableError | KeyError

@@ -21,9 +21,11 @@ module Azu
     # - `confirm: "text"` asks the user first
     # - `disable_with: "Saving..."` swaps the element's text while the event is in flight
     # - `optimistic_class: "done"` adds a CSS class immediately; the server render is authoritative
+    # - `delivery: "at-most-once"` drops the event if the connection breaks while it is in flight
+    #   (the default is at least once with server deduplication, see docs/reference/spark-client.md)
     # - any other option is sent to the handler as a parameter (`id: 3` reaches `def remove(id : Int64)`)
     module Bindings
-      MODIFIERS = %w(debounce throttle target key confirm disable_with optimistic_class)
+      MODIFIERS = %w(debounce throttle target key confirm disable_with optimistic_class delivery)
 
       macro spark_click(event, **options)
         __spark_binding(:click, {{ event }}, {{ options.double_splat }})

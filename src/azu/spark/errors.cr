@@ -51,6 +51,15 @@ module Azu
       end
     end
 
+    # The event was made for another incarnation of its component tree than the one mounted now:
+    # the snapshot it grew from was refused (expired, tampered, the app changed) and the page was
+    # mounted afresh, so the user acted on a view that no longer exists. Never applied.
+    class StaleEvent < Error
+      def code : String
+        "stale_event"
+      end
+    end
+
     # A connection exceeded a per connection cap such as the number of components.
     class LimitExceeded < Error
       def code : String

@@ -18,8 +18,8 @@ Azu::Spark.script_tag  # <script src="..." data-spark-path="/spark" defer></scri
 ```
 
 The tag has no inline code, so `script-src 'self'` is enough. The served script is minified: about
-21 KB, under 8 KB gzipped (it includes the patch engine and the HTML sanitiser, see the security
-model). A spec keeps it under 8 KB gzipped.
+24 KB, 8.7 KB gzipped (it includes the patch engine, the HTML sanitiser and the delivery layer, see
+the security model). A spec keeps it under 10 KB gzipped.
 
 ## How the client is built
 
@@ -101,13 +101,153 @@ one it left, so no timer outlives its state.
 - **Server going away.** A close with 1001 or 1012 (`Azu::Spark.shutdown`, a restart or the idle
   timeout) is handled like any lost connection: the client backs off and reconnects to the next
   process.
-- **Event queue.** Events raised while there is no connection (up to 50, none older than 60 s) wait
-  in a queue and are sent, in order, once every root of the page has rejoined and the server has
-  answered the joins (also after a refused snapshot and a fresh join). An event that carries a
-  complete value (a `change` of a control) replaces an older queued event of the same control (same
-  component, event and control name or id); other controls are never merged. Each
-  queued event is sent once. An event that was already on the wire when the connection broke has
-  an unknown fate and is not repeated: delivery is at most once for those.
+- **Event queue.** Events raised while there is no connection (up to 50 together with the ones
+  nobody acknowledged yet, none older than 60 s) wait in a queue and are sent, in order, once every
+  root of the page has rejoined and the server has answered the joins (also after a refused snapshot
+  and a fresh join). An event that was already on the wire when the connection broke has an unknown
+  fate: it is sent again with its number and the server applies it once (see
+  [Events and delivery](#events-and-delivery)).
+
+## Events and delivery
+
+### Event attributes
+
+The binding macros (`spark_click`, `spark_change`, ...) render these attributes; you can also write
+them by hand. An element reacts when it, or an ancestor inside a component, has `spark-<kind>="event"`:
+
+| Attribute | Meaning |
+| --- | --- |
+| `spark-click`, `spark-submit`, `spark-change`, `spark-keydown`, `spark-keyup`, `spark-blur`, `spark-focus` | send the named `event def` of the component |
+| `spark-value-<name>="v"` | extra payload entry `name` (dashes become underscores) |
+| `spark-key="Enter"` | key events (`keydown`, `keyup`) only react to that key; on `keydown` the browser default is cancelled for it |
+| `spark-debounce="ms"` / `spark-throttle="ms"` | rate limit the event in the browser |
+| `spark-target="parent"`, `"root"` or a CSS selector | send to another component |
+| `spark-confirm="text"` | ask first |
+| `spark-disable-with="text"`, `spark-optimistic-class="cls"` | loading state until the event is answered |
+| `spark-delivery="at-most-once"` | do not resend this event after a reconnect (default: at least once) |
+
+`spark-change` fires on every edit of a text control (`input`) and on `change` of all others
+(checkbox, radio, select, range ...).
+
+### One listener per event type
+
+The client registers one listener per DOM event type on `document`, not one per element, so patches
+that add and remove thousands of elements cost nothing, and elements that arrive later work at once.
+Listeners that never cancel an event (`input`, `change`, `keyup`, `blur`, `focus`) are passive; `click`,
+`submit` and `keydown` are not, because the browser default is cancelled for a `spark-click`,
+`spark-submit` or a matching `spark-key`.
+
+### IME composition and trailing events
+
+- While an IME composes (`isComposing`, or the `229` key code some browsers use for the key that confirms
+  a composition) no `input`, `keydown` or `keyup` event is sent: the text is not final and the key is
+  not a key press. `compositionend` sends the final text of a `spark-change` control instead.
+- A debounced event is sent at once, in its place in line, when its control loses focus, when the
+  form it is in is submitted (so the server sees the last value before the submit), and when the page
+  is hidden or closed (`pagehide`, `visibilitychange`). The last keystroke is not lost to a pause that
+  never ends.
+
+### Coalescing and order
+
+An event that carries a whole value (`spark-change` of a text control) is *coalescing*. While an
+earlier event of the same control is in flight (sent, not answered), newer values of that control do not
+pile up: they merge into one waiting event, and the latest value wins. The control is identified by
+component, event name, DOM event kind and the control's `name` (or `id`). Checkboxes, radios and selects are never
+merged: every change is its own event.
+
+Events reach the server in the order they were made, with one allowed exception: the value events of
+*different* controls waiting in the queue may swap places (each control still sends only its latest
+value). An event that has to wait for a value in flight also holds back everything made after it for
+the same root, which is how a click made after typing cannot overtake the text. Other roots are
+independent. Events of one root are processed by the server one at a time, in arrival order.
+
+### Numbers, acknowledgements and resending
+
+Each event gets a number (`eid`) when it is first sent. Numbers increase for the life of the page and
+survive reconnects. The client keeps every sent event until the server answers it (a `reply` or
+`error` for its request id, or an `ack` of its number, whichever arrives first). When the connection
+breaks, unanswered events go to the front of the queue and are sent again in order, with the same
+numbers, after the page has rejoined: **delivery is at least once**, and an event marked
+`spark-delivery="at-most-once"` is dropped instead.
+
+The server keeps one number per root of the **connection**, the highest it took, and answers an event at or
+below it with a `reply` that has `"dup": true` and does nothing. So a repeat or an older number that arrives
+on the same connection is ignored, and nothing grows with the number of events. A resend after a reconnect
+arrives on a *new* connection with no such number, by design (see "What once covers" below): its protection
+comes from the snapshot the page is mounted from and from `gen`. An event without `eid` (an older client) is
+always applied: protocol v1 is unchanged.
+
+| Frame | Field | Meaning |
+| --- | --- | --- |
+| client `event` | `eid` | the event's number (optional) |
+| client `event` | `gen` | the generation of the root, from the reply to its join (optional) |
+| server `diff`, `reply`, `error` | `ack` | the `eid` of the event this frame answers |
+| server `reply` | `dup` | `true`: that number was applied before, nothing was done |
+| server `reply` to a `join` | `gen` | the generation of the root's state (only when something is persisted) |
+
+All fields are optional in both directions and ignored by a peer that does not know them. `ack` is on the
+`diff` too, so an event whose diff arrived is cleared even when its reply is lost with the connection.
+
+An acknowledgement is recorded the moment the frame arrives, before its patches are applied, so a connection
+that closes right after cannot make the client send an event again whose effect the snapshot it rejoins
+with already holds.
+
+What "once" covers: the *state of the components*. After a reconnect the server mounts the page from the last
+snapshot the client holds, and applies the resent event to it, so a component that persists its state ends
+up with the event applied exactly once whether or not the first attempt reached the old connection.
+Side effects *outside* the component (a payment, an email, an insert) are different: the old connection
+may have run the handler before it was cut, and the new one runs it again. Make such handlers idempotent,
+or mark them `spark-delivery="at-most-once"`.
+
+```crystal
+class Checkout < Azu::Spark::Component
+  mountable
+
+  state paid : Bool = false, persist: true
+
+  event def pay : Nil
+    return if paid # the page state says so; also check your own records for a payment already made
+    self.paid = true
+  end
+
+  def render
+    button "Pay", **spark_click(:pay, delivery: "at-most-once", disable_with: "Paying...")
+  end
+end
+```
+
+### When the page was mounted afresh
+
+A reply to a `join` names the *generation* of a root that persists state; a snapshot keeps it, so a
+reconnect that restores the page keeps the generation. If the snapshot is refused (expired, tampered, the
+app changed) the page is mounted afresh with a new generation. An event made for the old one (its `gen`
+differs) is not applied: the server answers `stale_event`, the client drops it and says so with
+`event_dropped` (reason `stale`). Roots that persist nothing have no generation and are never stale.
+
+A server restart is a new connection with no delivery state: numbers start again from nothing, resent
+events are applied (a repeat of one the old process had applied is possible, as above), and the page is
+restored from the snapshot if the secret is the same (otherwise: `invalid_snapshot`, a fresh generation,
+`stale_event` for the old events).
+
+A queued event keeps the `gen` it was made with (a value merged into a waiting event keeps the older
+one's). If the root is rejoined before the event is sent and got a new generation, the event is refused
+with `stale_event` and dropped; that is the intended outcome, not a bug.
+
+### Limits
+
+- At most 50 events wait or are unacknowledged (`queueMax`); beyond that the oldest is dropped, reported as
+  `spark:event_dropped` (reason `queue_full`) and as the `queue_full` error.
+- `event_dropped` means the client forgot the event, **not** that the server did not apply it: a dropped
+  `queue_full` or `disconnect` event may have been applied (and its effect may arrive in a later diff).
+  The oldest event is dropped first, sent or waiting.
+- An event older than 60 s when it could be sent is dropped (`expired`).
+- A numbered event refused by the rate limiter is answered with `rate_limited` carrying its `id` and `ack`;
+  the client forgets it (`event_dropped`, reason `rate_limited`). The limiter still counts it.
+- A frame above `max_message_size` is refused by the client (`too_large`) and, if it gets to the server,
+  closes the connection as before. The rate limit (`events_per_second`, `event_burst`) counts a resent
+  event like any other. Event numbers add about 10 bytes to a frame.
+- `event_dropped` reasons: `queue_full`, `expired`, `disconnect` (an at-most-once event in flight),
+  `stale`, `rate_limited`, `stopped` (`Spark.disconnect()`).
 
 ## Client API
 
@@ -116,16 +256,18 @@ one it left, so no timer outlives its state.
 Spark.on("open", ({ attempts }) => {});            // connected and greeted
 Spark.on("close", ({ code, reason }) => {});       // 1012 = server restart, 4000 = heartbeat timeout
 Spark.on("reconnect", ({ delay, attempts }) => {}); // a reconnect is scheduled in `delay` ms
-Spark.on("error", ({ code, message }) => {});      // protocol errors, "queue_full"
+Spark.on("error", ({ code, message }) => {});      // protocol errors, "queue_full", "stale_event"
+Spark.on("event_dropped", ({ event, reason }) => {}); // an event will never be delivered
 Spark.off("open", handler);
 Spark.status;     // "connecting" | "connected" | "reconnecting" | "disconnected"
-Spark.queued;     // events waiting for a connection
+Spark.queued;     // events waiting to be sent
+Spark.unacked;    // events sent and not yet answered
 Spark.connect();  // start again after Spark.disconnect()
 Spark.disconnect();
 ```
 
 `Spark` is an alias of `AzuSpark`. The same occasions are dispatched as DOM events on `document`
-(`spark:open`, `spark:close`, `spark:reconnect`, `spark:error`, `spark:queued`) and the page status
+(`spark:open`, `spark:close`, `spark:reconnect`, `spark:error`, `spark:queued`, `spark:event_dropped`) and the page status
 is mirrored in `<html data-spark-status="...">`, which stylesheets can use.
 
 ## Patch semantics
@@ -311,3 +453,9 @@ selection, an open IME composition (driven through the DevTools `Input.imeSetCom
 scrolled list, and none of them may change. Scripted pages then check keyed moves with and without
 `moveBefore`, scripts with and without the opt-in, and patches under a Content-Security-Policy that
 enforces Trusted Types, with and without `azu-spark` in the `trusted-types` list.
+
+`spec/browser/spark_delivery.cjs` (also run by `run.sh`) checks event delivery on the example app through the
+same kind of proxy: 22 keystrokes typed faster than the server answers (it takes 120 ms per edit) become
+a handful of events whose last value wins, with increasing numbers and the field keeping what was typed;
+and a slow event (`+1 (slow)`) whose connection is cut while the server works is sent again after the
+reconnect with the same number on another connection, and the counter ends up one higher, exactly once.

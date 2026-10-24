@@ -89,6 +89,28 @@ the bindings, patches the DOM with the HTML the server sends, heartbeats, and re
 backoff and the last signed state snapshot, so the page continues where it was. See
 [Spark client and reconnects](../reference/spark-client.md).
 
+### Event delivery
+
+A click or an edit is sent as an *event*, and the connection can break at any moment. Spark numbers
+every event on the client, keeps it until the server answers, and sends the unanswered ones again after
+a reconnect: delivery is **at least once**. The server remembers, per page, the highest number it took,
+so a repeat is answered (`dup`) but not applied twice: the state of your components sees each event
+once. The answer to an event also carries its number (`ack`), on the diff as well as on the reply, so
+an event whose diff arrived is never resent.
+
+What this does not do is undo side effects outside the component: if the connection is cut after your
+handler charged a card and before the answer arrived, the resent event runs the handler on the
+re-mounted page again. Make such handlers idempotent or mark the control
+`delivery: "at-most-once"` (`**spark_click(:pay, delivery: "at-most-once")`): that event is dropped, not
+resent, when the connection breaks while it is in flight, and the client reports `event_dropped`.
+
+While you type faster than the server answers, newer values of a control merge into one waiting event
+(the latest wins) instead of queueing up, events of a page are never reordered except values of
+different controls among themselves, and nothing is sent while an IME composes. If the page had to be
+mounted afresh (its snapshot was refused), events made for the old page are refused with `stale_event`
+instead of being applied to a view the user never saw. Numbers, limits and every optional protocol
+field are in [the client reference](../reference/spark-client.md#events-and-delivery).
+
 ## Security model
 
 - **Origin check.** Browser upgrades from a foreign origin are refused with 403. Extra origins go
