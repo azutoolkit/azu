@@ -55,6 +55,7 @@ docs/how-to/middleware/add-logging.md
 docs/how-to/middleware/create-custom-middleware.md
 docs/reference/configuration/options.md
 docs/reference/configuration/environments.md
+docs/reference/configuration/env.md
 docs/reference/api/cache.md
 docs/how-to/caching/setup-redis-cache.md
 docs/how-to/caching/setup-memory-cache.md

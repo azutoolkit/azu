@@ -41,16 +41,16 @@ module Azu
 
     property log : Log = Log.for("Azu")
 
-    property port : Int32 = ENV.fetch("PORT", "4000").to_i
+    property port : Int32 = Env.int("PORT", 4000)
 
     # How long a stopping server waits for requests in flight before giving up on them.
     property shutdown_timeout : Time::Span = Math.max(ENV["SHUTDOWN_TIMEOUT"]?.try(&.to_i?) || 30, 0).seconds
     property? port_reuse : Bool = ENV.fetch("PORT_REUSE", "true") == "true"
-    property host : String = ENV.fetch("HOST", "0.0.0.0")
-    property env : Environment = Environment.parse(ENV.fetch("CRYSTAL_ENV", "development"))
+    property host : String = Env.fetch("HOST", "0.0.0.0")
+    property env : Environment = Environment.parse(Env.environment)
 
     def self.hot_reload_default
-      env = ENV.fetch("CRYSTAL_ENV", "development").downcase
+      env = Env.environment
       env == "development" || env == "test" || env == "pipeline"
     end
 
@@ -194,7 +194,7 @@ module Azu
   class DatabaseConfiguration
     # Deprecated fallback for `Azu::CQL.schema` when `CQL.config.db` was never set (defaults to
     # `DATABASE_URL`). Prefer `Azu::CQL.configure { |c| c.db = ENV["DATABASE_URL"] }`.
-    property uri : String? = ENV["DATABASE_URL"]?
+    property uri : String? = Env.fetch?("DATABASE_URL")
     # Open the connection on the first query instead of when the schema is created, so the app
     # (and tasks that only load it) boots without a database. `Azu::CQL.verify!` fails fast.
     property? lazy_connect : Bool = ENV.fetch("AZU_DB_LAZY", "true") == "true"

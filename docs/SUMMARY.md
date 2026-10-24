@@ -121,6 +121,7 @@
 
 - [Configuration Options](reference/configuration/options.md)
 - [Environments](reference/configuration/environments.md)
+- [Azu::Env: .env files and secrets](reference/configuration/env.md)
 
 ### Errors
 

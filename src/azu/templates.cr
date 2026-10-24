@@ -116,7 +116,7 @@ module Azu
     end
 
     private def development_environment?
-      env = ENV.fetch("CRYSTAL_ENV", "development").downcase
+      env = Env.environment
       env == "development" || env == "test"
     end
 

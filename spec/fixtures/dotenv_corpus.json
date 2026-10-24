@@ -1,0 +1,162 @@
+[
+ {
+  "name": "pairs, comments, blanks",
+  "input": "# a comment\n\nA=1\n  B = two  \n#C=3\n",
+  "expect": {
+   "A": "1",
+   "B": "two"
+  }
+ },
+ {
+  "name": "export prefix",
+  "input": "export A=1\nexport  B=2\n",
+  "expect": {
+   "A": "1",
+   "B": "2"
+  }
+ },
+ {
+  "name": "variable named export",
+  "input": "export=1",
+  "expect": {
+   "export": "1"
+  }
+ },
+ {
+  "name": "inline comment",
+  "input": "A=value # note\nB=a#b\nC=#nothing\n",
+  "expect": {
+   "A": "value",
+   "B": "a#b",
+   "C": ""
+  }
+ },
+ {
+  "name": "single quotes literal",
+  "input": "A='a $B \"c\" \\n # d'",
+  "expect": {
+   "A": "a $B \"c\" \\n # d"
+  }
+ },
+ {
+  "name": "double quote escapes",
+  "input": "A=\"l1\\nl2\\t\\\"q\\\" \\\\ back\"",
+  "expect": {
+   "A": "l1\nl2\t\"q\" \\ back"
+  }
+ },
+ {
+  "name": "unknown escape kept",
+  "input": "A=\"\\d+\"",
+  "expect": {
+   "A": "\\d+"
+  }
+ },
+ {
+  "name": "multi-line quoted",
+  "input": "A=\"one\ntwo\"\nB='x\ny'\nC=3\n",
+  "expect": {
+   "A": "one\ntwo",
+   "B": "x\ny",
+   "C": "3"
+  }
+ },
+ {
+  "name": "comment after quoted",
+  "input": "A=\"v\" # note\nB=2",
+  "expect": {
+   "A": "v",
+   "B": "2"
+  }
+ },
+ {
+  "name": "no interpolation",
+  "input": "A=$(echo hi)\nB=${A}\nC=`id`\nD=\"$HOME\"\n",
+  "expect": {
+   "A": "$(echo hi)",
+   "B": "${A}",
+   "C": "`id`",
+   "D": "$HOME"
+  }
+ },
+ {
+  "name": "CRLF and BOM",
+  "input": "﻿A=1\r\nB=\"x\"\r\n",
+  "expect": {
+   "A": "1",
+   "B": "x"
+  }
+ },
+ {
+  "name": "later wins",
+  "input": "A=1\nA=2",
+  "expect": {
+   "A": "2"
+  }
+ },
+ {
+  "name": "empty values",
+  "input": "A=\nB=''",
+  "expect": {
+   "A": "",
+   "B": ""
+  }
+ },
+ {
+  "name": "empty file",
+  "input": "",
+  "expect": {}
+ },
+ {
+  "name": "no trailing newline",
+  "input": "A=1",
+  "expect": {
+   "A": "1"
+  }
+ },
+ {
+  "name": "line without equals",
+  "input": "A=1\nnot a pair\n",
+  "error_line": 2
+ },
+ {
+  "name": "name starts with digit",
+  "input": "1BAD=x",
+  "error_line": 1
+ },
+ {
+  "name": "name with dash",
+  "input": "A-B=x",
+  "error_line": 1
+ },
+ {
+  "name": "unterminated double quote",
+  "input": "A=ok\nB=\"never closed\nC=3",
+  "error_line": 2
+ },
+ {
+  "name": "unterminated single quote",
+  "input": "A='open\nB=2",
+  "error_line": 1
+ },
+ {
+  "name": "text after quoted value",
+  "input": "A=\"x\" y",
+  "error_line": 1
+ },
+ {
+  "name": "NUL byte in value",
+  "input": "A=a\u0000b",
+  "error_line": 1
+ },
+ {
+  "name": "NUL byte in quoted value",
+  "input": "A=\"a\u0000b\"",
+  "error_line": 1
+ },
+ {
+  "name": "empty name",
+  "input": "=x",
+  "error_line": 1
+ }
+]
