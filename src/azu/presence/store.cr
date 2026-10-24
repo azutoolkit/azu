@@ -23,6 +23,15 @@ module Azu
         Clock.now
       end
 
+      # The refs stored in *topic*, expired or not.
+      def refs(topic : String) : Array(String)
+        stored(topic).map(&.ref)
+      end
+
+      # Called by the sweep with the metas this node owns in *topic*, so a store with expiring data can extend it.
+      def refresh(topic : String, metas : Array(Meta)) : Nil
+      end
+
       # Whether *key* has a live meta in *topic*; a store can answer without reading the whole topic.
       def present?(topic : String, key : String, now : Time, grace : Time::Span) : Bool
         live(topic, now, grace).any? { |meta| meta.key == key }

@@ -30,8 +30,9 @@ end
 
 # The compiled fixture, reused while neither src/ nor the fixture changed.
 private def compile_node : String
+  root = File.expand_path("../..", __DIR__)
   digest = Digest::SHA1.new
-  (Dir.glob("src/**/*.cr").sort << "spec/fixtures/scale_node.cr").each { |path| digest << File.read(path) }
+  (Dir.glob(File.join(root, "{src/**/*.cr,shard.yml,shard.lock,lib/*/shard.yml,spec/fixtures/scale_node.cr}")).sort).each { |path| digest << File.read(path) }
   directory = File.join(Dir.tempdir, "azu-scale-cache", digest.hexfinal)
   binary = File.join(directory, "scale_node")
   return binary if File.exists?(binary)
@@ -39,7 +40,7 @@ private def compile_node : String
   Dir.mkdir_p(directory)
   building = "#{binary}.#{Random::Secure.hex(4)}"
   output = IO::Memory.new
-  status = Process.run("crystal", ["build", "--no-debug", "-o", building, "spec/fixtures/scale_node.cr"], output: output, error: output)
+  status = Process.run("crystal", ["build", "--no-debug", "-o", building, "spec/fixtures/scale_node.cr"], chdir: root, output: output, error: output)
   fail "could not compile spec/fixtures/scale_node.cr:\n#{output}" unless status.success?
   File.rename(building, binary)
   binary

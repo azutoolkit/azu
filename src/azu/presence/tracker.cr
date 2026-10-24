@@ -27,7 +27,9 @@ module Azu
         @interval = heartbeat ? (interval || @ttl / 3) : nil
         @own = {} of String => Hash(String, Meta)
         @seen = {} of String => Hash(String, Meta)
+        @watchers = {} of String => Int32
         @watching = {} of String => PubSub::Subscription
+        @generation = 0
         @counter = 0_i64
         @sequence = 0_i64
         @alive = false
@@ -41,9 +43,10 @@ module Azu
         data = JSON.parse(meta.to_json)
         verify(topic, key, data)
         ensure_alive
+        now = store.now
         entry, arrived = with_key(key) do
-          present = store.present?(topic, key, store.now, ttl)
-          reserved = reserve(topic, key, data)
+          present = store.present?(topic, key, now, ttl)
+          reserved = reserve(topic, key, data, now)
           put_or_release(topic, reserved)
           {reserved, !present}
         end
@@ -75,32 +78,51 @@ module Azu
         store.live(topic, store.now, ttl).group_by(&.key).transform_values(&.sort_by! { |meta| {meta.joined_at, meta.ref} })
       end
 
-      # Delivers the diffs of *topic* (from every node) to the block, and keeps this node watching the topic.
-      def subscribe(topic : String, &handler : Diff ->) : PubSub::Subscription
-        watch(topic)
-        pub_sub.subscribe(Presence.channel_for(topic)) do |message|
+      # Delivers the diffs of *topic* (from every node) to the block, and keeps this node watching the topic until
+      # the subscription is cancelled.
+      def subscribe(topic : String, &handler : Diff ->) : Subscription
+        watch = watch(topic)
+        events = pub_sub.subscribe(Presence.channel_for(topic)) do |message|
           decode(message).try { |diff| handler.call(diff) }
         end
+        Subscription.new(events, watch)
       end
 
       # Starts watching *topic*: this node follows its diffs and, on every sweep, publishes the joins and leaves
-      # the diffs did not tell it about. Cheap; idempotent.
-      def watch(topic : String) : Nil
+      # the diffs did not tell it about. Watches are counted per topic; the topic is dropped when the last `Watch`
+      # is cancelled.
+      def watch(topic : String) : Watch
         verify_topic(topic)
-        return if @mutex.synchronize { @watching.has_key?(topic) }
+        return Watch.new(self, topic, generation) if join_watch(topic)
         subscription = pub_sub.subscribe(Presence.channel_for(topic)) { |message| decode(message).try { |diff| absorb(topic, diff) } }
         snapshot = store.live(topic, store.now, ttl).to_h { |meta| {meta.ref, meta} }
         raced = @mutex.synchronize do
-          next true if @watching.has_key?(topic)
+          next true if @watchers.has_key?(topic)
+          @watchers[topic] = 1
           @watching[topic] = subscription
           @seen[topic] = snapshot
           false
         end
         subscription.cancel if raced
+        raced ? watch(topic) : Watch.new(self, topic, generation)
       end
 
-      def unwatch(topic : String) : Nil
-        subscription = @mutex.synchronize { @seen.delete(topic); @watching.delete(topic) }
+      def watching?(topic : String) : Bool
+        @mutex.synchronize { @watchers.has_key?(topic) }
+      end
+
+      # :nodoc: Gives a `Watch` back; claims from before a `shutdown` (an older *generation*) are ignored.
+      def release_watch(topic : String, generation : Int32) : Nil
+        subscription = @mutex.synchronize do
+          next if generation != @generation || !(count = @watchers[topic]?)
+          if count > 1
+            @watchers[topic] = count - 1
+            next
+          end
+          @watchers.delete(topic)
+          @seen.delete(topic)
+          @watching.delete(topic)
+        end
         subscription.try(&.cancel)
       end
 
@@ -118,7 +140,7 @@ module Azu
         stopped = @mutex.synchronize { @alive = false; @stopped.tap { @stopped = ::Channel(Nil).new } }
         stopped.close unless stopped.closed?
         owned.each_key { |topic| untrack_topic(topic) }
-        watched.each { |topic| unwatch(topic) }
+        drop_watches
         store.shutdown
       end
 
@@ -141,6 +163,7 @@ module Azu
       end
 
       private def verify_topic(topic : String) : Nil
+        raise ArgumentError.new("presence topic must not contain U+001F") if topic.includes?('\u001f')
         raise LimitExceeded.new("presence topic is #{topic.bytesize} bytes, the limit is #{MAX_TOPIC_BYTES}") if topic.bytesize > MAX_TOPIC_BYTES
       end
 
@@ -150,12 +173,12 @@ module Azu
         @locks[(key.hash % STRIPES).to_i].synchronize { yield }
       end
 
-      private def reserve(topic : String, key : String, data : JSON::Any) : Meta
+      private def reserve(topic : String, key : String, data : JSON::Any, now : Time) : Meta
         @mutex.synchronize do
           entries = @own.sum(0) { |_, metas| metas.size }
           raise LimitExceeded.new("this node already tracks #{entries} presences, the limit is #{@max_entries}") if entries >= @max_entries
           @counter += 1
-          Meta.new("#{node}.#{@counter}", node, key, data, store.now.to_unix_ms).tap do |meta|
+          Meta.new("#{node}.#{@counter}", node, key, data, now.to_unix_ms).tap do |meta|
             (@own[topic] ||= {} of String => Meta)[meta.ref] = meta
           end
         end
@@ -194,28 +217,69 @@ module Azu
       end
 
       private def watched : Array(String)
-        @mutex.synchronize { @watching.keys }
+        @mutex.synchronize { @watchers.keys }
       end
 
+      private def generation : Int32
+        @mutex.synchronize { @generation }
+      end
+
+      # Counts a claim on an already watched topic; false when nobody watches it yet.
+      private def join_watch(topic : String) : Bool
+        @mutex.synchronize do
+          next false unless count = @watchers[topic]?
+          @watchers[topic] = count + 1
+          true
+        end
+      end
+
+      private def drop_watches : Nil
+        subscriptions = @mutex.synchronize do
+          @generation += 1
+          @watchers.clear
+          @seen.clear
+          @watching.values.tap { @watching.clear }
+        end
+        subscriptions.each(&.cancel)
+      end
+
+      # Puts back the metas the store lost (a flush, an eviction while this node looked dead) and extends the
+      # others' retention. One read per topic; a meta is written under its key lock, and only while still owned.
       private def reassert : Nil
         owned.each do |topic, metas|
-          metas.each { |meta| with_key(meta.key) { store.put(topic, meta) if owns?(topic, meta.ref) } }
+          stored = store.refs(topic).to_set
+          metas.each do |meta|
+            next if stored.includes?(meta.ref)
+            with_key(meta.key) { store.put(topic, meta) if owns?(topic, meta.ref) }
+          end
+          store.refresh(topic, metas)
         end
       end
 
       # Publishes what the store holds and this node has not seen (joins), and what it saw and is gone (leaves).
+      # Diffs absorbed while the store was being read win: a meta is only a leave if it was seen before the read.
       private def reconcile(topic : String) : Nil
+        before = @mutex.synchronize { @seen[topic]?.try(&.keys) }
+        return unless before
         current = store.live(topic, store.now, ttl).to_h { |meta| {meta.ref, meta} }
-        previous = @mutex.synchronize { @seen[topic]?.try(&.dup).tap { @seen[topic] = current if @watching.has_key?(topic) } }
-        return unless previous
-        joined = current.reject { |ref, _| previous.has_key?(ref) }.values
-        gone = previous.reject { |ref, _| current.has_key?(ref) }.values
-        before = previous.each_value.map(&.key).to_set
-        after = current.each_value.map(&.key).to_set
-        joins = joined.group_by(&.key)
-        leaves = gone.group_by(&.key)
-        emit(topic, joins: joins, leaves: leaves, arrived: joins.keys.reject { |key| before.includes?(key) },
-          departed: leaves.keys.reject { |key| after.includes?(key) })
+        delta = settle(topic, before, current)
+        emit(topic, **delta) if delta
+      end
+
+      private def settle(topic : String, before : Array(String), current : Hash(String, Meta))
+        @mutex.synchronize do
+          next unless seen = @seen[topic]?
+          joined = current.reject { |ref, _| seen.has_key?(ref) }.values
+          gone = before.select { |ref| seen.has_key?(ref) && !current.has_key?(ref) }.map { |ref| seen[ref] }
+          keys_before = seen.each_value.map(&.key).to_set
+          gone.each { |meta| seen.delete(meta.ref) }
+          joined.each { |meta| seen[meta.ref] = meta }
+          keys_after = seen.each_value.map(&.key).to_set
+          joins = joined.group_by(&.key)
+          leaves = gone.group_by(&.key)
+          {joins: joins, leaves: leaves, arrived: joins.keys.reject { |key| keys_before.includes?(key) },
+           departed: leaves.keys.reject { |key| keys_after.includes?(key) }}
+        end
       end
 
       # Folds a diff into what this node has seen, by ref, so it does not publish it again.
@@ -237,7 +301,9 @@ module Azu
                        arrived = [] of String, departed = [] of String) : Nil
         return if joins.empty? && leaves.empty?
         sequence = @mutex.synchronize { @sequence += 1 }
-        pub_sub.broadcast(Presence.channel_for(topic), Diff.new(joins, leaves, arrived, departed, node, sequence).to_json)
+        diff = Diff.new(joins, leaves, arrived, departed, node, sequence)
+        absorb(topic, diff)
+        pub_sub.broadcast(Presence.channel_for(topic), diff.to_json)
       rescue ex
         Log.for("Azu::Presence").warn(exception: ex) { "Could not publish the presence diff of #{topic}" }
       end

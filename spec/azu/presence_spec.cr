@@ -280,7 +280,8 @@ private def presence_examples(make : -> Cluster, settle : -> Nil = -> { })
       cluster = make.call
       gated = GatedStore.new(cluster.store_a)
       alice = node(gated, cluster.bus_a, "a")
-      alice.track(topic, "alice")
+      lost = alice.track(topic, "alice")
+      cluster.store_a.evict(topic, [lost]) # a flush: the sweep has a meta to put back
       gated.armed = true
       done = ::Channel(Nil).new
 
@@ -405,6 +406,63 @@ private def presence_examples(make : -> Cluster, settle : -> Nil = -> { })
 
       wait_until { received.size == 2 }.should be_true
       received.should eq ["one", "two"]
+      cluster.shutdown
+    end
+  end
+
+  it "does not read the topic to tell whether a key is present" do
+    topic = "room:#{Random::Secure.hex(4)}"
+    with_fake_clock do
+      cluster = make.call
+      alice = node(cluster.store_a, cluster.bus_a, "a")
+      200.times { |index| alice.track(topic, "user-#{index}") }
+      alice.track(topic, "special")
+
+      cluster.store_b.present?(topic, "special", cluster.store_b.now, 30.seconds).should be_true
+      cluster.store_b.present?(topic, "spec", cluster.store_b.now, 30.seconds).should be_false
+      cluster.store_b.present?(topic, "user-199", cluster.store_b.now, 30.seconds).should be_true
+      cluster.shutdown
+    end
+  end
+
+  it "stops following a topic once every watch and subscription on it is cancelled" do
+    topic = "room:#{Random::Secure.hex(4)}"
+    with_fake_clock do
+      cluster = make.call
+      alice = node(cluster.store_a, cluster.bus_a, "a")
+      received = [] of Azu::Presence::Diff
+      subscription = alice.subscribe(topic) { |diff| received << diff }
+      extra = alice.watch(topic)
+      settle.call
+
+      subscription.cancel
+      alice.track(topic, "alice") # still watched through *extra*
+      wait_until { alice.watching?(topic) }.should be_true
+      extra.cancel
+      extra.cancel
+
+      alice.watching?(topic).should be_false
+      received.should be_empty
+      cluster.shutdown
+    end
+  end
+
+  it "does not publish a join again that the node announced itself" do
+    topic = "room:#{Random::Secure.hex(4)}"
+    with_fake_clock do
+      cluster = make.call
+      alice = node(cluster.store_a, cluster.bus_a, "a")
+      seen = diffs(alice, topic)
+      settle.call
+
+      alice.track(topic, "alice")
+      alice.sweep
+      alice.untrack(topic, "alice")
+      alice.sweep
+
+      wait_until { seen.size == 2 }.should be_true
+      sleep 50.milliseconds
+      seen.size.should eq 2
       cluster.shutdown
     end
   end
@@ -586,8 +644,9 @@ describe Azu::Presence::Tracker do
 
   it "judges leases by the Redis clock unless told to follow Azu::Clock" do
     pending!("Redis is not reachable on #{PRESENCE_REDIS_URL}") unless presence_redis_available?
-    store = Azu::Presence::Store::Redis.new(PRESENCE_REDIS_URL, "azu:test:presence:time:")
-    fake = Azu::Presence::Store::Redis.new(PRESENCE_REDIS_URL, "azu:test:presence:time:", server_time: false)
+    prefix = "azu:test:presence:time:#{Random::Secure.hex(4)}:"
+    store = Azu::Presence::Store::Redis.new(PRESENCE_REDIS_URL, prefix)
+    fake = Azu::Presence::Store::Redis.new(PRESENCE_REDIS_URL, prefix, server_time: false)
 
     with_fake_clock do |clock|
       clock.advance(1.day)
