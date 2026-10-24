@@ -44,9 +44,13 @@ config.redacted_url # => "rediss://:***@redis.internal:6380/2"
 | `REDIS_PREFIX` | `prefix` |
 
 A malformed number raises an `ArgumentError` that names the variable and not its value. The subsystems add their own
-URL variable in front of `REDIS_URL`: `CACHE_REDIS_URL` for the cache, `PUBSUB_REDIS_URL` for PubSub, and
-`PRESENCE_REDIS_URL`, then `PUBSUB_REDIS_URL`, for Presence. With none of them set, `REDIS_URL` is used, then
+URL variable in front of `REDIS_URL`: `PUBSUB_REDIS_URL` for PubSub, and `PRESENCE_REDIS_URL`, then
+`PUBSUB_REDIS_URL`, for Presence. With none of them set, `REDIS_URL` is used, then
 `redis://localhost:6379/0`.
+
+> **The cache never reads `REDIS_URL`.** `Cache#clear` is `FLUSHDB`, and `REDIS_URL` often names the Redis of
+> sessions or a job queue. The cache needs `CACHE_REDIS_URL` or `cache_config.redis_url` (or a client you hand it).
+
 
 ## Sharing one pool
 

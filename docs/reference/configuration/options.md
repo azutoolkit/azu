@@ -255,8 +255,8 @@ what the server runs. `router` is the app's `Azu::Router`.
 ## Environment Variables
 
 Every variable Azu reads is in the tables above, plus the `REDIS_*` variables of
-[`Azu::Redis::Config.from_env`](../api/redis.md#config). `REDIS_URL` is the fallback of `CACHE_REDIS_URL`,
-`PUBSUB_REDIS_URL` and `PRESENCE_REDIS_URL`. `AZU_ENV` and `SECRET_KEY` are not read: the signing secret of Spark
+[`Azu::Redis::Config.from_env`](../api/redis.md#config). `REDIS_URL` is the fallback of `PUBSUB_REDIS_URL` and
+`PRESENCE_REDIS_URL`, and deliberately not of `CACHE_REDIS_URL` (`clear` is `FLUSHDB`). `AZU_ENV` and `SECRET_KEY` are not read: the signing secret of Spark
 live views is `SPARK_SECRET`.
 
 | Variable | Option |

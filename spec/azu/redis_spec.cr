@@ -759,6 +759,22 @@ private class RecordingPresenceStore < Azu::Presence::Store::Memory
 end
 
 describe "consumers of Azu::Redis" do
+  it "never points the cache at REDIS_URL, whose database `clear` would flush" do
+    previous = {ENV["REDIS_URL"]?, ENV["CACHE_REDIS_URL"]?}
+    begin
+      ENV["REDIS_URL"] = "redis://sessions.internal:6379/0"
+      ENV.delete("CACHE_REDIS_URL")
+      Azu::Cache::Configuration.new.redis_url.should eq "redis://localhost:6379/0"
+
+      ENV["CACHE_REDIS_URL"] = "redis://cache.internal:6379/1"
+      Azu::Cache::Configuration.new.redis_url.should eq "redis://cache.internal:6379/1"
+      Azu::PubSub::Redis.default_url.should eq "redis://sessions.internal:6379/0"
+    ensure
+      ENV.delete("REDIS_URL"); previous[0].try { |value| ENV["REDIS_URL"] = value }
+      ENV.delete("CACHE_REDIS_URL"); previous[1].try { |value| ENV["CACHE_REDIS_URL"] = value }
+    end
+  end
+
   it "gives back the pool a store or backend acquired from a URL, and leaves a client you passed open" do
     Azu::Redis.shutdown
     store = Azu::Cache::RedisStore.new(UNREACHABLE)

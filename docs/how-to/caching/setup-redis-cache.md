@@ -34,7 +34,7 @@ end
 ```
 
 The same settings can come from the environment, with no code: `CACHE_STORE=redis` and
-`CACHE_REDIS_URL=redis://localhost:6379/0`; `REDIS_URL` is used when `CACHE_REDIS_URL` is not set. There is no
+`CACHE_REDIS_URL=redis://localhost:6379/0`; `REDIS_URL` is **not** read, because `clear` runs `FLUSHDB` and that variable often names a Redis used for something else. There is no
 `config.cache = RedisStore.new(...)`. To put the cache on the same connections as PubSub and Presence, share one
 [`Azu::Redis::Client`](../../reference/api/redis.md) with `config.cache_config.redis_client = client`.
 

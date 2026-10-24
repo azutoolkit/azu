@@ -556,7 +556,8 @@ module Azu
         @key_prefix = ENV.fetch("CACHE_KEY_PREFIX", "azu")
         @compress = ENV.fetch("CACHE_COMPRESS", "false").downcase == "true"
         @serialize = ENV.fetch("CACHE_SERIALIZE", "true").downcase == "true"
-        @redis_url = Azu::Redis::Config.url_from_env("CACHE_REDIS_URL")
+        # Not `REDIS_URL`: `clear` is FLUSHDB, and that variable often names a Redis used for something else.
+        @redis_url = ENV.fetch("CACHE_REDIS_URL", Azu::Redis::Config::DEFAULT_URL)
         @redis_pool_size = ENV.fetch("CACHE_REDIS_POOL_SIZE", "5").to_i
         @redis_timeout = ENV.fetch("CACHE_REDIS_TIMEOUT", "5").to_i
         @redis_operation_timeout = ENV.fetch("CACHE_REDIS_OPERATION_TIMEOUT", "2").to_i
