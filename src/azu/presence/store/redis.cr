@@ -15,7 +15,7 @@ module Azu
       # expiry with a fake clock.
       #
       # One mutex-guarded connection is opened on first use. A dead connection is discarded and the command
-      # retried once on a fresh one. Writes of one meta (topic hash and key index) are pipelined.
+      # retried once on a fresh one. The topic hash and the key index of a meta are written in one `MULTI`, so they cannot drift apart on a retry; `refresh` writes the index entries of the metas a node owns again, which repairs an index that lost one.
       class Redis < Store
         DEFAULT_PREFIX = "azu:presence:"
         RETENTION      = 1.day
@@ -29,10 +29,10 @@ module Azu
 
         def put(topic : String, meta : Meta) : Nil
           run do |redis|
-            redis.pipelined do |pipeline|
-              pipeline.command(["HSET", topic_key(topic), meta.ref, meta.to_json])
-              pipeline.command(["HSET", index_key(topic, meta.key), meta.ref, meta.node])
-              expire(pipeline, topic, meta.key)
+            redis.multi do |transaction|
+              transaction.command(["HSET", topic_key(topic), meta.ref, meta.to_json])
+              transaction.command(["HSET", index_key(topic, meta.key), meta.ref, meta.node])
+              expire(transaction, topic, meta.key)
             end
           end
         end
@@ -52,7 +52,10 @@ module Azu
         def refresh(topic : String, metas : Array(Meta)) : Nil
           run do |redis|
             redis.pipelined do |pipeline|
-              metas.each { |meta| expire(pipeline, topic, meta.key) }
+              metas.each do |meta|
+                pipeline.command(["HSET", index_key(topic, meta.key), meta.ref, meta.node])
+                expire(pipeline, topic, meta.key)
+              end
             end
           end
         end
@@ -73,9 +76,9 @@ module Azu
         def evict(topic : String, metas : Array(Meta)) : Nil
           return if metas.empty?
           run do |redis|
-            redis.pipelined do |pipeline|
-              pipeline.command(["HDEL", topic_key(topic)] + metas.map(&.ref))
-              metas.each { |meta| pipeline.command(["HDEL", index_key(topic, meta.key), meta.ref]) }
+            redis.multi do |transaction|
+              transaction.command(["HDEL", topic_key(topic)] + metas.map(&.ref))
+              metas.each { |meta| transaction.command(["HDEL", index_key(topic, meta.key), meta.ref]) }
             end
           end
         end
@@ -110,10 +113,10 @@ module Azu
           end
         end
 
-        private def expire(pipeline, topic : String, key : String) : Nil
+        private def expire(commands, topic : String, key : String) : Nil
           seconds = RETENTION.total_seconds.to_i.to_s
-          pipeline.command(["EXPIRE", topic_key(topic), seconds])
-          pipeline.command(["EXPIRE", index_key(topic, key), seconds])
+          commands.command(["EXPIRE", topic_key(topic), seconds])
+          commands.command(["EXPIRE", index_key(topic, key), seconds])
         end
 
         private def discard : Nil

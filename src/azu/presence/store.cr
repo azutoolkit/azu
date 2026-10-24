@@ -28,7 +28,8 @@ module Azu
         stored(topic).map(&.ref)
       end
 
-      # Called by the sweep with the metas this node owns in *topic*, so a store with expiring data can extend it.
+      # Called by the sweep with the metas this node owns in *topic*: a store extends the retention of its data and
+      # repairs its secondary indexes. It must never write the metas themselves (an untracked one would come back).
       def refresh(topic : String, metas : Array(Meta)) : Nil
       end
 

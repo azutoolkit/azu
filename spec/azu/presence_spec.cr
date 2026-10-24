@@ -36,6 +36,7 @@ private class GatedStore < Azu::Presence::Store
   getter entered = ::Channel(Nil).new(1)
   getter released = ::Channel(Nil).new(1)
   property? armed = false
+  property? armed_read = false
 
   def initialize(@inner : Azu::Presence::Store)
   end
@@ -53,8 +54,15 @@ private class GatedStore < Azu::Presence::Store
     @inner.delete(topic, meta)
   end
 
+  # Once armed, the next read returns what the store held, but only after being released: a stale read.
   def stored(topic : String) : Array(Azu::Presence::Meta)
-    @inner.stored(topic)
+    result = @inner.stored(topic)
+    if armed_read?
+      @armed_read = false
+      @entered.send(nil)
+      @released.receive
+    end
+    result
   end
 
   def renew(node : String, expires_at : Time) : Nil
@@ -71,6 +79,14 @@ private class GatedStore < Azu::Presence::Store
 
   def evict(topic : String, metas : Array(Azu::Presence::Meta)) : Nil
     @inner.evict(topic, metas)
+  end
+
+  def refs(topic : String) : Array(String)
+    @inner.refs(topic)
+  end
+
+  def refresh(topic : String, metas : Array(Azu::Presence::Meta)) : Nil
+    @inner.refresh(topic, metas)
   end
 
   def now : Time
@@ -467,6 +483,51 @@ private def presence_examples(make : -> Cluster, settle : -> Nil = -> { })
     end
   end
 
+  it "does not announce a meta as a join when its leave arrived while the store was being read" do
+    topic = "room:#{Random::Secure.hex(4)}"
+    with_fake_clock do
+      cluster = make.call
+      gated = GatedStore.new(cluster.store_b)
+      alice = node(cluster.store_a, cluster.bus_a, "a")
+      bob = node(gated, cluster.bus_b, "b")
+      gone = alice.track(topic, "alice")
+      seen = diffs(bob, topic)
+      settle.call
+      done = ::Channel(Nil).new
+
+      gated.armed_read = true
+      spawn { bob.sweep; done.send(nil) }
+      gated.entered.receive # bob read a store that still holds alice
+      alice.untrack(topic, "alice", gone.ref)
+      wait_until { seen.size == 1 }.should be_true
+      gated.released.send(nil)
+      done.receive
+
+      sleep 50.milliseconds
+      seen.size.should eq 1
+      seen.first.departed.should eq ["alice"]
+      cluster.shutdown
+    end
+  end
+
+  it "keeps a stale Watch from taking a count that belongs to a later watcher" do
+    topic = "room:#{Random::Secure.hex(4)}"
+    with_fake_clock do
+      cluster = make.call
+      alice = node(cluster.store_a, cluster.bus_a, "a")
+      stale = alice.watch(topic)
+      alice.unwatch(topic)
+      fresh = alice.watch(topic)
+
+      stale.cancel
+
+      alice.watching?(topic).should be_true
+      fresh.cancel
+      alice.watching?(topic).should be_false
+      cluster.shutdown
+    end
+  end
+
   it "bounds the size of keys, metas and the metas one node tracks" do
     topic = "room:#{Random::Secure.hex(4)}"
     with_fake_clock do
@@ -664,6 +725,42 @@ describe Azu::Presence::Tracker do
     expect_raises(ArgumentError, /reserved/) { channel.broadcast("presence:lobby", "{}") }
     channel.subscribe("lobby")
     channel.teardown
+  end
+
+  it "repairs a key index that lost an entry of an owned meta on the next sweep" do
+    pending!("Redis is not reachable on #{PRESENCE_REDIS_URL}") unless presence_redis_available?
+    prefix = "azu:test:presence:index:#{Random::Secure.hex(4)}:"
+    store = Azu::Presence::Store::Redis.new(PRESENCE_REDIS_URL, prefix, server_time: false)
+    alice = Azu::Presence::Tracker.new(store, node: "a", heartbeat: false, pub_sub: Azu::PubSub::Memory.new)
+    meta = alice.track("room", "alice")
+    redis = Redis.new(url: PRESENCE_REDIS_URL, reconnect: false)
+    begin
+      redis.hdel("#{prefix}k:room\u001falice", meta.ref)
+      store.present?("room", "alice", store.now, 30.seconds).should be_false
+
+      alice.sweep
+
+      store.present?("room", "alice", store.now, 30.seconds).should be_true
+      alice.untrack("room", "alice", meta.ref)
+      alice.sweep
+      store.stored("room").should be_empty
+      store.present?("room", "alice", store.now, 30.seconds).should be_false
+    ensure
+      redis.keys("#{prefix}*").each { |key| redis.del(key.as(String)) }
+      redis.close
+      store.shutdown
+    end
+  end
+
+  it "does not leak a watch or a presence when a channel is torn down before it asks for them" do
+    channel = LobbyChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+    channel.teardown
+
+    channel.presence_updates("lobby")
+    channel.track_presence("lobby", "late")
+
+    Azu::Presence.default.watching?("lobby").should be_false
+    Azu::Presence.list("lobby").should be_empty
   end
 
   it "delegates the module API to the default tracker" do

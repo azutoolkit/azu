@@ -3,7 +3,7 @@ module Azu
     # A claim on a topic being watched by a `Tracker`. The tracker follows a topic while at least one claim is
     # open; `cancel` (idempotent) gives the claim back.
     class Watch
-      def initialize(@tracker : Tracker, @topic : String, @generation : Int32)
+      def initialize(@tracker : Tracker, @topic : String, @token : Int64)
         @cancelled = Atomic(Int32).new(0)
       end
 
@@ -13,7 +13,7 @@ module Azu
 
       def cancel : Nil
         return unless @cancelled.compare_and_set(0, 1).last
-        @tracker.release_watch(@topic, @generation)
+        @tracker.release_watch(@topic, @token)
       end
     end
 

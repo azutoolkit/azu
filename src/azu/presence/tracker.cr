@@ -28,8 +28,10 @@ module Azu
         @own = {} of String => Hash(String, Meta)
         @seen = {} of String => Hash(String, Meta)
         @watchers = {} of String => Int32
+        @tokens = {} of String => Int64
         @watching = {} of String => PubSub::Subscription
-        @generation = 0
+        @epoch = 0_i64
+        @reading = {} of String => Set(String)
         @counter = 0_i64
         @sequence = 0_i64
         @alive = false
@@ -93,35 +95,46 @@ module Azu
       # is cancelled.
       def watch(topic : String) : Watch
         verify_topic(topic)
-        return Watch.new(self, topic, generation) if join_watch(topic)
+        token = @mutex.synchronize { join_locked(topic) }
+        return Watch.new(self, topic, token) if token
         subscription = pub_sub.subscribe(Presence.channel_for(topic)) { |message| decode(message).try { |diff| absorb(topic, diff) } }
         snapshot = store.live(topic, store.now, ttl).to_h { |meta| {meta.ref, meta} }
-        raced = @mutex.synchronize do
-          next true if @watchers.has_key?(topic)
-          @watchers[topic] = 1
-          @watching[topic] = subscription
-          @seen[topic] = snapshot
-          false
+        token, raced = @mutex.synchronize do
+          if joined = join_locked(topic)
+            {joined, true}
+          else
+            @epoch += 1
+            @watchers[topic] = 1
+            @tokens[topic] = @epoch
+            @watching[topic] = subscription
+            @seen[topic] = snapshot
+            {@epoch, false}
+          end
         end
         subscription.cancel if raced
-        raced ? watch(topic) : Watch.new(self, topic, generation)
+        Watch.new(self, topic, token)
+      end
+
+      # Deprecated: cancel the `Watch` or `Subscription` instead. Drops every claim on *topic* at once, the ones of
+      # other holders included.
+      def unwatch(topic : String) : Nil
+        @mutex.synchronize { forget_watch(topic) }.try(&.cancel)
       end
 
       def watching?(topic : String) : Bool
         @mutex.synchronize { @watchers.has_key?(topic) }
       end
 
-      # :nodoc: Gives a `Watch` back; claims from before a `shutdown` (an older *generation*) are ignored.
-      def release_watch(topic : String, generation : Int32) : Nil
+      # :nodoc: Gives a `Watch` back; a claim whose *token* no longer names the topic's watch (it was dropped, or
+      # dropped and started again) is ignored.
+      def release_watch(topic : String, token : Int64) : Nil
         subscription = @mutex.synchronize do
-          next if generation != @generation || !(count = @watchers[topic]?)
+          next if @tokens[topic]? != token || !(count = @watchers[topic]?)
           if count > 1
             @watchers[topic] = count - 1
             next
           end
-          @watchers.delete(topic)
-          @seen.delete(topic)
-          @watching.delete(topic)
+          forget_watch(topic)
         end
         subscription.try(&.cancel)
       end
@@ -220,25 +233,25 @@ module Azu
         @mutex.synchronize { @watchers.keys }
       end
 
-      private def generation : Int32
-        @mutex.synchronize { @generation }
+      # Counts a claim on an already watched topic and returns its token; nil when nobody watches it yet.
+      # The caller holds @mutex.
+      private def join_locked(topic : String) : Int64?
+        return unless count = @watchers[topic]?
+        @watchers[topic] = count + 1
+        @tokens[topic]
       end
 
-      # Counts a claim on an already watched topic; false when nobody watches it yet.
-      private def join_watch(topic : String) : Bool
-        @mutex.synchronize do
-          next false unless count = @watchers[topic]?
-          @watchers[topic] = count + 1
-          true
-        end
+      # Forgets a watched topic and returns its subscription to cancel. The caller holds @mutex.
+      private def forget_watch(topic : String) : PubSub::Subscription?
+        @watchers.delete(topic)
+        @tokens.delete(topic)
+        @seen.delete(topic)
+        @watching.delete(topic)
       end
 
       private def drop_watches : Nil
         subscriptions = @mutex.synchronize do
-          @generation += 1
-          @watchers.clear
-          @seen.clear
-          @watching.values.tap { @watching.clear }
+          @watchers.keys.compact_map { |topic| forget_watch(topic) }
         end
         subscriptions.each(&.cancel)
       end
@@ -257,19 +270,26 @@ module Azu
       end
 
       # Publishes what the store holds and this node has not seen (joins), and what it saw and is gone (leaves).
-      # Diffs absorbed while the store was being read win: a meta is only a leave if it was seen before the read.
+      # Diffs absorbed while the store was being read win: a meta is only a leave if it was seen before the read,
+      # and a meta whose leave arrived during the read is not announced as a join.
       private def reconcile(topic : String) : Nil
-        before = @mutex.synchronize { @seen[topic]?.try(&.keys) }
+        before = @mutex.synchronize { @seen[topic]?.try(&.keys).tap { @reading[topic] = Set(String).new } }
         return unless before
-        current = store.live(topic, store.now, ttl).to_h { |meta| {meta.ref, meta} }
+        begin
+          current = store.live(topic, store.now, ttl).to_h { |meta| {meta.ref, meta} }
+        rescue ex
+          @mutex.synchronize { @reading.delete(topic) }
+          raise ex
+        end
         delta = settle(topic, before, current)
         emit(topic, **delta) if delta
       end
 
       private def settle(topic : String, before : Array(String), current : Hash(String, Meta))
         @mutex.synchronize do
+          removed = @reading.delete(topic) || Set(String).new
           next unless seen = @seen[topic]?
-          joined = current.reject { |ref, _| seen.has_key?(ref) }.values
+          joined = current.reject { |ref, _| seen.has_key?(ref) || removed.includes?(ref) }.values
           gone = before.select { |ref| seen.has_key?(ref) && !current.has_key?(ref) }.map { |ref| seen[ref] }
           keys_before = seen.each_value.map(&.key).to_set
           gone.each { |meta| seen.delete(meta.ref) }
@@ -286,7 +306,8 @@ module Azu
       private def absorb(topic : String, diff : Diff) : Nil
         @mutex.synchronize do
           next unless seen = @seen[topic]?
-          diff.leaves.each_value(&.each { |meta| seen.delete(meta.ref) })
+          reading = @reading[topic]?
+          diff.leaves.each_value(&.each { |meta| seen.delete(meta.ref); reading.try(&.add(meta.ref)) })
           diff.joins.each_value(&.each { |meta| seen[meta.ref] = meta })
         end
       end

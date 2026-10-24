@@ -106,7 +106,7 @@ Azu::Presence.default = Azu::Presence::Tracker.new(Azu::Presence::Store::Redis.n
 | `max_meta_bytes` | 1024 | Largest meta, as JSON. |
 | `max_entries` | 10 000 | Most metas this node tracks. |
 
-`watch(topic)` returns a `Watch` and `subscribe` a `Subscription`; both are counted per topic, and the node stops
+`unwatch(topic)` is deprecated: it drops every claim on the topic at once. `watch(topic)` returns a `Watch` and `subscribe` a `Subscription`; both are counted per topic, and the node stops
 following a topic (and drops its subscription and its remembered view) when the last of them is cancelled. A
 `Tracked` channel gives its watches back in `teardown`.
 
@@ -116,6 +116,10 @@ neither departs nor arrives). `shutdown` untracks everything this node tracked a
 
 A store is a Strategy: implement `Azu::Presence::Store` (`put`, `delete`, `stored`, `renew`, `leases`, `forget`,
 `evict`, and optionally `shutdown`, `now` and `present?`) and the shared expiry logic in `live` comes with it.
+
+Redis data written by an earlier, unreleased revision with `key\u001fref` fields in the `t:` hashes is not read by
+field name: such entries are filtered out once their node's lease lapses and disappear when the hash expires
+(`RETENTION`, one day without writes); delete the `<prefix>t:*` hashes once if you ran that revision.
 
 ## Guarantees
 
