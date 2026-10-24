@@ -23,6 +23,76 @@ export type SparkMessage = {
     id?: number;
     [field: string]: unknown;
 };
+export type SparkStats = {
+    state: string;
+    attempts: number;
+    rtt: {
+        last: number | null;
+        p50: number | null;
+    };
+    queue: {
+        waiting: number;
+        unacked: number;
+    };
+    bytes: {
+        in: number;
+        out: number;
+    };
+    patches: {
+        applied: number;
+    };
+    delivery: {
+        sent: number;
+        resent: number;
+        acked: number;
+        dropped: number;
+    };
+    reconnects: number;
+};
+export type SparkTelemetry = {
+    state: {
+        from: string;
+        to: string;
+        reason: string;
+        attempts: number;
+    };
+    rtt: {
+        ms: number;
+        p50: number | null;
+    };
+    timing: {
+        patches: number;
+        ms: number;
+    };
+    delivery: {
+        phase: "sent" | "resent" | "acked" | "dropped";
+        event: string;
+        eid: number;
+    };
+    reconnect: {
+        delay: number;
+        attempts: number;
+    };
+};
+export type SparkOptions = {
+    hiddenIdle?: number;
+    live?: boolean;
+    debug?: boolean;
+    text?: Partial<Record<"reconnecting" | "offline" | "stale" | "restored", string>>;
+};
+export declare var config: {
+    path: string;
+    backoffMin: number;
+    backoffMax: number;
+    requestTimeout: number;
+    probeTimeout: number;
+    stableAfter: number;
+    queueMax: number;
+    queueMaxAge: number;
+    idleMs: number;
+    live: boolean;
+    busyDelay: number;
+};
 export declare var STATES: string[];
 export declare var EVENTS: string[];
 declare function connectFresh(): {
@@ -78,6 +148,14 @@ export declare var TRANSITIONS: {
             state: any;
             effects: any;
         };
+        visible: (state: any) => {
+            state: any;
+            effects: any;
+        };
+        hide_idle: (state: any) => {
+            state: any;
+            effects: any;
+        };
         pageshow: (state: any) => {
             state: any;
             effects: any;
@@ -103,12 +181,17 @@ export declare var TRANSITIONS: {
         online: typeof networkBack;
         connect: typeof retry;
         visible: typeof resume;
+        hide_idle: (state: any) => {
+            state: any;
+            effects: any;
+        };
         stop: typeof stopped;
         pagehide: typeof paused;
     };
     "hidden-idle": {
-        visible: typeof connectFresh;
-        connect: typeof connectFresh;
+        visible: typeof retry;
+        connect: typeof retry;
+        pageshow: typeof retry;
         stop: typeof stopped;
         pagehide: typeof paused;
     };
@@ -180,8 +263,8 @@ export declare function heartbeatVerdict(measure: {
  * @param {object} deps timers {setTimeout, clearTimeout, setInterval, clearInterval}, now() (monotonic), wall() (Date.now),
  *   random(), online(),
  *   interval() (heartbeat ms), beat() (sends a heartbeat, true when sent), tick(), status(name, state),
- *   and the host effects open, close, teardown, opened, backingOff
- * @param {object} [settings] backoffMin, backoffMax, probeTimeout, stableAfter (ms)
+ *   and the host effects open, close, teardown, opened, backingOff (and changed(from, to, event), optional)
+ * @param {object} [settings] backoffMin, backoffMax, probeTimeout, stableAfter, idleMs (ms); without it the live config is used
  */
 export declare function createMachine(deps: object, settings?: object): {
     readonly state: {

@@ -132,7 +132,7 @@ export class FakeClock {
 }
 
 /** A machine wired to a fake clock; `log` records the host effects, `sent` the heartbeats. */
-export function harness(spark, { settings, random = () => 0.5 } = {}) {
+export function harness(spark, { settings, random = () => 0.5, changed } = {}) {
   const clock = new FakeClock();
   const log = [];
   const status = { online: true, canSend: true, beats: 0, slept: 0 };
@@ -152,6 +152,7 @@ export function harness(spark, { settings, random = () => 0.5 } = {}) {
     teardown: record("teardown"),
     opened: record("opened"),
     backingOff: (delay, attempts) => log.push({ name: "backingOff", delay, attempts }),
+    ...(changed ? { changed } : {}),
   }, settings);
   const sleep = (ms) => { status.slept += ms; }; // the machine slept: wall time passes, the monotonic clock stops
   const names = () => log.map((entry) => entry.name);

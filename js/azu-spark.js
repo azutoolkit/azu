@@ -12,11 +12,14 @@
  * @typedef {"connecting" | "connected" | "reconnecting" | "disconnected"} SparkStatus
  * @typedef {{ message: Record<string, unknown>, undo?: (() => void) | null, key?: string | null, at: number, root: string, once: boolean, sentAt?: number }} QueuedEvent
  * @typedef {{ v: number, type: string, id?: number, [field: string]: unknown }} SparkMessage
+ * @typedef {{ state: string, attempts: number, rtt: { last: number | null, p50: number | null }, queue: { waiting: number, unacked: number }, bytes: { in: number, out: number }, patches: { applied: number }, delivery: { sent: number, resent: number, acked: number, dropped: number }, reconnects: number }} SparkStats what AzuSpark.stats() returns
+ * @typedef {{ state: { from: string, to: string, reason: string, attempts: number }, rtt: { ms: number, p50: number | null }, timing: { patches: number, ms: number }, delivery: { phase: "sent" | "resent" | "acked" | "dropped", event: string, eid: number }, reconnect: { delay: number, attempts: number } }} SparkTelemetry the detail of each AzuSpark.on(name) event named here
+ * @typedef {{ hiddenIdle?: number, live?: boolean, debug?: boolean, text?: Partial<Record<"reconnecting" | "offline" | "stale" | "restored", string>> }} SparkOptions what AzuSpark.configure() takes
  */
 
 var PROTOCOL = 1;
 var script = document.currentScript;
-var config = {
+export var config = {
   path: (script && script.getAttribute("data-spark-path")) || "/spark",
   backoffMin: 500,
   backoffMax: 15000,
@@ -24,8 +27,18 @@ var config = {
   probeTimeout: 3000,
   stableAfter: 10000, // a connection must stay open this long before the backoff starts over
   queueMax: 50,
-  queueMaxAge: 60000
+  queueMaxAge: 60000,
+  idleMs: attr("hidden-idle") === null ? 300000 : Math.max(0, parseInt(attr("hidden-idle"), 10) || 0), // a tab hidden this long closes its socket (0: never)
+  live: attr("live") !== "off", // the live region for assistive technology
+  busyDelay: 150 // aria-busy appears only for an event unanswered this long
 };
+var debug = false; // console tracing: localStorage["azu-spark:debug"] = "1", or AzuSpark.debug = true
+try { debug = localStorage.getItem("azu-spark:debug") === "1"; } catch (e) { /* storage blocked */ }
+var text = {}; // AzuSpark.configure({text}): the words of the live region, by key
+
+function attr(name) {
+  return script ? script.getAttribute("data-spark-" + name) : null;
+}
 
 var ws = null;
 var status = "disconnected";
@@ -44,11 +57,153 @@ var timers = new WeakMap(); // element -> {kind: timer or time}
 
 // ---- helpers --------------------------------------------------------------------------
 
-function emit(name, detail, target) {
+function emit(name, detail, target, pushed) {
   (target || document).dispatchEvent(new CustomEvent("spark:" + name, { bubbles: true, detail: detail }));
   (handlers[name] || []).slice().forEach(function (fn) {
     try { fn(detail); } catch (e) { if (window.console) console.error(e); }
   });
+  if (debug && !pushed) console.debug("[azu-spark]", name, redact(detail)); // an event the app pushed carries its data: never traced
+}
+
+// ---- observability ----------------------------------------------------------------------
+//
+// Telemetry (state, rtt, timing, delivery) costs a handful of integer increments while nobody
+// listens: the detail object and the DOM event are made only for a name somebody subscribed to
+// with AzuSpark.on (or while debug tracing is on), see observed(). stats() reads the counters.
+
+var tally = { bytesIn: 0, bytesOut: 0, applied: 0, sent: 0, resent: 0, acked: 0, dropped: 0, reconnects: 0 };
+var rtts = []; // the last 16 round trips
+var beatId = 0;
+var beatAt = 0;
+
+function observed(name) {
+  var list = handlers[name];
+  return debug || (list !== undefined && list.length > 0);
+}
+
+// Counts a delivery step (sent, resent, acked, dropped) and tells the subscribers.
+function delivered(phase, entry) {
+  tally[phase]++;
+  if (observed("delivery")) emit("delivery", { phase: phase, event: entry.message.event, eid: entry.message.eid });
+}
+
+function round(ms) { return Math.round(ms * 10) / 10; }
+
+function median() {
+  return rtts.length ? rtts.slice().sort(function (a, b) { return a - b; })[rtts.length >> 1] : null;
+}
+
+function sampleRtt(id) {
+  if (id !== beatId || !beatAt) return;
+  var ms = round(now() - beatAt);
+  beatAt = 0;
+  if (rtts.push(ms) > 16) rtts.shift();
+  if (observed("rtt")) emit("rtt", { ms: ms, p50: median() });
+}
+
+// Only numbers, booleans and a few short words (states, reasons, codes, event names) are traced:
+// every other value, a message, a token or a snapshot, shows as its type. (Payloads that the app
+// pushes are not traced at all.)
+
+function redact(detail) {
+  var out = {};
+  Object.keys(detail && typeof detail === "object" ? detail : {}).forEach(function (key) {
+    var value = detail[key];
+    out[key] = /^(from|to|reason|code|event|phase)$/.test(key) || typeof value === "number" || typeof value === "boolean" ? value : "<" + typeof value + ">";
+  });
+  return out;
+}
+
+/** @returns {SparkStats} */
+function snapshot() {
+  return {
+    state: machine.state.name, attempts: machine.state.attempts,
+    rtt: { last: rtts.length ? rtts[rtts.length - 1] : null, p50: median() },
+    queue: { waiting: queue.length, unacked: pending.size },
+    bytes: { in: tally.bytesIn, out: tally.bytesOut },
+    patches: { applied: tally.applied },
+    delivery: { sent: tally.sent, resent: tally.resent, acked: tally.acked, dropped: tally.dropped },
+    reconnects: tally.reconnects
+  };
+}
+
+// ---- accessibility ----------------------------------------------------------------------
+//
+// One polite live region, made on the first announcement (or the page's own element marked
+// data-spark-live-region). It is hidden through CSSOM properties, which a strict style-src allows
+// (a style attribute would not be), never takes focus, and says reconnecting / offline / stale /
+// restored with the words of AzuSpark.configure({text}), data-spark-text-<key>, or English.
+// aria-busy marks a root while one of its events is unanswered, but only after config.busyDelay.
+
+var TEXT = {
+  reconnecting: "Reconnecting...", offline: "Offline. Live updates are paused.",
+  stale: "This page may be out of date.", restored: "Back online."
+};
+var HIDDEN = { position: "absolute", width: "1px", height: "1px", overflow: "hidden", clip: "rect(0 0 0 0)" };
+var region = null;
+var regionText = "";
+var problem = ""; // what was announced and not yet resolved
+var speaking = 0;
+
+function words(key) {
+  var own = text[key];
+  if (own === undefined) own = attr("text-" + key);
+  return own === undefined || own === null ? TEXT[key] : own;
+}
+
+function say(message) {
+  regionText = message;
+  if (!region || !region.isConnected) {
+    region = document.querySelector("[data-spark-live-region]");
+    if (!region) {
+      region = document.createElement("div");
+      region.setAttribute("data-spark-live-region", "");
+      region.setAttribute("role", "status");
+      region.setAttribute("aria-live", "polite");
+      region.setAttribute("aria-atomic", "true");
+      region.className = "azu-spark-live";
+      Object.assign(region.style, HIDDEN);
+      document.body.appendChild(region);
+      // A live region is announced when its content changes, not when it appears.
+      setTimeout(function () { region.textContent = regionText; }, 100);
+      return;
+    }
+  }
+  region.textContent = message;
+}
+
+function announce(key, delay) {
+  if (!config.live || (key !== "restored" && key === problem)) return;
+  clearTimeout(speaking);
+  if (key === "restored") {
+    var back = problem === "reconnecting" || problem === "offline";
+    problem = "";
+    if (!back) return;
+  }
+  speaking = setTimeout(function () {
+    if (key !== "restored") problem = key;
+    var message = words(key);
+    if (message) say(message);
+  }, delay);
+}
+
+function feel(to) {
+  var name = to.name;
+  if (name === "open") announce("restored", 0);
+  else if (name === "offline") announce("offline", 100);
+  else if (name === "backoff") announce("reconnecting", 1000);
+}
+
+function startBusy(root) {
+  var slot = root.sparkBusy || (root.sparkBusy = { n: 0 });
+  if (slot.n++ === 0) slot.timer = setTimeout(function () { root.setAttribute("aria-busy", "true"); }, config.busyDelay);
+}
+
+function endBusy(root) {
+  var slot = root.sparkBusy;
+  if (--slot.n > 0) return;
+  clearTimeout(slot.timer);
+  root.removeAttribute("aria-busy");
 }
 
 function setStatus(next, state) {
@@ -101,8 +256,10 @@ function send(entry) {
   if (machine.state.name !== "open") return false;
   var id = ++nextId;
   entry.message.id = id;
-  if (!entry.message.eid) entry.message.eid = ++lastEid;
+  var again = !!entry.message.eid;
+  if (!again) entry.message.eid = ++lastEid;
   if (transmit(entry.message)) {
+    delivered(again ? "resent" : "sent", entry);
     entry.sentAt = now();
     pending.set(id, entry);
   } else release(entry); // too large for the server: reported as an error, never retried
@@ -114,12 +271,18 @@ function release(entry) {
   var undo = entry.undo;
   entry.undo = null;
   if (undo) undo();
+  if (entry.rootEl) {
+    endBusy(entry.rootEl);
+    entry.rootEl = null;
+  }
 }
 
 // Forgets *entry* without delivering it, and says so.
 function drop(entry, reason) {
   release(entry);
+  delivered("dropped", entry);
   emit("event_dropped", { event: entry.message.event, reason: reason });
+  if (reason !== "stopped") announce("stale", 100);
 }
 
 // Adds *entry* to the queue, or merges it into a waiting event of its root that carries the same
@@ -192,6 +355,7 @@ function transmit(message) {
     return false;
   }
   ws.send(text);
+  tally.bytesOut += text.length;
   return true;
 }
 
@@ -206,7 +370,7 @@ function transmit(message) {
 //   closing      we asked the socket to close and wait for it (then: where it leads)
 //   backoff      the connection was lost; waiting to try again
 //   offline      the browser has no network; waiting for `online`
-//   hidden-idle  closed on purpose while the tab is hidden (reserved: nothing enters it yet)
+//   hidden-idle  closed on purpose (code 1000) after the tab was hidden for config.idleMs; the tab's return rejoins
 //   stopped      stopped for good until connect() (disconnect(), or the page can never join)
 //
 // `next(state, event)` is a pure function: it returns the new state and the effects to run. The
@@ -278,6 +442,7 @@ var WITH_SOCKET = {
   dead: droppedSocket,
   offline: networkLost,
   stop: function (state) { return closeThen(state, "stopped", 1000, "stopped"); },
+  hide_idle: function (state) { return closeThen(state, "hidden-idle", 1000, "hidden idle"); },
   pagehide: function (state) { return closeThen(state, "idle", 1000, "page closed"); }
 };
 
@@ -297,6 +462,7 @@ function afterClose(state, event) {
   return go(st(state.then, state.attempts), [teardown]);
 }
 
+// Also the way back from an idle close: the attempts stand, so a server that is down keeps getting longer delays.
 function retry(state) { return connectNow(state.attempts); }
 
 // The network is back: retry after the first (smallest) jittered delay, not at once, so captive
@@ -323,8 +489,7 @@ export var TRANSITIONS = {
     },
     stable: forget,
     visible: probe,
-    online: probe, // after a sleep or a network change the socket may be dead without anyone telling us
-    hide_idle: function (state) { return closeThen(state, "hidden-idle", 1000, "hidden"); }
+    online: probe // after a sleep or a network change the socket may be dead without anyone telling us
   }),
   closing: {
     closed: afterClose,
@@ -332,6 +497,9 @@ export var TRANSITIONS = {
     stop: function (state) { return go(st("closing", state.attempts, "stopped")); },
     pagehide: function (state) { return go(st("closing", state.attempts, state.then === "stopped" ? "stopped" : "idle")); },
     connect: function (state) { return go(st("closing", state.attempts, "connecting")); },
+    // The tab went idle and came back before the close finished (or the other way round): follow it.
+    visible: function (state) { return state.then === "hidden-idle" ? go(st("closing", state.attempts, "connecting")) : go(state); },
+    hide_idle: function (state) { return state.then === "connecting" ? go(st("closing", state.attempts, "hidden-idle")) : go(state); },
     // Restored from the back/forward cache before the close finished: connect once it has (a stopped client stays stopped).
     pageshow: function (state) { return state.then === "stopped" ? go(state) : go(st("closing", state.attempts, "connecting")); }
   },
@@ -345,8 +513,8 @@ export var TRANSITIONS = {
     stop: stopped,
     pagehide: paused
   },
-  offline: { online: networkBack, connect: retry, visible: resume, stop: stopped, pagehide: paused },
-  "hidden-idle": { visible: connectFresh, connect: connectFresh, stop: stopped, pagehide: paused },
+  offline: { online: networkBack, connect: retry, visible: resume, hide_idle: function (state) { return go(st("hidden-idle", state.attempts)); }, stop: stopped, pagehide: paused },
+  "hidden-idle": { visible: retry, connect: retry, pageshow: retry, stop: stopped, pagehide: paused },
   stopped: { connect: connectFresh }
 };
 
@@ -427,11 +595,11 @@ export function heartbeatVerdict(measure) {
  * @param {object} deps timers {setTimeout, clearTimeout, setInterval, clearInterval}, now() (monotonic), wall() (Date.now),
  *   random(), online(),
  *   interval() (heartbeat ms), beat() (sends a heartbeat, true when sent), tick(), status(name, state),
- *   and the host effects open, close, teardown, opened, backingOff
- * @param {object} [settings] backoffMin, backoffMax, probeTimeout, stableAfter (ms)
+ *   and the host effects open, close, teardown, opened, backingOff (and changed(from, to, event), optional)
+ * @param {object} [settings] backoffMin, backoffMax, probeTimeout, stableAfter, idleMs (ms); without it the live config is used
  */
 export function createMachine(deps, settings) {
-  var cfg = Object.assign({}, config, settings);
+  var cfg = settings ? Object.assign({}, config, settings) : config;
   var state = st("idle", 0);
   var timers = {};
   var inbox = [];
@@ -440,6 +608,19 @@ export function createMachine(deps, settings) {
   var lastWatchAt = 0;
   var lastWallAt = 0;
   var connectedAt = 0;
+  var hiddenNow = false;
+  var idleTimer = 0;
+
+  // The idle window belongs to the tab, not to a state: it runs across reconnects while the tab stays hidden.
+  function disarmIdle() {
+    deps.timers.clearTimeout(idleTimer);
+    idleTimer = 0;
+  }
+
+  function armIdle() {
+    disarmIdle();
+    if (cfg.idleMs > 0) idleTimer = deps.timers.setTimeout(function () { idleTimer = 0; machine.dispatch({ type: "hide_idle" }); }, cfg.idleMs);
+  }
 
   function own(name, handle, clear) {
     cancel(name);
@@ -510,13 +691,18 @@ export function createMachine(deps, settings) {
 
   function step(event) {
     var typed = event.online === undefined ? Object.assign({ online: deps.online() }, event) : event;
+    if (typed.type === "hidden") { hiddenNow = true; armIdle(); }
+    else if (typed.type === "visible") { hiddenNow = false; disarmIdle(); }
+    else if (typed.type === "stop" || typed.type === "pagehide") disarmIdle();
     var result = next(state, typed);
     var previous = state;
     state = result.state;
     if (state.name !== previous.name) {
       cancelAll();
       if (previous.name === "connecting" && state.name === "joining") connectedAt = deps.now();
+      if (hiddenNow && !idleTimer && state.name === "connecting") armIdle();
       deps.status(statusOf(state), state);
+      if (deps.changed) deps.changed(previous, state, typed);
     }
     result.effects.forEach(run);
   }
@@ -550,14 +736,23 @@ var machine = createMachine({
   random: Math.random,
   online: function () { return navigator.onLine !== false; },
   interval: function () { return heartbeatInterval(hello && hello.heartbeat); },
-  beat: function () { return transmit({ v: PROTOCOL, type: "heartbeat", id: ++nextId }); },
+  beat: function () {
+    beatId = ++nextId;
+    beatAt = now();
+    return transmit({ v: PROTOCOL, type: "heartbeat", id: beatId });
+  },
   tick: expirePending,
   status: setStatus,
   open: openSocket,
   close: closeSocket,
   teardown: teardown,
   opened: function () { emit("open", { attempts: machine.state.attempts }); },
+  changed: function (from, to, event) {
+    if (observed("state")) emit("state", { from: from.name, to: to.name, reason: event.type, attempts: to.attempts });
+    feel(to);
+  },
   backingOff: function (delay, attempts) {
+    tally.reconnects++;
     emit("backoff", { delay: delay, attempts: attempts });
     emit("reconnect", { delay: delay, attempts: attempts });
   }
@@ -612,6 +807,7 @@ function joinRoots(scope) {
 function receive(text) {
   var message;
   machine.frame();
+  tally.bytesIn += text.length;
   try { message = JSON.parse(text); } catch (e) { return; }
   switch (message.type) {
     case "hello":
@@ -624,7 +820,7 @@ function receive(text) {
     case "diff": applyDiff(message); break;
     case "reply": learnGeneration(message); answered(message.id); joinsSettled(); break;
     case "redirect": navigate(message.to, message.replace); break;
-    case "heartbeat": break;
+    case "heartbeat": sampleRtt(message.id); break;
     case "error": failed(message); break;
   }
   // The server names the event a frame answers: done with it, even if its reply never comes.
@@ -637,6 +833,7 @@ function receive(text) {
 function answered(id) {
   var entry = pending.get(id);
   pending.delete(id);
+  if (entry) delivered("acked", entry);
   // The next value of its control waits for the paint: an older patch must not land over newer text.
   if (entry && entry.key) awaitingPaint.add(entry.key);
   afterPatches(function () {
@@ -673,7 +870,7 @@ export function applyDiff(message) {
     later({ run: function () {
       message.events.forEach(function (push) {
         var element = byId(push.target);
-        if (element) emit(push.name, push.payload, element);
+        if (element) emit(push.name, push.payload, element, true);
       });
     } });
   }
@@ -695,6 +892,7 @@ function failed(message) {
   var entry = answered(message.id);
   if (entry && (message.code === "stale_event" || message.code === "rate_limited")) {
     emit("event_dropped", { event: entry.message.event, reason: message.code === "stale_event" ? "stale" : "rate_limited" });
+    announce("stale", 100);
   }
   var root = joining.get(message.id);
   joining.delete(message.id);
@@ -758,12 +956,21 @@ export function flushPatches() {
   frame = [];
   if (jobs.length === 0) return;
   var kept = { scrolls: [], focus: null };
+  var started = now();
+  var patches = 0;
   var guard = function (work) {
     try { work(); } catch (e) { emit("error", { code: "patch_failed", message: String(e && e.message || e) }); }
   };
   guard(function () { kept = remember(jobs.map(function (job) { return job.id === undefined ? null : byId(job.id); }).filter(Boolean)); });
-  jobs.forEach(function (job) { guard(job.run); });
+  jobs.forEach(function (job) {
+    if (job.id !== undefined) patches++;
+    guard(job.run);
+  });
   guard(function () { recall(kept); });
+  if (patches > 0) {
+    tally.applied += patches;
+    if (observed("timing")) emit("timing", { patches: patches, ms: now() - started });
+  }
 }
 
 // Layout reads, all before the first write: scroll offsets inside the patched components, and the
@@ -1124,12 +1331,14 @@ function push(element, event, payload, loading, how) {
   how = how || {};
   var targetId = target.getAttribute("data-spark-id");
   var root = rootOf(target);
+  var rootEl = target.closest("[data-spark-root]");
   var entry = {
     message: { v: PROTOCOL, type: "event", target: targetId, event: event, payload: payload },
-    undo: undo, at: now(), root: root, once: !!how.once,
+    undo: undo, at: now(), root: root, once: !!how.once, rootEl: rootEl,
     key: how.coalesce ? targetId + "|" + event + "|" + controlKey(element) + "|" + how.dom : null
   };
   if (gens.has(root)) entry.message.gen = gens.get(root); // the page state this event was made against
+  if (rootEl) startBusy(rootEl);
   if (machine.state.name === "stopped" || machine.state.name === "idle") {
     release(entry);
     return emit("offline", { event: event }, element);
@@ -1138,6 +1347,7 @@ function push(element, event, payload, loading, how) {
   pump();
   trim();
   if (queue.indexOf(held) >= 0) emit("queued", { event: event, size: queue.length }, element);
+  if (machine.state.name === "hidden-idle") machine.dispatch({ type: "connect" }); // an event made while idle wakes the connection
 }
 
 // The connection is gone. What was sent and not acknowledged may or may not have been applied:
@@ -1353,6 +1563,8 @@ function start() {
     if (document.visibilityState !== "visible") flushDebounced();
     machine.dispatch({ type: document.visibilityState === "visible" ? "visible" : "hidden" });
   });
+  window.addEventListener("focus", function () { machine.dispatch({ type: "visible" }); }); // also wakes an idle tab whose visibilitychange was missed
+  if (document.visibilityState === "hidden") machine.dispatch({ type: "hidden" });
   window.addEventListener("pageshow", function (event) { if (event.persisted) machine.dispatch({ type: "pageshow" }); });
   window.addEventListener("pagehide", function () {
     flushDebounced();
@@ -1368,6 +1580,14 @@ window.AzuSpark = {
   get unacked() { return pending.size; },
   connect: function () { machine.dispatch({ type: "connect" }); },
   disconnect: stop,
+  stats: snapshot,
+  configure: function (options) {
+    if (options.hiddenIdle !== undefined) config.idleMs = Math.max(0, +options.hiddenIdle || 0);
+    if (options.live !== undefined) config.live = !!options.live;
+    if (options.debug !== undefined) debug = !!options.debug;
+    if (options.text) text = Object.assign({}, options.text);
+    return this;
+  },
   on: function (name, fn) { (handlers[name] = handlers[name] || []).push(fn); return this; },
   off: function (name, fn) { handlers[name] = (handlers[name] || []).filter(function (h) { return h !== fn; }); return this; },
   push: function (element, event, payload) { push(element, event, payload || {}); }
