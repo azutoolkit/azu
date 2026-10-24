@@ -210,11 +210,29 @@ async function scripts(browser) {
     assert.strictEqual(await page.evaluate(() => document.querySelector("img").hasAttribute("onerror")), false);
     await patch("<p>z</p><script>window.__ran = (window.__ran || 0) + 1</script>");
     await applied();
+    // A patch cannot grant itself the opt-in.
+    if (!optIn) {
+      await patch('<div data-spark-allow-scripts><p>z</p><script>window.__ran = 5</script></div>');
+      await applied();
+      assert.deepStrictEqual(await page.evaluate(() => [window.__ran, document.querySelector("[data-spark-allow-scripts]") !== null]), [undefined, false]);
+    }
     const ran = await page.evaluate(() => window.__ran);
     assert.strictEqual(ran, optIn ? 1 : undefined, optIn ? "an opted-in root runs a new script once, an unchanged one is not run again" : "a patch script never runs");
     await page.close();
   }
   console.log("ok   scripts in patches run only for a root that opted in");
+}
+
+// <input name=id> shadows form.id in the DOM: keys must come from the attribute.
+async function clobbered(browser) {
+  const forms = (n) => Array.from({ length: n }, (_, i) => `<form><input name="id" value="${i}"></form>`).join("");
+  const { page, patch, applied } = await scripted(browser, { body: ROOT("", forms(2)) });
+  await page.evaluate(() => { window.__forms = [...document.forms]; });
+  await patch(forms(3));
+  await applied();
+  assert.deepStrictEqual(await page.evaluate(() => [...document.forms].slice(0, 2).map((f, i) => f === window.__forms[i])), [true, true]);
+  await page.close();
+  console.log("ok   a control named id does not become the key of its form");
 }
 
 const CSP = (policy) => `script-src 'self'; ${policy}`;
@@ -256,6 +274,7 @@ async function main() {
     await moved(browser, true);
     await moved(browser, false);
     await scripts(browser);
+    await clobbered(browser);
     await trustedTypes(browser);
     console.log("spark patch browser test passed");
   } finally {
