@@ -21,6 +21,8 @@ module Azu
       PUBLISH_TIMEOUT = 5.seconds
       # Pooled connections for publishing when built from a URL: publishes are short, so a few are plenty.
       POOL_SIZE = 2
+      # How long the very first `subscribe` waits for Redis to confirm the pattern subscription.
+      LISTEN_TIMEOUT = 2.seconds
 
       # `PUBSUB_REDIS_URL`, then `REDIS_URL`, then localhost.
       def self.default_url : String
@@ -38,12 +40,15 @@ module Azu
         @listener = nil.as(::Redis?)
         @done = ::Channel(Nil).new
         @listening = false
+        @waited = false
+        @confirmed = ::Channel(Nil).new
       end
 
       def subscribe(topic : String, &handler : Message ->) : Subscription
         subscription = Subscription.new(topic, self, &handler)
         @subscribers.add(subscription)
         ensure_listening
+        await_first_confirmation
         subscription
       end
 
@@ -64,6 +69,22 @@ module Azu
         listener.try { |connection| @client.release(connection) }
         @subscribers.clear
         @client.close if @owned
+      end
+
+      # The first `subscribe` of a backend returns once Redis has confirmed the pattern subscription (or after
+      # `LISTEN_TIMEOUT`), so a broadcast right after it, from any node, reaches that subscriber. Later
+      # subscriptions only add a local handler and never wait.
+      private def await_first_confirmation : Nil
+        first = @mutex.synchronize { @waited.tap { @waited = true } == false }
+        return unless first
+        select
+        when @confirmed.receive?
+        when timeout(LISTEN_TIMEOUT)
+        end
+      end
+
+      private def confirm_listening : Nil
+        @mutex.synchronize { @confirmed.close unless @confirmed.closed? }
       end
 
       private def ensure_listening : Nil
@@ -96,6 +117,7 @@ module Azu
         begin
           return if @done.closed?
           listener.psubscribe("#{@prefix}*") do |on|
+            on.psubscribe { |_pattern, _count| confirm_listening }
             on.pmessage { |_pattern, channel, payload| dispatch(channel, payload) }
           end
         ensure

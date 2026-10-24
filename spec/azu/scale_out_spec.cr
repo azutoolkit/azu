@@ -88,6 +88,22 @@ private def frame_where(client : WsProbe, timeout : Time::Span = 5.seconds, & : 
   end
 end
 
+# Next presence diff of *client* whose *field* ("arrived", "departed") names *user*. Diffs are parsed rather than
+# matched as text, since one diff can name several users when two arrive close together.
+private def diff_naming(client : WsProbe, field : String, user : String, timeout : Time::Span = SCALE_TTL * 3) : Hash(String, JSON::Any)?
+  deadline = Time.instant + timeout
+  while (remaining = deadline - Time.instant) > Time::Span.zero
+    return unless frame = client.receive(remaining)
+    diff = begin
+      JSON.parse(frame).as_h?
+    rescue JSON::ParseException
+      nil
+    end
+    next unless diff
+    return diff if diff[field]?.try(&.as_a?).try(&.any? { |name| name.as_s? == user })
+  end
+end
+
 describe "scale-out" do
   it "shares broadcasts and presence between two processes and expires a node that was killed" do
     pending!("set AZU_TEST_SCALE=1 to run the two-process scale-out spec") unless ENV["AZU_TEST_SCALE"]? == "1"
@@ -105,13 +121,17 @@ describe "scale-out" do
       node_a.ready?.should be_true
       node_b.ready?.should be_true
 
+      # Each client waits for its own join diff before the next step: the handshake returns before the server's
+      # `on_connect` has subscribed and tracked, and PubSub subscribes asynchronously.
       alice = WsProbe.new(node_a.port, "/?user=alice")
+      diff_naming(alice, "arrived", "alice").should_not be_nil
       bob = WsProbe.new(node_b.port, "/?user=bob")
+      diff_naming(bob, "arrived", "bob").should_not be_nil
 
       # Presence shows both users from either node, each on the node it connected to.
       expected = {"alice" => ["node-a"], "bob" => ["node-b"]}
       wait_until(5.seconds) { node_a.presence == expected && node_b.presence == expected }.should be_true
-      frame_where(alice, &.includes?(%("arrived":["bob"]))).should_not be_nil
+      diff_naming(alice, "arrived", "bob").should_not be_nil
 
       # A broadcast reaches the other node's client, in both directions.
       alice.send("hello from a")
@@ -122,7 +142,7 @@ describe "scale-out" do
       # SIGKILL runs no teardown: bob's entry leaves node A's list when node B's lease runs out.
       node_b.kill
       wait_until(SCALE_TTL * 5) { node_a.presence == {"alice" => ["node-a"]} }.should be_true
-      frame_where(alice, &.includes?(%("departed":["bob"]))).should_not be_nil
+      diff_naming(alice, "departed", "bob").should_not be_nil
     ensure
       nodes.each(&.kill)
       redis = Redis.new(url: SCALE_REDIS_URL, reconnect: false)

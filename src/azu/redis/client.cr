@@ -23,7 +23,10 @@ module Azu
     # per socket read and write (`Config#command_timeout`), not a deadline for the whole call.
     #
     # A lost connection also closes the other idle connections, which are most likely dead as well (a restarted
-    # server), so the next attempt, retried or not, opens a fresh one.
+    # server), so the next attempt, retried or not, opens a fresh one. Only connections that were already idle when
+    # the failed attempt started are closed, so a connection another fiber checked in since stays. When two fibers
+    # fail together, that leaves such a connection possibly dead for the second one: give `Config#retry` at least 2
+    # retries if many fibers share the client across restarts.
     class Client
       alias ConnectionPool = Pool(::Redis)
 
@@ -128,15 +131,23 @@ module Azu
 
       private def attempt(retry : Bool, strict : Bool = false, & : ::Redis -> T) : T forall T
         tries = 0
-        started = Clock.instant
         loop do
-          started = Clock.instant
-          return @pool.run(strict) { |connection| yield connection }
+          return once(strict) { |connection| yield connection }
         rescue ex
-          @pool.drop_idle(started) if Redis.retryable?(ex)
           raise ex unless retry && Redis.retryable?(ex) && @config.retry.retry?(tries)
           Clock.sleep(@config.retry.delay(tries))
           tries += 1
+        end
+      end
+
+      # One try. A lost connection also closes the idle ones that were already idle when it started.
+      private def once(strict : Bool, & : ::Redis -> T) : T forall T
+        started = Clock.instant
+        begin
+          @pool.run(strict) { |connection| yield connection }
+        rescue ex
+          @pool.drop_idle(started) if Redis.retryable?(ex)
+          raise ex
         end
       end
     end

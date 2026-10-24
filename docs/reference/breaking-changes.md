@@ -8,6 +8,17 @@ This document lists breaking changes between Azu versions and migration guides.
 
 Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
 
+**A Redis cache needs an explicit URL, and `clear` only removes the cache's own keys.**
+
+- `cache_config.redis_url` is now `String?` and has no default (it used to be `redis://localhost:6379/0`).
+  `CACHE_STORE=redis` without `CACHE_REDIS_URL` (or `cache_config.redis_url`, or `cache_config.redis_client`) now
+  raises an `ArgumentError` when `Azu.cache` is built, and the boot fails. Set `CACHE_REDIS_URL`; to keep using
+  localhost, say so: `CACHE_REDIS_URL=redis://localhost:6379/0`. `REDIS_URL` is not read by the cache.
+- `Azu.cache.clear` removes the keys under `"<key_prefix>:"` instead of running `FLUSHDB`, so other keys in the same
+  Redis database survive. Use `Azu.cache.clear(all: true)` for the old behaviour (`FLUSHDB`). The prefix clear
+  walks the keyspace with `SCAN`, needs Redis 4.0 and does not support Redis Cluster.
+- `Cache::Store` has a new abstract method `clear_prefix(prefix : String) : Bool`; a custom store must implement it.
+
 **The global shim is deprecated.** `include Azu`, `configure` and `start` still work, and log one warning per
 process (at the first call, not when requiring azu) that names `Azu::App`.
 

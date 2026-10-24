@@ -496,6 +496,24 @@ describe Azu::Redis::Pool do
     end
   end
 
+  it "closes a connection checked in at exactly the failed attempt's start, and keeps one checked in just after" do
+    with_fake_clock do |clock|
+      created = [] of FakeConnection
+      pool = fake_pool(2, created: created)
+      at_start = pool.checkout
+      after = pool.checkout
+      pool.checkin(at_start)
+      attempt_started = clock.instant
+      clock.advance(1.nanosecond)
+      pool.checkin(after)
+
+      pool.drop_idle(attempt_started)
+
+      at_start.closed?.should be_true
+      after.closed?.should be_false
+    end
+  end
+
   it "closes a connection checked in after the pool closed" do
     created = [] of FakeConnection
     pool = fake_pool(1, created: created)
@@ -975,6 +993,29 @@ private class RecordingPresenceStore < Azu::Presence::Store::Memory
 end
 
 describe "consumers of Azu::Redis" do
+  it "delivers a broadcast made right after the first subscribe returns" do
+    pending!("Redis is not reachable on #{REDIS_UTIL_URL}") unless redis_util_available?
+    prefix = "azu:redis_spec:first:#{Random::Secure.hex(4)}:"
+    receiver = Azu::PubSub::Redis.new(REDIS_UTIL_URL, prefix)
+    sender = Azu::PubSub::Redis.new(REDIS_UTIL_URL, prefix)
+    begin
+      received = ::Channel(String).new(1)
+      receiver.subscribe("t") { |message| received.send(message.payload) }
+
+      sender.broadcast("t", "immediately")
+
+      select
+      when payload = received.receive
+        payload.should eq "immediately"
+      when timeout(2.seconds)
+        fail "the broadcast was lost"
+      end
+    ensure
+      receiver.shutdown
+      sender.shutdown
+    end
+  end
+
   it "refuses to build a Redis cache that has no URL, instead of picking localhost" do
     previous = ENV["CACHE_REDIS_URL"]?
     begin
@@ -994,34 +1035,63 @@ describe "consumers of Azu::Redis" do
 
   it "clears only the keys under the cache's prefix, leaving the rest of the database alone" do
     pending!("Redis is not reachable on #{REDIS_UTIL_URL}") unless redis_util_available?
-    url = REDIS_UTIL_URL.sub(%r{/\d+\z}, "") + "/14"
-    probe = Redis.new(url: url, reconnect: false)
+    probe = Redis.new(url: REDIS_UTIL_URL, reconnect: false)
     token = Random::Secure.hex(4)
+    # The prefix holds glob characters: unescaped, "a*b[c" would also match the sibling "aXXb[c:...".
+    prefix = "clr#{token}a*b[c"
+    sibling = "clr#{token}aXXb[c:sibling"
     config = Azu::Cache::Configuration.new
     config.store = "redis"
-    config.redis_url = url
-    config.key_prefix = "clr#{token}"
+    config.redis_url = REDIS_UTIL_URL
+    config.key_prefix = prefix
     manager = Azu::Cache::Manager.new(config)
+    created = [] of String
     begin
       700.times { |index| manager.set("k#{index}", "v") }
       manager.set("we[ird*", "v")
-      probe.set("other:#{token}", "keep")
-      probe.set("clr#{token}x", "keep too") # shares the text of the prefix but not the "prefix:" boundary
+      {"other:#{token}", "#{prefix}x", sibling}.each { |key| probe.set(key, "keep") }
+      created.concat({"other:#{token}", "#{prefix}x", sibling})
 
       manager.clear.should be_true
 
-      probe.keys("clr#{token}:*").should be_empty
-      probe.get("other:#{token}").should eq "keep"
-      probe.get("clr#{token}x").should eq "keep too"
-
-      manager.set("again", "1")
-      manager.clear(all: true).should be_true
-      probe.get("other:#{token}").should be_nil
+      probe.keys("#{prefix.gsub(/[\\*?\[\]]/) { |char| "\\#{char}" }}:*").should be_empty
+      {"other:#{token}", "#{prefix}x", sibling}.each { |key| probe.get(key).should eq "keep" }
     ensure
-      probe.flushdb
+      created.each { |key| probe.del(key) }
       probe.close
       manager.store.as(Azu::Cache::RedisStore).close
     end
+  end
+
+  it "empties a store with clear(all: true)" do
+    manager = Azu::Cache::Manager.new(Azu::Cache::Configuration.new.tap { |config| config.store = "memory" })
+    manager.set("a", "1")
+
+    manager.clear(all: true).should be_true
+
+    manager.get("a").should be_nil
+  end
+
+  it "fails the boot of a configuration that asks for a Redis cache without a URL, instead of disabling the cache" do
+    previous = ENV["CACHE_REDIS_URL"]?
+    begin
+      ENV.delete("CACHE_REDIS_URL")
+      configuration = Azu::Configuration.new
+      configuration.cache_config.store = "redis"
+
+      expect_raises(ArgumentError, /CACHE_REDIS_URL/) { configuration.cache }
+    ensure
+      previous.try { |value| ENV["CACHE_REDIS_URL"] = value }
+    end
+  end
+
+  it "still falls back to a disabled cache when the Redis it was pointed at is down" do
+    configuration = Azu::Configuration.new
+    configuration.cache_config.store = "redis"
+    configuration.cache_config.redis_url = UNREACHABLE
+    configuration.cache_config.cache_connection_retries = 1
+
+    with_fake_clock { configuration.cache.set("k", "v").should be_false }
   end
 
   it "never points the cache at REDIS_URL, whose database `clear` would flush" do
