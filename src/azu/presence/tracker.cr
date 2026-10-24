@@ -183,7 +183,11 @@ module Azu
       # Writes to the store of one key go through the lock of its stripe, so a track, an untrack and the re-assert
       # of the sweep never interleave for that key (an untracked meta cannot be put back).
       private def with_key(key : String, &)
-        @locks[(key.hash % STRIPES).to_i].synchronize { yield }
+        @locks[stripe(key)].synchronize { yield }
+      end
+
+      private def stripe(key : String) : Int32
+        (key.hash % STRIPES).to_i
       end
 
       private def reserve(topic : String, key : String, data : JSON::Any, now : Time) : Meta
@@ -245,6 +249,7 @@ module Azu
       private def forget_watch(topic : String) : PubSub::Subscription?
         @watchers.delete(topic)
         @tokens.delete(topic)
+        @reading.delete(topic)
         @seen.delete(topic)
         @watching.delete(topic)
       end
@@ -257,23 +262,32 @@ module Azu
       end
 
       # Puts back the metas the store lost (a flush, an eviction while this node looked dead) and extends the
-      # others' retention. One read per topic; a meta is written under its key lock, and only while still owned.
+      # retention of the others. One read per topic; the writes of a stripe of keys happen under its lock and only
+      # for metas that are still owned there, so an untrack that ran after the snapshot is never undone.
       private def reassert : Nil
         owned.each do |topic, metas|
           stored = store.refs(topic).to_set
-          metas.each do |meta|
-            next if stored.includes?(meta.ref)
-            with_key(meta.key) { store.put(topic, meta) if owns?(topic, meta.ref) }
+          metas.group_by { |meta| stripe(meta.key) }.each do |index, group|
+            @locks[index].synchronize { reassert_stripe(topic, group.select { |meta| owns?(topic, meta.ref) }, stored) }
           end
-          store.refresh(topic, metas)
         end
+      end
+
+      private def reassert_stripe(topic : String, metas : Array(Meta), stored : Set(String)) : Nil
+        missing, present = metas.partition { |meta| !stored.includes?(meta.ref) }
+        missing.each { |meta| store.put(topic, meta) }
+        store.refresh(topic, present) unless present.empty?
       end
 
       # Publishes what the store holds and this node has not seen (joins), and what it saw and is gone (leaves).
       # Diffs absorbed while the store was being read win: a meta is only a leave if it was seen before the read,
       # and a meta whose leave arrived during the read is not announced as a join.
       private def reconcile(topic : String) : Nil
-        before = @mutex.synchronize { @seen[topic]?.try(&.keys).tap { @reading[topic] = Set(String).new } }
+        before = @mutex.synchronize do
+          next unless seen = @seen[topic]?
+          @reading[topic] = Set(String).new
+          seen.keys
+        end
         return unless before
         begin
           current = store.live(topic, store.now, ttl).to_h { |meta| {meta.ref, meta} }
