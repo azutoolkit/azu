@@ -398,6 +398,83 @@ describe Azu::Redis::Pool do
   end
 end
 
+# A ::Redis that never connects: `multi` and `pipelined` fail the way a block that raised would.
+private class FailingRedis < ::Redis
+  def initialize
+    @host = "localhost"
+    @port = 6379
+    @unixsocket = nil
+    @password = nil
+    @database = nil
+    @ssl = false
+    @ssl_context = nil
+    @dns_timeout = nil
+    @connect_timeout = nil
+    @reconnect = false
+    @command_timeout = nil
+    @namespace = ""
+  end
+
+  # The `yield`s make these overrides of the parent's block methods; they are never reached.
+  def multi
+    raise ArgumentError.new("multi failed") unless @reconnect.nil?
+    yield ::Redis::TransactionApi.allocate
+    [] of ::Redis::RedisValue
+  end
+
+  def pipelined
+    raise ArgumentError.new("pipeline failed") unless @reconnect.nil?
+    yield ::Redis::PipelineApi.allocate
+    [] of ::Redis::RedisValue
+  end
+
+  def close
+  end
+end
+
+private def failing_client(on_close : Proc(Nil)? = nil) : Azu::Redis::Client
+  config = Azu::Redis::Config.new(url: UNREACHABLE, pool_size: 1, checkout_timeout: 50.milliseconds)
+  pool = Azu::Redis::Pool(::Redis).new(1, 50.milliseconds, -> { FailingRedis.new.as(::Redis) },
+    broken: ->(error : Exception) { Azu::Redis.connection_failure?(error) })
+  Azu::Redis::Client.new(config, pool, on_close)
+end
+
+describe Azu::Redis::Client do
+  it "discards the connection when a multi block fails with an error that is not about the connection" do
+    client = failing_client
+
+    expect_raises(ArgumentError, "multi failed") { client.multi { |_| } }
+
+    client.stats.discarded.should eq 1
+  end
+
+  it "discards the connection when a pipelined block fails likewise" do
+    client = failing_client
+
+    expect_raises(ArgumentError, "pipeline failed") { client.pipelined { |_| } }
+
+    client.stats.discarded.should eq 1
+  end
+
+  it "keeps the connection after a run that fails with such an error, which cannot desync it" do
+    client = failing_client
+
+    expect_raises(ArgumentError) { client.run { |_| raise ArgumentError.new("plain") } }
+
+    client.stats.discarded.should eq 0
+  end
+
+  it "releases the pool once however many fibers close it at the same time" do
+    releases = 0
+    client = failing_client(-> { releases += 1; Fiber.yield; nil })
+    done = ::Channel(Nil).new
+    5.times { spawn { client.close; done.send(nil) } }
+    5.times { done.receive }
+
+    releases.should eq 1
+  end
+end
+
 describe Azu::Redis::Pool do
   it "keeps a connection that was checked in after the failed attempt started" do
     with_fake_clock do |clock|
@@ -432,17 +509,63 @@ describe Azu::Redis::Pool do
   end
 end
 
+describe "retry per consumer" do
+  # Sleeping in the backoff advances the fake clock, so the clock tells whether a call retried.
+  it "never retries a cache increment, retries a cache read" do
+    with_fake_clock do |clock|
+      store = Azu::Cache::RedisStore.new(UNREACHABLE)
+      started = clock.instant
+
+      store.increment("n").should be_nil
+      clock.instant.should eq started
+
+      store.get("k").should be_nil
+      clock.instant.should be > started
+      store.close
+    end
+  end
+
+  it "retries a PubSub publish" do
+    with_fake_clock do |clock|
+      backend = Azu::PubSub::Redis.new(UNREACHABLE)
+      started = clock.instant
+
+      expect_raises(Redis::CannotConnectError) { backend.broadcast("t", "x") }
+
+      clock.instant.should be > started
+      backend.shutdown
+    end
+  end
+
+  it "retries presence commands, transactions included" do
+    with_fake_clock do |clock|
+      store = Azu::Presence::Store::Redis.new(UNREACHABLE)
+      started = clock.instant
+
+      expect_raises(Redis::CannotConnectError) { store.renew("node", Time.utc) }
+      after_command = clock.instant
+      after_command.should be > started
+
+      expect_raises(Redis::CannotConnectError) { store.evict("t", [Azu::Presence::Meta.new("ref", "node", "k", JSON::Any.new({} of String => JSON::Any), 0_i64)]) }
+      clock.instant.should be > after_command
+      store.shutdown
+    end
+  end
+end
+
 describe Azu::Redis do
   describe "after the server dropped every connection" do
     it "succeeds on one retry although several idle connections are dead" do
       pending!("Redis is not reachable on #{REDIS_UTIL_URL}") unless redis_util_available?
       client = Azu::Redis::Client.new(live_config(pool_size: 3))
       begin
-        fill_pool(client)
-        client.stats.open.should eq 3
-        kill_all_clients
+        with_fake_clock do
+          fill_pool(client)
+          client.stats.open.should eq 3
+          kill_all_clients
 
-        client.run(retry: true, &.ping).should eq "PONG"
+          client.run(retry: true, &.ping).should eq "PONG"
+        end
       ensure
         client.close
       end
