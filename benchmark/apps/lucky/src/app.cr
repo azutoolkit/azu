@@ -8,7 +8,7 @@ require "sqlite3"
 require "../../common/bench"
 
 # Lucky logs every pipe of every request at INFO even without LogHandler: request logging is off for all apps
-Log.setup(:warn)
+Bench.quiet_logs
 
 Lucky::Server.configure do |settings|
   settings.secret_key_base = "0123456789012345678901234567890123456789012345678901234567890123"

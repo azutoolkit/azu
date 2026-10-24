@@ -6,7 +6,8 @@ name: Framework benchmarks
 #
 # A shared GitHub runner is noisy. Read its numbers as same-run comparisons; headline numbers come only from a
 # pinned, dedicated runner (see "Noise" in benchmark/README.md). The job refuses to measure on a busy machine
-# unless `force` is set, and the result then records why.
+# unless `force` is set, and the result then records why. A row with errors fails the job. The actions are pinned by
+# major-version tag (not by commit sha); pin them by sha for a runner that handles secrets.
 on:
   workflow_dispatch:
     inputs:
@@ -27,7 +28,7 @@ on:
         type: string
         default: "10"
       force:
-        description: measure although the runner is not quiet
+        description: measure although the runner is not quiet (the result is marked)
         type: boolean
         default: false
 
@@ -49,6 +50,8 @@ jobs:
       BENCH_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -64,20 +67,22 @@ jobs:
           sudo apt-get install -y wrk sqlite3 libsqlite3-dev libmagic-dev
 
       - name: Driver tests
-        run: node --test benchmark/driver/test/
+        run: node --test "benchmark/driver/test/*.test.mjs"
 
       - name: Measure
+        shell: bash
         run: |
+          set -euo pipefail
           # The dispatch inputs are only ever used as quoted values, after being checked.
-          [[ "$INPUT_RUNS" =~ ^[0-9]+$ ]] || { echo "runs must be a number" >&2; exit 2; }
+          [[ "$INPUT_RUNS" =~ ^[0-9]+$ ]] && [ "$INPUT_RUNS" -ge 5 ] || { echo "runs must be a number, 5 or more" >&2; exit 2; }
           [[ "$INPUT_DURATION" =~ ^[0-9]+$ ]] || { echo "duration must be a number" >&2; exit 2; }
           [[ "$INPUT_APPS" =~ ^[a-z,-]*$ ]] || { echo "apps must be a comma list of names" >&2; exit 2; }
           [[ "$INPUT_SCENARIOS" =~ ^[a-z_,]*$ ]] || { echo "scenarios must be a comma list of names" >&2; exit 2; }
-          args=(--runs "$INPUT_RUNS" --duration "$INPUT_DURATION" --out "$RUNNER_TEMP/results" --require-all --label ci)
+          args=(--runs "$INPUT_RUNS" --duration "$INPUT_DURATION" --out "$RUNNER_TEMP/results" --require-all --label ci --result-file "$RUNNER_TEMP/result-path")
           [ -n "$INPUT_APPS" ] && args+=(--apps "$INPUT_APPS")
           [ -n "$INPUT_SCENARIOS" ] && args+=(--scenarios "$INPUT_SCENARIOS")
           [ "$INPUT_FORCE" = "true" ] && args+=(--force)
-          scripts/bench.sh run "${args[@]}" | tail -1 > "$RUNNER_TEMP/result-path"
+          scripts/bench.sh run "${args[@]}"
 
       - name: Summary
         if: always()

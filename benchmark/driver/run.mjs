@@ -4,6 +4,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { summarize, median, parseWrk } from "./stats.mjs";
@@ -21,15 +22,16 @@ const opts = {
   apps: null, scenarios: null, runs: 5, duration: 10, warmup: 3, connections: 64, threads: 2,
   wsClients: 50, wsSenders: 4, out: path.join(root, "benchmark", "results"), force: false, maxLoad: 0.5,
   maxBusyPct: 10, serverCpus: process.env.BENCH_SERVER_CPUS || null, loadCpus: process.env.BENCH_LOAD_CPUS || null,
-  basePort: 3100, label: "", requireAll: false, db: path.join(root, "benchmark", "db", "bench.sqlite3"), json: false,
+  basePort: 3100, label: "", requireAll: false, allowErrors: false, waitQuiet: 300, resultFile: null, db: path.join(root, "benchmark", "db", "bench.sqlite3"), json: false,
 };
-const flagTypes = { "--apps": "list", "--scenarios": "list", "--runs": "int", "--duration": "num", "--warmup": "num", "--connections": "int", "--threads": "int", "--ws-clients": "int", "--ws-senders": "int", "--out": "str", "--max-load": "num", "--max-busy": "num", "--server-cpus": "str", "--load-cpus": "str", "--base-port": "int", "--label": "str", "--db": "str" };
+const flagTypes = { "--apps": "list", "--scenarios": "list", "--runs": "int", "--duration": "num", "--warmup": "num", "--connections": "int", "--threads": "int", "--ws-clients": "int", "--ws-senders": "int", "--out": "str", "--max-load": "num", "--max-busy": "num", "--server-cpus": "str", "--load-cpus": "str", "--base-port": "int", "--label": "str", "--db": "str", "--wait-quiet": "num", "--result-file": "str" };
 const keyOf = (f) => f.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 for (let i = 0; i < argv.length; i++) {
   const f = argv[i];
   if (f === "--force") opts.force = true;
   else if (f === "--require-all") opts.requireAll = true;
   else if (f === "--json") opts.json = true;
+  else if (f === "--allow-errors") opts.allowErrors = true;
   else if (flagTypes[f]) {
     const v = argv[++i];
     if (v === undefined) die(`${f} needs a value`);
@@ -42,6 +44,7 @@ if (opts.runs < 1) die("--runs must be at least 1");
 if (opts.runs < 5) console.error(`warning: ${opts.runs} run(s); use at least 5 for a median and a spread you can trust`);
 
 function die(msg) { console.error(msg); process.exit(2); }
+const show = (v) => (Array.isArray(v) ? v.join(" ") : v && typeof v === "object" ? JSON.stringify(v) : v);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Output of a command, or null when it cannot be run (wrk exits 1 for --version, so the status is not checked)
 const cap = (cmdline, args) => { const r = spawnSync(cmdline, args, { encoding: "utf8" }); return r.error ? null : (r.stdout + r.stderr).trim() || null; };
@@ -60,8 +63,17 @@ export function environment() {
     if (!lock || shards[app.dir]) continue;
     shards[app.dir] = [...lock.matchAll(/^ {2}(\S+):\n(?: {4}.*\n)*? {4}(?:git|path): .*\n(?: {4}.*\n)*? {4}version: (\S+)/gm)].map((m) => `${m[1]} ${m[2]}`);
   }
+  const locks = {};
+  for (const dir of new Set(manifest.apps.map((a) => a.dir))) {
+    const p = path.join("benchmark", "apps", dir, "shard.lock");
+    const content = readFile(path.join(root, p));
+    if (content) locks[dir] = crypto.createHash("sha256").update(content).digest("hex").slice(0, 12);
+  }
+  const lockChanges = cap("git", ["-C", root, "status", "--porcelain", "--", "benchmark/apps"]) ?.split("\n").filter((l) => l.includes("shard.lock")) || [];
   return {
     date: new Date().toISOString(),
+    shard_lock_sha256: locks,
+    shard_lock_modified: lockChanges.length ? lockChanges : "no",
     kernel: `${os.type()} ${os.release()}`,
     cpu: model.trim(), cpus: os.cpus().length,
     memory_mb: Math.round(os.totalmem() / 1048576),
@@ -82,7 +94,7 @@ function printEnvironment(env) {
   console.error("== environment");
   for (const [k, v] of Object.entries(env)) {
     if (k === "shards") { for (const [d, list] of Object.entries(v)) console.error(`  shards ${d}: ${list.join(", ")}`); }
-    else console.error(`  ${k}: ${Array.isArray(v) ? v.join(" ") : v}`);
+    else console.error(`  ${k}: ${show(v)}`);
   }
 }
 
@@ -107,6 +119,19 @@ function otherNoisyProcesses() {
   return found;
 }
 
+// The load average lags behind: right after a build it is high for minutes. Poll until the machine is quiet.
+async function waitUntilQuiet() {
+  const deadline = Date.now() + opts.waitQuiet * 1000;
+  let q = await assertQuiet();
+  if (q.problems.length && opts.waitQuiet > 0) console.error(`waiting up to ${opts.waitQuiet} s for the machine to become quiet (--wait-quiet)`);
+  while (q.problems.length && Date.now() < deadline) {
+    console.error(`  not quiet: ${q.problems.join("; ")}`);
+    await sleep(10000);
+    q = await assertQuiet();
+  }
+  return q;
+}
+
 async function assertQuiet() {
   const problems = [];
   const load = os.loadavg()[0];
@@ -119,15 +144,34 @@ async function assertQuiet() {
 }
 
 // ---------- CPU pinning ----------
+export function parseCpuList(text) {
+  const out = [];
+  for (const part of text.trim().split(",").filter(Boolean)) {
+    const [a, b] = part.split("-").map(Number);
+    for (let i = a; i <= (b ?? a); i++) out.push(i);
+  }
+  return out;
+}
+
+// The CPUs this process may use (a container or cgroup cpuset can be smaller than os.cpus()), split in two halves.
+// Assumption: neighbouring CPU numbers are not SMT siblings of each other when the halves are cut; on a machine where
+// they are, pass --server-cpus/--load-cpus. Crystal runs a single scheduler thread, so each app uses one CPU of its half.
+function allowedCpus() {
+  const r = spawnSync("taskset", ["-cp", String(process.pid)], { encoding: "utf8" });
+  const m = /: ([\d,-]+)\s*$/.exec((r.stdout || "").trim());
+  return m ? parseCpuList(m[1]) : Array.from({ length: os.cpus().length }, (_, i) => i);
+}
+
 function cpuSets() {
-  const n = os.cpus().length;
+  const allowed = allowedCpus();
+  const n = allowed.length;
   let server = opts.serverCpus, load = opts.loadCpus;
-  if (!server && !load && n >= 4) { const half = n >> 1; server = `0-${half - 1}`; load = `${half}-${n - 1}`; }
+  if (!server && !load && n >= 4) { const half = n >> 1; server = allowed.slice(0, half).join(","); load = allowed.slice(half).join(","); }
   const haveTaskset = spawnSync("taskset", ["--version"]).status === 0;
   if (!haveTaskset || (!server && !load)) return { server: null, load: null, note: haveTaskset ? "fewer than 4 CPUs and no --server-cpus/--load-cpus: not pinned" : "taskset not installed: not pinned" };
   return { server, load, note: `server on CPUs ${server}, load generators on CPUs ${load}` };
 }
-const pin = (cpus, cmdline, args) => (cpus ? ["taskset", ["-c", cpus, cmdline, ...args]] : [cmdline, args]);
+const pin = (cpus, cmdline, args) => (cpus ? ["taskset", ["-c", cpus, cmdline, ...args]] : [cmdline, args]); // children inherit the mask: every thread is pinned
 
 // ---------- servers ----------
 function appList() {
@@ -140,9 +184,11 @@ function binaryOf(app) { return path.join(appsDir, app.dir, "bin", app.name); }
 async function startServer(app, port, cpus) {
   const [c, args] = pin(cpus.server, binaryOf(app), []);
   const t0 = performance.now();
-  const child = spawn(c, args, { env: { ...process.env, PORT: String(port), HOST: "127.0.0.1", BENCH_DB: opts.db, CRYSTAL_ENV: "production" }, stdio: ["ignore", "ignore", "pipe"] });
+  const child = spawn(c, args, { env: { ...process.env, PORT: String(port), HOST: "127.0.0.1", BENCH_DB: opts.db, CRYSTAL_ENV: "production", LUCKY_ENV: "production", KEMAL_ENV: "production", BENCH_LOG_LEVEL: "warn" }, stdio: ["ignore", "pipe", "pipe"] });
   let stderr = "";
-  child.stderr.on("data", (d) => { stderr = (stderr + d).slice(-2000); });
+  let output = "";
+  child.stderr.on("data", (d) => { stderr = (stderr + d).slice(-2000); output += d; });
+  child.stdout.on("data", (d) => { output += d; });
   let exited = null;
   child.on("exit", (code, sig) => { exited = { code, sig }; });
   for (;;) {
@@ -153,7 +199,9 @@ async function startServer(app, port, cpus) {
   }
   const startup_ms = performance.now() - t0;
   // taskset execs the server, so the child pid is the server pid
-  return { child, pid: child.pid, port, startup_ms, isExited: () => exited !== null };
+  // anything written after the server answered (startup banners come before) counts as per-request logging
+  const mark = output.length;
+  return { child, pid: child.pid, port, startup_ms, isExited: () => exited !== null, newOutput: () => output.slice(mark) };
 }
 
 function rssKb(pid) {
@@ -200,6 +248,8 @@ function aggregate(runs) {
     rps: summarize(col("rps")),
     p50_ms: median(col("p50_ms")), p99_ms: median(col("p99_ms")), p99_ms_worst: Math.max(...col("p99_ms")),
     non2xx: runs.reduce((a, r) => a + r.non2xx, 0), socket_errors: runs.reduce((a, r) => a + r.socket_errors, 0),
+    invalid: runs.some((r) => r.non2xx + r.socket_errors > 0),
+    noisy: summarize(col("rps")).rsd_pct > 5,
     extra: runs[0].driver_cpu_pct !== undefined ? { driver_cpu_pct_median: median(col("driver_cpu_pct")), round_p50_ms: median(col("round_p50_ms")), round_p99_ms: median(col("round_p99_ms")) } : undefined,
     samples: runs,
   };
@@ -211,26 +261,36 @@ const fmt = (x, d = 0) => (Number.isFinite(x) ? x.toLocaleString("en-US", { mini
 export function markdown(result) {
   const L = [];
   L.push(`# Benchmark results (${result.environment.date})`, "");
-  L.push("Same-session numbers from one machine. Read them as relative to each other and never compare them across machines or sessions; see docs/explanation/benchmarks.md.", "");
+  const noisy = result.environment.noisy;
+  if (noisy?.length) L.push(`> **NOISY RUN - do not quote these numbers.** ${noisy.join("; ")}${result.environment.force ? " (run with --force)" : ""}`, "");
+  else if (result.environment.force) L.push("> Run with --force (the machine was quiet).", "");
+  if (result.invalid_rows?.length) L.push(`> **INVALID rows** (errors or failed runs): ${result.invalid_rows.join(", ")}. They are excluded from the relative column.`, "");
+  L.push("Same-session numbers from one machine. Read them as relative to each other and never compare them across machines or sessions; see benchmark/README.md.", "");
   L.push("## Environment", "");
-  for (const [k, v] of Object.entries(result.environment)) { if (k !== "shards") L.push(`- ${k}: ${Array.isArray(v) ? v.join(" ") : v}`); }
+  for (const [k, v] of Object.entries(result.environment)) { if (k !== "shards") L.push(`- ${k}: ${show(v)}`); }
   L.push(`- pinning: ${result.config.pinning}`, `- load: wrk ${result.config.threads} threads, ${result.config.connections} connections, ${result.config.duration}s per run, ${result.config.warmup}s warmup, ${result.config.runs} runs; websocket ${result.config.ws_clients} clients, ${result.config.ws_senders} senders`, "");
-  L.push("## Apps", "", "| app | stack | startup ms | idle RSS MiB | status |", "|---|---|---:|---:|---|");
-  for (const a of result.apps) L.push(`| ${a.name} | ${a.stack} | ${a.startup_ms ? fmt(a.startup_ms) : ""} | ${a.idle_rss_kb ? fmt(a.idle_rss_kb / 1024, 1) : ""} | ${a.status} |`);
+  L.push("## Apps", "", "Startup is one sample (spawn until the first 200). Idle RSS is sampled after the conformance requests. Response bytes are the whole response on the wire per scenario (plaintext / json / template); the content type shows the charset each framework adds.", "", "| app | stack | startup ms | idle RSS MiB | response bytes | content types | extra header names | status |", "|---|---|---:|---:|---|---|---|---|");
+  for (const a of result.apps) {
+    const b = a.response_bytes || {};
+    const ct = a.content_types || {};
+    L.push(`| ${a.name} | ${a.stack} | ${a.startup_ms ? fmt(a.startup_ms) : ""} | ${a.idle_rss_kb ? fmt(a.idle_rss_kb / 1024, 1) : ""} | ${b.plaintext ?? ""} / ${b.json ?? ""} / ${b.template ?? ""} | ${[ct.plaintext, ct.json, ct.template].filter(Boolean).join(" ; ")} | ${(a.headers || []).join(", ")} | ${a.status} |`);
+  }
   L.push("");
   for (const sc of result.scenarios) {
     L.push(`## ${sc.name}`, "");
     const unit = sc.name === "websocket" ? "deliveries/s" : "req/s";
-    L.push(`| app | ${unit} median | min | max | rsd % | p50 ms | p99 ms (median / worst run) | RSS MiB (peak so far) | errors | % of baseline |`, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
+    L.push(`| app | ${unit} median | min | max | rsd % | p50 ms | p99 ms (median / worst run) | RSS MiB (peak so far) | errors | % of baseline | flags |`, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|");
     const base = sc.results.find((r) => r.app === "baseline");
     for (const r of sc.results) {
-      if (r.skipped) { L.push(`| ${r.app} | skipped: ${r.skipped} | | | | | | | | |`); continue; }
-      const rel = base && !base.skipped ? `${fmt((r.rps.median / base.rps.median) * 100, 0)}` : "";
-      L.push(`| ${r.app} | ${fmt(r.rps.median)} | ${fmt(r.rps.min)} | ${fmt(r.rps.max)} | ${fmt(r.rps.rsd_pct, 1)} | ${fmt(r.p50_ms, 2)} | ${fmt(r.p99_ms, 2)} / ${fmt(r.p99_ms_worst, 2)} | ${fmt(r.peak_rss_kb / 1024, 1)} | ${r.non2xx + r.socket_errors} | ${rel} |`);
+      if (r.skipped) { L.push(`| ${r.app} | skipped: ${r.skipped} | | | | | | | | | |`); continue; }
+      const rel = base && !base.skipped && !base.invalid && !r.invalid ? `${fmt((r.rps.median / base.rps.median) * 100, 0)}` : "";
+      const driverBound = r.extra?.driver_cpu_pct_median > 90;
+      const flags = [r.invalid ? "INVALID" : "", r.noisy ? "NOISY (rsd > 5%)" : "", driverBound ? "DRIVER-BOUND" : "", r.extra ? `driver CPU ${fmt(r.extra.driver_cpu_pct_median, 0)}%` : ""].filter(Boolean).join(", ");
+      L.push(`| ${r.app} | ${fmt(r.rps.median)} | ${fmt(r.rps.min)} | ${fmt(r.rps.max)} | ${fmt(r.rps.rsd_pct, 1)} | ${fmt(r.p50_ms, 2)} | ${fmt(r.p99_ms, 2)} / ${fmt(r.p99_ms_worst, 2)} | ${fmt(r.peak_rss_kb / 1024, 1)} | ${r.non2xx + r.socket_errors} | ${rel} | ${flags} |`);
     }
     L.push("");
   }
-  L.push("An rsd above 5 % means the repetitions disagree: the machine was noisy and the row is not a measurement to quote.", "");
+  L.push("An rsd above 5 % (flagged NOISY) means the repetitions disagree and the row is not a measurement to quote. An INVALID row had errors and is excluded from the relative column. wrk percentiles are partly synthetic (see benchmark/README.md).", "");
   return L.join("\n");
 }
 
@@ -243,7 +303,8 @@ async function main() {
   if (!["run", "conformance"].includes(cmd)) die(`unknown command ${cmd} (run, conformance, env, plan)`);
 
   if (cmd === "run") {
-    const q = await assertQuiet();
+    const q = await waitUntilQuiet();
+    env.force = opts.force;
     if (q.problems.length) {
       const msg = `the machine is not quiet:\n  - ${q.problems.join("\n  - ")}`;
       if (!opts.force) { console.error(`REFUSING to run: ${msg}\nStop the other work or pass --force (the result is then marked noisy).`); process.exit(3); }
@@ -255,7 +316,7 @@ async function main() {
   if (!fs.existsSync(opts.db)) die(`no database at ${opts.db}: run benchmark/db/seed.sh`);
   const cpus = cpuSets();
   console.error(`== pinning: ${cpus.note}`);
-  if (cpus.load) spawnSync("taskset", ["-cp", cpus.load, String(process.pid)]); // the node WebSocket driver runs in this process
+  if (cpus.load) spawnSync("taskset", ["-a", "-cp", cpus.load, String(process.pid)]); // the node WebSocket driver runs in this process
   const scenarios = manifest.scenarios.filter((s) => !opts.scenarios || opts.scenarios.includes(s.name));
   if (opts.scenarios) for (const n of opts.scenarios) if (!manifest.scenarios.some((s) => s.name === n)) die(`unknown scenario ${n}`);
 
@@ -270,7 +331,9 @@ async function main() {
       entry.server = await startServer(app, port++, cpus);
       entry.startup_ms = entry.server.startup_ms;
     } catch (e) { entry.status = `skipped: ${e.message}`; console.error(`SKIP ${app.name}: ${entry.status}`); failed ||= opts.requireAll; continue; }
-    const { failures } = await check(`http://127.0.0.1:${entry.server.port}`, { ws: app.websocket });
+    await sleep(300);
+    const { failures, headers, contentTypes, bytes } = await check(`http://127.0.0.1:${entry.server.port}`, { ws: app.websocket, output: entry.server.newOutput });
+    entry.headers = headers; entry.content_types = contentTypes; entry.response_bytes = bytes;
     if (failures.length) {
       entry.status = `skipped: not conformant (${failures.length} difference(s))`;
       entry.conformance = failures;
@@ -284,7 +347,7 @@ async function main() {
   if (failed) { for (const a of live) await stopServer(a.server); die("--require-all: an app was skipped"); }
   if (!live.length) die("no app could be started");
   await sleep(500);
-  for (const a of live) a.idle_rss_kb = rssKb(a.server.pid).rss_kb;
+  for (const a of live) a.idle_rss_kb = rssKb(a.server.pid).rss_kb; // sampled after the conformance requests
 
   const result = { environment: env, config: { runs: opts.runs, duration: opts.duration, warmup: opts.warmup, connections: opts.connections, threads: opts.threads, ws_clients: opts.wsClients, ws_senders: opts.wsSenders, pinning: cpus.note, label: opts.label }, apps: [], scenarios: [] };
   try {
@@ -293,7 +356,11 @@ async function main() {
       const eligible = live.filter((a) => sc.kind !== "websocket" || a.websocket);
       const samples = new Map(eligible.map((a) => [a.name, []]));
       // warmup: one unrecorded run per app
-      for (const a of eligible) { try { await measure(sc, a.server, opts.warmup, cpus); } catch (e) { console.error(`  warmup ${a.name}: ${e.message}`); } }
+      const warmupErrors = new Map();
+      for (const a of eligible) {
+        try { const w = await measure(sc, a.server, opts.warmup, cpus); warmupErrors.set(a.name, w.non2xx + w.socket_errors); }
+        catch (e) { warmupErrors.set(a.name, 1); console.error(`  warmup ${a.name}: ${e.message}`); }
+      }
       for (let rep = 0; rep < opts.runs; rep++) {
         const order = eligible.map((_, i) => eligible[(i + rep) % eligible.length]);
         for (const a of order) {
@@ -311,7 +378,9 @@ async function main() {
         if (!eligible.includes(a)) { rows.push({ app: a.name, skipped: "no WebSocket support" }); continue; }
         const runs = samples.get(a.name);
         if (!runs.length) { rows.push({ app: a.name, skipped: "every run failed" }); continue; }
-        rows.push({ app: a.name, ...aggregate(runs), ...rssKb(a.server.pid) });
+        const agg = aggregate(runs);
+        if (runs.length < opts.runs) agg.invalid = true; // a failed run is an error too
+        rows.push({ app: a.name, ...agg, warmup_errors: warmupErrors.get(a.name) || 0, ...rssKb(a.server.pid) });
       }
       result.scenarios.push({ name: sc.name, kind: sc.kind, path: sc.path, results: rows });
     }
@@ -319,6 +388,10 @@ async function main() {
     result.apps = apps.map(({ server, ...rest }) => rest);
     for (const a of live) await stopServer(a.server);
   }
+  const after = await assertQuiet();
+  if (after.problems.length) { env.noisy = [...(env.noisy || []), ...after.problems.map((p) => `at the end of the run: ${p}`)]; console.error(`WARNING: the machine was not quiet at the end of the run: ${after.problems.join("; ")}`); }
+  const invalid = result.scenarios.flatMap((sc) => sc.results.filter((r) => r.invalid).map((r) => `${sc.name}/${r.app}`));
+  result.invalid_rows = invalid;
   fs.mkdirSync(opts.out, { recursive: true });
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "Z");
   const file = path.join(opts.out, `bench-${stamp}${opts.label ? "-" + opts.label.replace(/[^\w.-]/g, "_") : ""}.json`);
@@ -326,6 +399,8 @@ async function main() {
   fs.writeFileSync(file.replace(/\.json$/, ".md"), markdown(result));
   console.error(`== done. load average at end: ${os.loadavg().map((x) => x.toFixed(2)).join(" ")}`);
   console.log(file);
+  if (opts.resultFile) fs.writeFileSync(opts.resultFile, file + "\n");
+  if (invalid.length && !opts.allowErrors) { console.error(`INVALID rows (errors or failed runs): ${invalid.join(", ")}. The result was written, but the run fails; --allow-errors accepts it.`); process.exit(4); }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main().then(() => process.exit(0), (e) => { console.error(e.stack || e); process.exit(1); });

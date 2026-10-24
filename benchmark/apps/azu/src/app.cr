@@ -168,6 +168,8 @@ module BenchApp
   end
 end
 
+Bench.quiet_logs
+
 app = Azu::App.new
 app.config.host = Bench::HOST
 app.config.port = Bench::PORT

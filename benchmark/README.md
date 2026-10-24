@@ -12,16 +12,19 @@ scripts/bench.sh env                 # print the environment only
 scripts/bench.sh build               # build only
 scripts/bench.sh conformance         # start every app and diff its answers against the contract
 scripts/bench.sh run --apps azu,kemal --scenarios plaintext,json --runs 7 --duration 15
-node --test benchmark/driver/test/   # tests of the statistics, the wrk parser and the contract
+node --test "benchmark/driver/test/*.test.mjs"   # tests of the statistics, the wrk parser and the contract
 ```
 
 ## What is measured
 
 Every app serves the same routes and answers with byte-identical bodies and the same media types. The
 expected answers are written down in `benchmark/driver/contract.mjs`, independently of the Crystal fixtures in
-`benchmark/apps/common/bench.cr`, and `scripts/bench.sh conformance` (also run before every measurement)
-diffs status, media type and body of every route. An app that deviates is excluded from the run, not
-measured.
+`benchmark/apps/common/bench.cr`. `scripts/bench.sh conformance` (also run before every measurement) requests
+every route over a raw socket with exactly the bytes `wrk` sends (request line and `Host`, nothing else: no
+`Accept`, `Accept-Encoding` or `User-Agent`) and diffs status, media type and body. It also asserts the framing
+(a `Content-Length`, not chunked; no `Content-Encoding`; no `Connection: close`), and that the app wrote
+nothing to stdout or stderr while serving, because logging would be part of the cost. An app that deviates is
+excluded from the run, not measured.
 
 | Scenario | Request | What it exercises |
 |---|---|---|
@@ -48,12 +51,28 @@ One program per framework in `benchmark/apps/<name>/src/app.cr`, built with `cry
 | App | Stack | Notes |
 |---|---|---|
 | `baseline` | `HTTP::Server`, a hand-written `case` on the path, ECR, crystal-sqlite3, `HTTP::WebSocketHandler` | the ceiling for this stack with no framework; its "router" is not a router |
-| `azu` | `Azu::App`, default handler stack minus the request logger (`RequestId`, `Rescuer`, `SecurityHeaders`, `Static`), Crinja, CQL on SQLite, `Azu::Channel` | the only app whose DB scenarios go through an ORM |
+| `azu` | `Azu::App`, default handler stack minus the request logger (`RequestId`, `Rescuer`, `SecurityHeaders`, `Static`), Crinja, CQL on SQLite, `Azu::Channel` | the only app whose DB scenarios go through an ORM; see "How to read the Azu rows" |
 | `kemal` 1.9.0 | default handlers, logging off, ECR, crystal-sqlite3, `ws` | |
 | `athena` 0.23.0 | default listeners, annotation routing, ECR, crystal-sqlite3 | has no WebSocket support, so `websocket` is skipped |
 | `lucky` 1.5.0 | `ErrorHandler`, `RouteHandler`, `RouteNotFoundHandler`, `HTMLPage`, crystal-sqlite3 | Avram is PostgreSQL-only, so raw SQLite; no WebSocket support |
-| `azu-min` (opt-in) | `azu` with only `Handler::Rescuer` | separates router and endpoint cost from the default middleware |
+| `azu-min` (opt-in) | `azu` with `Handler::Rescuer` only, plus the `App::Scope` wrapper that every `Azu::App` puts in front of the chain (in-flight counter under a mutex, current app and config) | router + endpoint + Scope + Rescuer: separates the default middleware from the rest. It is not "nothing" |
 | `azu-rawdb` (opt-in) | `azu` with crystal-sqlite3 instead of CQL | separates the ORM cost in the DB scenarios |
+| `azu-min-rawdb` (opt-in) | both of the above | the closest Azu gets to the baseline in the DB scenarios |
+
+### How to read the Azu rows
+
+- The default `azu` stack runs `RequestId`, `SecurityHeaders` and `Static` on every request. The other
+  frameworks' default stacks do not do that work, so a headline comparison should show `azu` next to `azu-min`
+  (and, for the DB scenarios, `azu-rawdb` and `azu-min-rawdb`), not `azu` alone.
+- The app is written against the lower-level `Azu::App` API (routes declared with `app.routes`, the server
+  built with `app.server(handlers)`), the 0.6 style of this repository at the commit in the result's `git`
+  field. That API is not in a release yet; results from another commit are not comparable.
+- **The `template` scenario is Crinja against compiled ECR.** Azu parses and renders a Jinja template on each
+  request (and builds a `Crinja::Value` hash per call); the baseline, Kemal and Athena run ECR that the compiler
+  turned into straight code. The scenario measures the template systems, not the routers. A compile-time Azu
+  variant (`Azu::Component`) is not included yet.
+- In the `routing` scenario Azu's path cache (1000 entries, no eviction) fills at once: the script requests
+  99,700 distinct paths (100 routes x 997 ids), so the scenario measures mostly uncached radix lookups.
 
 Add `--apps` to choose; the manifest is `benchmark/apps/manifest.json`. An app that cannot be built here is
 skipped and said so in the result (`--require-all` turns that into a failure).
@@ -74,12 +93,16 @@ skipped and said so in the result (`--require-all` turns that into a failure).
 4. **Idiomatic, not hand-tuned.** Each scenario is written the way that framework's documentation
    writes it. Where frameworks differ in ways that change the work done, that is a confound and is listed
    below instead of being engineered away.
-5. **Same database access budget.** One SQLite file, pool of 4 connections (`BENCH_DB_POOL`) with the
-   connections opened at boot for every app.
-6. **Same sockets.** `TCP_NODELAY` decides whether a WebSocket frame waits about 40 ms for a delayed ACK. Azu
-   sets it on upgraded sockets; the baseline and Kemal get it from a listener in `apps/common/bench.cr`.
-   `BENCH_WS_NODELAY=0` turns it off for all apps (Azu then gets `WEBSOCKET_TCP_NODELAY=false`) to measure
-   the socket defaults.
+5. **Same database access budget.** One SQLite file, pool of 4 connections (`BENCH_DB_POOL`) opened at boot for
+   every app. With SQLite on a single-threaded runtime the pool size changes little: queries do not overlap.
+   WAL mode is persistent in the file (`seed.sh`). The apps pass the same URI options and issue no pragma of their
+   own; a search of the CQL sources finds `PRAGMA` only in its schema dump, but what CQL 0.0.541 sends at runtime
+   was not traced.
+6. **Same sockets.** Plain HTTP connections keep the socket defaults in every app. `TCP_NODELAY` is set on
+   upgraded (WebSocket) sockets only, because without it a small frame waits about 40 ms for a delayed ACK. Azu does
+   that itself (`app.config.websocket.tcp_nodelay`, assigned directly in the app); the baseline and Kemal get the same
+   from a wrapper around `HTTP::Server::Response#upgrade` in `apps/common/bench.cr`. `BENCH_WS_NODELAY=0` turns it off
+   for all apps to measure the socket defaults.
 7. **One process per app, same machine, same session, interleaved.** The apps run side by side (idle ones
    cost nothing), and within every repetition each app is measured once, the order rotating, so slow drift of
    the machine hits every app alike.
@@ -108,9 +131,11 @@ skipped and said so in the result (`--require-all` turns that into a failure).
    Crystal, wrk and node versions, git sha, the pinned shard versions of every app) and stores it in the result.
 2. **Refuses to run when the machine is not quiet**: 1-minute load average above `--max-load` (0.5), CPU busier
    than `--max-busy` (10 %) over a 2 second sample, or another `crystal`, `shards`, `ameba`, compiler, linker,
-   `wrk`-like process running. `--force` runs anyway and records the reasons in the result.
-3. Starts every app (pinned, see below), measures its startup time, runs the conformance check and drops an app
-   that fails it.
+   `wrk`-like process running. The load average lags for minutes after a build, so the runner waits up to
+   `--wait-quiet` seconds (default 300) for the machine to settle before it refuses, and checks again at the end:
+   a run that was not quiet at the end is marked noisy. `--force` runs anyway and records the reasons in the result.
+3. Starts every app (pinned, see below), measures its startup time (a single sample), runs the conformance
+   check and drops an app that fails it. The idle RSS is sampled after the conformance requests.
 4. Per scenario: one unrecorded **warmup** run per app (default 3 s), then `--runs` (default 5) measured runs per
    app of `--duration` seconds (default 10), interleaved. HTTP scenarios use `wrk` (`-t2 -c64 --latency`,
    scenario scripts in `benchmark/driver/*.lua` cycle through routes and ids). The WebSocket scenario uses
@@ -118,8 +143,10 @@ skipped and said so in the result (`--require-all` turns that into a failure).
    got it, then sends the next.
 5. Writes `benchmark/results/bench-<UTC stamp>.json` and `.md` (git-ignored).
 
-**CPU pinning.** With 4 or more CPUs and `taskset`, the apps run on the first half of the CPUs and the load
-generators on the second half (`--server-cpus`, `--load-cpus`, or `BENCH_SERVER_CPUS` / `BENCH_LOAD_CPUS`). The
+**CPU pinning.** With 4 or more allowed CPUs (read from the process's own affinity, not from the machine) and
+`taskset`, the apps run on the first half of them and the load generators on the second half; children inherit the
+mask, so every thread is pinned. Crystal runs a single scheduler thread, so each app uses one CPU of its half. The
+split assumes neighbouring CPU numbers are not SMT siblings across the cut: where they are, pass the lists yourself (`--server-cpus`, `--load-cpus`, or `BENCH_SERVER_CPUS` / `BENCH_LOAD_CPUS`). The
 runner itself (which hosts the Node WebSocket driver) is pinned to the load generator CPUs too. On smaller machines nothing is pinned, and the result says so. On a laptop also fix the CPU governor and
 disable turbo, or the first and the last run differ.
 
@@ -144,11 +171,17 @@ scripts/bench.sh --apps azu,azu-min,azu-rawdb,baseline --scenarios plaintext,db_
   spread of their runs are not different.
 - **Latency is closed loop.** `wrk` keeps 64 connections busy, so the percentiles describe a saturated server
   with a standing queue, not the latency a user sees at a given request rate, and they under-report the tail
-  (coordinated omission). Use them to compare apps with each other under identical pressure, not as service
+  (coordinated omission). `wrk` (as opposed to `wrk2`) also fills in synthetic samples to correct for stalls, so its
+  percentiles are partly synthetic. Use them to compare apps with each other under identical pressure, not as service
   times. p99 is shown as the median over the runs and the worst run.
 - **WebSocket**: `deliveries/s` is messages received by clients per second (rounds x clients). The Node driver
-  is one thread; `driver_cpu_pct` in the JSON near 100 means the driver was the limit.
-- **Errors**: non-2xx responses and socket errors are counted per row. Any non-zero value invalidates the row.
+  is one thread: the report shows its CPU use and flags DRIVER-BOUND above 90 %, where the driver, not the server, was
+  the limit.
+- **Response size**: the Apps table lists the response bytes per scenario and each app's extra header names; apps that
+  send more headers send more bytes, which `wrk` counts in its transfer rate but not in requests per second.
+- **Errors**: non-2xx responses and socket errors are counted per row. Any error in a measured run (or a failed
+  run) marks the row INVALID, drops it from the "% of baseline" column and makes the run exit with status 4 unless
+  `--allow-errors` is given. Rows with an rsd above 5 % are flagged NOISY. Errors in the warmup are recorded.
 - **Memory** is RSS of the single process, cumulative across the scenarios before it, and includes the garbage
   collector's retained heap: it says how much the process holds, not how much a request needs.
 
@@ -162,7 +195,9 @@ virtualised clock all move results by more than the differences between framewor
 - **headline numbers (anything quoted outside a pull request) come only from a pinned, dedicated runner** with
   a recorded environment, at least 5 runs, rsd below 5 % and no `--force`;
 - never mix results from different machines or different days in one table;
-- a result file records `noisy` reasons when `--force` was used, and the Markdown output says what it is.
+- a result file records `noisy` reasons and whether `--force` was used, and the Markdown starts with a NOISY banner.
+- `shards install --frozen` keeps the pins (under CI or `BENCH_REQUIRED` it is an error when they cannot be kept);
+  the result records a hash of every `shard.lock` and whether any was modified.
 
 ## Adding an app or a scenario
 

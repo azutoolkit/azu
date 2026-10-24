@@ -1,8 +1,10 @@
 # Fixtures every benchmark app shares, so that all frameworks answer with byte-identical bodies.
-# The contract (routes, bodies, content types) is in docs/explanation/benchmarks.md; the conformance
+# The contract (routes, bodies, content types) is in benchmark/README.md; the conformance
 # check (`scripts/bench.sh conformance`) fails when an app deviates.
 require "json"
 require "socket"
+require "http/server"
+require "log"
 
 module Bench
   PLAINTEXT     = "Hello, World!"
@@ -35,25 +37,29 @@ module Bench
     include JSON::Serializable
   end
 
-  # TCP_NODELAY on accepted sockets. Crystal sockets leave Nagle on, which stalls small WebSocket frames by
-  # about 40 ms (delayed ACK). Azu sets TCP_NODELAY on upgraded sockets itself; the baseline and Kemal get it from this
-  # listener so that the WebSocket scenario compares frameworks and not a socket option. BENCH_WS_NODELAY=0 turns it
-  # off for every app (the apps then run with the socket defaults; Azu gets WEBSOCKET_TCP_NODELAY=false).
-  class NoDelayTCPServer < TCPServer
-    def accept? : TCPSocket?
-      super.try { |client| client.tap(&.tcp_nodelay = true) }
-    end
-  end
-
   def self.nodelay? : Bool
     ENV["BENCH_WS_NODELAY"]? != "0"
   end
 
-  def self.tcp_server : TCPServer
-    nodelay? ? NoDelayTCPServer.new(HOST, PORT) : TCPServer.new(HOST, PORT)
+  # Request logging is off in every app; the log level is the same too (the runner checks that nothing is written).
+  def self.quiet_logs : Nil
+    ::Log.setup(:warn)
   end
 
   def self.route_body(n : Int32, id : String) : String
     {route: "resource#{n}", id: id}.to_json
+  end
+end
+
+# TCP_NODELAY on upgraded (WebSocket) sockets only, never on plain HTTP connections. Crystal sockets leave Nagle on,
+# which stalls small WebSocket frames by about 40 ms (delayed ACK). Azu does this itself for upgraded sockets
+# (`config.websocket.tcp_nodelay`); the baseline and Kemal use HTTP::Server's upgrade, so this wraps it the same way.
+# BENCH_WS_NODELAY=0 turns it off for every app (Azu then gets tcp_nodelay = false).
+class HTTP::Server::Response
+  def upgrade(&block : IO ->) : Nil
+    previous_def do |io|
+      io.as?(TCPSocket).try(&.tcp_nodelay = true) if Bench.nodelay?
+      block.call(io)
+    end
   end
 end

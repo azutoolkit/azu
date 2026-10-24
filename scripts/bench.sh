@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Azu framework benchmark suite: builds the benchmark apps, checks they answer identically, and measures them.
-# Methodology, fairness rules and how to read results: docs/explanation/benchmarks.md
+# Methodology, fairness rules and how to read results: benchmark/README.md
 #
 #   scripts/bench.sh [command] [options]
 #
@@ -26,6 +26,10 @@
 #   --require-all     fail when an app cannot be built, started or is not conformant (default: skip it and say so)
 #   --no-build        run: use the binaries that exist
 #   --reseed          recreate the SQLite database
+#   --wait-quiet S    wait up to S seconds (default 300) for the machine to become quiet before refusing; the load
+#                     average lags for minutes after a build
+#   --allow-errors    accept a run with INVALID rows (non-2xx, socket errors, failed runs); default: exit 4
+#   --result-file F   also write the result path to F
 #
 # Environment: BENCH_CRYSTAL / BENCH_SHARDS name the compiler and shards commands (default crystal, shards).
 # Needs: crystal 1.19.1+, wrk, node 22+, sqlite3 CLI, libmagic (Athena), and git access for `shards install`.
@@ -34,7 +38,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 cmd=run
-case "${1:-}" in env|build|conformance|run) cmd=$1; shift ;; -h|--help) sed -n '2,32p' "$0"; exit 0 ;; esac
+case "${1:-}" in env|build|conformance|run) cmd=$1; shift ;; -h|--help) sed -n '2,36p' "$0"; exit 0 ;; esac
 
 build=1 reseed=0
 passthru=()
@@ -42,7 +46,7 @@ for a in "$@"; do
   case "$a" in
     --no-build) build=0 ;;
     --reseed) reseed=1 ;;
-    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
     *) passthru+=("$a") ;;
   esac
 done
@@ -63,12 +67,18 @@ build_apps() {
     (
       cd "benchmark/apps/$dir"
       # the shard.lock files pin every version; --frozen refuses to change them
-      $shards install --frozen --ignore-crystal-version >&2 || $shards install --ignore-crystal-version >&2
+      if [ -n "${BENCH_REQUIRED:-}" ] || [ -n "${CI:-}" ]; then
+        # a pin that cannot be honoured is an error, not something to repair silently
+        $shards install --frozen --ignore-crystal-version >&2
+      else
+        $shards install --frozen --ignore-crystal-version >&2 \
+          || { echo "WARNING: $dir/shard.lock does not match shard.yml; installing without --frozen (the result records the lock hash and changes)" >&2; $shards install --ignore-crystal-version >&2; }
+      fi
       mkdir -p bin
       # shellcheck disable=SC2086
       $crystal build --release --no-debug $flags -o "bin/$name" src/app.cr >&2
     ) || { echo "SKIP $name: build failed" >&2; failed=1; }
-  done < <(node "$runner" plan "${passthru[@]}")
+  done < <(node "$runner" plan ${passthru[@]+"${passthru[@]}"})
   if [ "$failed" = 1 ] && [ -n "${BENCH_REQUIRED:-}" ]; then return 1; fi
   return 0
 }
@@ -77,4 +87,4 @@ if [ "$cmd" = build ]; then build_apps; exit $?; fi
 
 if [ "$reseed" = 1 ] || [ ! -f "$db" ]; then benchmark/db/seed.sh "$db" >&2; fi
 if [ "$build" = 1 ]; then build_apps; fi
-exec node "$runner" "$cmd" "${passthru[@]}"
+exec node "$runner" "$cmd" ${passthru[@]+"${passthru[@]}"}

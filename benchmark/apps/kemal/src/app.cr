@@ -72,6 +72,5 @@ Kemal.config.logging = false
 Kemal.config.powered_by_header = false
 Kemal.config.env = "production"
 Kemal.config.host_binding = Bench::HOST
-Kemal.run do |config|
-  config.server.not_nil!.bind(Bench.tcp_server) # Kemal skips its own bind_tcp when the server already listens
-end
+Bench.quiet_logs
+Kemal.run(Bench::PORT)

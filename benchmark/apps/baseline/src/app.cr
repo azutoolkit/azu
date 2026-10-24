@@ -82,8 +82,10 @@ ws = HTTP::WebSocketHandler.new do |socket|
   socket.on_close { BaselineApp::SOCKETS.delete(socket) }
 end
 
+Bench.quiet_logs
+
 # The WebSocketHandler only claims upgrade requests; the block below answers everything else.
 app = HTTP::Server.new([ws] of HTTP::Handler) { |context| BaselineApp.handle(context) }
-app.bind Bench.tcp_server
+app.bind_tcp Bench::HOST, Bench::PORT
 puts "baseline listening on #{Bench::HOST}:#{Bench::PORT}"
 app.listen

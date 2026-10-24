@@ -64,4 +64,5 @@ class BenchController < ATH::Controller
   end
 end
 
+Bench.quiet_logs
 ATH.run(port: Bench::PORT, host: Bench::HOST)
