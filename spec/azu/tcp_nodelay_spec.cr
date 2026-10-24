@@ -1,5 +1,14 @@
 require "../spec_helper"
 require "../support/spark_helpers"
+require "log/spec"
+
+private def with_env(name : String, value : String, &)
+  before = ENV[name]?
+  ENV[name] = value
+  yield
+ensure
+  before ? (ENV[name] = before) : ENV.delete(name)
+end
 
 # Reads the accepted socket back from the upgraded response (the spec looks at what the server holds).
 class NoDelayProbeChannel < Azu::Channel
@@ -48,6 +57,25 @@ describe "TCP_NODELAY on WebSocket sockets" do
 
   it "is on by default" do
     Azu::WebSocketConfiguration.new.tcp_nodelay?.should be_true
+  end
+
+  {"false", "0", "off", "no", "False", "FALSE", " Off "}.each do |value|
+    it "reads WEBSOCKET_TCP_NODELAY=#{value.inspect} as off" do
+      with_env("WEBSOCKET_TCP_NODELAY", value) { Azu::WebSocketConfiguration.new.tcp_nodelay?.should be_false }
+    end
+  end
+
+  {"true", "1", "on", "yes", "True"}.each do |value|
+    it "reads WEBSOCKET_TCP_NODELAY=#{value.inspect} as on" do
+      with_env("WEBSOCKET_TCP_NODELAY", value) { Azu::WebSocketConfiguration.new.tcp_nodelay?.should be_true }
+    end
+  end
+
+  it "keeps the default and warns once for a value it does not know" do
+    Log.capture("Azu") do |logs|
+      with_env("WEBSOCKET_TCP_NODELAY", "maybe") { Azu::WebSocketConfiguration.new.tcp_nodelay?.should be_true }
+      logs.check(:warn, /WEBSOCKET_TCP_NODELAY/)
+    end
   end
 
   it "is set on the accepted socket when the connection is upgraded" do
@@ -115,8 +143,9 @@ describe Azu::NoDelayTCPServer do
   it "is what a TLS server accepts through when the option is on" do
     context = OpenSSL::SSL::Context::Server.new
     server = HTTP::Server.new { }
-    Azu.bind_tls(server, "127.0.0.1", 0, context, false, true)
+    address = Azu.bind_tls(server, "127.0.0.1", 0, context, false, true)
     begin
+      address.port.should be > 0
       ssl = server.@sockets.first.as(OpenSSL::SSL::Server)
       ssl.@wrapped.should be_a(Azu::NoDelayTCPServer)
     ensure

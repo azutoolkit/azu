@@ -1371,7 +1371,7 @@ var OPT_IN = "data-spark-allow-scripts";
 function morphAttributes(from, to) {
   var names = [];
   [from, to].forEach(function (el) {
-    Array.prototype.forEach.call(el.attributes, function (attr) { if (from.getAttribute(attr.name) !== to.getAttribute(attr.name)) names.push(attr.name); });
+    Array.prototype.forEach.call(el.attributes, function (attr) { if (from.getAttribute(attr.name) !== to.getAttribute(attr.name) && names.indexOf(attr.name) < 0) names.push(attr.name); });
   });
   var openable = OPENABLE.test(from.nodeName);
   if (openable) reopen(from, to.hasAttribute("open"));

@@ -290,7 +290,21 @@ module Azu
     # (about 40 ms per round trip on a Linux peer). Set `WEBSOCKET_TCP_NODELAY=false` to keep the
     # operating system's default. Plain TCP sockets are set at the upgrade; a TLS listener started by
     # `Azu.start` is built on `Azu::NoDelayTCPServer`, so every connection it accepts is set.
-    property? tcp_nodelay : Bool = ENV.fetch("WEBSOCKET_TCP_NODELAY", "true") != "false"
+    property? tcp_nodelay : Bool = WebSocketConfiguration.flag("WEBSOCKET_TCP_NODELAY", true)
+
+    # Reads a boolean variable: true, 1, on, yes / false, 0, off, no (any case). Anything else keeps
+    # *default* and logs one warning naming the variable.
+    def self.flag(name : String, default : Bool) : Bool
+      value = ENV[name]?.try(&.strip.downcase)
+      return default if value.nil? || value.empty?
+      case value
+      when "true", "1", "on", "yes"  then true
+      when "false", "0", "off", "no" then false
+      else
+        Log.for("Azu").warn { "#{name} is not a boolean (use true or false); keeping #{default}" }
+        default
+      end
+    end
   end
 
   # Configuration for internationalization (i18n)

@@ -155,7 +155,7 @@ There is no `max_request_size` or `request_timeout` option; the size of uploaded
 | `websocket.allowed_origins` | `Array(String)` | `[]` (own origin only) | `WEBSOCKET_ALLOWED_ORIGINS` (comma separated, `"*"` allows all) |
 | `websocket.max_message_size` | `Int32` | 1 MB | `WEBSOCKET_MAX_MESSAGE_SIZE` |
 | `websocket.ping_interval` | `Time::Span?` | 30 seconds | `WEBSOCKET_PING_INTERVAL` (seconds, `0` disables) |
-| `websocket.tcp_nodelay` | `Bool` | `true` | `WEBSOCKET_TCP_NODELAY` (`false` keeps the operating system's default) |
+| `websocket.tcp_nodelay` | `Bool` | `true` | `WEBSOCKET_TCP_NODELAY` (`false`, `0`, `off` or `no` in any case keeps the operating system's default; `true`, `1`, `on`, `yes` turn it on; anything else keeps the default and logs a warning) |
 
 `websocket.tcp_nodelay` turns Nagle's algorithm off on the socket of an upgraded connection. A WebSocket reply
 is often several small writes (a Spark event is answered by a diff, then a reply), and with Nagle on the

@@ -32,19 +32,17 @@ module Azu
 
   # Binds *server* to a TLS listener like `HTTP::Server#bind_tls`; with *nodelay* the sockets
   # underneath have `TCP_NODELAY` set.
-  def self.bind_tls(server : HTTP::Server, host : String, port : Int32, context : OpenSSL::SSL::Context::Server, reuse_port : Bool, nodelay : Bool) : Nil
-    unless nodelay
-      server.bind_tls(host, port, context, reuse_port)
-      return
-    end
+  def self.bind_tls(server : HTTP::Server, host : String, port : Int32, context : OpenSSL::SSL::Context::Server, reuse_port : Bool, nodelay : Bool) : Socket::IPAddress
+    return server.bind_tls(host, port, context, reuse_port) unless nodelay
     tcp_server = NoDelayTCPServer.new(host, port, reuse_port: reuse_port)
-    listener = OpenSSL::SSL::Server.new(tcp_server, context)
-    listener.start_immediately = false
     begin
+      listener = OpenSSL::SSL::Server.new(tcp_server, context)
+      listener.start_immediately = false
       server.bind(listener)
     rescue ex
-      listener.close
+      tcp_server.close
       raise ex
     end
+    tcp_server.local_address
   end
 end
