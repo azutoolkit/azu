@@ -1,0 +1,118 @@
+name: Spark benchmarks
+
+# Opt-in: nightly and on demand, never on pull requests, and not a required check. It runs the Spark
+# benchmark suite (benchmark/spark/README.md) and uploads the JSON result as an artifact. A shared
+# GitHub runner is noisy, so read the numbers as relative: give `baseline_ref` and the same job measures
+# that ref first and then this one, on the same machine, and prints the comparison.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: short (minutes) or full (longer, more samples)
+        type: choice
+        options: [short, full]
+        default: short
+      baseline_ref:
+        description: optional git ref to measure first and compare against (same job, same machine)
+        type: string
+        default: ""
+      threshold:
+        description: regression threshold in percent for the comparison
+        type: string
+        default: "15"
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    # Forks do not run the nightly job.
+    if: github.repository == 'azutoolkit/azu'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      BENCH_MODE: ${{ inputs.mode || 'short' }}
+      # A suite that cannot run (no playwright, no compiler) fails the job instead of passing silently.
+      BENCH_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the artifact size history and the previous-engine baseline come from git
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: 1.19.1
+
+      - name: Install playwright and chromium
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw"
+          cd "$RUNNER_TEMP/pw"
+          npm init -y >/dev/null
+          npm install playwright@1.56.1
+          npx playwright install --with-deps chromium
+          echo "PLAYWRIGHT_MODULE=$RUNNER_TEMP/pw/node_modules/playwright" >> "$GITHUB_ENV"
+
+      - name: Install shards
+        run: shards install
+
+      - name: Compare tool tests
+        run: node --test "benchmark/spark/test/*.test.mjs"
+
+      - name: Measure the baseline ref
+        if: ${{ inputs.baseline_ref != '' }}
+        env:
+          BASE_REF: ${{ inputs.baseline_ref }}
+        run: |
+          # The ref comes from the dispatch form: it is only ever used as a quoted shell variable.
+          git fetch --no-tags origin "$BASE_REF" || true
+          if git rev-parse --verify --quiet "origin/$BASE_REF^{commit}" >/dev/null; then
+            resolved=$(git rev-parse "origin/$BASE_REF^{commit}")
+          else
+            resolved=$(git rev-parse --verify "$BASE_REF^{commit}")
+          fi
+          git worktree add "$RUNNER_TEMP/base" "$resolved"
+          cp -r lib "$RUNNER_TEMP/base/lib"
+          # The baseline is measured with this ref's benchmark scripts, so only the code under test differs.
+          rm -rf "$RUNNER_TEMP/base/benchmark/spark" "$RUNNER_TEMP/base/scripts/bench_spark.sh"
+          mkdir -p "$RUNNER_TEMP/base/benchmark" "$RUNNER_TEMP/base/scripts"
+          cp -r benchmark/spark "$RUNNER_TEMP/base/benchmark/spark"
+          cp scripts/bench_spark.sh "$RUNNER_TEMP/base/scripts/bench_spark.sh"
+          cd "$RUNNER_TEMP/base"
+          BENCH_IGNORE_DIRTY=1 scripts/bench_spark.sh --mode "$BENCH_MODE" --out "$RUNNER_TEMP/base-results" | tail -1 > "$RUNNER_TEMP/base-result-path"
+
+      - name: Measure this ref
+        run: scripts/bench_spark.sh --mode "$BENCH_MODE" --out "$RUNNER_TEMP/results" | tail -1 > "$RUNNER_TEMP/result-path"
+
+      - name: Summary
+        run: |
+          result=$(cat "$RUNNER_TEMP/result-path")
+          {
+            echo "### Spark benchmarks ($BENCH_MODE) - shared runner, relative numbers only"
+            echo
+            node benchmark/spark/report.mjs "$result"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compare with the baseline
+        if: ${{ inputs.baseline_ref != '' }}
+        env:
+          THRESHOLD: ${{ inputs.threshold }}
+        run: |
+          [[ "$THRESHOLD" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "threshold must be a number" >&2; exit 2; }
+          # A metric missing on either side fails the comparison here: a silently skipped suite must not pass.
+          node benchmark/spark/compare.mjs "$(cat "$RUNNER_TEMP/base-result-path")" "$(cat "$RUNNER_TEMP/result-path")" \
+            --threshold "$THRESHOLD" --strict-missing | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spark-bench-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/results
+            ${{ runner.temp }}/base-results
+          if-no-files-found: warn
