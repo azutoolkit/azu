@@ -110,7 +110,9 @@ backoff and the last signed state snapshot, so the page continues where it was. 
   (`DOMParser`, so no script runs and no resource loads) and drops `script`, `iframe`, `object`,
   `embed`, `base`, `meta` and `link` elements, every `on*` attribute and `srcdoc`, and script or
   `data:` URLs before moving the nodes into the page; and the client script is served by the
-  app with no inline code, so a Content-Security-Policy of `script-src 'self'` works. Serve the
+  app with no inline code, so a Content-Security-Policy of `script-src 'self'` works, also with
+  `require-trusted-types-for 'script'; trusted-types azu-spark` (see
+  [the client reference](../reference/spark-client.md#content-security-policy-and-trusted-types)). Serve the
   socket over `wss` in production: an unencrypted connection could be rewritten in transit.
 
 ## Breaking changes

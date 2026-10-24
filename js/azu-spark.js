@@ -566,20 +566,29 @@ function receive(text) {
       joinsSettled();
       break;
     case "diff": applyDiff(message); break;
-    case "reply": joining.delete(message.id); settle(message.id); joinsSettled(); break;
+    case "reply": joining.delete(message.id); afterPatches(function () { settle(message.id); }); joinsSettled(); break;
     case "redirect": navigate(message.to, message.replace); break;
     case "heartbeat": break;
     case "error": failed(message); break;
   }
 }
 
-function applyDiff(message) {
+/**
+ * Takes a diff frame: snapshots are kept at once, patches and pushed events wait for the next frame.
+ * @param {{ patches?: {id: string, html: string}[], snapshots?: Record<string, string>, events?: {target: string, name: string, payload: unknown}[] }} message
+ * @returns {void}
+ */
+export function applyDiff(message) {
   (message.patches || []).forEach(function (patch) { applyPatch(patch.id, patch.html); });
   Object.keys(message.snapshots || {}).forEach(function (id) { snapshots.set(id, message.snapshots[id]); });
-  (message.events || []).forEach(function (push) {
-    var element = byId(push.target);
-    if (element) emit(push.name, push.payload, element);
-  });
+  if ((message.events || []).length > 0) {
+    later({ run: function () {
+      message.events.forEach(function (push) {
+        var element = byId(push.target);
+        if (element) emit(push.name, push.payload, element);
+      });
+    } });
+  }
 }
 
 function navigate(to, replace) {
@@ -614,12 +623,99 @@ function failed(message) {
 }
 
 // ---- DOM patching -----------------------------------------------------------------------
+//
+// Patches are applied in batches, one per animation frame: first everything the batch needs to
+// read (focus, selection, scroll offsets), then every write, then the restore. A small keyed morph
+// (below) edits the live nodes in place, so what the user is doing survives: a node is only
+// replaced, never rebuilt from a string, and a control keeps what was typed unless the server
+// changed the value.
 
-function applyPatch(id, html) {
+var frame = []; // jobs for the next frame: {id?, run}
+var composing = null; // the element an IME is composing in
+var touched = new WeakSet(); // <details>/<dialog> the user opened or closed
+var served = new WeakMap(); // <details>/<dialog> -> the `open` the server sent last
+
+function later(job) {
+  frame.push(job);
+  if (frame.length > 1) return;
+  window.requestAnimationFrame(flushPatches);
+  setTimeout(flushPatches, 50); // a hidden tab gets no animation frames
+}
+
+function afterPatches(work) {
+  if (frame.length > 0) later({ run: work }); else work();
+}
+
+/**
+ * Queues a patch for the component *id*: its content becomes *html*.
+ * @param {string} id
+ * @param {string} html
+ * @returns {void}
+ */
+export function applyPatch(id, html) {
+  later({ id: id, run: function () { patchNow(id, html); } });
+}
+
+/**
+ * Runs the queued jobs: reads first, then every write, then restores focus, selection and scroll.
+ * @returns {void}
+ */
+export function flushPatches() {
+  var jobs = frame;
+  frame = [];
+  if (jobs.length === 0) return;
+  var kept = remember(jobs.map(function (job) { return job.id === undefined ? null : byId(job.id); }).filter(Boolean));
+  jobs.forEach(function (job) {
+    try { job.run(); } catch (e) { emit("error", { code: "patch_failed", message: String(e && e.message || e) }); }
+  });
+  recall(kept);
+}
+
+// Layout reads, all before the first write: scroll offsets inside the patched components, and the
+// focused control with its caret (or, in an editable region, its selection).
+function remember(targets) {
+  var kept = { scrolls: [], focus: null };
+  var active = document.activeElement;
+  targets.forEach(function (target) {
+    [target].concat(Array.prototype.slice.call(target.querySelectorAll("*"))).forEach(function (el) {
+      if (el.scrollTop || el.scrollLeft) kept.scrolls.push([el, el.scrollTop, el.scrollLeft]);
+    });
+  });
+  if (active && targets.some(function (target) { return target.contains(active); })) {
+    var selection = active.isContentEditable && window.getSelection && window.getSelection();
+    kept.focus = {
+      el: active, start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection,
+      range: selection && selection.rangeCount ? selection.getRangeAt(0).cloneRange() : null
+    };
+  }
+  return kept;
+}
+
+function recall(kept) {
+  kept.scrolls.forEach(function (saved) {
+    var el = saved[0];
+    if (!el.isConnected) return;
+    if (el.scrollTop !== saved[1]) el.scrollTop = saved[1];
+    if (el.scrollLeft !== saved[2]) el.scrollLeft = saved[2];
+  });
+  var focus = kept.focus;
+  if (!focus || !focus.el.isConnected) return;
+  if (document.activeElement !== focus.el) focus.el.focus({ preventScroll: true });
+  try {
+    if (typeof focus.start === "number") focus.el.setSelectionRange(focus.start, focus.end, focus.direction || undefined);
+  } catch (e) { /* a control type without a selection */ }
+  if (focus.range && focus.range.startContainer.isConnected) {
+    var selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(focus.range);
+  }
+}
+
+function patchNow(id, html) {
   var element = byId(id);
   if (!element) return;
   var fragment = parsePatch(html);
-  sanitize(fragment);
+  sanitize(fragment, element.closest("[data-spark-allow-scripts]") !== null);
   // Child components that did not change are not part of this patch: keep their live elements.
   var live = new Map();
   Array.prototype.forEach.call(element.querySelectorAll("[data-spark-id]"), function (child) {
@@ -627,6 +723,28 @@ function applyPatch(id, html) {
   });
   morphChildren(element, fragment, live);
   element.removeAttribute("data-spark-slot");
+  emit("patch", { id: id }, element);
+}
+
+// What the user is doing right now in *el*: it has focus, or an IME is composing in it.
+function busy(el) {
+  return el.contains(document.activeElement) || (composing !== null && el.contains(composing));
+}
+
+var policyFor;
+var policy;
+
+// Under `require-trusted-types-for 'script'` parsing a string is a sink: only the named policy
+// `azu-spark` may feed it. It exists to build an inert document that sanitize() cleans before any
+// node reaches the page, it is not exposed, and it has no createScript or createScriptURL.
+function trusted(html) {
+  var types = window.trustedTypes;
+  if (types !== policyFor) {
+    policyFor = types;
+    policy = null;
+    try { policy = types ? types.createPolicy("azu-spark", { createHTML: function (value) { return value; } }) : null; } catch (e) { /* the page's CSP does not list azu-spark */ }
+  }
+  return policy ? policy.createHTML(html) : html;
 }
 
 // Parses a patch in an inert document: no script runs and no resource loads until the
@@ -638,7 +756,7 @@ function applyPatch(id, html) {
  * @returns {DocumentFragment}
  */
 export function parsePatch(html) {
-  var doc = new DOMParser().parseFromString("<template>" + html + "</template>", "text/html");
+  var doc = new DOMParser().parseFromString(trusted("<template>" + html + "</template>"), "text/html");
   var template = doc.querySelector("template");
   return template ? template.content : document.createDocumentFragment();
 }
@@ -668,16 +786,30 @@ function animatesLink(node) {
   return /^(animate|set)$/i.test(node.nodeName) && /^(href|xlink:href|on)/i.test(node.getAttribute("attributeName") || "");
 }
 
+// Scripts of a patch do not run once moved into the page (the parser marked them started). A root that
+// opted in (data-spark-allow-scripts) gets fresh copies, which do; without opt-in they are dropped.
+// Needs 'unsafe-inline' or a nonce, and is refused by Trusted Types: then the script is dropped too.
+function revive(old) {
+  try {
+    var fresh = document.createElement("script");
+    Array.prototype.forEach.call(old.attributes, function (attr) { fresh.setAttribute(attr.name, attr.value); });
+    fresh.text = old.textContent;
+    old.replaceWith(fresh);
+  } catch (e) { old.remove(); }
+}
+
 /**
  * Removes blocked elements, event handler attributes and script URLs from *root*, in place.
  * @param {ParentNode} root
+ * @param {boolean} [scripts] keep scripts, as copies that can run (the root opted in)
  * @returns {void}
  */
-export function sanitize(root) {
-  Array.prototype.forEach.call(root.querySelectorAll(BLOCKED_ELEMENTS), function (node) { node.remove(); });
+export function sanitize(root, scripts) {
+  Array.prototype.forEach.call(root.querySelectorAll(scripts ? BLOCKED_ELEMENTS.replace("script,", "") : BLOCKED_ELEMENTS), function (node) { node.remove(); });
+  if (scripts) Array.prototype.forEach.call(root.querySelectorAll("script"), revive);
   Array.prototype.forEach.call(root.querySelectorAll("animate,set"), function (node) { if (animatesLink(node)) node.remove(); });
   // The content of a nested <template> is a separate fragment that querySelectorAll does not enter.
-  Array.prototype.forEach.call(root.querySelectorAll("template"), function (node) { sanitize(node.content); });
+  Array.prototype.forEach.call(root.querySelectorAll("template"), function (node) { sanitize(node.content, scripts); });
   Array.prototype.forEach.call(root.querySelectorAll("*"), function (node) {
     Array.prototype.slice.call(node.attributes).forEach(function (attr) {
       var name = attr.name.toLowerCase();
@@ -688,43 +820,88 @@ export function sanitize(root) {
 }
 
 function keyOf(node) {
-  return node.nodeType === 1 ? node.getAttribute("data-spark-id") || node.id || null : null;
+  if (node.nodeType !== 1) return null;
+  var key = node.getAttribute("data-spark-id") || node.getAttribute("data-spark-key") || node.id;
+  return key ? node.nodeName + "\0" + key : null;
 }
 
-function similar(a, b) {
-  return a.nodeType === b.nodeType && a.nodeName === b.nodeName && keyOf(a) === keyOf(b);
-}
-
-function morphChildren(from, to, live) {
-  var cursor = from.firstChild;
-  Array.prototype.slice.call(to.childNodes).forEach(function (wanted) {
-    if (wanted.nodeType === 1 && wanted.hasAttribute("data-spark-slot") && live.has(keyOf(wanted))) {
-      var existing = live.get(keyOf(wanted));
-      if (existing === cursor) cursor = cursor.nextSibling; else from.insertBefore(existing, cursor);
-      return;
+// Longest run of children that already are in the wanted order: those stay, the others move.
+function stable(positions) {
+  var tails = [];
+  var before = [];
+  positions.forEach(function (position, i) {
+    if (position < 0) return;
+    var low = 0;
+    var high = tails.length;
+    while (low < high) {
+      var middle = (low + high) >> 1;
+      if (positions[tails[middle]] < position) low = middle + 1; else high = middle;
     }
-    if (cursor && similar(cursor, wanted)) {
-      var current = cursor;
-      cursor = cursor.nextSibling;
-      morphNode(current, wanted, live);
-      return;
-    }
-    var key = keyOf(wanted);
-    if (key) {
-      for (var n = cursor; n; n = n.nextSibling) {
-        if (n.nodeType === 1 && keyOf(n) === key) {
-          from.insertBefore(n, cursor);
-          return morphNode(n, wanted, live);
-        }
-      }
-    }
-    from.insertBefore(wanted, cursor);
+    before[i] = low > 0 ? tails[low - 1] : -1;
+    tails[low] = i;
   });
-  while (cursor) {
-    var next = cursor.nextSibling;
-    from.removeChild(cursor);
-    cursor = next;
+  var keep = new Set();
+  for (var i = tails.length > 0 ? tails[tails.length - 1] : -1; i >= 0; i = before[i]) keep.add(i);
+  return keep;
+}
+
+// Moves *node* to just before *ref*. moveBefore keeps focus, scroll, playback and iframes alive.
+function place(parent, node, ref) {
+  if (node.parentNode === parent && node.nextSibling === ref) return;
+  if (node.isConnected && parent.moveBefore) {
+    try { return parent.moveBefore(node, ref); } catch (e) { /* fall through to insertBefore */ }
   }
+  parent.insertBefore(node, ref);
+}
+
+// Children match by key (data-spark-id, data-spark-key, id), unkeyed ones by position; a key that
+// is gone is inserted, a node nobody wants is removed, and only nodes outside the longest
+// already-ordered run move.
+function morphChildren(from, to, live) {
+  var old = Array.prototype.slice.call(from.childNodes);
+  var wanted = Array.prototype.slice.call(to.childNodes);
+  var keyed = new Map();
+  var loose = [];
+  var at = new Map();
+  var next = 0;
+  old.forEach(function (node, i) {
+    var key = keyOf(node);
+    at.set(node, i);
+    if (key === null) loose.push(node); else if (!keyed.has(key)) keyed.set(key, node);
+  });
+  var claimed = new Set();
+  var matches = wanted.map(function (want) {
+    var key = keyOf(want);
+    var node = null;
+    if (key !== null) {
+      node = keyed.get(key) || null;
+      keyed.delete(key);
+      if (want.hasAttribute("data-spark-slot") && live.has(want.getAttribute("data-spark-id"))) node = live.get(want.getAttribute("data-spark-id"));
+    } else if (loose[next] && loose[next].nodeType === want.nodeType && loose[next].nodeName === want.nodeName) {
+      node = loose[next++];
+    }
+    if (node) claimed.add(node);
+    return node;
+  });
+  matches.forEach(function (node, i) { if (node) morphNode(node, wanted[i], live); });
+  var keep = stable(matches.map(function (node) { return node && at.has(node) ? at.get(node) : -1; }));
+  var ref = null;
+  for (var i = wanted.length - 1; i >= 0; i--) {
+    var node = matches[i] || wanted[i];
+    if (!matches[i]) adoptSlots(node, live);
+    if (!keep.has(i)) place(from, node, ref);
+    ref = node;
+  }
+  old.forEach(function (node) { if (!claimed.has(node) && node.parentNode === from) from.removeChild(node); });
+}
+
+// A new subtree can wrap a child component that did not change: its slot becomes the live element.
+function adoptSlots(node, live) {
+  if (node.nodeType !== 1) return;
+  Array.prototype.forEach.call(node.querySelectorAll("[data-spark-slot]"), function (slot) {
+    var child = live.get(slot.getAttribute("data-spark-id"));
+    if (child) slot.replaceWith(child);
+  });
 }
 
 function morphNode(from, to, live) {
@@ -732,34 +909,60 @@ function morphNode(from, to, live) {
     if (from.nodeValue !== to.nodeValue) from.nodeValue = to.nodeValue;
     return;
   }
-  // Component wrappers are owned by their own patches.
-  if (from.hasAttribute("data-spark-id")) return;
+  // Component wrappers are owned by their own patches; spark-ignore subtrees by nobody.
+  if (from.hasAttribute("data-spark-id") || from.hasAttribute("spark-ignore")) return;
   morphAttributes(from, to);
-  morphChildren(from, to, live);
-  syncFormState(from, to);
+  if (from.nodeName === "TEXTAREA") morphTextarea(from, to);
+  else if (!(from.isContentEditable && busy(from))) morphChildren(from, to, live);
 }
+
+// Attributes that only seed a property the user then changes (value, checked, selected).
+var SEEDS = { INPUT: ["value", "checked"], OPTION: ["selected"] };
+var OPENABLE = /^(DETAILS|DIALOG)$/;
 
 function morphAttributes(from, to) {
-  Array.prototype.slice.call(from.attributes).forEach(function (attr) {
-    if (!to.hasAttribute(attr.name)) from.removeAttribute(attr.name);
+  var names = new Set();
+  [from, to].forEach(function (el) {
+    Array.prototype.forEach.call(el.attributes, function (attr) { names.add(attr.name); });
   });
-  Array.prototype.forEach.call(to.attributes, function (attr) {
-    if (from.getAttribute(attr.name) !== attr.value) from.setAttribute(attr.name, attr.value);
+  var openable = OPENABLE.test(from.nodeName);
+  if (openable) reopen(from, to.hasAttribute("open"));
+  names.forEach(function (name) {
+    var was = from.getAttribute(name);
+    var now = to.getAttribute(name);
+    if (was === now || (openable && name === "open")) return;
+    var seeds = (SEEDS[from.nodeName] || []).indexOf(name) >= 0;
+    // Typing wins: a focused or composing control keeps its text, and gets the server's value in a later patch.
+    if (seeds && name === "value" && busy(from) && from.value !== (now || "")) return;
+    if (now === null) from.removeAttribute(name); else from.setAttribute(name, now);
+    if (seeds) {
+      try { from[name] = name === "value" ? now || "" : now !== null; } catch (e) { /* a file input */ }
+    }
   });
 }
 
-// The user's cursor and half typed text win over the server while the control has focus.
-function syncFormState(from, to) {
-  var focused = from === document.activeElement;
-  var tag = from.nodeName;
-  if (tag === "INPUT") {
-    if (from.type === "checkbox" || from.type === "radio") from.checked = to.hasAttribute("checked");
-    else if (!focused && from.value !== (to.getAttribute("value") || "")) from.value = to.getAttribute("value") || "";
-  } else if (tag === "TEXTAREA") {
-    if (!focused && from.value !== to.value) from.value = to.value;
-  } else if (tag === "OPTION") {
-    from.selected = to.hasAttribute("selected");
-  }
+function morphTextarea(from, to) {
+  var now = to.textContent;
+  if (from.textContent === now || (busy(from) && from.value !== now)) return;
+  from.textContent = now;
+  from.value = now;
+}
+
+// <details> and <dialog> belong to the user once they used them: the server's `open` applies only
+// when it differs from what the server said last time.
+function reopen(el, open) {
+  var before = served.get(el);
+  served.set(el, open);
+  if (before === undefined ? touched.has(el) : before === open) return;
+  if (!open && el.close) el.close(); else el.toggleAttribute("open", open);
+}
+
+function watchUser() {
+  var mark = function (event) { touched.add(event.target); };
+  document.addEventListener("toggle", mark, true);
+  document.addEventListener("close", mark, true);
+  document.addEventListener("compositionstart", function (event) { composing = event.target; }, true);
+  document.addEventListener("compositionend", function () { composing = null; }, true);
 }
 
 // ---- requests ---------------------------------------------------------------------------
@@ -967,6 +1170,7 @@ function start() {
   booted = true;
   bind();
   observe();
+  watchUser();
   window.addEventListener("online", function () { machine.dispatch({ type: "online" }); });
   window.addEventListener("offline", function () { machine.dispatch({ type: "offline" }); });
   document.addEventListener("visibilitychange", function () {

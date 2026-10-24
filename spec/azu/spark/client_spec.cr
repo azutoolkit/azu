@@ -35,6 +35,15 @@ describe Azu::Spark::Client do
     Azu::Spark::Client::SOURCE.should_not match(/https?:\/\/(?!\*)/)
   end
 
+  it "parses patches through the named Trusted Types policy and never assigns innerHTML" do
+    Azu::Spark::Client::SOURCE.should contain(%("azu-spark"))
+    Azu::Spark::Client::SOURCE.should contain("createHTML")
+    Azu::Spark::Client::SOURCE.should_not contain("createScript")
+    Azu::Spark::Client::SOURCE.should_not contain("innerHTML")
+    Azu::Spark::Client::SOURCE.should_not contain("eval(")
+    CLIENT_JS.should contain("createPolicy(\"azu-spark\"")
+  end
+
   it "implements reconnect with exponential backoff, heartbeat and rehydration" do
     source = CLIENT_JS
     source.should contain("Math.pow(2, attempt)")

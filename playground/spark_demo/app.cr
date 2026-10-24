@@ -98,6 +98,7 @@ module SparkDemo
         <title>Azu Spark demo</title>
         <style>
           body { font: 16px system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+          #lines { max-height: 6rem; overflow: auto; }
           .card { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
           html[data-spark-status="connected"] #status::after { content: "connected"; color: green; }
           html:not([data-spark-status="connected"]) #status::after { content: "offline"; color: #b00; }
