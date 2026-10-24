@@ -69,6 +69,10 @@ ran it. A runnable PostgreSQL example laid out like this is
 * **SQLite defaults.** For a `sqlite3://` URL taken from `CQL.config`, the `c.sqlite` settings (`journal_mode` WAL,
   `foreign_keys` on, `busy_timeout` 5000, `synchronous`, `cache_size`) are appended the same way, so the schema opens
   connections the way `CQL.build_schema` does. An explicit `uri` argument is used as given.
+  **Behaviour change:** before, such a schema ran with SQLite's own defaults (foreign keys off, no busy timeout).
+  Rows or fixtures that violate a foreign key now fail with `FOREIGN KEY constraint failed`. Opt out with
+  `CQL.configure { |c| c.sqlite.foreign_keys = false }` (or `busy_timeout`, `journal_mode`, ...), or per URL with
+  `?foreign_keys=0`; parameters on the URL always win. `config.sqlite` exists since CQL 0.0.533.
 * **Lazy connection.** The schema is created without opening a socket (`initial_pool_size=0`), so the app, console and tasks boot
   without a database and the first query connects. Turn it off with `Azu.configure { |c| c.database.lazy_connect = false }`
   (`AZU_DB_LAZY=false`), per schema with `Azu::CQL.schema(:app, lazy: false)`, or with `initial_pool_size` in the URL.

@@ -10,6 +10,11 @@ include IntegrationHelpers
 private DB_FILE     = File.join(Dir.tempdir, "azu_cql_config_spec.db")
 private UNREACHABLE = "postgres://postgres:secret@127.0.0.1:1/azu_unreachable"
 
+# A WAL database leaves `-wal` and `-shm` files that a later run would recover into the new file.
+private def remove_db_files
+  Dir.glob("#{DB_FILE}*").each { |file| File.delete?(file) }
+end
+
 # CQL.config is a process-wide singleton: put it back the way the other specs expect.
 private def with_cql_config(&)
   yield
@@ -40,7 +45,7 @@ describe "Azu::CQL configuration" do
     Azu::CQL::Instrumentor.uninstall
     store.clear
     store.adapter = nil
-    File.delete?(DB_FILE)
+    remove_db_files
   end
 
   after_all do
@@ -49,7 +54,7 @@ describe "Azu::CQL configuration" do
     store.adapter = nil
     Azu::CONFIG.database.uri = original_uri
     ::CQL.reset_config!
-    File.delete?(DB_FILE)
+    remove_db_files
   end
 
   describe ".connection_url" do
@@ -90,34 +95,70 @@ describe "Azu::CQL configuration" do
   end
 
   describe "SQLite defaults" do
-    it "adds CQL's SQLite pragmas with the pool settings, never over the URL" do
+    it "adds CQL's SQLite settings with the pool settings, never over the URL" do
       config = ::CQL::Configure::Config.new
+      config.sqlite.journal_mode = "truncate"
       config.sqlite.busy_timeout = 1234
+      config.sqlite.foreign_keys = false
 
       params = URI.parse(Azu::CQL.connection_url("sqlite3://./x.db", config, lazy: false, pool: true)).query_params
-      params["journal_mode"].should eq config.sqlite.journal_mode
-      params["foreign_keys"].should eq "1"
+      params["journal_mode"].should eq "truncate"
       params["busy_timeout"].should eq "1234"
+      params["foreign_keys"].should eq "0"
 
-      url = Azu::CQL.connection_url("sqlite3://./x.db?foreign_keys=0", config, lazy: false, pool: true)
-      URI.parse(url).query_params["foreign_keys"].should eq "0"
+      url = Azu::CQL.connection_url("sqlite3://./x.db?foreign_keys=1&busy_timeout=9", config, lazy: false, pool: true)
+      params = URI.parse(url).query_params
+      params["foreign_keys"].should eq "1"
+      params["busy_timeout"].should eq "9"
+      params["journal_mode"].should eq "truncate"
     end
 
-    it "leaves the pragmas off an explicit URL and off other databases" do
+    it "adds them only for SQLite URLs that come from CQL.config" do
       config = ::CQL::Configure::Config.new
-      Azu::CQL.connection_url("sqlite3://./x.db", config, lazy: false).should eq "sqlite3://./x.db"
-      Azu::CQL.connection_url("postgres://u@h/db", config, lazy: false, pool: true).should_not contain("journal_mode")
+      config.sqlite.journal_mode = "truncate"
+
+      URI.parse(Azu::CQL.connection_url("sqlite3://./x.db", config, lazy: false, pool: true)).query_params.has_key?("journal_mode").should be_true
+      URI.parse(Azu::CQL.connection_url("sqlite3://./x.db", config, lazy: false, pool: false)).query_params.has_key?("journal_mode").should be_false
+      URI.parse(Azu::CQL.connection_url("postgres://u@h/db", config, lazy: false, pool: true)).query_params.has_key?("journal_mode").should be_false
+    end
+
+    it "keeps a #fragment after the parameters it adds" do
+      url = Azu::CQL.connection_url("postgres://u@h/db?sslmode=require#frag")
+      uri = URI.parse(url)
+      uri.fragment.should eq "frag"
+      uri.query_params["sslmode"].should eq "require"
+      uri.query_params["initial_pool_size"].should eq "0"
     end
 
     it "opens schema connections with them when the URL comes from CQL.config" do
       with_cql_config do
-        Azu::CQL.configure { |c| c.db = "sqlite3://#{DB_FILE}" }
+        Azu::CQL.configure do |c|
+          c.db = "sqlite3://#{DB_FILE}"
+          c.sqlite.journal_mode = "truncate"
+          c.sqlite.busy_timeout = 1234
+        end
         schema = Azu::CQL.schema(:sqlite_defaults) { table(:t) { primary :id, Int64 } }
         schema.with_connection do |connection|
           connection.scalar("PRAGMA foreign_keys").should eq 1
-          connection.scalar("PRAGMA busy_timeout").should eq 5000
-          connection.scalar("PRAGMA journal_mode").should eq ::CQL.config.sqlite.journal_mode
+          connection.scalar("PRAGMA busy_timeout").should eq 1234
+          connection.scalar("PRAGMA journal_mode").to_s.downcase.should eq "truncate"
         end
+      end
+    end
+
+    it "can be turned off in CQL.config or on the URL, and an explicit uri gets none" do
+      with_cql_config do
+        Azu::CQL.configure { |c| c.db = "sqlite3://#{DB_FILE}"; c.sqlite.foreign_keys = false }
+        off = Azu::CQL.schema(:fk_off) { }
+        off.with_connection { |connection| connection.scalar("PRAGMA foreign_keys").should eq 0 }
+
+        Azu::CQL.configure { |c| c.db = "sqlite3://#{DB_FILE}?foreign_keys=0"; c.sqlite.foreign_keys = true }
+        url_wins = Azu::CQL.schema(:fk_url) { }
+        url_wins.with_connection { |connection| connection.scalar("PRAGMA foreign_keys").should eq 0 }
+
+        Azu::CQL.configure { |c| c.db = "sqlite3://#{DB_FILE}"; c.sqlite.foreign_keys = true }
+        explicit = Azu::CQL.schema(:fk_explicit, "sqlite3://#{DB_FILE}") { }
+        explicit.with_connection { |connection| connection.scalar("PRAGMA foreign_keys").should eq 0 }
       end
     end
   end

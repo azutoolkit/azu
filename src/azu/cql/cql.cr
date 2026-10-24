@@ -122,7 +122,8 @@ module Azu
     # before the `?` is touched. Deliberately not `config.full_db_url`, which also injects SSL,
     # authentication and retry settings.
     def self.connection_url(base : String, config : ::CQL::Configure::Config = ::CQL.config, lazy : Bool = true, pool : Bool = false) : String
-      location, _, query = base.partition('?')
+      without_fragment, hash, fragment = base.partition('#')
+      location, _, query = without_fragment.partition('?')
       params = HTTP::Params.parse(query)
       wanted = {} of String => String
       if pool
@@ -139,7 +140,7 @@ module Azu
       wanted.reject! { |key, _| params.has_key?(key) }
       return base if wanted.empty?
       wanted.each { |key, value| params[key] = value }
-      "#{location}?#{params}"
+      "#{location}?#{params}#{hash}#{fragment}"
     end
 
     # CQL's SQLite defaults (WAL, foreign keys on, a busy timeout) as URL parameters. crystal-sqlite3
