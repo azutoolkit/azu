@@ -30,12 +30,14 @@ previous life while old entries may still be expiring).
 
 ## Connections
 
-- **Subscriber.** `PubSub::Redis` keeps one dedicated connection in `PSUBSCRIBE` mode per process, opened when
-  the first channel subscribes. It fans messages out to the local subscribers; handlers run on its fiber, so
-  they must only enqueue.
-- **Publisher.** A second, mutex-guarded connection publishes, with a 5 second timeout. A dead publisher
-  connection is replaced and the publish retried once.
-- **Presence store.** One more mutex-guarded connection with the same retry. Presence data lives in the hashes
+- **Subscriber.** `PubSub::Redis` keeps one dedicated connection in `PSUBSCRIBE` mode per process (not taken from
+  the pool), opened when the first channel subscribes. It fans messages out to the local subscribers; handlers run
+  on its fiber, so they must only enqueue.
+- **Publisher and presence store.** Both use the [`Azu::Redis`](../../reference/api/redis.md) pool: one connection
+  per concurrent command, opened on demand up to 2 (when built from a URL), with a 5 second timeout. Built from the same URL
+  they share one pool, so a quiet node has one pooled connection plus the subscriber. A dead connection is replaced
+  and the command retried once.
+- **Presence data.** Presence data lives in the hashes
   `azu:presence:t:<topic>` and `azu:presence:nodes`; use a distinct prefix (second argument) per environment that
   shares a Redis.
 

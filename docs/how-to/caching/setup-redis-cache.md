@@ -34,8 +34,9 @@ end
 ```
 
 The same settings can come from the environment, with no code: `CACHE_STORE=redis` and
-`CACHE_REDIS_URL=redis://localhost:6379/0`. There is no `config.cache = RedisStore.new(...)` and no `REDIS_URL`
-variable.
+`CACHE_REDIS_URL=redis://localhost:6379/0`; `REDIS_URL` is used when `CACHE_REDIS_URL` is not set. There is no
+`config.cache = RedisStore.new(...)`. To put the cache on the same connections as PubSub and Presence, share one
+[`Azu::Redis::Client`](../../reference/api/redis.md) with `config.cache_config.redis_client = client`.
 
 ## What Happens When Redis Is Unreachable
 
@@ -138,6 +139,11 @@ store = Azu::Cache::RedisStore.new(
 store.set("key", "value", 5.minutes)
 puts store.get("key")
 ```
+
+The store runs on the shared [`Azu::Redis`](../../reference/api/redis.md) pool: `Azu::Cache::RedisStore.new(client)`
+takes a client you built with `Azu::Redis.acquire`, so the cache, PubSub and Presence can use the same connections.
+`operation_timeout` is the bound on every command (a command past it fails like any other and its connection is
+thrown away), and a lost connection is replaced and the command tried again once (not for `increment`).
 
 The store has no key prefix; the `Cache::Manager` adds it. A password or TLS goes in the URL
 (`rediss://:password@host:6380/0`). There is no `namespace:`, `ssl:` or `password:` option.

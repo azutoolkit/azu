@@ -8,6 +8,7 @@ require "schema"
 require "crinja"
 require "./azu/env"
 require "./azu/clock"
+require "./azu/redis"
 require "./azu/version"
 require "./azu/routable"
 require "./azu/router"
@@ -24,6 +25,7 @@ require "./azu/channel/**"
 require "./azu/handler/**"
 require "./azu/helpers/**"
 require "./azu/presence/**"
+require "./azu/redis/**"
 require "./azu/pub_sub/**"
 require "./azu/spark/**"
 require "./azu/templates/**"
@@ -192,12 +194,14 @@ module Azu
   end
 
   # Stops the long lived parts of the framework: closes Spark connections, the default presence tracker
-  # (so its entries leave before the PubSub backend stops) and the PubSub backend.
+  # (so its entries leave before the PubSub backend stops), the PubSub backend and, last, the shared Redis pools
+  # those used.
   # Called by `start` once the server stops; safe to call again.
   def self.shutdown : Nil
     Spark.shutdown
     Presence.shutdown
     PubSub.shutdown
+    Redis.shutdown
   end
 
   macro included

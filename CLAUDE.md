@@ -56,6 +56,7 @@ src/azu/
 ├── spark/client/azu_spark.js  # GENERATED minified Spark client; edit js/azu-spark.js, then `npm run build` in js/
 ├── component.cr        # Static markup components (`Azu::Component`)
 ├── cache.cr            # Multi-store caching (Memory/Redis)
+├── redis.cr + redis/   # Azu::Redis: the one Redis pool/config/retry that cache, pubsub and presence share
 ├── params.cr           # Parameter extraction & uploads
 ├── handler/            # Middleware handlers (12 files)
 ├── templates.cr        # Crinja template engine

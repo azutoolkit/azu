@@ -20,6 +20,14 @@ module Azu
       hit : Bool?,
       error : String?
 
+    # One finished call through `Azu::Redis::Client#run`: *operation* is the caller's label, *client* the
+    # `Azu::Redis::Config#name`, and *error* the message of the exception it ended with, if any.
+    record RedisCommand,
+      operation : String,
+      client : String,
+      duration_ms : Float64,
+      error : String?
+
     # One finished component lifecycle step (`mount`, `unmount`, `refresh`, `event_handler:<name>`).
     record ComponentEvent,
       id : String,
@@ -36,6 +44,7 @@ module Azu
 
     @@cache_subscriptions = [] of Subscription(CacheOperation)
     @@component_subscriptions = [] of Subscription(ComponentEvent)
+    @@redis_subscriptions = [] of Subscription(RedisCommand)
     @@prepare_hooks = [] of Hook
     @@finalize_hooks = [] of Hook
 
@@ -48,6 +57,11 @@ module Azu
     # Listens to finished component steps; see `on_cache` for `enabled`.
     def self.on_component(enabled : Proc(Bool) = -> { true }, &block : ComponentEvent ->) : Nil
       @@component_subscriptions << Subscription(ComponentEvent).new(enabled, ->(event : ComponentEvent) { block.call(event); nil })
+    end
+
+    # Listens to finished Redis calls (count them, time them, count errors); see `on_cache` for `enabled`.
+    def self.on_redis(enabled : Proc(Bool) = -> { true }, &block : RedisCommand ->) : Nil
+      @@redis_subscriptions << Subscription(RedisCommand).new(enabled, ->(command : RedisCommand) { block.call(command); nil })
     end
 
     # Runs when `Configuration#prepare` starts what an app needs to run.
@@ -70,15 +84,16 @@ module Azu
 
     # For specs: runs the block with no subscribers and hooks registered, then restores the previous ones.
     def self.isolate(&)
-      saved = {@@cache_subscriptions, @@component_subscriptions, @@prepare_hooks, @@finalize_hooks}
+      saved = {@@cache_subscriptions, @@component_subscriptions, @@redis_subscriptions, @@prepare_hooks, @@finalize_hooks}
       @@cache_subscriptions = [] of Subscription(CacheOperation)
       @@component_subscriptions = [] of Subscription(ComponentEvent)
+      @@redis_subscriptions = [] of Subscription(RedisCommand)
       @@prepare_hooks = [] of Hook
       @@finalize_hooks = [] of Hook
       begin
         yield
       ensure
-        @@cache_subscriptions, @@component_subscriptions, @@prepare_hooks, @@finalize_hooks = saved
+        @@cache_subscriptions, @@component_subscriptions, @@redis_subscriptions, @@prepare_hooks, @@finalize_hooks = saved
       end
     end
 
@@ -101,6 +116,23 @@ module Azu
       ensure
         notify(subscribers, CacheOperation.new(key, operation, store, key_size, value_size, ttl,
           (Time.instant - started).total_milliseconds, hit, error))
+      end
+    end
+
+    # Times the block and reports it to the enabled subscribers, also when it raises.
+    def self.redis(operation : String, client : String, &)
+      subscribers = @@redis_subscriptions
+      return yield unless active?(subscribers)
+
+      started = Time.instant
+      error : String? = nil
+      begin
+        yield
+      rescue ex
+        error = ex.message || ex.class.name
+        raise ex
+      ensure
+        notify(subscribers, RedisCommand.new(operation, client, (Time.instant - started).total_milliseconds, error))
       end
     end
 

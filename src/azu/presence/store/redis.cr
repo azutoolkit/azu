@@ -14,19 +14,28 @@ module Azu
       # nodes need no synchronized clocks. `server_time: false` uses `Azu::Clock` instead, which lets specs drive
       # expiry with a fake clock.
       #
-      # One mutex-guarded connection is opened on first use. A dead connection is discarded and the command
-      # retried once on a fresh one. The topic hash and the key index of a meta are written in one `MULTI`, so
+      # Commands go through the shared `Azu::Redis::Client` pool (built from the URL, or passed as *client*): a dead
+      # connection is discarded and the command retried as `Azu::Redis::Config#retry` allows. The topic hash and the key index of a meta are written in one `MULTI`, so
       # they cannot drift apart on a retry. `refresh` writes the index entries of the metas a node owns again,
       # which repairs an index that lost one; the caller must pass only metas that are still owned.
       class Redis < Store
         DEFAULT_PREFIX = "azu:presence:"
         RETENTION      = 1.day
         TIMEOUT        = 5.seconds
+        # Pooled connections when built from a URL; the same as `PubSub::Redis`, so the two share a pool.
+        POOL_SIZE = 2
 
-        def initialize(@url : String = ENV.fetch("PRESENCE_REDIS_URL", ENV.fetch("PUBSUB_REDIS_URL", "redis://localhost:6379/0")),
-                       @prefix : String = DEFAULT_PREFIX, @server_time : Bool = true)
-          @mutex = Mutex.new
-          @connection = nil.as(::Redis?)
+        # `PRESENCE_REDIS_URL`, then `PUBSUB_REDIS_URL`, then `REDIS_URL`, then localhost.
+        def self.default_url : String
+          Azu::Redis::Config.url_from_env("PRESENCE_REDIS_URL", "PUBSUB_REDIS_URL")
+        end
+
+        def initialize(url : String = Redis.default_url, prefix : String = DEFAULT_PREFIX, server_time : Bool = true)
+          config = Azu::Redis::Config.new(url: url, pool_size: POOL_SIZE, connect_timeout: TIMEOUT, command_timeout: TIMEOUT)
+          initialize(Azu::Redis.acquire(config), prefix, server_time, true)
+        end
+
+        def initialize(@client : Azu::Redis::Client, @prefix : String = DEFAULT_PREFIX, @server_time : Bool = true, @owned : Bool = false)
         end
 
         def put(topic : String, meta : Meta) : Nil
@@ -87,8 +96,7 @@ module Azu
 
         def now : Time
           return super unless @server_time
-          seconds, micros = run(&.command(["TIME"])).as(Array).map(&.as(String).to_i64)
-          Time.unix(seconds) + micros.microseconds
+          @client.time
         end
 
         # Reads the index hash of *key* only, so the cost does not grow with the topic.
@@ -100,37 +108,17 @@ module Azu
         end
 
         def shutdown : Nil
-          @mutex.synchronize do
-            @connection.try(&.close)
-            @connection = nil
-          end
+          @client.close if @owned
         end
 
         private def run(& : ::Redis -> T) : T forall T
-          @mutex.synchronize do
-            yield (@connection ||= connect)
-          rescue ::Redis::Error | IO::Error
-            discard
-            yield (@connection = connect)
-          end
+          @client.run("presence") { |redis| yield redis }
         end
 
         private def expire(commands, topic : String, key : String) : Nil
           seconds = RETENTION.total_seconds.to_i.to_s
           commands.command(["EXPIRE", topic_key(topic), seconds])
           commands.command(["EXPIRE", index_key(topic, key), seconds])
-        end
-
-        private def discard : Nil
-          connection, @connection = @connection, nil
-          begin
-            connection.try(&.close)
-          rescue ::Redis::Error | IO::Error
-          end
-        end
-
-        private def connect : ::Redis
-          ::Redis.new(url: @url, reconnect: false, connect_timeout: TIMEOUT, command_timeout: TIMEOUT)
         end
 
         private def parse(json : String) : Meta?

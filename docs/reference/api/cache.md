@@ -70,7 +70,8 @@ puts store.size             # => 2
 
 ### RedisStore
 
-Distributed, backed by the `redis` shard (a dependency of Azu).
+Distributed, backed by the `redis` shard (a dependency of Azu) through the shared [`Azu::Redis`](redis.md) pool.
+`RedisStore.new(client)` takes an `Azu::Redis::Client` to share connections with PubSub and Presence.
 
 > **Known issue in this checkout:** against a running Redis the commands that return a value (`get`, `exists?`,
 > `delete`, `increment`, `size`, `ping`, `info`) return `nil`, `false` or `0`, so `Azu.cache` configured with

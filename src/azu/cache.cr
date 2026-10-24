@@ -300,25 +300,32 @@ module Azu
       end
     end
 
-    # Redis-based cache store with Redis::PooledClient
+    # Redis-based cache store on the shared `Azu::Redis::Client` pool.
+    #
+    # Built from a URL it acquires the shared client for it with `timeout` as the pool wait and connect timeout
+    # and `operation_timeout` as the bound on every command; pass a *client* to choose the pool yourself (and
+    # share it with PubSub and Presence). A command that outlasts its bound answers like any failure (`nil`,
+    # `false`, `0`) and its connection is discarded.
     class RedisStore < Store
-      @client : Redis::PooledClient
+      @redis : Azu::Redis::Client
       @default_ttl : Time::Span?
-      @operation_timeout : Time::Span
       @database : Int32
 
       def initialize(redis_url : String, pool_size : Int32 = 5, timeout : Time::Span = 5.seconds, @default_ttl : Time::Span? = nil, operation_timeout : Time::Span = 2.seconds)
-        @client = Redis::PooledClient.new(
-          url: redis_url,
-          pool_size: pool_size,
-          pool_timeout: timeout.total_seconds
-        )
-        @operation_timeout = operation_timeout
-        @database = URI.parse(redis_url).path.lstrip('/').to_i? || 0
+        config = Azu::Redis::Config.new(url: redis_url, pool_size: pool_size, checkout_timeout: timeout,
+          connect_timeout: timeout, command_timeout: operation_timeout, name: "cache")
+        @redis = Azu::Redis.acquire(config)
+        @owned = true
+        @database = database_of(redis_url)
+      end
+
+      def initialize(@redis : Azu::Redis::Client, @default_ttl : Time::Span? = nil)
+        @owned = false
+        @database = database_of(@redis.config.url)
       end
 
       def get(key : String) : String?
-        with_timeout("get", key) { @client.get(key) }
+        @redis.run("get", &.get(key))
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) {
           "Redis GET operation failed for key '#{key}' - #{classify_redis_error(ex)}"
@@ -329,9 +336,9 @@ module Azu
       def set(key : String, value : String, ttl : Time::Span? = nil) : Bool
         ttl = ttl || @default_ttl
         if ttl
-          with_timeout("setex", key) { @client.setex(key, ttl.total_seconds.to_i, value) }
+          @redis.run("setex", &.setex(key, ttl.total_seconds.to_i, value))
         else
-          with_timeout("set", key) { @client.set(key, value) }
+          @redis.run("set", &.set(key, value))
         end
         true
       rescue ex
@@ -342,7 +349,7 @@ module Azu
       end
 
       def delete(key : String) : Bool
-        result = with_timeout("del", key) { @client.del(key) }
+        result = @redis.run("del", &.del(key))
         (result || 0) > 0
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to delete key: #{key}" }
@@ -350,7 +357,7 @@ module Azu
       end
 
       def exists?(key : String) : Bool
-        result = with_timeout("exists", key) { @client.exists(key) }
+        result = @redis.run("exists", &.exists(key))
         (result || 0) > 0
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to check existence of key: #{key}" }
@@ -358,7 +365,7 @@ module Azu
       end
 
       def clear : Bool
-        with_timeout("flushdb", "all") { @client.flushdb }
+        @redis.run("flushdb", &.flushdb)
         true
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to clear cache" }
@@ -366,7 +373,7 @@ module Azu
       end
 
       def size : Int32
-        keyspace = with_timeout("info", "size") { @client.info("keyspace") }["db#{@database}"]?
+        keyspace = @redis.run("info", &.info("keyspace"))["db#{@database}"]?
         keyspace && keyspace =~ /keys=(\d+)/ ? $1.to_i : 0
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to get cache size" }
@@ -384,9 +391,10 @@ module Azu
         return value
         LUA
 
+      # Not retried on a lost connection: the increment may already have been applied.
       def increment(key : String, amount : Int32 = 1, ttl : Time::Span? = nil) : Int32?
         seconds = ttl ? ttl.total_seconds.to_i : 0
-        with_timeout("incrby", key) { @client.eval(INCREMENT_SCRIPT, [key], [amount.to_s, seconds.to_s]) }.as(Int).to_i
+        @redis.run("incrby", retry: false, &.eval(INCREMENT_SCRIPT, [key], [amount.to_s, seconds.to_s])).as(Int).to_i
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to increment key: #{key}" }
         nil
@@ -400,7 +408,7 @@ module Azu
       def get_multi(keys : Array(String)) : Hash(String, String?)
         return Hash(String, String?).new if keys.empty?
 
-        values = with_timeout("mget", keys.join(",")) { @client.mget(keys) }
+        values = @redis.run("mget", &.mget(keys))
         return Hash(String, String?).new unless values
 
         result = Hash(String, String?).new
@@ -419,14 +427,12 @@ module Azu
         return true if values.empty?
 
         # Use Redis pipeline for better performance
-        with_timeout("pipeline", values.keys.join(",")) do
-          @client.pipelined do |pipeline|
-            values.each do |key, value|
-              if ttl
-                pipeline.setex(key, ttl.total_seconds.to_i, value)
-              else
-                pipeline.set(key, value)
-              end
+        @redis.pipelined("mset") do |pipeline|
+          values.each do |key, value|
+            if ttl
+              pipeline.setex(key, ttl.total_seconds.to_i, value)
+            else
+              pipeline.set(key, value)
             end
           end
         end
@@ -439,21 +445,22 @@ module Azu
 
       # Redis-specific methods
       def ping : String?
-        with_timeout("ping", "health") { @client.ping }
+        @redis.run("ping", &.ping)
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Redis ping failed" }
         nil
       end
 
       def info : Hash(String, String)?
-        with_timeout("info", "status") { @client.info }
+        @redis.run("info", &.info)
       rescue ex
         Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Redis info failed" }
         nil
       end
 
+      # Gives the pool back when this store acquired it; a client passed in stays open.
       def close
-        # Redis::PooledClient handles connection cleanup automatically
+        @redis.close if @owned
       end
 
       # Classify Redis errors for better error messages
@@ -461,7 +468,7 @@ module Azu
         case ex.message
         when /Connection refused/
           "Connection refused - Redis server may be down"
-        when /timeout/i
+        when /timeout|timed out/i
           "Operation timeout - Redis server may be overloaded"
         when /NOAUTH/
           "Authentication required - check Redis password"
@@ -476,38 +483,8 @@ module Azu
         end
       end
 
-      # Timeout wrapper for Redis operations
-      # Uses a done channel to prevent resource leaks from orphaned fibers
-      private def with_timeout(operation : String, key : String, &block : -> T) : T forall T
-        channel = ::Channel(T).new
-        done = ::Channel(Nil).new(1) # Buffered to prevent blocking
-
-        # Spawn the operation
-        spawn do
-          begin
-            result = block.call
-            select
-            when done.receive?
-              # Operation completed after timeout - discard result
-            else
-              channel.send(result)
-            end
-          rescue ex : Exception
-            channel.close
-            Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Redis #{operation} operation failed for key: #{key}" }
-          end
-        end
-
-        # Wait for result with timeout using select with receive_select_action
-        select
-        when result = channel.receive
-          done.close # Signal operation fiber to stop if it hasn't already
-          result
-        when timeout(@operation_timeout)
-          done.send(nil) # Signal operation fiber that we timed out
-          Log.for("Azu::Cache::RedisStore").warn { "Redis #{operation} operation timed out after #{@operation_timeout.total_seconds}s for key: #{key}" }
-          raise Exception.new("Redis #{operation} operation timed out")
-        end
+      private def database_of(url : String) : Int32
+        URI.parse(url).path.lstrip('/').to_i? || 0
       end
     end
 
@@ -553,6 +530,8 @@ module Azu
       property redis_pool_size : Int32 = 5
       property redis_timeout : Int32 = 5
       property redis_operation_timeout : Int32 = 2 # Operation-level timeout in seconds
+      # Share an existing client (and its pool) with PubSub and Presence instead of building one from `redis_url`.
+      property redis_client : Azu::Redis::Client? = nil
 
       # Connection retry configuration
       property cache_connection_retries : Int32 = 3
@@ -577,7 +556,7 @@ module Azu
         @key_prefix = ENV.fetch("CACHE_KEY_PREFIX", "azu")
         @compress = ENV.fetch("CACHE_COMPRESS", "false").downcase == "true"
         @serialize = ENV.fetch("CACHE_SERIALIZE", "true").downcase == "true"
-        @redis_url = ENV.fetch("CACHE_REDIS_URL", "redis://localhost:6379/0")
+        @redis_url = Azu::Redis::Config.url_from_env("CACHE_REDIS_URL")
         @redis_pool_size = ENV.fetch("CACHE_REDIS_POOL_SIZE", "5").to_i
         @redis_timeout = ENV.fetch("CACHE_REDIS_TIMEOUT", "5").to_i
         @redis_operation_timeout = ENV.fetch("CACHE_REDIS_OPERATION_TIMEOUT", "2").to_i
@@ -780,7 +759,11 @@ module Azu
         when "memory"
           MemoryStore.new(@config.max_size, @config.ttl_span, @config.cache_cleanup_interval_span)
         when "redis"
-          RedisStore.new(@config.redis_url, @config.redis_pool_size, @config.redis_timeout_span, @config.ttl_span, @config.redis_operation_timeout_span)
+          if client = @config.redis_client
+            RedisStore.new(client, @config.ttl_span)
+          else
+            RedisStore.new(@config.redis_url, @config.redis_pool_size, @config.redis_timeout_span, @config.ttl_span, @config.redis_operation_timeout_span)
+          end
         when "null"
           NullStore.new
         else
