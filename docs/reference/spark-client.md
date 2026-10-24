@@ -18,7 +18,7 @@ Azu::Spark.script_tag  # <script src="..." data-spark-path="/spark" defer></scri
 ```
 
 The tag has no inline code, so `script-src 'self'` is enough. The served script is minified: about
-30 KB, 10,743 bytes gzipped (it includes the patch engine, the HTML sanitiser, the delivery layer,
+30 KB, about 11,000 bytes gzipped (it includes the patch engine, the HTML sanitiser, the delivery layer,
 the observability counters, the live region and the decoder of compressed frames, see the security
 model). A spec keeps it under 11,264 bytes (11 KB) gzipped. Options go on the tag as `data-spark-*` attributes (see
 [Hidden tabs](#hidden-tabs), [Accessibility](#accessibility)):
@@ -532,7 +532,7 @@ not steal the match of a later one. Only the nodes outside the longest run that 
 order are moved (rotating a 1000 item list moves
 one node), a key that disappeared is removed, a new key is inserted, and where the browser has
 `moveBefore` it is used, so a moved node is not even detached. Keys match among siblings and must be
-unique there. Give list items a stable key:
+unique there. The cost grows linearly with the number of siblings, keyed or not. Give list items a stable key:
 
 ```crystal
 class Todos < Azu::Spark::Component

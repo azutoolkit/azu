@@ -39,8 +39,10 @@ server and the load generator as two processes of one release build.
 Server numbers need four cautions. The `closed_loop_*` latencies come from a closed loop and are a lower
 bound of the tail, most of all p99. Both processes use one thread, so at many connections the load
 generator can be the bottleneck: compare arms (`eid_on` against `eid_off`), not ceilings. Sockets are set to
-`TCP_NODELAY` (`serve --nodelay`) so the figures measure the server's work; Crystal's HTTP server leaves
-Nagle's algorithm on by default, and the `nagle_on` metric runs the same round trip on such sockets. And
+`TCP_NODELAY` (`serve --nodelay`) so the figures measure the server's work. Azu itself sets it on upgraded
+sockets by default (`websocket.tcp_nodelay`); the `nagle_on` metric runs the same round trip with
+`WEBSOCKET_TCP_NODELAY=false`, the socket default that stalls about 40 ms per event (a docker wrapper in
+`BENCH_EXEC_PREFIX` must forward that variable). And
 `used_kb_drift_per_cycle` is the rise of the heap in use (with every connection closed) per connect and
 close cycle after the first one: a steady rise is a leak, a plateau is pooled memory.
 
