@@ -1,6 +1,7 @@
 require "../spec_helper"
 require "file_utils"
 require "log/spec"
+require "digest/sha256"
 
 # Sets variables for the block and restores the process environment afterwards.
 private def with_env(vars : Hash(String, String?), &)
@@ -112,7 +113,13 @@ describe Azu::Env do
   describe "the shared parser corpus" do
     # spec/fixtures/dotenv_corpus.json is identical in azu and azu_cli (whose AzuCLI::DotEnv copies this parser):
     # change one, change both.
-    corpus = JSON.parse(File.read(File.join(__DIR__, "../fixtures/dotenv_corpus.json"))).as_a
+    path = File.join(__DIR__, "../fixtures/dotenv_corpus.json")
+    corpus = JSON.parse(File.read(path)).as_a
+
+    it "is the corpus azu_cli pins (same SHA256 in azu_cli's spec/azu_cli/dot_env_spec.cr)" do
+      corpus.size.should be > 0
+      Digest::SHA256.hexdigest(File.read(path)).should eq "67bad3660aca88d0600542f9f9587b3d5545d963872c290cf054470ef6594a2e"
+    end
 
     corpus.each do |entry|
       it entry["name"].as_s do
