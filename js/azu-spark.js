@@ -243,6 +243,13 @@ function afterClose(state, event) {
 
 function retry(state) { return connectNow(state.attempts); }
 
+// The network is back: retry after the first (smallest) jittered delay, not at once, so captive
+// portals, flapping Wi-Fi and a fleet of clients coming online together do not stampede. The
+// attempts are kept: only a connection that proves stable resets them.
+function networkBack(state) {
+  return go(st("backoff", state.attempts), [{ type: "backoff", attempt: 0 }]);
+}
+
 function resume(state, event) { return event.online === false ? go(state) : retry(state); }
 
 /** The transition table: TRANSITIONS[state][event] is (state, event) -> {state, effects}. A missing entry ignores the event. */
@@ -253,13 +260,14 @@ export var TRANSITIONS = {
       return go(st("joining", state.attempts), [{ type: "opened" }].concat(BEATING, [JOIN_WATCH]));
     }
   }),
-  joining: withSocket({ joins_settled: function (state) { return go(st("open", state.attempts), BEATING); }, stable: forget, visible: probe }),
+  joining: withSocket({ joins_settled: function (state) { return go(st("open", state.attempts), BEATING); }, stable: forget, visible: probe, online: probe }),
   open: withSocket({
     joins_pending: function (state) {
       return go(st("joining", state.attempts), BEATING.concat([JOIN_WATCH]));
     },
     stable: forget,
     visible: probe,
+    online: probe, // after a sleep or a network change the socket may be dead without anyone telling us
     hide_idle: function (state) { return closeThen(state, "hidden-idle", 1000, "hidden"); }
   }),
   closing: {
@@ -267,19 +275,21 @@ export var TRANSITIONS = {
     dead: afterClose,
     stop: function (state) { return go(st("closing", state.attempts, "stopped")); },
     pagehide: function (state) { return go(st("closing", state.attempts, state.then === "stopped" ? "stopped" : "idle")); },
-    connect: function (state) { return go(st("closing", state.attempts, "connecting")); }
+    connect: function (state) { return go(st("closing", state.attempts, "connecting")); },
+    // Restored from the back/forward cache before the close finished: connect once it has (a stopped client stays stopped).
+    pageshow: function (state) { return state.then === "stopped" ? go(state) : go(st("closing", state.attempts, "connecting")); }
   },
   backoff: {
     backoff_elapsed: retry,
     connect: retry,
     visible: resume, // a hidden tab's timers run late: try now, but keep the attempts so the delays keep growing
-    online: connectFresh,
+    online: networkBack,
     offline: function (state) { return go(st("offline", state.attempts)); },
     hide_idle: function (state) { return go(st("hidden-idle", state.attempts)); },
     stop: stopped,
     pagehide: paused
   },
-  offline: { online: connectFresh, connect: retry, visible: resume, stop: stopped, pagehide: paused },
+  offline: { online: networkBack, connect: retry, visible: resume, stop: stopped, pagehide: paused },
   "hidden-idle": { visible: connectFresh, connect: connectFresh, stop: stopped, pagehide: paused },
   stopped: { connect: connectFresh }
 };
@@ -319,9 +329,10 @@ export function backoff(attempt, random) {
   return Math.round((random || Math.random)() * ceiling);
 }
 
-// The server proposes the heartbeat interval. Only a supported one is ever used (the smallest
-// that is not below the proposal), so a missing, non-numeric or absurd value cannot become a
-// busy timer (NaN fires at once) or one that never fires.
+// The server proposes the heartbeat interval and drops a connection silent for longer than its
+// idle timeout. Only a supported interval is ever used: the largest that is not above the
+// proposal (never slower than the server expects), at least 1 s, so a missing, non-numeric or
+// absurd value cannot become a busy timer (NaN fires at once) or one that never fires.
 var HEARTBEAT_INTERVALS = [1000, 2000, 5000, 10000, 20000, 30000, 60000];
 
 /**
@@ -331,21 +342,25 @@ var HEARTBEAT_INTERVALS = [1000, 2000, 5000, 10000, 20000, 30000, 60000];
  */
 export function heartbeatInterval(proposed) {
   var wanted = Number(proposed) || 20000;
+  var chosen = HEARTBEAT_INTERVALS[0];
   for (var i = 0; i < HEARTBEAT_INTERVALS.length; i++) {
-    if (HEARTBEAT_INTERVALS[i] >= wanted) return HEARTBEAT_INTERVALS[i];
+    if (HEARTBEAT_INTERVALS[i] <= wanted) chosen = HEARTBEAT_INTERVALS[i];
   }
-  return HEARTBEAT_INTERVALS[HEARTBEAT_INTERVALS.length - 1];
+  return chosen;
 }
 
 /**
  * Whether a connection that has been silent for *silence* ms is dead. A half open connection never
  * fires `close`, so silence is the only sign. But a throttled or frozen tab runs its watchdog late
  * (*gap* is the time since its previous run, *period* how often it should run), and frames may sit
- * unread behind it: then the silence proves nothing and the server is asked instead.
- * @param {{silence: number, gap: number, interval: number, period: number}} measure all in milliseconds
+ * unread behind it: then the silence proves nothing and the server is asked instead. After a
+ * system sleep the monotonic clock may not have advanced at all; *jumped* is how much more the wall
+ * clock advanced than the monotonic one, and a large jump also means the server is asked.
+ * @param {{silence: number, gap: number, interval: number, period: number, jumped?: number}} measure all in milliseconds
  * @returns {"alive" | "suspect" | "dead"}
  */
 export function heartbeatVerdict(measure) {
+  if ((measure.jumped || 0) > measure.period * 2) return "suspect";
   if (measure.silence <= measure.interval * 2.5) return "alive";
   return measure.gap > measure.period * 2 ? "suspect" : "dead";
 }
@@ -353,7 +368,8 @@ export function heartbeatVerdict(measure) {
 /**
  * Runs the machine: executes the effects of each transition and owns the timers. Everything it
  * touches comes in through *deps*, so it runs against a fake clock in tests.
- * @param {object} deps timers {setTimeout, clearTimeout, setInterval, clearInterval}, now(), random(), online(),
+ * @param {object} deps timers {setTimeout, clearTimeout, setInterval, clearInterval}, now() (monotonic), wall() (Date.now),
+ *   random(), online(),
  *   interval() (heartbeat ms), beat() (sends a heartbeat, true when sent), tick(), status(name, state),
  *   and the host effects open, close, teardown, opened, backingOff
  * @param {object} [settings] backoffMin, backoffMax, probeTimeout, stableAfter (ms)
@@ -366,6 +382,7 @@ export function createMachine(deps, settings) {
   var running = false;
   var lastFrameAt = 0;
   var lastWatchAt = 0;
+  var lastWallAt = 0;
   var connectedAt = 0;
 
   function own(name, handle, clear) {
@@ -400,8 +417,11 @@ export function createMachine(deps, settings) {
 
   function watch(interval, period) {
     var current = deps.now();
-    var verdict = heartbeatVerdict({ silence: current - lastFrameAt, gap: current - lastWatchAt, interval: interval, period: period });
+    var wall = deps.wall();
+    var gap = current - lastWatchAt;
+    var verdict = heartbeatVerdict({ silence: current - lastFrameAt, gap: gap, interval: interval, period: period, jumped: wall - lastWallAt - gap });
     lastWatchAt = current;
+    lastWallAt = wall;
     deps.tick();
     if (verdict === "dead") return machine.dispatch({ type: "dead", reason: "heartbeat timeout" });
     if (verdict === "suspect") probe(false);
@@ -412,6 +432,7 @@ export function createMachine(deps, settings) {
     var interval = deps.interval();
     var period = Math.min(interval, 5000);
     lastWatchAt = deps.now();
+    lastWallAt = deps.wall();
     own("beat", deps.timers.setInterval(deps.beat, interval), deps.timers.clearInterval);
     own("watch", deps.timers.setInterval(function () { watch(interval, period); }, period), deps.timers.clearInterval);
   }
@@ -469,6 +490,7 @@ var machine = createMachine({
     clearInterval: function (handle) { clearInterval(handle); }
   },
   now: now,
+  wall: Date.now,
   random: Math.random,
   online: function () { return navigator.onLine !== false; },
   interval: function () { return heartbeatInterval(hello && hello.heartbeat); },
@@ -537,6 +559,7 @@ function receive(text) {
   try { message = JSON.parse(text); } catch (e) { return; }
   switch (message.type) {
     case "hello":
+      if (machine.state.name !== "connecting") break; // a stray greeting: nothing to join
       hello = message;
       machine.dispatch({ type: "hello" });
       joinRoots();

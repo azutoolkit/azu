@@ -72,11 +72,12 @@ export class FakeClock {
 export function harness(spark, { settings, random = () => 0.5 } = {}) {
   const clock = new FakeClock();
   const log = [];
-  const status = { online: true, canSend: true, beats: 0 };
+  const status = { online: true, canSend: true, beats: 0, slept: 0 };
   const record = (name) => (effect) => log.push({ name, ...effect });
   const machine = spark.createMachine({
     timers: clock.timers,
     now: () => clock.now(),
+    wall: () => 1.7e12 + clock.now() + status.slept,
     random,
     online: () => status.online,
     interval: () => 1000,
@@ -89,8 +90,9 @@ export function harness(spark, { settings, random = () => 0.5 } = {}) {
     opened: record("opened"),
     backingOff: (delay, attempts) => log.push({ name: "backingOff", delay, attempts }),
   }, settings);
+  const sleep = (ms) => { status.slept += ms; }; // the machine slept: wall time passes, the monotonic clock stops
   const names = () => log.map((entry) => entry.name);
-  return { clock, machine, log, status, names };
+  return { clock, machine, log, status, names, sleep };
 }
 
 /** Walks a fresh machine to `open`. */
