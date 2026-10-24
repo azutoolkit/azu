@@ -22,6 +22,7 @@ var config = {
   backoffMax: 15000,
   requestTimeout: 10000,
   probeTimeout: 3000,
+  stableAfter: 10000, // a connection must stay open this long before the backoff starts over
   queueMax: 50,
   queueMaxAge: 60000
 };
@@ -30,12 +31,6 @@ var ws = null;
 var status = "disconnected";
 var hello = null;
 var nextId = 0;
-var attempts = 0;
-var reconnectTimer = null;
-var watchdogTimer = null;
-var heartbeatTimer = null;
-var lastFrameAt = 0;
-var stopped = false;
 var booted = false;
 var pending = new Map(); // request id -> {undo, sentAt}
 var queue = []; // events waiting for a connection: {message, undo, key, at}
@@ -54,11 +49,15 @@ function emit(name, detail, target) {
   });
 }
 
-function setStatus(next) {
+function setStatus(next, state) {
   if (status === next) return;
   status = next;
   document.documentElement.setAttribute("data-spark-status", next);
-  emit(next, { attempts: attempts });
+  emit(next, { attempts: state.attempts });
+}
+
+function now() {
+  return performance.now(); // monotonic: unaffected by clock changes, comparable with timer gaps
 }
 
 function byId(id) {
@@ -84,10 +83,10 @@ function pageParams() {
 // Sends *entry* (a queued or fresh event) now; false when there is no open socket.
 function send(entry) {
   // Not before the server greeted us and every page root has rejoined: earlier, the target does not exist yet.
-  if (!ws || ws.readyState !== WebSocket.OPEN || !hello || joining.size > 0) return false;
+  if (machine.state.name !== "open") return false;
   var id = ++nextId;
   entry.message.id = id;
-  if (transmit(entry.message)) pending.set(id, { undo: entry.undo, sentAt: Date.now() });
+  if (transmit(entry.message)) pending.set(id, { undo: entry.undo, sentAt: now() });
   else release(entry); // too large for the server: reported as an error, never retried
   return true;
 }
@@ -114,15 +113,17 @@ function enqueue(entry) {
 }
 
 function joinsSettled() {
-  if (joining.size === 0) flushQueue();
+  if (joining.size > 0) return;
+  machine.dispatch({ type: "joins_settled" });
+  flushQueue();
 }
 
 function flushQueue() {
   var waiting = queue;
   queue = [];
-  var now = Date.now();
+  var current = now();
   waiting.forEach(function (entry) {
-    if (now - entry.at > config.queueMaxAge) release(entry);
+    if (current - entry.at > config.queueMaxAge) release(entry);
     else if (!send(entry)) queue.push(entry);
   });
 }
@@ -138,67 +139,184 @@ function transmit(message) {
   return true;
 }
 
-// ---- connection lifecycle ---------------------------------------------------------------
+// ---- connection state machine -----------------------------------------------------------
+//
+// The connection is always in exactly one state:
+//
+//   idle         not connected, nothing scheduled (before start, or the page was hidden into the bfcache)
+//   connecting   a socket exists and the server has not greeted us yet
+//   joining      greeted; waiting for the server to answer the join of every page root
+//   open         joined; events are sent
+//   closing      we asked the socket to close and wait for it (then: where it leads)
+//   backoff      the connection was lost; waiting to try again
+//   offline      the browser has no network; waiting for `online`
+//   hidden-idle  closed on purpose while the tab is hidden (reserved: nothing enters it yet)
+//   stopped      stopped for good until connect() (disconnect(), or the page can never join)
+//
+// `next(state, event)` is a pure function: it returns the new state and the effects to run. The
+// runner (createMachine) executes the effects and owns every timer: entering a state cancels the
+// timers of the one it left, so a timer can never outlive its state. docs/reference/spark-client.md
+// has the diagram.
 
-function connect() {
-  if (stopped || (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN))) return;
-  clearTimeout(reconnectTimer);
-  setStatus(attempts === 0 ? "connecting" : "reconnecting");
-  var socket = new WebSocket(socketUrl());
-  ws = socket;
-  socket.onmessage = function (event) { if (ws === socket) receive(event.data); };
-  socket.onclose = function (event) { if (ws === socket) lost(event); };
-  socket.onerror = function () { /* onclose follows */ };
+export var STATES = ["idle", "connecting", "joining", "open", "closing", "backoff", "offline", "hidden-idle", "stopped"];
+export var EVENTS = [
+  "connect", "stop", "pageshow", "pagehide", "online", "offline", "visible", "hidden", "hide_idle",
+  "hello", "joins_pending", "joins_settled", "stable", "closed", "dead", "backoff_elapsed"
+];
+
+// How long a state may wait for its way out (milliseconds).
+var TIMING = { connect: 10000, join: 10000, close: 3000 };
+
+function st(name, attempts, then) {
+  var state = { name: name, attempts: attempts };
+  if (then) state.then = then;
+  return state;
 }
 
-function lost(event) {
-  ws = null;
-  hello = null;
-  joined.clear();
-  joining.clear();
-  clearInterval(heartbeatTimer);
-  clearInterval(watchdogTimer);
-  cancelPending();
-  setStatus("disconnected");
-  emit("close", { code: event && event.code, reason: event && event.reason });
-  // Offline: the `online` event resumes; a stopped client stays stopped.
-  if (stopped || navigator.onLine === false) return;
-  scheduleReconnect();
+function go(state, effects) {
+  return { state: state, effects: effects || [] };
 }
 
-// Abandons the socket without waiting for a close handshake that a dead peer never answers.
-function drop(reason) {
-  var socket = ws;
-  if (!socket) return;
-  try { socket.close(4000, reason); } catch (e) { /* already closed */ }
-  lost({ code: 4000, reason: reason });
+function after(name, ms, event) {
+  return { type: "after", name: name, ms: ms, event: event };
 }
 
-// Asks the server for a sign of life; the connection is dropped if none arrives in time.
-function probe() {
-  var asked = Date.now();
-  if (!transmit({ v: PROTOCOL, type: "heartbeat", id: ++nextId })) return;
-  setTimeout(function () { if (ws && lastFrameAt < asked) drop("heartbeat timeout"); }, config.probeTimeout);
+function connectNow(attempts) {
+  return go(st("connecting", attempts), [{ type: "open" }, after("connect", TIMING.connect, { type: "dead", reason: "connect timeout" })]);
 }
 
-// Exponential backoff with full jitter, so a restarted server is not hit by every client at once.
+function connectFresh() { return connectNow(0); }
+function stopped(state) { return go(st("stopped", state.attempts)); }
+function paused(state) { return go(st("idle", state.attempts)); }
+
+function closeThen(state, then, code, reason) {
+  return go(st("closing", state.attempts, then), [
+    { type: "close", code: code, reason: reason, detach: false },
+    after("close", TIMING.close, { type: "closed", code: 1006, reason: "close timeout" })
+  ]);
+}
+
+// The socket is gone (`closed`) or abandoned (`dead`): clean up, then wait (or reconnect) unless offline.
+function lose(state, event, abandon) {
+  var effects = [];
+  if (abandon) effects.push({ type: "close", code: 4000, reason: event.reason, detach: true });
+  effects.push({ type: "teardown", code: abandon ? 4000 : event.code, reason: event.reason });
+  if (event.online === false) return go(st("offline", state.attempts), effects);
+  effects.push({ type: "backoff", attempt: state.attempts });
+  return go(st("backoff", state.attempts + 1), effects);
+}
+
+function lostSocket(state, event) { return lose(state, event, false); }
+function droppedSocket(state, event) { return lose(state, event, true); }
+
+function networkLost(state) {
+  return go(st("offline", state.attempts), [
+    { type: "close", code: 4000, reason: "offline", detach: true },
+    { type: "teardown", code: 4000, reason: "offline" }
+  ]);
+}
+
+// Every state that holds a socket reacts the same way to these.
+var WITH_SOCKET = {
+  closed: lostSocket,
+  dead: droppedSocket,
+  offline: networkLost,
+  stop: function (state) { return closeThen(state, "stopped", 1000, "stopped"); },
+  pagehide: function (state) { return closeThen(state, "idle", 1000, "page closed"); }
+};
+
+var BEATING = [{ type: "heartbeat" }];
+var JOIN_WATCH = after("join", TIMING.join, { type: "dead", reason: "join timeout" });
+
+function probe(state) { return go(state, [{ type: "probe" }]); }
+function forget(state) { return go(st(state.name, 0)); } // the backoff starts over: the connection proved stable
+
+function withSocket(own) {
+  return Object.assign({}, WITH_SOCKET, own);
+}
+
+function afterClose(state, event) {
+  var teardown = { type: "teardown", code: event.code, reason: event.reason };
+  if (state.then === "connecting") return go(st("connecting", 0), [teardown].concat(connectNow(0).effects));
+  return go(st(state.then, state.attempts), [teardown]);
+}
+
+function retry(state) { return connectNow(state.attempts); }
+
+function resume(state, event) { return event.online === false ? go(state) : retry(state); }
+
+/** The transition table: TRANSITIONS[state][event] is (state, event) -> {state, effects}. A missing entry ignores the event. */
+export var TRANSITIONS = {
+  idle: { connect: connectFresh, pageshow: connectFresh, stop: stopped },
+  connecting: withSocket({
+    hello: function (state) {
+      return go(st("joining", state.attempts), [{ type: "opened" }].concat(BEATING, [JOIN_WATCH]));
+    }
+  }),
+  joining: withSocket({ joins_settled: function (state) { return go(st("open", state.attempts), BEATING); }, stable: forget, visible: probe }),
+  open: withSocket({
+    joins_pending: function (state) {
+      return go(st("joining", state.attempts), BEATING.concat([JOIN_WATCH]));
+    },
+    stable: forget,
+    visible: probe,
+    hide_idle: function (state) { return closeThen(state, "hidden-idle", 1000, "hidden"); }
+  }),
+  closing: {
+    closed: afterClose,
+    dead: afterClose,
+    stop: function (state) { return go(st("closing", state.attempts, "stopped")); },
+    pagehide: function (state) { return go(st("closing", state.attempts, state.then === "stopped" ? "stopped" : "idle")); },
+    connect: function (state) { return go(st("closing", state.attempts, "connecting")); }
+  },
+  backoff: {
+    backoff_elapsed: retry,
+    connect: retry,
+    visible: resume, // a hidden tab's timers run late: try now, but keep the attempts so the delays keep growing
+    online: connectFresh,
+    offline: function (state) { return go(st("offline", state.attempts)); },
+    hide_idle: function (state) { return go(st("hidden-idle", state.attempts)); },
+    stop: stopped,
+    pagehide: paused
+  },
+  offline: { online: connectFresh, connect: retry, visible: resume, stop: stopped, pagehide: paused },
+  "hidden-idle": { visible: connectFresh, connect: connectFresh, stop: stopped, pagehide: paused },
+  stopped: { connect: connectFresh }
+};
+
+/**
+ * The pure transition function.
+ * @param {{name: string, attempts: number, then?: string}} state
+ * @param {{type: string, online?: boolean, code?: number, reason?: string}} event
+ * @returns {{state: object, effects: object[]}}
+ */
+export function next(state, event) {
+  var row = TRANSITIONS[state.name];
+  var rule = row && row[event.type];
+  return rule ? rule(state, event) : go(state);
+}
+
+/**
+ * The public status (data-spark-status) of a state.
+ * @param {{name: string, attempts: number}} state
+ * @returns {SparkStatus}
+ */
+export function statusOf(state) {
+  if (state.name === "connecting") return state.attempts > 0 ? "reconnecting" : "connecting";
+  return state.name === "joining" || state.name === "open" ? "connected" : "disconnected";
+}
+
+// Full jitter: a uniformly random delay between 0 and an exponentially growing, capped ceiling,
+// so clients that lost the same server do not come back together.
 /**
  * Delay before reconnect attempt number *attempt* (0 based), in milliseconds.
  * @param {number} attempt
+ * @param {() => number} [random] uniform in [0, 1)
  * @returns {number}
  */
-export function backoff(attempt) {
+export function backoff(attempt, random) {
   var ceiling = Math.min(config.backoffMax, config.backoffMin * Math.pow(2, attempt));
-  return Math.round(ceiling / 2 + Math.random() * ceiling / 2);
-}
-
-function scheduleReconnect() {
-  if (stopped) return;
-  var delay = backoff(attempts++);
-  emit("backoff", { delay: delay, attempts: attempts });
-  emit("reconnect", { delay: delay, attempts: attempts });
-  clearTimeout(reconnectTimer);
-  reconnectTimer = setTimeout(connect, delay);
+  return Math.round((random || Math.random)() * ceiling);
 }
 
 // The server proposes the heartbeat interval. Only a supported one is ever used (the smallest
@@ -219,19 +337,186 @@ export function heartbeatInterval(proposed) {
   return HEARTBEAT_INTERVALS[HEARTBEAT_INTERVALS.length - 1];
 }
 
-function startHeartbeat() {
-  var interval = heartbeatInterval(hello.heartbeat);
-  clearInterval(heartbeatTimer);
-  clearInterval(watchdogTimer);
-  heartbeatTimer = setInterval(function () { transmit({ v: PROTOCOL, type: "heartbeat", id: ++nextId }); }, interval);
-  // Half open connections never fire `close`: give up when the server went quiet.
-  watchdogTimer = setInterval(function () {
-    if (Date.now() - lastFrameAt > interval * 2.5) drop("heartbeat timeout");
-    expirePending();
-  }, Math.min(interval, 5000));
+/**
+ * Whether a connection that has been silent for *silence* ms is dead. A half open connection never
+ * fires `close`, so silence is the only sign. But a throttled or frozen tab runs its watchdog late
+ * (*gap* is the time since its previous run, *period* how often it should run), and frames may sit
+ * unread behind it: then the silence proves nothing and the server is asked instead.
+ * @param {{silence: number, gap: number, interval: number, period: number}} measure all in milliseconds
+ * @returns {"alive" | "suspect" | "dead"}
+ */
+export function heartbeatVerdict(measure) {
+  if (measure.silence <= measure.interval * 2.5) return "alive";
+  return measure.gap > measure.period * 2 ? "suspect" : "dead";
+}
+
+/**
+ * Runs the machine: executes the effects of each transition and owns the timers. Everything it
+ * touches comes in through *deps*, so it runs against a fake clock in tests.
+ * @param {object} deps timers {setTimeout, clearTimeout, setInterval, clearInterval}, now(), random(), online(),
+ *   interval() (heartbeat ms), beat() (sends a heartbeat, true when sent), tick(), status(name, state),
+ *   and the host effects open, close, teardown, opened, backingOff
+ * @param {object} [settings] backoffMin, backoffMax, probeTimeout, stableAfter (ms)
+ */
+export function createMachine(deps, settings) {
+  var cfg = Object.assign({}, config, settings);
+  var state = st("idle", 0);
+  var timers = {};
+  var inbox = [];
+  var running = false;
+  var lastFrameAt = 0;
+  var lastWatchAt = 0;
+  var connectedAt = 0;
+
+  function own(name, handle, clear) {
+    cancel(name);
+    timers[name] = function () { clear(handle); };
+  }
+
+  function cancel(name) {
+    if (!timers[name]) return;
+    timers[name]();
+    delete timers[name];
+  }
+
+  function cancelAll() {
+    Object.keys(timers).forEach(cancel);
+  }
+
+  function later(name, ms, work) {
+    own(name, deps.timers.setTimeout(function () { delete timers[name]; work(); }, ms), deps.timers.clearTimeout);
+  }
+
+  function probe(retried) {
+    var asked = deps.now();
+    if (!deps.beat()) return;
+    later("probe", cfg.probeTimeout, function () {
+      if (lastFrameAt >= asked) return;
+      // The timer itself ran late (a throttled tab): the answer may be queued behind it. Wait once more.
+      if (!retried && deps.now() - asked > cfg.probeTimeout * 2) return probe(true);
+      machine.dispatch({ type: "dead", reason: "heartbeat timeout" });
+    });
+  }
+
+  function watch(interval, period) {
+    var current = deps.now();
+    var verdict = heartbeatVerdict({ silence: current - lastFrameAt, gap: current - lastWatchAt, interval: interval, period: period });
+    lastWatchAt = current;
+    deps.tick();
+    if (verdict === "dead") return machine.dispatch({ type: "dead", reason: "heartbeat timeout" });
+    if (verdict === "suspect") probe(false);
+    if (state.attempts > 0 && current - connectedAt >= cfg.stableAfter) machine.dispatch({ type: "stable" });
+  }
+
+  function heartbeat() {
+    var interval = deps.interval();
+    var period = Math.min(interval, 5000);
+    lastWatchAt = deps.now();
+    own("beat", deps.timers.setInterval(deps.beat, interval), deps.timers.clearInterval);
+    own("watch", deps.timers.setInterval(function () { watch(interval, period); }, period), deps.timers.clearInterval);
+  }
+
+  function run(effect) {
+    switch (effect.type) {
+      case "after": later(effect.name, effect.ms, function () { machine.dispatch(effect.event); }); break;
+      case "backoff": {
+        var delay = backoff(effect.attempt, deps.random);
+        deps.backingOff(delay, state.attempts);
+        later("backoff", delay, function () { machine.dispatch({ type: "backoff_elapsed" }); });
+        break;
+      }
+      case "heartbeat": heartbeat(); break;
+      case "probe": probe(false); break;
+      default: deps[effect.type](effect);
+    }
+  }
+
+  function step(event) {
+    var typed = event.online === undefined ? Object.assign({ online: deps.online() }, event) : event;
+    var result = next(state, typed);
+    var previous = state;
+    state = result.state;
+    if (state.name !== previous.name) {
+      cancelAll();
+      if (previous.name === "connecting" && state.name === "joining") connectedAt = deps.now();
+      deps.status(statusOf(state), state);
+    }
+    result.effects.forEach(run);
+  }
+
+  var machine = {
+    get state() { return state; },
+    /** Feeds an event to the machine (events raised by effects wait until the current one is done). */
+    dispatch: function (event) {
+      inbox.push(event);
+      if (running) return;
+      running = true;
+      try { while (inbox.length > 0) step(inbox.shift()); } finally { running = false; }
+    },
+    /** Records that a frame arrived: the proof of life the heartbeat looks for. */
+    frame: function () { lastFrameAt = deps.now(); },
+    /** The number of timers that are running. */
+    timers: function () { return Object.keys(timers).length; }
+  };
+  return machine;
+}
+
+var machine = createMachine({
+  timers: {
+    setTimeout: function (work, ms) { return setTimeout(work, ms); },
+    clearTimeout: function (handle) { clearTimeout(handle); },
+    setInterval: function (work, ms) { return setInterval(work, ms); },
+    clearInterval: function (handle) { clearInterval(handle); }
+  },
+  now: now,
+  random: Math.random,
+  online: function () { return navigator.onLine !== false; },
+  interval: function () { return heartbeatInterval(hello && hello.heartbeat); },
+  beat: function () { return transmit({ v: PROTOCOL, type: "heartbeat", id: ++nextId }); },
+  tick: expirePending,
+  status: setStatus,
+  open: openSocket,
+  close: closeSocket,
+  teardown: teardown,
+  opened: function () { emit("open", { attempts: machine.state.attempts }); },
+  backingOff: function (delay, attempts) {
+    emit("backoff", { delay: delay, attempts: attempts });
+    emit("reconnect", { delay: delay, attempts: attempts });
+  }
+});
+
+// ---- the socket (effects of the machine) ------------------------------------------------
+
+function openSocket() {
+  var socket;
+  try { socket = new WebSocket(socketUrl()); } catch (e) { return machine.dispatch({ type: "dead", reason: "cannot connect" }); }
+  ws = socket;
+  socket.onmessage = function (event) { if (ws === socket) receive(event.data); };
+  socket.onclose = function (event) { if (ws === socket) machine.dispatch({ type: "closed", code: event.code, reason: event.reason }); };
+  socket.onerror = function () { /* onclose follows */ };
+}
+
+// Closes the socket. An abandoned one (*detach*) is forgotten at once, not waited for: a dead
+// peer never answers the close handshake.
+function closeSocket(effect) {
+  var socket = ws;
+  if (!socket) return;
+  if (effect.detach) ws = null;
+  try { socket.close(effect.code, effect.reason); } catch (e) { /* already closed */ }
+}
+
+function teardown(effect) {
+  ws = null;
+  hello = null;
+  joined.clear();
+  joining.clear();
+  cancelPending();
+  emit("close", { code: effect.code, reason: effect.reason });
 }
 
 function joinRoots(scope) {
+  var phase = machine.state.name;
+  if (phase !== "joining" && phase !== "open") return; // the roots join when the server greets us
   roots(scope).forEach(function (root) {
     var id = root.getAttribute("data-spark-id");
     if (joined.has(id)) return;
@@ -241,21 +526,19 @@ function joinRoots(scope) {
     joining.set(frame.id, id);
     transmit(frame);
   });
+  if (joining.size > 0 && phase === "open") machine.dispatch({ type: "joins_pending" });
 }
 
 // ---- incoming frames --------------------------------------------------------------------
 
 function receive(text) {
   var message;
-  lastFrameAt = Date.now();
+  machine.frame();
   try { message = JSON.parse(text); } catch (e) { return; }
   switch (message.type) {
     case "hello":
       hello = message;
-      attempts = 0;
-      setStatus("connected");
-      emit("open", { attempts: attempts });
-      startHeartbeat();
+      machine.dispatch({ type: "hello" });
       joinRoots();
       joinsSettled();
       break;
@@ -486,10 +769,10 @@ function push(element, event, payload, loading, coalesce) {
   var targetId = target.getAttribute("data-spark-id");
   var entry = {
     message: { v: PROTOCOL, type: "event", target: targetId, event: event, payload: payload },
-    undo: undo, key: coalesce ? targetId + "|" + event + "|" + controlKey(element) : null, at: Date.now()
+    undo: undo, key: coalesce ? targetId + "|" + event + "|" + controlKey(element) : null, at: now()
   };
   if (send(entry)) return;
-  if (stopped) {
+  if (machine.state.name === "stopped" || machine.state.name === "idle") {
     release(entry);
     return emit("offline", { event: event }, element);
   }
@@ -510,8 +793,8 @@ function cancelPending() {
 }
 
 function expirePending() {
-  var now = Date.now();
-  pending.forEach(function (entry, id) { if (now - entry.sentAt > config.requestTimeout) settle(id); });
+  var current = now();
+  pending.forEach(function (entry, id) { if (current - entry.sentAt > config.requestTimeout) settle(id); });
 }
 
 function loadingStates(element) {
@@ -652,10 +935,8 @@ function observe() {
 }
 
 function stop() {
-  stopped = true;
-  clearTimeout(reconnectTimer);
   queue.splice(0).forEach(release);
-  if (ws) ws.close(1000, "stopped");
+  machine.dispatch({ type: "stop" });
 }
 
 function start() {
@@ -663,22 +944,21 @@ function start() {
   booted = true;
   bind();
   observe();
-  window.addEventListener("online", function () { attempts = 0; connect(); });
-  window.addEventListener("offline", function () { clearTimeout(reconnectTimer); drop("offline"); });
+  window.addEventListener("online", function () { machine.dispatch({ type: "online" }); });
+  window.addEventListener("offline", function () { machine.dispatch({ type: "offline" }); });
   document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState !== "visible" || stopped) return;
-    if (!ws) connect(); // keep the backoff: a server that is down is not hit harder by tab switching else if (ws.readyState === WebSocket.OPEN) probe();
+    machine.dispatch({ type: document.visibilityState === "visible" ? "visible" : "hidden" });
   });
-  window.addEventListener("pageshow", function (event) { if (event.persisted) { stopped = false; attempts = 0; connect(); } });
-  window.addEventListener("pagehide", function () { stopped = true; if (ws) ws.close(1000, "page closed"); });
-  if (roots().length > 0) connect();
-  else document.addEventListener("DOMContentLoaded", function () { if (roots().length > 0) connect(); });
+  window.addEventListener("pageshow", function (event) { if (event.persisted) machine.dispatch({ type: "pageshow" }); });
+  window.addEventListener("pagehide", function () { machine.dispatch({ type: "pagehide" }); });
+  if (roots().length > 0) machine.dispatch({ type: "connect" });
+  else document.addEventListener("DOMContentLoaded", function () { if (roots().length > 0) machine.dispatch({ type: "connect" }); });
 }
 
 window.AzuSpark = {
   get status() { return status; },
   get queued() { return queue.length; },
-  connect: function () { stopped = false; connect(); },
+  connect: function () { machine.dispatch({ type: "connect" }); },
   disconnect: stop,
   on: function (name, fn) { (handlers[name] = handlers[name] || []).push(fn); return this; },
   off: function (name, fn) { handlers[name] = (handlers[name] || []).filter(function (h) { return h !== fn; }); return this; },
