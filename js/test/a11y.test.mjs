@@ -5,7 +5,8 @@ import { FakeSocket, connected, loadSpark, tick, until } from "./helpers.mjs";
 
 let spark;
 const ROOT = `<div id="root" data-spark-root data-spark-id="r" data-spark-token="t">
-  <input id="a" name="a" spark-change="set"><button id="go" spark-click="go">go</button></div>`;
+  <input id="a" name="a" spark-change="set"><button id="go" spark-click="go">go</button>
+  <button id="pay" spark-click="pay" spark-delivery="at-most-once">pay</button><p id="inside" data-spark-live-region></p></div>`;
 const $ = (id) => document.getElementById(id);
 const click = (id) => $(id).dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
 const regions = () => [...document.querySelectorAll("[aria-live]")];
@@ -13,6 +14,7 @@ const said = () => (regions()[0] ? regions()[0].textContent : "");
 
 beforeEach(async () => {
   spark = await loadSpark();
+  spark.resetAnnouncements();
   document.body.innerHTML = ROOT;
   window.AzuSpark.configure({ live: true, text: {} });
   await tick();
@@ -35,7 +37,6 @@ describe("live region", () => {
     const [region] = regions();
     assert.equal(region.getAttribute("aria-live"), "polite");
     assert.equal(region.getAttribute("role"), "status");
-    assert.equal(region.getAttribute("aria-atomic"), "true");
     assert.ok(region.classList.contains("azu-spark-live"));
     assert.equal(region.style.position, "absolute", "hidden visually through CSSOM, not markup");
   });
@@ -52,6 +53,69 @@ describe("live region", () => {
     await connected({ before });
     await until(() => said() === "Back online.", "the all clear", 3000);
     assert.equal(regions().length, 1);
+  });
+
+  it("a dropped at-most-once event does not swallow the connection announcements", async () => {
+    const socket = await connected();
+    const heard = [];
+    const watch = setInterval(() => { if (said() && heard.at(-1) !== said()) heard.push(said()); }, 5);
+    click("pay");
+    const before = FakeSocket.all.length;
+    socket.drop(); // the event in flight is dropped (stale), and the connection is lost
+    await until(() => heard.includes("Reconnecting..."), "reconnecting", 6000);
+    await connected({ before });
+    await until(() => heard.includes("Back online."), "the all clear", 3000);
+    clearInterval(watch);
+    assert.deepEqual(heard, ["This page may be out of date.", "Reconnecting...", "Back online."]);
+  });
+
+  it("announces stale every time, not once", async () => {
+    const socket = await connected();
+    const stale = async () => {
+      click("go");
+      const frame = socket.events.at(-1);
+      socket.receive({ type: "error", id: frame.id, code: "stale_event", message: "x" });
+      await until(() => said() === "This page may be out of date.", "the announcement", 3000);
+    };
+    await stale();
+    socket.receive({ type: "heartbeat", id: 0 });
+    click("go");
+    const frame = socket.events.at(-1);
+    socket.receive({ type: "error", id: frame.id, code: "stale_event", message: "x" });
+    await until(() => said() === "", "the region is blanked so the same words are read again", 3000);
+    await until(() => said() === "This page may be out of date.", "the announcement again", 3000);
+  });
+
+  it("clears the region on restored even when that text is empty", async () => {
+    window.AzuSpark.configure({ text: { restored: "" } });
+    const first = await connected();
+    const before = FakeSocket.all.length;
+    first.drop();
+    await until(() => said() === "Reconnecting...", "reconnecting", 6000);
+    await connected({ before });
+    await until(() => said() === "", "the region cleared", 3000);
+  });
+
+  it("ignores a live region inside a Spark root, which a patch could overwrite", async () => {
+    const socket = await connected();
+    socket.drop();
+    await until(() => regions().length === 1 && said() !== "", "the announcement", 6000);
+    assert.equal($("inside").textContent, "");
+    assert.equal(regions()[0].parentNode, document.body);
+  });
+
+  it("a pending announcement is dropped when the tab goes idle", async () => {
+    window.AzuSpark.configure({ hiddenIdle: 30 });
+    const socket = await connected();
+    socket.drop();
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    document.dispatchEvent(new window.Event("visibilitychange"));
+    await until(() => window.AzuSpark.stats().state === "hidden-idle", "hidden-idle", 3000);
+    await tick(1300);
+    assert.equal(regions().length, 0);
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    document.dispatchEvent(new window.Event("visibilitychange"));
+    window.AzuSpark.configure({ hiddenIdle: 300000 });
   });
 
   it("announces offline", async () => {

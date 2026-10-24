@@ -93,6 +93,8 @@ export declare var config: {
     live: boolean;
     busyDelay: number;
 };
+/** Forgets what was announced and what waits to be (for the tests). */
+export declare function resetAnnouncements(): void;
 export declare var STATES: string[];
 export declare var EVENTS: string[];
 declare function connectFresh(): {
@@ -104,6 +106,10 @@ declare function stopped(state: any): {
     effects: any;
 };
 declare function paused(state: any): {
+    state: any;
+    effects: any;
+};
+declare function wakeAfterClose(state: any): {
     state: any;
     effects: any;
 };
@@ -148,10 +154,7 @@ export declare var TRANSITIONS: {
             state: any;
             effects: any;
         };
-        visible: (state: any) => {
-            state: any;
-            effects: any;
-        };
+        visible: typeof wakeAfterClose;
         hide_idle: (state: any) => {
             state: any;
             effects: any;

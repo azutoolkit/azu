@@ -112,6 +112,23 @@ describe("hidden idle (machine)", () => {
     assert.equal(h.machine.state.name, "connecting");
   });
 
+  it("a tab that returns during the idle close keeps the attempts of a flapping server", () => {
+    const h = harness(spark, { settings: { idleMs: 100 } });
+    open(h);
+    h.machine.dispatch({ type: "closed", code: 1006 });
+    h.clock.advance(1000);
+    assert.equal(h.machine.state.name, "connecting");
+    const attempts = h.machine.state.attempts;
+    assert.ok(attempts >= 1);
+    h.machine.dispatch({ type: "hidden" });
+    h.clock.advance(100);
+    assert.equal(h.machine.state.name, "closing");
+    h.machine.dispatch({ type: "visible" });
+    h.machine.dispatch({ type: "closed", code: 1000 });
+    assert.equal(h.machine.state.name, "connecting");
+    assert.equal(h.machine.state.attempts, attempts, "not reset by the way back");
+  });
+
   it("a tab that is hidden when the connection starts idles from then on", () => {
     const h = harness(spark, { settings: { idleMs: IDLE } });
     h.machine.dispatch({ type: "hidden" });
@@ -218,6 +235,34 @@ describe("hidden idle (client)", () => {
     const second = await connected({ before });
     assert.equal(second.events.length, 1);
     assert.equal(first.events.length, 0);
+  });
+
+  it("an event made during the idle close wakes the connection once the close finished", async () => {
+    const first = await connected();
+    let closing = false;
+    first.close = function () { closing = true; }; // the close handshake takes its time
+    visibility("hidden");
+    await until(() => closing, "the idle close");
+    assert.equal(window.AzuSpark.stats().state, "closing");
+    click("go");
+    assert.equal(window.AzuSpark.queued, 1);
+    const before = FakeSocket.all.length;
+    first.readyState = FakeSocket.CLOSED;
+    first.onclose({ code: 1000, reason: "hidden idle" });
+    const second = await connected({ before });
+    assert.equal(second.events.length, 1);
+    assert.equal(window.AzuSpark.queued, 0);
+  });
+
+  it("focus wakes an idle tab and does not probe a connected one", async () => {
+    const socket = await connected();
+    window.dispatchEvent(new window.Event("focus"));
+    assert.equal(socket.of("heartbeat").length, 0, "no probe on the focus of a visible tab");
+    visibility("hidden");
+    await until(() => window.AzuSpark.stats().state === "hidden-idle", "hidden-idle");
+    const before = FakeSocket.all.length;
+    window.dispatchEvent(new window.Event("focus"));
+    await connected({ before });
   });
 
   it("a visible tab never idles", async () => {

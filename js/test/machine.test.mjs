@@ -37,7 +37,9 @@ const CLOSING = [
   ["stopped", "pageshow", "closing", "stopped"], ["connecting", "pageshow", "closing", "connecting"],
   ["idle", "closed", "idle"], ["idle", "stop", "closing", "stopped"], ["idle", "pagehide", "closing", "idle"], ["idle", "connect", "closing", "connecting"],
   ["hidden-idle", "closed", "hidden-idle"], ["hidden-idle", "pagehide", "closing", "idle"],
-  ["connecting", "hide_idle", "closing", "hidden-idle"], ["hidden-idle", "visible", "closing", "connecting"],
+  ["connecting", "hide_idle", "closing", "hidden-idle"], ["hidden-idle", "visible", "closing", "resuming"],
+  ["hidden-idle", "connect", "closing", "resuming"], ["resuming", "hide_idle", "closing", "hidden-idle"], ["resuming", "closed", "connecting"],
+  ["resuming", "stop", "closing", "stopped"], ["resuming", "pagehide", "closing", "idle"], ["resuming", "connect", "closing", "resuming"],
   ["connecting", "closed", "connecting"], ["connecting", "stop", "closing", "stopped"],
 ];
 

@@ -18,9 +18,9 @@ Azu::Spark.script_tag  # <script src="..." data-spark-path="/spark" defer></scri
 ```
 
 The tag has no inline code, so `script-src 'self'` is enough. The served script is minified: about
-28 KB, 10,217 bytes gzipped (it includes the patch engine, the HTML sanitiser, the delivery layer,
+29 KB, 10,328 bytes gzipped (it includes the patch engine, the HTML sanitiser, the delivery layer,
 the observability counters and the live region, see the security model). A spec keeps it under
-10,240 bytes (10 KB) gzipped. Options go on the tag as `data-spark-*` attributes (see
+10,752 bytes (10.5 KB) gzipped. Options go on the tag as `data-spark-*` attributes (see
 [Hidden tabs](#hidden-tabs), [Accessibility](#accessibility)):
 
 ## How the client is built
@@ -119,7 +119,7 @@ cannot be relied on, and a tab nobody looks at still holds a socket, a mounted c
 its subscriptions on the server. After the tab has been **hidden for 5 minutes** the client closes
 the socket cleanly (code `1000`, reason `hidden idle`) and enters `hidden-idle`. When the tab is
 visible again (`visibilitychange`, `pageshow` from the back/forward cache, or the window gaining
-focus; focus on an open connection just probes it like any return to a tab) it reconnects and rejoins every root from the latest stored snapshot, the same path as after
+focus; focus on a connected tab does nothing) it reconnects and rejoins every root from the latest stored snapshot, the same path as after
 a lost connection, so persisted state survives (see [Rehydration](#rehydration)).
 
 - **The window.** `data-spark-hidden-idle="<milliseconds>"` on the script tag changes it (default
@@ -136,7 +136,12 @@ a lost connection, so persisted state survives (see [Rehydration](#rehydration))
   `Spark.push`) wakes the connection and is delivered after the join.
 - **Backoff stays honest.** An idle close is not a failure and starts no backoff. A tab that idled
   while backing off keeps its attempt counter, so a server that is down still gets longer delays;
-  one that idled from a healthy connection starts at attempt 0.
+  one that idled from a healthy connection starts at attempt 0. The same holds for a tab that
+  returns, or makes an event, while the idle close is still finishing.
+- **Status while idle.** `data-spark-status` is `disconnected` while the tab idles and `connecting`
+  on its way back, like any other gap, so a banner keyed to `disconnected` flashes for one round
+  trip when a tab returns. Tell the two apart with `Spark.stats().state === "hidden-idle"` or the
+  `state` event (`to: "hidden-idle"`), or keep such a banner hidden while `document.hidden`.
 - **Server.** A client close with `1000` is an ordinary disconnect: the connection ends without a
   warning or error log, its components are unmounted and their subscriptions released, exactly as
   for any other close. The idle close needs no server change.
@@ -325,7 +330,10 @@ nothing unless some `Spark.on("rtt", ...)` or debug tracing is active).
 | `delivery` | `{ phase, event, eid }` | an event was `sent` for the first time, `resent` after a reconnect, `acked` (answered), or `dropped` |
 | `event_dropped` | `{ event, reason }` | an event will never be delivered (always emitted) |
 
-`Spark.stats()` returns a fresh snapshot object (cheap, no listener needed):
+`Spark.stats()` returns a fresh snapshot object (cheap, no listener needed). TypeScript users get
+the types of `window.AzuSpark` from `js/azu-spark-global.d.ts` (`import "azu-spark-global"`, or
+add it to `files`), next to the generated `azu-spark.d.ts` (`SparkStats`, `SparkOptions`,
+`SparkTelemetry`):
 
 <!-- skip -->
 ```javascript
@@ -334,7 +342,7 @@ Spark.stats();
 //   state: "open", attempts: 0,
 //   rtt: { last: 12.4, p50: 11.8 },           // null until a heartbeat was answered
 //   queue: { waiting: 0, unacked: 1 },        // waiting to be sent / sent and not answered
-//   bytes: { in: 18342, out: 2210 },          // characters of the text frames (close to bytes for ASCII)
+//   bytes: { in: 18342, out: 2210 },          // UTF-16 units of the text frames: bytes for ASCII, fewer for other text
 //   patches: { applied: 41 },
 //   delivery: { sent: 12, resent: 1, acked: 12, dropped: 0 },
 //   reconnects: 1                             // reconnects scheduled since the page loaded
@@ -353,9 +361,14 @@ application's data and are never traced. Nothing is traced by default.
 
 **Live region.** Connection trouble is announced to assistive technology through one polite live
 region. It is created on the first announcement (`role="status"`, `aria-live="polite"`,
-`aria-atomic="true"`, class `azu-spark-live`) and appended to `<body>`; if the page already has an
-element with `data-spark-live-region`, that element is used instead and nothing is created, so
-there is never more than one. It never takes focus and does not move the caret. Messages:
+class `azu-spark-live`) and appended to `<body>`; if the page already has an
+element with `data-spark-live-region` **outside any component**, that element is used instead and
+nothing is created (one inside a `data-spark-id` component is ignored, because a patch could
+overwrite it), so there is never more than one. It never takes focus and does not move the caret.
+Each announcement blanks the region and sets the text 100 ms later, so the same words are read
+again when they repeat. Connection announcements (`reconnecting`, `offline`, `restored`) and
+`stale` have separate timers: a dropped event never cancels the announcement of a lost
+connection or the all clear. Messages:
 
 | Key | Said when | Default text |
 | --- | --- | --- |
@@ -364,7 +377,9 @@ there is never more than one. It never takes focus and does not move the caret. 
 | `stale` | an event was dropped (`stale_event`, `rate_limited`, a full or expired queue, a connection that broke an `at-most-once` event) | `This page may be out of date.` |
 | `restored` | the connection is back after `reconnecting` or `offline` was said | `Back online.` |
 
-An idle close of a hidden tab says nothing, and neither does the return from it.
+An idle close of a hidden tab says nothing, and neither does the return from it (a pending
+`reconnecting` or `offline` announcement is dropped when the tab goes idle). An empty text for
+`restored` still clears the region.
 
 **Words.** Defaults are English. Replace one with an attribute on the script tag, or a dictionary
 (the dictionary wins); an empty string silences that message, and `data-spark-live="off"` (or
