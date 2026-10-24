@@ -28,8 +28,10 @@ module Azu
         stored(topic).map(&.ref)
       end
 
-      # Called by the sweep with the metas this node owns in *topic*: a store extends the retention of its data and
-      # repairs its secondary indexes. It must never write the metas themselves (an untracked one would come back).
+      # Called by the sweep with metas this node still owns in *topic* (it holds their key lock): a store extends
+      # the retention of its data and repairs its secondary indexes. An index entry is half of the same fact as
+      # the meta, so refreshing one for a meta that was untracked would make the key look present: callers pass
+      # only owned metas, and an implementation never writes the metas themselves.
       def refresh(topic : String, metas : Array(Meta)) : Nil
       end
 
