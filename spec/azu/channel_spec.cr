@@ -80,31 +80,75 @@ describe Azu::Channel do
   end
 
   describe "Channel lifecycle" do
-    it "subscribes once when two events ask for the same cold topic while the backend waits" do
+    it "subscribes once, and no caller returns before the backend confirmed, when two ask for a cold topic" do
       with_slow_pub_sub do |backend|
         channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
-        done = ::Channel(Nil).new
-        2.times { spawn { channel.subscribe("cold"); done.send(nil) } }
-        2.times { done.receive }
-        sleep 150.milliseconds
+        returned = ::Channel(Time::Instant).new(2)
+        2.times { spawn { channel.subscribe("cold"); returned.send(Time.instant) } }
 
-        backend.subscribe_calls.should eq 1
+        2.times { returned.receive.should be >= (backend.confirmed_at || Time.instant + 1.hour) }
+        backend.topics.count("cold").should eq 1
         backend.subscriber_count.should eq 1
         channel.teardown
         backend.subscriber_count.should eq 0
       end
     end
 
-    it "does not hold its lock while the backend waits, so unsubscribe and teardown are not stalled" do
+    it "lets a second caller subscribe again when the first one's subscribe failed" do
+      with_slow_pub_sub do |backend|
+        backend.fail_first = true
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+        failure = ::Channel(Exception?).new(1)
+        spawn do
+          channel.subscribe("flaky")
+          failure.send(nil)
+        rescue ex
+          failure.send(ex)
+        end
+        wait_until { backend.subscribe_calls == 1 }.should be_true
+
+        channel.subscribe("flaky") # waits for the failed first, then subscribes itself
+
+        failure.receive.should_not be_nil
+        backend.topics.count("flaky").should eq 2
+        backend.subscriber_count.should eq 1
+      end
+    end
+
+    it "releases the reservation when the subscribe raises, so a retry works" do
+      with_slow_pub_sub do |backend|
+        backend.fail_first = true
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+
+        expect_raises(Exception, "the backend failed") { channel.subscribe("retry") }
+        channel.subscribe("retry")
+
+        backend.subscriber_count.should eq 1
+      end
+    end
+
+    it "does not hold its lock while the backend waits, so unsubscribe is not stalled" do
       with_slow_pub_sub do |backend|
         channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
         spawn { channel.subscribe("slow") }
-        Fiber.yield
+        wait_until { backend.subscribe_calls == 1 }.should be_true
+        unsubscribed = false
+        spawn { channel.unsubscribe("other"); unsubscribed = true }
 
-        started = Time.instant
-        channel.unsubscribe("other")
-        (Time.instant - started).should be < 50.milliseconds
-        channel.teardown
+        wait_until(100.milliseconds) { unsubscribed }.should be_true
+        backend.confirmed_at.should be_nil # the slow subscribe was still waiting
+      end
+    end
+
+    it "honours an unsubscribe that arrives while the subscribe is in flight" do
+      with_slow_pub_sub do |backend|
+        channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+        spawn { channel.subscribe("gone") }
+        wait_until { backend.subscribe_calls == 1 }.should be_true
+
+        channel.unsubscribe("gone")
+
+        wait_until { backend.confirmed_at && backend.subscriber_count == 0 }.should be_true
       end
     end
 
@@ -112,11 +156,11 @@ describe Azu::Channel do
       with_slow_pub_sub do |backend|
         channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
         spawn { channel.subscribe("late") }
-        Fiber.yield
-        channel.teardown
-        sleep 200.milliseconds
+        wait_until { backend.subscribe_calls == 1 }.should be_true
 
-        backend.subscriber_count.should eq 0
+        channel.teardown
+
+        wait_until { backend.confirmed_at && backend.subscriber_count == 0 }.should be_true
       end
     end
 

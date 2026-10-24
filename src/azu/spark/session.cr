@@ -37,7 +37,8 @@ module Azu
       def initialize(@connection : ConnectionInfo, @connected : Bool = true,
                      @config : Configuration = Spark.config, &@sink : Info ->)
         @registry = Registry.new(@connection.id, @config.max_components)
-        @subscribing = Set({String, String}).new
+        @subscribing = {} of {String, String} => ::Channel(Nil)
+        @unsubscribed = Set({String, String}).new
         @dirty = {} of String => Entry
         @pushes = [] of Update::Push
         @redirect = nil.as(Update::Redirect?)
@@ -148,28 +149,43 @@ module Azu
         end
       end
 
+      # Subscribes component *id* to *topic*. A session is driven by one fiber (`Spark::Connection` runs its events
+      # one at a time), so the bookkeeping below needs no lock; it only has to survive the fiber yielding while a
+      # backend waits (a Redis backend waits for Redis to confirm the first subscription). The topic is reserved
+      # before the call; a second event for it waits for the first to finish (so a broadcast it makes right after
+      # `subscribe` is not lost) and looks again, subscribing and raising itself if the first failed.
+      #
       # :nodoc:
       def subscribe(id : String, topic : String) : Nil
-        return unless entry = @registry[id]?
         key = {id, topic}
-        return if entry.subscriptions.has_key?(topic) || @subscribing.includes?(key)
-        # Reserved before the call and released after: a backend may wait (Redis confirms the first subscription),
-        # and a second event for the same topic must not subscribe again meanwhile.
-        @subscribing << key
-        begin
-          subscription = PubSub.subscribe(topic) { |message| @sink.call(Info.new(id, message)) }
-          if @registry[id]?.same?(entry)
-            entry.subscriptions[topic] = subscription
+        loop do
+          return unless entry = @registry[id]?
+          return if entry.subscriptions.has_key?(topic)
+          if waiting = @subscribing[key]?
+            waiting.receive?
           else
-            subscription.cancel
+            return subscribe_reserved(entry, id, topic, key)
           end
-        ensure
-          @subscribing.delete(key)
         end
+      end
+
+      private def subscribe_reserved(entry : Entry, id : String, topic : String, key : {String, String}) : Nil
+        done = @subscribing[key] = ::Channel(Nil).new
+        subscription = PubSub.subscribe(topic) { |message| @sink.call(Info.new(id, message)) }
+        if @registry[id]?.same?(entry) && !@unsubscribed.includes?(key)
+          entry.subscriptions[topic] = subscription
+        else
+          subscription.cancel
+        end
+      ensure
+        @subscribing.delete(key)
+        @unsubscribed.delete(key)
+        done.try(&.close)
       end
 
       # :nodoc:
       def unsubscribe(id : String, topic : String) : Nil
+        @unsubscribed << {id, topic} if @subscribing.has_key?({id, topic}) # the subscribe in flight must not store itself
         @registry[id]?.try(&.subscriptions.delete(topic)).try(&.cancel)
       end
 

@@ -44,7 +44,8 @@ module Azu
       @send_mutex = Mutex.new
       @subscriptions = {} of String => PubSub::Subscription
       @subscriptions_mutex = Mutex.new
-      @subscribing = Set(String).new
+      @subscribing = {} of String => ::Channel(Nil)
+      @unsubscribed = Set(String).new
       @closed = ::Channel(Nil).new
       @torn_down = false
     end
@@ -148,33 +149,51 @@ module Azu
       subscribe_topic(topic)
     end
 
+    # A backend may wait before it returns (a Redis backend waits for Redis to confirm the first subscription), so
+    # the topic is reserved under the lock and subscribed outside it: the lock is never held across the wait. A
+    # second caller for a topic being subscribed waits for the first to finish (so a broadcast it makes right after
+    # `subscribe` is not lost), then looks again: if the first failed, it subscribes itself and raises itself.
     protected def subscribe_topic(topic : String) : Nil
-      # The topic is reserved under the lock and subscribed outside it, since a backend may wait (a Redis backend
-      # waits for Redis to confirm the first subscription). A second caller for a topic being subscribed returns at
-      # once: the first one is on its way.
-      reserved = @subscriptions_mutex.synchronize do
-        next false if @torn_down || @subscriptions.has_key?(topic) || @subscribing.includes?(topic)
-        @subscribing << topic
-        true
+      loop do
+        done = nil.as(::Channel(Nil)?)
+        waiting = nil.as(::Channel(Nil)?)
+        @subscriptions_mutex.synchronize do
+          return if @torn_down || @subscriptions.has_key?(topic)
+          if pending = @subscribing[topic]?
+            waiting = pending
+          else
+            done = @subscribing[topic] = ::Channel(Nil).new
+          end
+        end
+        if done
+          return subscribe_reserved(topic, done)
+        elsif waiting
+          waiting.receive?
+        end
       end
-      return unless reserved
-      subscription = begin
-        PubSub.subscribe(topic) { |message| deliver(message) }
-      rescue ex
-        @subscriptions_mutex.synchronize { @subscribing.delete(topic) }
-        raise ex
-      end
+    end
+
+    private def subscribe_reserved(topic : String, done : ::Channel(Nil)) : Nil
+      subscription = PubSub.subscribe(topic) { |message| deliver(message) }
       kept = @subscriptions_mutex.synchronize do
-        @subscribing.delete(topic)
-        next false if @torn_down
+        next false if @unsubscribed.includes?(topic) || @torn_down
         @subscriptions[topic] = subscription
         true
       end
       subscription.cancel unless kept
+    ensure
+      @subscriptions_mutex.synchronize do
+        @subscribing.delete(topic)
+        @unsubscribed.delete(topic)
+      end
+      done.close
     end
 
     def unsubscribe(topic : String) : Nil
-      subscription = @subscriptions_mutex.synchronize { @subscriptions.delete(topic) }
+      subscription = @subscriptions_mutex.synchronize do
+        @unsubscribed << topic if @subscribing.has_key?(topic) # the subscribe in flight must not store itself
+        @subscriptions.delete(topic)
+      end
       subscription.try(&.cancel)
     end
 
