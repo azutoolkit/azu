@@ -242,7 +242,8 @@ with `stale_event` and dropped; that is the intended outcome, not a bug.
   The oldest event is dropped first, sent or waiting.
 - An event older than 60 s when it could be sent is dropped (`expired`).
 - A numbered event refused by the rate limiter is answered with `rate_limited` carrying its `id` and `ack`;
-  the client forgets it (`event_dropped`, reason `rate_limited`). The limiter still counts it.
+  the client forgets it (`event_dropped`, reason `rate_limited`). The limiter still counts it. It is not resent: a
+  coalesced value event that is refused (say the last keystroke of a burst) is lost until the control changes again.
 - A frame above `max_message_size` is refused by the client (`too_large`) and, if it gets to the server,
   closes the connection as before. The rate limit (`events_per_second`, `event_burst`) counts a resent
   event like any other. Event numbers add about 10 bytes to a frame.
