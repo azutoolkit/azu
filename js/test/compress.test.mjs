@@ -8,6 +8,7 @@ import { FakeSocket, connected, loadSpark, tick, until } from "./helpers.mjs";
 const LIMIT = 1_048_576;
 const ROOT = '<div data-spark-root data-spark-id="r" data-spark-token="t"><i id="mark"></i></div>';
 
+let spark;
 let heard;
 let errors;
 const note = (detail) => heard.push(detail.n);
@@ -17,8 +18,9 @@ const binary = (frame) => gzipSync(Buffer.from(JSON.stringify(frame)));
 const text = (socket, frame) => socket.receive(frame);
 
 beforeEach(async () => {
-  await loadSpark();
+  spark = await loadSpark();
   document.body.innerHTML = ROOT;
+  spark.allowCompression();
   heard = [];
   errors = [];
   window.AzuSpark.on("mark", note);
@@ -166,5 +168,97 @@ describe("failures", () => {
     await tick(20);
     assert.ok(heard.length <= 1);
     assert.deepEqual(errors, []);
+  });
+});
+
+describe("a frame that never finishes", () => {
+  it("is given up after the inflate timeout: patch_failed, reset, plain rejoin, and later frames are not stuck", async () => {
+    const saved = globalThis.DecompressionStream;
+    const savedTimeout = spark.config.inflateTimeout;
+    globalThis.DecompressionStream = class { // never produces anything, never ends
+      constructor() {
+        this.readable = new ReadableStream({ pull: () => new Promise(() => {}) });
+        this.writable = new WritableStream();
+      }
+    };
+    spark.config.inflateTimeout = 40;
+    try {
+      const socket = await connected();
+      socket.receiveBinary(binary(diff(1)));
+      text(socket, diff(2)); // queued behind the hung frame
+      await until(() => errors.length > 0, "the timeout", 2000);
+      assert.equal(errors[0].code, "patch_failed");
+      assert.match(errors[0].message, /too long/);
+      assert.equal(socket.readyState, FakeSocket.CLOSED);
+      await until(() => FakeSocket.all.length > 1, "a new socket", 10000);
+      const next = FakeSocket.all[FakeSocket.all.length - 1];
+      next.receive({ type: "hello", heartbeat: 20000, max_size: 65536 });
+      assert.equal("enc" in next.of("join")[0], false);
+      assert.deepEqual(heard, []);
+    } finally {
+      globalThis.DecompressionStream = saved;
+      spark.config.inflateTimeout = savedTimeout;
+    }
+  });
+});
+
+describe("the compressed size", () => {
+  it("is capped before anything is inflated", async () => {
+    const saved = globalThis.DecompressionStream;
+    let built = 0;
+    globalThis.DecompressionStream = class extends saved { constructor(...args) { super(...args); built++; } };
+    try {
+      const socket = await connected();
+      socket.receiveBinary(Buffer.alloc(524289, 7));
+      await until(() => errors.length > 0, "the error");
+      assert.equal(errors[0].code, "patch_failed");
+      assert.match(errors[0].message, /524288/);
+      assert.equal(built, 0, "nothing was inflated");
+    } finally {
+      globalThis.DecompressionStream = saved;
+    }
+  });
+
+  it("accepts a frame right at the cap", async () => {
+    const socket = await connected();
+    const json = JSON.stringify(diff(1));
+    const body = gzipSync(Buffer.from(json));
+    assert.ok(body.length < 524288);
+    socket.receiveBinary(body);
+    await until(() => heard.length === 1, "the frame");
+    assert.deepEqual(errors, []);
+  });
+});
+
+describe("a path that closes on binary frames", () => {
+  const nextJoin = async () => {
+    await until(() => FakeSocket.all.length > 1, "a new socket", 10000);
+    const next = FakeSocket.all[FakeSocket.all.length - 1];
+    next.receive({ type: "hello", heartbeat: 20000, max_size: 65536 });
+    return next.of("join")[0];
+  };
+
+  it("stops announcing gzip when the connection ends right after the first binary frame", async () => {
+    const socket = await connected();
+    socket.receiveBinary(binary(diff(1)));
+    socket.drop(); // the middlebox kills the socket at the binary frame
+    assert.equal("enc" in (await nextJoin()), false);
+  });
+
+  it("keeps announcing it when the connection had applied a text frame since", async () => {
+    const socket = await connected();
+    socket.receiveBinary(binary(diff(1)));
+    await until(() => heard.length === 1, "the binary frame");
+    text(socket, diff(2));
+    socket.drop();
+    assert.deepEqual((await nextJoin()).enc, ["gzip"]);
+  });
+
+  it("does not blame the binary frame for a close we asked for", async () => {
+    const socket = await connected();
+    socket.receiveBinary(binary(diff(1)));
+    await until(() => heard.length === 1, "the binary frame");
+    socket.onclose({ code: 1000, reason: "hidden idle" });
+    assert.deepEqual((await nextJoin()).enc, ["gzip"]);
   });
 });
