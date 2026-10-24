@@ -63,9 +63,10 @@ module Azu
         end
       end
 
-      # A connection of its own that is not taken from the pool, for something that holds it for good (a
-      # `SUBSCRIBE` loop, or a blocking command such as `BLPOP` or `XREAD BLOCK` that outlasts `command_timeout`). Reads are unbounded unless *command_timeout* is given. `close` ends it with the client;
-      # `release` ends it earlier.
+      # A connection of its own that is not taken from the pool, for something that holds it for good: a
+      # `SUBSCRIBE` loop, or a blocking command such as `BLPOP` or `XREAD BLOCK` that outlasts `command_timeout`.
+      # Reads are unbounded unless *command_timeout* is given. `close` ends it with the client; `release` ends
+      # it earlier.
       def dedicated(command_timeout : Time::Span? = nil, name : String = "#{@config.name}-subscriber") : ::Redis
         @pool.adopt(@config.connect(command_timeout, name))
       end
@@ -127,10 +128,12 @@ module Azu
 
       private def attempt(retry : Bool, strict : Bool = false, & : ::Redis -> T) : T forall T
         tries = 0
+        started = Clock.instant
         loop do
+          started = Clock.instant
           return @pool.run(strict) { |connection| yield connection }
         rescue ex
-          @pool.drop_idle if Redis.retryable?(ex)
+          @pool.drop_idle(started) if Redis.retryable?(ex)
           raise ex unless retry && Redis.retryable?(ex) && @config.retry.retry?(tries)
           Clock.sleep(@config.retry.delay(tries))
           tries += 1
