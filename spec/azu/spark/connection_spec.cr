@@ -37,6 +37,23 @@ module SparkConnectionSpec
   end
 end
 
+module SparkConnectionSpec
+  # Nothing it holds is persisted: a reconnect mounts it afresh.
+  class Plain < Azu::Spark::Component
+    mountable
+
+    state clicks : Int32 = 0
+
+    event def click : Nil
+      self.clicks += 1
+    end
+
+    def render
+      span "clicks=#{clicks}"
+    end
+  end
+end
+
 private def page(**props) : String
   Azu::Spark.render(SparkConnectionSpec::Counter, **props, session: {"user" => "ada"})
 end
@@ -154,6 +171,182 @@ describe Azu::Spark::Connection do
 
         client.await("heartbeat")["id"].as_i64.should eq id
         client.close
+      end
+    end
+  end
+
+  describe "event delivery" do
+    it "applies an event id once and answers a repeat with a duplicate reply and no diff" do
+      with_spark do |port|
+        client = SparkSpecClient.new(port, page)
+        client.join
+        client.await("reply")
+
+        first = client.event("increment", eid: 1_i64)
+        client.await("diff")["patches"][0]["html"].as_s.should contain "count=1"
+        reply = client.await("reply")
+        reply["id"].as_i64.should eq first
+        reply["dup"]?.should be_nil
+
+        again = client.event("increment", eid: 1_i64)
+        duplicate = client.await("reply")
+        duplicate["id"].as_i64.should eq again
+        duplicate["dup"].as_bool.should be_true
+        duplicate["ack"].as_i.should eq 1
+
+        client.event("increment", eid: 2_i64)
+        client.await("diff")["patches"][0]["html"].as_s.should contain "count=2"
+        client.close
+      end
+    end
+
+    it "ignores an id older than one already applied" do
+      with_spark do |port|
+        client = SparkSpecClient.new(port, page)
+        client.join
+        client.await("reply")
+        client.event("increment", eid: 5_i64)
+        client.await("diff")
+        client.await("reply")
+
+        client.event("increment", eid: 3_i64)
+        client.await("reply")["dup"].as_bool.should be_true
+
+        client.event("increment", eid: 6_i64)
+        client.await("diff")["patches"][0]["html"].as_s.should contain "count=2"
+        client.close
+      end
+    end
+
+    it "piggybacks the id of the event on the diff, the reply and the error that answer it" do
+      with_spark do |port|
+        client = SparkSpecClient.new(port, page)
+        client.join
+        client.await("reply")
+
+        client.event("increment", eid: 4_i64)
+        client.await("diff")["ack"].as_i.should eq 4
+        client.await("reply")["ack"].as_i.should eq 4
+
+        client.event("destroy_everything", eid: 5_i64)
+        client.await("error")["ack"].as_i.should eq 5
+        client.close
+      end
+    end
+
+    it "keeps serving clients that send no ids: nothing is deduplicated and no ack is added" do
+      with_spark do |port|
+        client = SparkSpecClient.new(port, page)
+        client.join
+        client.await("reply")
+
+        2.times do
+          client.event("increment")
+          diff = client.await("diff")
+          diff.as_h.has_key?("ack").should be_false
+          client.await("reply").as_h.has_key?("ack").should be_false
+        end
+        client.event("increment")
+        client.await("diff")["patches"][0]["html"].as_s.should contain "count=3"
+        client.close
+      end
+    end
+
+    it "rejects an event id that is not positive" do
+      with_spark do |port|
+        client = SparkSpecClient.new(port, page)
+        client.join
+        client.await("reply")
+
+        client.event("increment", eid: 0_i64)
+        client.await("error")["code"].as_s.should eq "bad_request"
+        client.close
+      end
+    end
+
+    it "names the generation of a root with persisted state in the reply to its join" do
+      with_spark do |port|
+        client = SparkSpecClient.new(port, page)
+        client.join
+
+        client.await("reply")["gen"].as_s.should_not be_empty
+        client.close
+      end
+    end
+
+    it "names no generation for a root that persists nothing, and then never calls an event stale" do
+      with_spark do |port|
+        client = SparkSpecClient.new(port, Azu::Spark.render(SparkConnectionSpec::Plain))
+        client.join
+        client.await("reply").as_h.has_key?("gen").should be_false
+
+        client.event("click", gen: "anything", eid: 1_i64)
+        client.await("diff")["patches"][0]["html"].as_s.should contain "clicks=1"
+        client.close
+      end
+    end
+
+    it "applies an event of the generation it restored from a snapshot and refuses one of another, with a typed error" do
+      with_spark do |port|
+        same_page = page
+        first = SparkSpecClient.new(port, same_page)
+        first.join
+        generation = first.await("reply")["gen"].as_s
+        first.event("increment", eid: 1_i64, gen: generation)
+        snapshot = first.await("diff")["snapshots"][first.root_id].as_s
+        first.close
+
+        restored = SparkSpecClient.new(port, same_page)
+        restored.join(snapshot: snapshot)
+        restored.await("reply")["gen"].as_s.should eq generation
+        restored.event("increment", eid: 2_i64, gen: generation)
+        restored.await("diff")["patches"][0]["html"].as_s.should contain "count=2"
+
+        fresh = SparkSpecClient.new(port, same_page)
+        fresh.join
+        fresh.await("reply")["gen"].as_s.should_not eq generation
+        id = fresh.event("increment", eid: 3_i64, gen: generation)
+        error = fresh.await("error")
+        error["code"].as_s.should eq "stale_event"
+        error["id"].as_i64.should eq id
+        error["ack"].as_i.should eq 3
+
+        fresh.event("increment", eid: 4_i64)
+        fresh.await("diff")["patches"][0]["html"].as_s.should contain "count=1"
+        restored.close
+        fresh.close
+      end
+    end
+
+    it "starts without delivery state on a new connection: a resent id is applied there" do
+      with_spark do |port|
+        same_page = page
+        first = SparkSpecClient.new(port, same_page)
+        first.join
+        first.await("reply")
+        first.event("increment", eid: 1_i64)
+        first.await("diff")
+        first.close
+
+        second = SparkSpecClient.new(port, same_page)
+        second.join
+        second.await("reply")
+        second.event("increment", eid: 1_i64)
+        second.await("diff")["patches"][0]["html"].as_s.should contain "count=1"
+        second.close
+      end
+    end
+
+    it "still closes connections that send oversized numbered events" do
+      with_spark do |port|
+        Azu::Spark.config.max_message_size = 128
+        client = SparkSpecClient.new(port, page)
+        client.frame # hello
+
+        client.event("increment", eid: 1_i64, note: "x" * 2000)
+
+        client.frame.should be_nil
+        client.probe.close_code.should eq HTTP::WebSocket::CloseCode::MessageTooBig
       end
     end
   end

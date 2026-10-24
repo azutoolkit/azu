@@ -20,6 +20,16 @@ describe Azu::Spark::Protocol do
       frame.payload.not_nil!["tags"].as_a.size.should eq 1
     end
 
+    it "parses the optional delivery fields of an event and leaves them nil for older clients" do
+      numbered = Azu::Spark::Protocol::Inbound.from_json(%({"type":"event","id":9,"target":"c","event":"add","eid":12,"gen":"ab12"}))
+      numbered.eid.should eq 12
+      numbered.gen.should eq "ab12"
+
+      plain = Azu::Spark::Protocol::Inbound.from_json(%({"type":"event","id":9,"target":"c","event":"add"}))
+      plain.eid.should be_nil
+      plain.gen.should be_nil
+    end
+
     it "rejects frames of the wrong shape" do
       expect_raises(JSON::SerializableError) { Azu::Spark::Protocol::Inbound.from_json(%({"id":1})) }
       expect_raises(JSON::SerializableError) { Azu::Spark::Protocol::Inbound.from_json(%({"type":"event","id":"one"})) }
@@ -28,6 +38,17 @@ describe Azu::Spark::Protocol do
   end
 
   describe "outbound frames" do
+    it "adds ack, dup and gen only when given, so frames for older clients are unchanged" do
+      reply = JSON.parse(Azu::Spark::Protocol.reply(4, "root", ack: 9_i64, dup: true)).as_h
+      reply["ack"].as_i.should eq 9
+      reply["dup"].as_bool.should be_true
+      JSON.parse(Azu::Spark::Protocol.reply(4, nil, gen: "g1")).as_h["gen"].as_s.should eq "g1"
+      JSON.parse(Azu::Spark::Protocol.reply(4)).as_h.has_key?("dup").should be_false
+      JSON.parse(Azu::Spark::Protocol.error(4, "stale_event", "no", ack: 9_i64)).as_h["ack"].as_i.should eq 9
+      JSON.parse(Azu::Spark::Protocol.diff(1, Azu::Spark::Update.new, ack: 9_i64)).as_h["ack"].as_i.should eq 9
+      JSON.parse(Azu::Spark::Protocol.diff(1, Azu::Spark::Update.new)).as_h.has_key?("ack").should be_false
+    end
+
     it "encodes a diff with patches, browser events and snapshots" do
       update = Azu::Spark::Update.new(
         patches: [Azu::Spark::Update::Patch.new("root", "<b>1</b>")],

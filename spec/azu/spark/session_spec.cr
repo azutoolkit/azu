@@ -85,6 +85,12 @@ module SparkSessionSpec
   end
 end
 
+private def board_session(root : String) : Azu::Spark::Session
+  session = Azu::Spark::Session.new(Azu::Spark::ConnectionInfo.detached, true) { |_| }
+  session.start(SparkSessionSpec::Board.new, root, {} of String => String, Azu::Spark::Params.new)
+  session
+end
+
 private def mount_board(**options, &)
   Azu::Spark::Testing.mount(SparkSessionSpec::Board, **options) { |view| yield view }
 end
@@ -240,6 +246,57 @@ describe Azu::Spark::Session do
       expect_raises(Azu::Spark::Error, /render loop/) do
         session.start(SparkSessionSpec::Looping.new, "root", {} of String => String, Azu::Spark::Params.new)
       end
+    end
+  end
+
+  describe "event delivery" do
+    it "accepts an event id once and ignores that id and every older one" do
+      session = board_session("a")
+
+      session.accept("a", 5_i64, nil).should be_true
+      session.accept("a", 5_i64, nil).should be_false
+      session.accept("a", 3_i64, nil).should be_false
+      session.accept("a", 6_i64, nil).should be_true
+    end
+
+    it "keeps one position per root, so ids of another root do not shadow it" do
+      session = board_session("a")
+      session.start(SparkSessionSpec::Board.new, "b", {} of String => String, Azu::Spark::Params.new)
+
+      session.accept("a", 7_i64, nil).should be_true
+      session.accept("b", 4_i64, nil).should be_true
+      session.accept("b", 4_i64, nil).should be_false
+      session.accept("a", 4_i64, nil).should be_false
+    end
+
+    it "addresses the root through any component below it" do
+      session = board_session("a")
+
+      session.accept("a~1", 2_i64, nil).should be_true
+      session.accept("a", 2_i64, nil).should be_false
+    end
+
+    it "accepts every event of a client that sends no ids" do
+      session = board_session("a")
+
+      3.times { session.accept("a", nil, nil).should be_true }
+    end
+
+    it "keeps nothing per event: an id is refused however many came after it" do
+      session = board_session("a")
+      (1_i64..20_000_i64).each { |eid| session.accept("a", eid, nil).should be_true }
+
+      session.accept("a", 1_i64, nil).should be_false
+      session.accept("a", 19_999_i64, nil).should be_false
+      session.accept("a", 20_001_i64, nil).should be_true
+    end
+
+    it "raises UnknownTarget for a component that does not exist" do
+      expect_raises(Azu::Spark::UnknownTarget) { board_session("a").accept("nope", 1_i64, nil) }
+    end
+
+    it "ignores the generation of a root that has none" do
+      board_session("a").accept("a", 1_i64, "whatever").should be_true
     end
   end
 end

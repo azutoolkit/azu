@@ -10,24 +10,39 @@ module Azu
     #               `snapshot` is the latest signed state of the page (see `Snapshot`): after a
     #               reconnect the server mounts the components from it, so the page continues
     #               where it was. A bad snapshot answers `invalid_snapshot` and mounts nothing.
-    # - `event`     `id`, `target` (component id), `event`, `payload`
+    # - `event`     `id`, `target` (component id), `event`, `payload`, and optionally `eid` (the
+    #               client's event number, see Delivery below) and `gen` (the generation of the
+    #               root the user acted on, from the reply to its join)
     # - `heartbeat` `id`
     # - `leave`     `target` (root component id)
     #
     # Server to client
     # - `hello`     `heartbeat` and `max_size`, sent on connect
-    # - `diff`      `seq`, `patches` (`id`, `html`), `events` (`target`, `name`, `payload`), `snapshots`
-    # - `reply`     `id`, `target`; acknowledges a request, sent after the diff it caused
+    # - `diff`      `seq`, `patches` (`id`, `html`), `events` (`target`, `name`, `payload`), `snapshots`,
+    #               and `ack` when the diff answers a numbered event
+    # - `reply`     `id`, `target`; acknowledges a request, sent after the diff it caused. Optional:
+    #               `gen` (in the reply to a join of a root that persists state), `ack`, and `dup`
+    #               (the event had been applied before: nothing was done)
     # - `redirect`  `to`, `replace`
     # - `heartbeat` `id`
-    # - `error`     `code`, `message`, and the `id` of the request it answers (null otherwise)
+    # - `error`     `code`, `message`, and the `id` of the request it answers (null otherwise); `ack`
+    #               when it answers a numbered event
     #
     # Error codes: `invalid_token` (the page can never join), `invalid_snapshot` (join again
     # without the snapshot), `rejected`, `bad_request`, `unknown_target`, `unknown_event`,
+    # `stale_event` (the event belongs to an earlier incarnation of the page: drop it),
     # `limit_exceeded`, `rate_limited` and `internal`.
     #
     # Client ids increase per connection and are echoed in the matching reply, which is how the
     # browser clears loading states and detects lost requests. `seq` orders server pushes.
+    #
+    # Delivery. A client that numbers its events (`eid`, increasing per page, kept across
+    # reconnects) resends the ones nobody acknowledged after a reconnect. The server keeps, per
+    # connection and root, the highest `eid` it has taken: an event at or below it is not applied
+    # again (the reply says `dup`), so a resend after a lost reply has no second effect on the
+    # connection that handled the original. `ack` carries the `eid` of the event a frame answers.
+    # All of these fields are optional in both directions; a peer that does not know them ignores
+    # them, and a client that sends no `eid` gets the behaviour of protocol v1 exactly.
     module Protocol
       VERSION = 1
 
@@ -40,6 +55,8 @@ module Azu
         getter target : String? = nil
         getter event : String? = nil
         getter payload : Hash(String, JSON::Any)? = nil
+        getter eid : Int64? = nil
+        getter gen : String? = nil
         getter token : String? = nil
         getter snapshot : String? = nil
         getter params : Hash(String, String)? = nil
@@ -52,9 +69,10 @@ module Azu
         end
       end
 
-      def self.diff(seq : Int64, update : Update) : String
+      def self.diff(seq : Int64, update : Update, ack : Int64? = nil) : String
         frame("diff") do |json|
           json.field "seq", seq
+          json.field "ack", ack if ack
           json.field "patches" do
             json.array do
               update.patches.each do |patch|
@@ -87,18 +105,22 @@ module Azu
         end
       end
 
-      def self.reply(id : Int64?, target : String? = nil) : String
+      def self.reply(id : Int64?, target : String? = nil, gen : String? = nil, ack : Int64? = nil, dup : Bool = false) : String
         frame("reply") do |json|
           json.field "id", id
           json.field "target", target if target
+          json.field "gen", gen if gen
+          json.field "ack", ack if ack
+          json.field "dup", true if dup
         end
       end
 
-      def self.error(id : Int64?, code : String, message : String) : String
+      def self.error(id : Int64?, code : String, message : String, ack : Int64? = nil) : String
         frame("error") do |json|
           json.field "id", id
           json.field "code", code
           json.field "message", message
+          json.field "ack", ack if ack
         end
       end
 

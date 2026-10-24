@@ -33,12 +33,44 @@ module SparkDemo
       self.count = 0
     end
 
+    # A slow backend: the browser test cuts the connection while this runs, then checks that the
+    # event the client resent after the reconnect took effect exactly once.
+    event def slow_increment : Nil
+      sleep 400.milliseconds
+      self.count += 1
+    end
+
     def render
       div class: "card" do
         h2 "#{label}: #{count}", id: "count"
         button "+1", **spark_click(:increment), id: "inc"
         button "+10", **spark_click(:increment, by: 10), id: "inc10"
         button "Reset", **spark_click(:reset), id: "reset"
+        button "+1 (slow)", **spark_click(:slow_increment), id: "slow"
+      end
+    end
+  end
+
+  # A text field the server follows keystroke by keystroke. `edits` counts the events the server
+  # applied: typing faster than it answers coalesces, so it ends up below the number of keystrokes
+  # while `text` still ends up as the full text.
+  class Echo < Azu::Spark::Component
+    mountable
+
+    state text : String = "", persist: true
+    state edits : Int32 = 0, persist: true
+
+    event def edit(value : String) : Nil
+      sleep 120.milliseconds
+      self.text = value
+      self.edits += 1
+    end
+
+    def render
+      div class: "card" do
+        input **spark_change(:edit), type: "text", name: "echo", id: "echo", value: text, autocomplete: "off"
+        span "Edits: #{edits}", id: "edits"
+        span "Echo: #{text}", id: "echoed"
       end
     end
   end
@@ -108,6 +140,7 @@ module SparkDemo
       <body>
         <h1>Azu Spark <small id="status"></small></h1>
         #{Azu::Spark.render(Counter, label: "Clicks")}
+        #{Azu::Spark.render(Echo)}
         #{Azu::Spark.render(ChatRoom)}
       </body>
       </html>

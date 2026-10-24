@@ -38,6 +38,7 @@ module Azu
         @limiter = RateLimiter.new(@config.events_per_second, @config.event_burst)
         @violations = 0
         @sequence = 0_i64
+        @ack = nil.as(Int64?)
         @started = Time.instant
         @last_seen = Atomic(Int64).new(0)
         @session = nil.as(Session?)
@@ -120,8 +121,11 @@ module Azu
       private def handle_frame(text : String) : Nil
         guard(nil) do
           inbound = parse(text)
+          @ack = inbound.eid.try { |eid| eid if eid > 0 } if inbound.type == "event"
           guard(inbound.id) { dispatch(inbound) }
         end
+      ensure
+        @ack = nil
       end
 
       private def parse(text : String) : Protocol::Inbound
@@ -137,19 +141,32 @@ module Azu
         when "join"
           token = inbound.token || raise BadRequest.new("missing token")
           params = Params.from_strings(inbound.params || {} of String => String)
-          publish(session.join(token, inbound.snapshot, params))
-          transmit(Protocol.reply(inbound.id))
+          joined = session.join(token, inbound.snapshot, params)
+          publish(joined.update)
+          transmit(Protocol.reply(inbound.id, gen: joined.generation))
         when "event"
-          target = inbound.target || raise BadRequest.new("missing target")
-          name = inbound.event || raise BadRequest.new("missing event")
-          publish(session.event(target, name, Params.new(inbound.payload || {} of String => JSON::Any)))
-          transmit(Protocol.reply(inbound.id, target))
+          deliver(inbound)
         when "heartbeat"
           transmit(Protocol.heartbeat(inbound.id))
         when "leave"
           session.leave(inbound.target || raise BadRequest.new("missing target"))
         else
           raise BadRequest.new("unknown message type")
+        end
+      end
+
+      # Applies a numbered event once. Every frame that answers it carries its number (`ack`), also
+      # the error of an event that failed or was stale: the client is done with it either way.
+      private def deliver(inbound : Protocol::Inbound) : Nil
+        target = inbound.target || raise BadRequest.new("missing target")
+        name = inbound.event || raise BadRequest.new("missing event")
+        eid = inbound.eid
+        raise BadRequest.new("event numbers start at 1") if eid && eid < 1
+        if session.accept(target, eid, inbound.gen)
+          publish(session.event(target, name, Params.new(inbound.payload || {} of String => JSON::Any)))
+          transmit(Protocol.reply(inbound.id, target, ack: eid))
+        else
+          transmit(Protocol.reply(inbound.id, target, ack: eid, dup: true))
         end
       end
 
@@ -165,7 +182,7 @@ module Azu
       end
 
       private def report(id : Int64?, error : Error) : Nil
-        transmit(Protocol.error(id, error.code, detail(error.code, error.message)))
+        transmit(Protocol.error(id, error.code, detail(error.code, error.message), ack: @ack))
       end
 
       # Development and test see the real message; everywhere else only a generic text per code.
@@ -175,7 +192,7 @@ module Azu
 
       private def publish(update : Update) : Nil
         unless update.patches.empty? && update.pushes.empty? && update.snapshots.empty?
-          transmit(Protocol.diff(@sequence += 1, update))
+          transmit(Protocol.diff(@sequence += 1, update, @ack))
         end
         update.redirect.try { |redirect| transmit(Protocol.redirect(redirect)) }
       end

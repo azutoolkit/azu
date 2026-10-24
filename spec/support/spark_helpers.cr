@@ -92,8 +92,9 @@ class SparkSpecClient
     send_frame("join", token: @token, snapshot: snapshot, params: params)
   end
 
-  def event(name : String, target : String = @root_id, **payload) : Int64
-    send_frame("event", target: target, event: name, payload: payload)
+  # *eid* and *gen* are the optional delivery fields of a client that numbers its events.
+  def event(name : String, target : String = @root_id, eid : Int64? = nil, gen : String? = nil, **payload) : Int64
+    send_frame("event", target: target, event: name, payload: payload, eid: eid, gen: gen)
   end
 
   # Reads frames until one of *type* arrives.

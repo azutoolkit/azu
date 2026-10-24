@@ -13,6 +13,9 @@ export type QueuedEvent = {
     undo?: (() => void) | null;
     key?: string | null;
     at: number;
+    root: string;
+    once: boolean;
+    sentAt?: number;
 };
 export type SparkMessage = {
     v: number;
