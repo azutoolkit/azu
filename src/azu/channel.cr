@@ -130,6 +130,11 @@ module Azu
       @send_mutex.synchronize { socket.send(message) }
     end
 
+    # Writes a binary frame. Safe to call from any fiber.
+    def send(bytes : Bytes) : Nil
+      @send_mutex.synchronize { socket.send(bytes) }
+    end
+
     # Sends a close frame. Safe to call from any fiber; a socket that is already gone is ignored.
     def close(code : HTTP::WebSocket::CloseCode = HTTP::WebSocket::CloseCode::NormalClosure, message : String? = nil) : Nil
       @send_mutex.synchronize { socket.close(code, message) }

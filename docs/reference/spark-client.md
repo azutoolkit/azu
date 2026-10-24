@@ -18,9 +18,9 @@ Azu::Spark.script_tag  # <script src="..." data-spark-path="/spark" defer></scri
 ```
 
 The tag has no inline code, so `script-src 'self'` is enough. The served script is minified: about
-29 KB, 10,383 bytes gzipped (it includes the patch engine, the HTML sanitiser, the delivery layer,
-the observability counters and the live region, see the security model). A spec keeps it under
-10,752 bytes (10.5 KB) gzipped. Options go on the tag as `data-spark-*` attributes (see
+30 KB, 10,743 bytes gzipped (it includes the patch engine, the HTML sanitiser, the delivery layer,
+the observability counters, the live region and the decoder of compressed frames, see the security
+model). A spec keeps it under 11,264 bytes (11 KB) gzipped. Options go on the tag as `data-spark-*` attributes (see
 [Hidden tabs](#hidden-tabs), [Accessibility](#accessibility)):
 
 ## How the client is built
@@ -283,11 +283,78 @@ with `stale_event` and dropped; that is the intended outcome, not a bug.
 - A numbered event refused by the rate limiter is answered with `rate_limited` carrying its `id` and `ack`;
   the client forgets it (`event_dropped`, reason `rate_limited`). The limiter still counts it. It is not resent: a
   coalesced value event that is refused (say the last keystroke of a burst) is lost until the control changes again.
+- A compressed frame inflates to at most 1 MiB, see [Compressed frames](#compressed-frames).
 - A frame above `max_message_size` is refused by the client (`too_large`) and, if it gets to the server,
   closes the connection as before. The rate limit (`events_per_second`, `event_burst`) counts a resent
   event like any other. Event numbers add about 10 bytes to a frame.
 - `event_dropped` reasons: `queue_full`, `expired`, `disconnect` (an at-most-once event in flight),
   `stale`, `rate_limited`, `stopped` (`Spark.disconnect()`).
+
+## Compressed frames
+
+A diff that replaces a big component is mostly repeated markup, and it compresses about four to one.
+Spark can send such a diff compressed, **if the browser says it can read it**. Nothing changes for
+any other client.
+
+```crystal
+Azu::Spark.configure do |c|
+  c.compress_threshold = 2048 # bytes of JSON; default 1024 (SPARK_COMPRESS_THRESHOLD), 0 turns it off
+end
+```
+
+### Negotiation
+
+1. The client puts `"enc": ["gzip"]` in its `join` when `DecompressionStream` exists. A browser
+   without it announces nothing, and so does a client that is older than this feature.
+2. The server notes it for the connection and answers the join with `"enc": "gzip"` (a client that
+   announced nothing gets the reply it always got).
+3. From then on a `diff` frame of at least `compress_threshold` bytes is sent as **one binary
+   WebSocket frame holding the gzip of the exact JSON** the text frame would have carried, but only
+   when that is smaller. Everything else (`reply`, `error`, `heartbeat`, `redirect`, small diffs) stays text.
+
+A client that announced no encoding is sent text frames only, byte for byte as before; an old client
+never receives a binary frame. The protocol version stays 1: `enc` is an optional field both sides ignore
+when they do not know it.
+
+### Why not `permessage-deflate`
+
+The WebSocket extension would be negotiated by the browser and the server with no change to the
+protocol, but Crystal's `HTTP::WebSocket` (1.19.1 and 1.22.0 alike) cannot do it: the upgrade handler
+never reads `Sec-WebSocket-Extensions` or answers it, and the frame reader looks only at the opcode,
+so it would neither inflate an incoming frame nor set RSV1 on an outgoing one. Without the extension
+the browser never offers compressed frames, so the application-level scheme above is the only choice
+that works with the standard library.
+
+### Order, limits and failures
+
+- **Order.** Inflating is asynchronous, so the client keeps one line: while a binary frame is being
+  inflated every frame behind it waits, and frames are applied strictly in the order they arrived.
+  A text `reply` that follows a binary diff is handled after the diff's patches, so the
+  acknowledgement rules of [Numbers, acknowledgements and resending](#numbers-acknowledgements-and-resending)
+  hold unchanged. A text frame with nothing ahead of it is handled at once, as before.
+- **Size.** A frame may inflate to at most 1,048,576 bytes (`Azu::Spark::Protocol::MAX_INFLATED`). The
+  server never compresses a larger frame (it is sent as text), and the client counts the bytes while it
+  streams the inflation and stops at the limit, so a bomb is never held in memory whole. This is not
+  `max_message_size`, which limits what a *client* may send (64 KB by default).
+- **Failure.** A frame that cannot be inflated (corrupt, truncated or over the limit) is reported as the
+  `patch_failed` error; the client resets the connection and rejoins from its last snapshot (so the lost diff
+  is not skipped), and **asks for plain frames for the rest of the page's life**, so a frame that fails
+  once cannot make the page loop.
+- **Cost.** The server compresses at gzip level 1 in the connection's own processing fiber, never in the
+  read loop, and not at all while more work waits behind the current job (a busy connection sends text).
+  Cost is bounded by the size cap, and below the threshold it is zero.
+- **Accounting.** `Spark.stats().bytes.in` counts the bytes that crossed the wire, so a compressed frame
+  counts its compressed size.
+
+### Checking it in the browser
+
+Open DevTools, Network, filter WS and pick the `/spark` socket. Messages: a text frame shows its JSON,
+a compressed one is listed as "Binary Message" with its (small) length. The join frame shows
+`"enc":["gzip"]`, and the reply to it `"enc":"gzip"`. To see the old behaviour in the same browser,
+run `delete window.DecompressionStream` in a script that runs before the page's (or the Playwright
+`addInitScript` of `spec/browser/spark_compress.cjs`) and reload: the join announces nothing and every
+frame is text. Measured on the demo app's report component (150 rows, one "Next page" click): 12.1 KB as
+text, 3.0 KB compressed.
 
 ## Client API
 
@@ -600,6 +667,12 @@ once, naming the cause, when the server does not propose a 1 s heartbeat: a comm
 app in a container has to forward that variable. It needs
 `npm i playwright` with a chromium and prints `SKIP` (exit 0) when they are missing; it is not part
 of `crystal spec`. `SPARK_SERVER_CMD`, `CHROMIUM_PATH` and `PLAYWRIGHT_MODULE` adapt it to other setups.
+
+`spec/browser/spark_compress.cjs` (also run by `run.sh`) opens the example app twice, once as a modern
+browser and once with `DecompressionStream` removed, and makes the same clicks on its 150-row report.
+The two tabs must show the same page; the modern one receives binary frames that interleave with text
+replies, the old one text only, and the bytes on the wire are printed. A gzip bomb delivered to the modern tab must
+fail as `patch_failed`, after which the tab rejoins without announcing gzip and keeps working.
 
 `spec/browser/spark_patch.cjs` (run by the same `run.sh`) checks the patch engine in Chromium: with
 two tabs on the example app, a patch lands while the other tab has a half typed value, a caret

@@ -1,5 +1,6 @@
 require "http/server"
 require "http/web_socket"
+require "compress/gzip"
 
 # Runs the block with `Azu::CONFIG.env` switched to *env*.
 def with_spark_env(env : Azu::Environment, &)
@@ -21,16 +22,17 @@ ensure
   server.try(&.close)
 end
 
-# A real WebSocket client that collects the server's text frames.
+# A real WebSocket client that collects the server's frames, in arrival order (text and binary).
 class WsProbe
   getter close_code : HTTP::WebSocket::CloseCode? = nil
 
   def initialize(port : Int32, path : String = "/", origin : String? = nil)
     headers = HTTP::Headers.new
     headers["Origin"] = origin if origin
-    @messages = ::Channel(String).new(256)
+    @messages = ::Channel(String | Bytes).new(256)
     @socket = HTTP::WebSocket.new("127.0.0.1", path, port, headers: headers)
     @socket.on_message { |message| @messages.send(message) }
+    @socket.on_binary { |bytes| @messages.send(bytes.dup) } # the socket reuses its buffer for the next frame
     @socket.on_close do |code, _|
       @close_code = code
       @messages.close
@@ -46,13 +48,22 @@ class WsProbe
     @socket.send(message)
   end
 
-  # Next text frame, or nil when the server closed the socket or *timeout* elapsed.
-  def receive(timeout : Time::Span = 2.seconds) : String?
+  # Next frame of either kind, or nil when the server closed the socket or *timeout* elapsed.
+  def receive_frame(timeout : Time::Span = 2.seconds) : (String | Bytes)?
     select
     when message = @messages.receive?
       message
     when timeout(timeout)
       nil
+    end
+  end
+
+  # Next text frame, or nil when the server closed the socket or *timeout* elapsed. A binary frame
+  # is a failure here: only a client that asked for compressed frames may be sent one.
+  def receive(timeout : Time::Span = 2.seconds) : String?
+    case message = receive_frame(timeout)
+    when Bytes then raise "unexpected binary frame (#{message.size} bytes)"
+    else            message
     end
   end
 
@@ -78,8 +89,18 @@ class SparkSpecClient
     @probe = WsProbe.new(port, "/spark", origin: origin || "http://127.0.0.1:#{port}")
   end
 
+  # Sizes of the binary (compressed) frames received so far, in bytes on the wire.
+  getter binary_sizes = [] of Int32
+
+  # Next frame as JSON. A binary frame is inflated (it is a gzip of the very JSON a text frame
+  # would have carried) and its wire size recorded in `binary_sizes`.
   def frame(timeout : Time::Span = 2.seconds) : JSON::Any?
-    @probe.receive(timeout).try { |text| JSON.parse(text) }
+    case message = @probe.receive_frame(timeout)
+    when Bytes
+      @binary_sizes << message.size
+      JSON.parse(Compress::Gzip::Reader.open(IO::Memory.new(message), &.gets_to_end))
+    when String then JSON.parse(message)
+    end
   end
 
   def send_frame(type : String, **fields) : Int64
@@ -88,8 +109,9 @@ class SparkSpecClient
     id
   end
 
-  def join(snapshot : String? = nil, params : Hash(String, String) = {} of String => String) : Int64
-    send_frame("join", token: @token, snapshot: snapshot, params: params)
+  # *enc* announces the frame encodings this client can decode (`["gzip"]`); nil sends a join as protocol v1.
+  def join(snapshot : String? = nil, params : Hash(String, String) = {} of String => String, enc : Array(String)? = nil) : Int64
+    send_frame("join", token: @token, snapshot: snapshot, params: params, enc: enc)
   end
 
   # *eid* and *gen* are the optional delivery fields of a client that numbers its events.

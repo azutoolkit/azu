@@ -100,6 +100,19 @@ through one polite live region that never takes focus, and a component root is m
 connection state, round trips, patch timings and delivery counters, redacted when traced. The
 [client reference](../reference/spark-client.md#hidden-tabs) has the details and the CSS.
 
+### Compressed frames
+
+A big patch is mostly repeated markup. A browser that can inflate gzip (`DecompressionStream`) says so
+when it joins, and from then on the server sends diffs of 1 KB and more as a single gzipped binary
+frame, when that is smaller: about a quarter of the bytes for a typical table or list. Everything is
+decided per connection, so older clients and browsers without the API keep getting plain text frames,
+byte for byte as before. The client applies frames strictly in the order they arrived, caps what a
+frame may inflate to (1 MiB) while it streams, and falls back to plain frames if one ever fails to
+decode. The threshold is `Azu::Spark.config.compress_threshold` (`0` turns it off). Why this is done in
+Spark and not with the WebSocket `permessage-deflate` extension (Crystal's standard library does not
+implement it), and how to see it in DevTools, is in
+[the client reference](../reference/spark-client.md#compressed-frames).
+
 ### Event delivery
 
 A click or an edit is sent as an *event*, and the connection can break at any moment. Spark numbers
@@ -134,7 +147,8 @@ field are in [the client reference](../reference/spark-client.md#events-and-deli
   Reconnect snapshots are signed, expiring, size limited and bound to the page, its session claims
   and the component classes; anything else is refused with `invalid_snapshot`.
 - **Limits.** Frame size (`max_message_size`), event rate (`events_per_second` / `event_burst`)
-  and idle timeout are enforced per connection.
+  and idle timeout are enforced per connection. A compressed frame may inflate to 1 MiB at most,
+  enforced by the client while it inflates.
 - **The client applies server HTML, on purpose.** A live view works by sending rendered HTML
   that the client morphs into the page, so the client parses what the server sends (static
   analysis tools report this as a DOM XSS sink: the value comes from a WebSocket message).

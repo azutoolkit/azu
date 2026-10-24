@@ -27,6 +27,10 @@ module Azu
       # Largest accepted client frame in bytes
       property max_message_size : Int32 = ENV.fetch("SPARK_MAX_MESSAGE_SIZE", "65536").to_i
 
+      # Smallest diff frame (bytes of JSON) sent compressed to a client that announced `gzip` in its
+      # join; smaller frames, and every frame for other clients, stay text. 0 turns compression off.
+      property compress_threshold : Int32 = ENV.fetch("SPARK_COMPRESS_THRESHOLD", "1024").to_i
+
       # Components (roots and children) a single connection may own
       property max_components : Int32 = ENV.fetch("SPARK_MAX_COMPONENTS", "200").to_i
 

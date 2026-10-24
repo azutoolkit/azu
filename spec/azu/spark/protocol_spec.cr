@@ -1,4 +1,5 @@
 require "../../spec_helper"
+require "compress/gzip"
 
 describe Azu::Spark::Protocol do
   describe "inbound frames" do
@@ -10,6 +11,11 @@ describe Azu::Spark::Protocol do
       frame.token.should eq "t"
       frame.snapshot.should eq "s"
       frame.params.should eq({"q" => "x"})
+    end
+
+    it "parses the optional frame encodings a client can decode, nil for a client that announces none" do
+      Azu::Spark::Protocol::Inbound.from_json(%({"v":1,"type":"join","id":1,"token":"t","enc":["gzip"]})).enc.should eq ["gzip"]
+      Azu::Spark::Protocol::Inbound.from_json(%({"v":1,"type":"join","id":1,"token":"t"})).enc.should be_nil
     end
 
     it "parses an event with a heterogeneous payload and ignores unknown fields" do
@@ -72,6 +78,44 @@ describe Azu::Spark::Protocol do
       JSON.parse(Azu::Spark::Protocol.heartbeat(2)).as_h["type"].as_s.should eq "heartbeat"
       JSON.parse(Azu::Spark::Protocol.redirect(Azu::Spark::Update::Redirect.new("/a", true))).as_h["replace"].as_bool.should be_true
       JSON.parse(Azu::Spark::Protocol.hello(20.seconds, 65536)).as_h["heartbeat"].as_i.should eq 20_000
+    end
+  end
+
+  describe "compressed frames" do
+    inflate = ->(bytes : Bytes) { Compress::Gzip::Reader.open(IO::Memory.new(bytes), &.gets_to_end) }
+    markup = "<li class=\"row\">a fairly repetitive list item</li>" * 200
+
+    it "gzips a frame at or above the threshold into bytes that inflate to exactly the same JSON" do
+      frame = Azu::Spark::Protocol.diff(1, Azu::Spark::Update.new(patches: [Azu::Spark::Update::Patch.new("r", markup)]))
+      bytes = Azu::Spark::Protocol.gzip(frame, 1024).not_nil!
+
+      bytes.size.should be < frame.bytesize // 4
+      inflate.call(bytes).should eq frame
+      Azu::Spark::Protocol.gzip(frame, frame.bytesize).should_not be_nil
+    end
+
+    it "leaves a frame below the threshold as text" do
+      frame = Azu::Spark::Protocol.diff(1, Azu::Spark::Update.new(patches: [Azu::Spark::Update::Patch.new("r", markup)]))
+
+      Azu::Spark::Protocol.gzip(frame, frame.bytesize + 1).should be_nil
+      Azu::Spark::Protocol.gzip("{}", 1).should be_nil # tiny frames never shrink
+    end
+
+    it "does not compress when it would not save bytes" do
+      random = Random::Secure.hex(20) # 40 characters of entropy: the gzip header alone outweighs any gain
+
+      Azu::Spark::Protocol.gzip(random, 1).should be_nil
+    end
+
+    it "never compresses a frame that would inflate past the limit the client enforces" do
+      Azu::Spark::Protocol::MAX_INFLATED.should eq 1_048_576
+      Azu::Spark::Protocol.gzip("x" * (Azu::Spark::Protocol::MAX_INFLATED + 1), 1024).should be_nil
+      Azu::Spark::Protocol.gzip("x" * Azu::Spark::Protocol::MAX_INFLATED, 1024).should_not be_nil
+    end
+
+    it "adds enc to the reply of a join only when it was negotiated" do
+      JSON.parse(Azu::Spark::Protocol.reply(1, enc: "gzip")).as_h["enc"].as_s.should eq "gzip"
+      JSON.parse(Azu::Spark::Protocol.reply(1)).as_h.has_key?("enc").should be_false
     end
   end
 end

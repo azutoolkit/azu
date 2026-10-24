@@ -51,6 +51,42 @@ module SparkDemo
     end
   end
 
+  # A report page of 150 rows: every "Next page" is a patch of about 18 KB of markup, which a client
+  # that announced gzip receives as one compressed binary frame (see docs/reference/spark-client.md).
+  class Ledger < Azu::Spark::Component
+    mountable
+
+    ROWS      = 150
+    CUSTOMERS = ["Acme", "Globex", "Initech", "Umbrella", "Hooli", "Stark", "Wayne", "Wonka", "Soylent", "Tyrell"]
+    STATUSES  = ["paid", "pending", "overdue", "refunded"]
+
+    state page : Int32 = 1, persist: true
+
+    event def turn : Nil
+      self.page += 1
+    end
+
+    def render
+      div class: "card" do
+        h2 "Ledger page #{page}", id: "ledger-page"
+        button "Next page", **spark_click(:turn), id: "ledger-turn"
+        table class: "ledger" do
+          tbody id: "ledger-rows" do
+            ROWS.times do |row|
+              number = page * ROWS + row
+              tr do
+                td "INV-#{(number * 7919 % 100_000).to_s.rjust(5, '0')}"
+                td CUSTOMERS[number % CUSTOMERS.size]
+                td STATUSES[(number * 31) % STATUSES.size]
+                td "$#{(number * 104_729 % 90_000) / 100}.#{(number % 100).to_s.rjust(2, '0')}"
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+
   # A text field the server follows keystroke by keystroke. `edits` counts the events the server
   # applied: typing faster than it answers coalesces, so it ends up below the number of keystrokes
   # while `text` still ends up as the full text.
@@ -141,6 +177,7 @@ module SparkDemo
         <h1>Azu Spark <small id="status"></small></h1>
         #{Azu::Spark.render(Counter, label: "Clicks")}
         #{Azu::Spark.render(Echo)}
+        #{Azu::Spark.render(Ledger)}
         #{Azu::Spark.render(ChatRoom)}
       </body>
       </html>

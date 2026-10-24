@@ -802,7 +802,8 @@ function openSocket() {
   var socket;
   try { socket = new WebSocket(socketUrl()); } catch (e) { return machine.dispatch({ type: "dead", reason: "cannot connect" }); }
   ws = socket;
-  socket.onmessage = function (event) { if (ws === socket) receive(event.data); };
+  socket.binaryType = "arraybuffer";
+  socket.onmessage = function (event) { if (ws === socket) arrive(socket, event.data); };
   socket.onclose = function (event) { if (ws === socket) machine.dispatch({ type: "closed", code: event.code, reason: event.reason }); };
   socket.onerror = function () { /* onclose follows */ };
 }
@@ -833,6 +834,7 @@ function joinRoots(scope) {
     if (joined.has(id)) return;
     joined.add(id);
     var frame = { v: PROTOCOL, type: "join", id: ++nextId, token: root.getAttribute("data-spark-token"), params: pageParams() };
+    if (!plain && typeof DecompressionStream === "function") frame.enc = ["gzip"];
     if (snapshots.has(id)) frame.snapshot = snapshots.get(id);
     joining.set(frame.id, id);
     transmit(frame);
@@ -842,10 +844,53 @@ function joinRoots(scope) {
 
 // ---- incoming frames --------------------------------------------------------------------
 
-function receive(text) {
+// Large diffs may come as binary frames: the gzip of the JSON a text frame would carry (the client
+// announces it can inflate them in its join). Inflating is asynchronous, so every frame waits behind
+// the binary ones before it and frames are applied strictly in the order they arrived. Text frames
+// with nothing ahead of them are handled at once, as ever.
+var INFLATE_MAX = 1048576; // bytes a frame may inflate to: the server never sends more, we never accept more
+var inflating = 0; // frames waiting for, or behind, an inflation
+var behind = Promise.resolve(); // the end of that line
+var plain = false; // a frame could not be read: ask for text frames from now on
+
+function arrive(socket, data) {
+  machine.frame();
+  if (!inflating && typeof data === "string") return receive(data);
+  inflating++;
+  behind = behind.then(function () {
+    return ws === socket && typeof data !== "string" ? inflate(data) : data;
+  }).then(function (text) {
+    if (ws === socket) receive(text, data.byteLength);
+  }).catch(function (error) {
+    if (ws !== socket) return;
+    plain = true;
+    emit("error", { code: "patch_failed", message: String(error && error.message || error) });
+    machine.dispatch({ type: "dead", reason: "unreadable frame" }); // rejoin from the snapshot: the lost diff is not skipped
+  }).then(function () { inflating--; });
+}
+
+// Inflates a gzip frame as a stream and gives up the moment it passes INFLATE_MAX (a bomb is
+// never held in memory whole).
+function inflate(buffer) {
+  var reader = new Blob([buffer]).stream().pipeThrough(new DecompressionStream("gzip")).getReader();
+  var decoder = new TextDecoder();
+  var size = 0;
+  var out = "";
+  return reader.read().then(function step(chunk) {
+    if (chunk.done) return out + decoder.decode();
+    if ((size += chunk.value.length) > INFLATE_MAX) {
+      reader.cancel();
+      throw new Error("compressed frame exceeds " + INFLATE_MAX + " bytes");
+    }
+    out += decoder.decode(chunk.value, { stream: true });
+    return reader.read().then(step);
+  });
+}
+
+function receive(text, wire) {
   var message;
   machine.frame();
-  tally.bytesIn += text.length;
+  tally.bytesIn += wire || text.length;
   try { message = JSON.parse(text); } catch (e) { return; }
   switch (message.type) {
     case "hello":
