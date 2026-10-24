@@ -29,6 +29,12 @@ module Azu
       abstract def clear : Bool
       abstract def size : Int32
 
+      # Removes the keys that start with *prefix*. A store that holds nothing but this cache's entries may remove
+      # everything (the default); a shared store (Redis) removes only the matching keys.
+      def clear_prefix(prefix : String) : Bool
+        clear
+      end
+
       # Overloaded get method with block and TTL support
       # @deprecated Use `fetch` instead for Rails-like cache-aside pattern.
       #   The `get` method with a block is deprecated and will be removed in a future version.
@@ -380,6 +386,29 @@ module Azu
         0
       end
 
+      SCAN_BATCH = 500
+
+      # Deletes the keys that start with *prefix* (SCAN, then UNLINK in batches) and leaves every other key of the
+      # database alone, which `clear` (FLUSHDB) does not.
+      def clear_prefix(prefix : String) : Bool
+        pattern = "#{prefix.gsub(/[\\*?\[\]]/) { |char| "\\#{char}" }}*"
+        cursor = "0"
+        loop do
+          cursor, keys = scan(cursor, pattern)
+          @redis.run("unlink", retry: true, &.command(["UNLINK"] + keys)) unless keys.empty?
+          break if cursor == "0"
+        end
+        true
+      rescue ex
+        Log.for("Azu::Cache::RedisStore").error(exception: ex) { "Failed to clear keys with prefix: #{prefix}" }
+        false
+      end
+
+      private def scan(cursor : String, pattern : String) : {String, Array(String)}
+        reply = @redis.run("scan", retry: true, &.command(["SCAN", cursor, "MATCH", pattern, "COUNT", SCAN_BATCH.to_s])).as(Array)
+        {reply[0].as(String), reply[1].as(Array).map(&.as(String))}
+      end
+
       # INCRBY that gives the key `ttl` only when it has none, in one atomic step: the expiry belongs
       # to the counter's creation and is not renewed by later hits (EXPIRE ... NX needs Redis 7).
       INCREMENT_SCRIPT = <<-LUA
@@ -526,7 +555,9 @@ module Azu
       property? serialize : Bool = true
 
       # Redis-specific configuration
-      property redis_url : String = "redis://localhost:6379/0"
+      # There is no default: `store = "redis"` without a URL (or a `redis_client`) raises when the cache is built, so a
+      # cache never lands on a Redis nobody chose.
+      property redis_url : String? = nil
       property redis_pool_size : Int32 = 5
       property redis_timeout : Int32 = 5
       property redis_operation_timeout : Int32 = 2 # Operation-level timeout in seconds
@@ -556,8 +587,8 @@ module Azu
         @key_prefix = ENV.fetch("CACHE_KEY_PREFIX", "azu")
         @compress = ENV.fetch("CACHE_COMPRESS", "false").downcase == "true"
         @serialize = ENV.fetch("CACHE_SERIALIZE", "true").downcase == "true"
-        # Not `REDIS_URL`: `clear` is FLUSHDB, and that variable often names a Redis used for something else.
-        @redis_url = ENV.fetch("CACHE_REDIS_URL", Azu::Redis::Config::DEFAULT_URL)
+        # Not `REDIS_URL`, which often names the Redis of sessions or a job queue.
+        @redis_url = ENV["CACHE_REDIS_URL"]?.presence
         @redis_pool_size = ENV.fetch("CACHE_REDIS_POOL_SIZE", "5").to_i
         @redis_timeout = ENV.fetch("CACHE_REDIS_TIMEOUT", "5").to_i
         @redis_operation_timeout = ENV.fetch("CACHE_REDIS_OPERATION_TIMEOUT", "2").to_i
@@ -650,10 +681,14 @@ module Azu
         instrumented("exists", key) { @store.exists?(prefixed_key(key)) }
       end
 
-      def clear : Bool
+      # Removes this cache's entries (the keys under `key_prefix`). On Redis the other keys of the database are
+      # left alone; `all: true` empties the whole store instead (FLUSHDB on Redis).
+      def clear(all : Bool = false) : Bool
         return false unless @config.enabled?
 
-        Instrumentation.cache("all", "clear", @config.store) { @store.clear }
+        Instrumentation.cache("all", "clear", @config.store) do
+          all ? @store.clear : @store.clear_prefix("#{@config.key_prefix}:")
+        end
       end
 
       def size : Int32
@@ -763,7 +798,8 @@ module Azu
           if client = @config.redis_client
             RedisStore.new(client, @config.ttl_span)
           else
-            RedisStore.new(@config.redis_url, @config.redis_pool_size, @config.redis_timeout_span, @config.ttl_span, @config.redis_operation_timeout_span)
+            url = @config.redis_url || raise ArgumentError.new("store \"redis\" needs CACHE_REDIS_URL, cache_config.redis_url or cache_config.redis_client: the cache has no default Redis")
+            RedisStore.new(url, @config.redis_pool_size, @config.redis_timeout_span, @config.ttl_span, @config.redis_operation_timeout_span)
           end
         when "null"
           NullStore.new
