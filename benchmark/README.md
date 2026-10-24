@@ -19,7 +19,7 @@ node --test "benchmark/driver/test/*.test.mjs"   # tests of the statistics, the 
 
 Every app serves the same routes and answers with byte-identical bodies and the same media types. The
 expected answers are written down in `benchmark/driver/contract.mjs`, independently of the Crystal fixtures in
-`benchmark/apps/common/bench.cr`. `scripts/bench.sh conformance` (also run before every measurement) requests
+`benchmark/apps/common/bench.cr`. `scripts/bench.sh conformance` (also run before every measurement; it also sends two requests on one keep-alive socket) requests
 every route over a raw socket with exactly the bytes `wrk` sends (request line and `Host`, nothing else: no
 `Accept`, `Accept-Encoding` or `User-Agent`) and diffs status, media type and body. It also asserts the framing
 (a `Content-Length`, not chunked; no `Content-Encoding`; no `Connection: close`), and that the app wrote
@@ -101,7 +101,7 @@ skipped and said so in the result (`--require-all` turns that into a failure).
 6. **Same sockets.** Plain HTTP connections keep the socket defaults in every app. `TCP_NODELAY` is set on
    upgraded (WebSocket) sockets only, because without it a small frame waits about 40 ms for a delayed ACK. Azu does
    that itself (`app.config.websocket.tcp_nodelay`, assigned directly in the app); the baseline and Kemal get the same
-   from a wrapper around `HTTP::Server::Response#upgrade` in `apps/common/bench.cr`. `BENCH_WS_NODELAY=0` turns it off
+   from a wrapper around `HTTP::Server::Response#upgrade` in `apps/common/ws_nodelay.cr` (the Azu app does not load it: its own setting is what is measured). `BENCH_WS_NODELAY=0` turns it off
    for all apps to measure the socket defaults.
 7. **One process per app, same machine, same session, interleaved.** The apps run side by side (idle ones
    cost nothing), and within every repetition each app is measured once, the order rotating, so slow drift of
@@ -133,7 +133,9 @@ skipped and said so in the result (`--require-all` turns that into a failure).
    than `--max-busy` (10 %) over a 2 second sample, or another `crystal`, `shards`, `ameba`, compiler, linker,
    `wrk`-like process running. The load average lags for minutes after a build, so the runner waits up to
    `--wait-quiet` seconds (default 300) for the machine to settle before it refuses, and checks again at the end:
-   a run that was not quiet at the end is marked noisy. `--force` runs anyway and records the reasons in the result.
+   the end-of-run check does not use the load average (the run raised it itself): it looks at CPU used by processes that
+   are not ours during the run, CPU busy for 2 s after the servers stopped, and foreign compiler/load processes. A
+   run that was not quiet is marked noisy; the wait is recorded as `quiet_wait_s`. `--force` runs anyway and records the reasons in the result.
 3. Starts every app (pinned, see below), measures its startup time (a single sample), runs the conformance
    check and drops an app that fails it. The idle RSS is sampled after the conformance requests.
 4. Per scenario: one unrecorded **warmup** run per app (default 3 s), then `--runs` (default 5) measured runs per
@@ -179,9 +181,11 @@ scripts/bench.sh --apps azu,azu-min,azu-rawdb,baseline --scenarios plaintext,db_
   the limit.
 - **Response size**: the Apps table lists the response bytes per scenario and each app's extra header names; apps that
   send more headers send more bytes, which `wrk` counts in its transfer rate but not in requests per second.
+- **Exit status** of `scripts/bench.sh`: 0 success; 1 build/app failure under `--require-all` or `BENCH_REQUIRED`;
+  2 invalid usage; 3 refused, the machine is not quiet; 4 finished with INVALID rows.
 - **Errors**: non-2xx responses and socket errors are counted per row. Any error in a measured run (or a failed
   run) marks the row INVALID, drops it from the "% of baseline" column and makes the run exit with status 4 unless
-  `--allow-errors` is given. Rows with an rsd above 5 % are flagged NOISY. Errors in the warmup are recorded.
+  `--allow-errors` is given. Rows with an rsd above 5 % are flagged NOISY, rows with fewer than 5 runs FEW RUNS (the rsd is not shown below 3). Errors in the warmup are recorded.
 - **Memory** is RSS of the single process, cumulative across the scenarios before it, and includes the garbage
   collector's retained heap: it says how much the process holds, not how much a request needs.
 

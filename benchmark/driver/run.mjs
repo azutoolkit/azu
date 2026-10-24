@@ -69,11 +69,12 @@ export function environment() {
     const content = readFile(path.join(root, p));
     if (content) locks[dir] = crypto.createHash("sha256").update(content).digest("hex").slice(0, 12);
   }
-  const lockChanges = cap("git", ["-C", root, "status", "--porcelain", "--", "benchmark/apps"]) ?.split("\n").filter((l) => l.includes("shard.lock")) || [];
+  const gs = spawnSync("git", ["-c", "safe.directory=*", "-C", root, "status", "--porcelain", "--", "benchmark/apps"], { encoding: "utf8" });
+  const lockChanges = gs.status === 0 ? gs.stdout.split("\n").filter((l) => l.includes("shard.lock")) : null;
   return {
     date: new Date().toISOString(),
     shard_lock_sha256: locks,
-    shard_lock_modified: lockChanges.length ? lockChanges : "no",
+    shard_lock_modified: lockChanges === null ? "unknown (git status failed)" : lockChanges.length ? lockChanges : "no",
     kernel: `${os.type()} ${os.release()}`,
     cpu: model.trim(), cpus: os.cpus().length,
     memory_mb: Math.round(os.totalmem() / 1048576),
@@ -119,9 +120,33 @@ function otherNoisyProcesses() {
   return found;
 }
 
+// CPU time (jiffies) the machine spent in user + system code, and in total, from /proc/stat.
+export function readStat() {
+  const l = (readFile("/proc/stat") || "").split("\n")[0].split(/\s+/).slice(1).map(Number);
+  return { busy: (l[0] || 0) + (l[1] || 0) + (l[2] || 0), total: l.reduce((a, b) => a + b, 0) };
+}
+
+// utime + stime of a process (and, with children, of the children it waited for), in jiffies.
+export function procJiffies(pid, withChildren = false) {
+  const stat = readFile(`/proc/${pid}/stat`);
+  if (!stat) return 0;
+  const f = stat.slice(stat.lastIndexOf(")") + 2).split(" "); // fields after "(comm) state": utime is f[11]
+  const n = (i) => parseInt(f[i], 10) || 0;
+  return n(11) + n(12) + (withChildren ? n(13) + n(14) : 0);
+}
+
+// Percent of the machine's CPU capacity that was used by processes that are not ours between two /proc/stat samples.
+// `ownJiffies` is the CPU time of our own processes (servers, this runner, the wrk children it waited for) in that span.
+export function foreignCpuPct(start, end, ownJiffies) {
+  const total = end.total - start.total;
+  if (total <= 0) return 0;
+  return Math.max(0, ((end.busy - start.busy - ownJiffies) / total) * 100);
+}
+
 // The load average lags behind: right after a build it is high for minutes. Poll until the machine is quiet.
 async function waitUntilQuiet() {
-  const deadline = Date.now() + opts.waitQuiet * 1000;
+  const began = Date.now();
+  const deadline = began + opts.waitQuiet * 1000;
   let q = await assertQuiet();
   if (q.problems.length && opts.waitQuiet > 0) console.error(`waiting up to ${opts.waitQuiet} s for the machine to become quiet (--wait-quiet)`);
   while (q.problems.length && Date.now() < deadline) {
@@ -129,7 +154,19 @@ async function waitUntilQuiet() {
     await sleep(10000);
     q = await assertQuiet();
   }
+  q.waited_s = Math.round((Date.now() - began) / 1000);
   return q;
+}
+
+// The check at the end of a run cannot use the load average (the run itself raised it) or the CPU busy figure of the run:
+// it looks at what the run cannot have caused. Foreign CPU use during the run is computed by the caller (foreignCpuPct).
+async function assertQuietAfter() {
+  const problems = [];
+  const busy = await cpuBusyPct(2000);
+  if (busy > opts.maxBusyPct) problems.push(`CPU ${busy.toFixed(0)}% busy for 2 s after the servers were stopped (limit ${opts.maxBusyPct}%)`);
+  const others = otherNoisyProcesses();
+  if (others.length) problems.push(`other processes that disturb a benchmark are running: ${others.slice(0, 8).join(", ")}`);
+  return problems;
 }
 
 async function assertQuiet() {
@@ -186,9 +223,11 @@ async function startServer(app, port, cpus) {
   const t0 = performance.now();
   const child = spawn(c, args, { env: { ...process.env, PORT: String(port), HOST: "127.0.0.1", BENCH_DB: opts.db, CRYSTAL_ENV: "production", LUCKY_ENV: "production", KEMAL_ENV: "production", BENCH_LOG_LEVEL: "warn" }, stdio: ["ignore", "pipe", "pipe"] });
   let stderr = "";
-  let output = "";
-  child.stderr.on("data", (d) => { stderr = (stderr + d).slice(-2000); output += d; });
-  child.stdout.on("data", (d) => { output += d; });
+  let outBytes = 0; // total bytes written to stdout and stderr
+  let outTail = ""; // the last 2000 characters of them
+  const take = (d) => { outBytes += d.length; outTail = (outTail + d).slice(-2000); };
+  child.stderr.on("data", (d) => { stderr = (stderr + d).slice(-2000); take(d); });
+  child.stdout.on("data", take);
   let exited = null;
   child.on("exit", (code, sig) => { exited = { code, sig }; });
   for (;;) {
@@ -200,8 +239,9 @@ async function startServer(app, port, cpus) {
   const startup_ms = performance.now() - t0;
   // taskset execs the server, so the child pid is the server pid
   // anything written after the server answered (startup banners come before) counts as per-request logging
-  const mark = output.length;
-  return { child, pid: child.pid, port, startup_ms, isExited: () => exited !== null, newOutput: () => output.slice(mark) };
+  const mark = outBytes;
+  const newOutput = () => (outBytes > mark ? outTail.slice(-Math.min(outTail.length, outBytes - mark)) : "");
+  return { child, pid: child.pid, port, startup_ms, isExited: () => exited !== null, newOutput };
 }
 
 function rssKb(pid) {
@@ -241,15 +281,16 @@ async function measure(scenario, srv, seconds, cpus) {
   return wrkRun(scenario, srv.port, seconds, cpus);
 }
 
-function aggregate(runs) {
+export function aggregate(runs) {
   const col = (k) => runs.map((r) => r[k]);
   return {
     runs: runs.length,
     rps: summarize(col("rps")),
     p50_ms: median(col("p50_ms")), p99_ms: median(col("p99_ms")), p99_ms_worst: Math.max(...col("p99_ms")),
     non2xx: runs.reduce((a, r) => a + r.non2xx, 0), socket_errors: runs.reduce((a, r) => a + r.socket_errors, 0),
-    invalid: runs.some((r) => r.non2xx + r.socket_errors > 0),
-    noisy: summarize(col("rps")).rsd_pct > 5,
+    invalid: runs.some((r) => r.non2xx + r.socket_errors > 0 || r.requests === 0),
+    noisy: runs.length >= 3 && summarize(col("rps")).rsd_pct > 5,
+    few_runs: runs.length < 5,
     extra: runs[0].driver_cpu_pct !== undefined ? { driver_cpu_pct_median: median(col("driver_cpu_pct")), round_p50_ms: median(col("round_p50_ms")), round_p99_ms: median(col("round_p99_ms")) } : undefined,
     samples: runs,
   };
@@ -257,6 +298,10 @@ function aggregate(runs) {
 
 // ---------- report ----------
 const fmt = (x, d = 0) => (Number.isFinite(x) ? x.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }) : "n/a");
+
+export function invalidRows(result) {
+  return result.scenarios.flatMap((sc) => sc.results.filter((r) => r.invalid).map((r) => `${sc.name}/${r.app}`));
+}
 
 export function markdown(result) {
   const L = [];
@@ -282,10 +327,10 @@ export function markdown(result) {
     L.push(`| app | ${unit} median | min | max | rsd % | p50 ms | p99 ms (median / worst run) | RSS MiB (peak so far) | errors | % of baseline | flags |`, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|");
     const base = sc.results.find((r) => r.app === "baseline");
     for (const r of sc.results) {
-      if (r.skipped) { L.push(`| ${r.app} | skipped: ${r.skipped} | | | | | | | | | |`); continue; }
+      if (r.skipped) { L.push(`| ${r.app} | skipped: ${r.skipped} | | | | | | | | | ${r.invalid ? "INVALID" : ""} |`); continue; }
       const rel = base && !base.skipped && !base.invalid && !r.invalid ? `${fmt((r.rps.median / base.rps.median) * 100, 0)}` : "";
       const driverBound = r.extra?.driver_cpu_pct_median > 90;
-      const flags = [r.invalid ? "INVALID" : "", r.noisy ? "NOISY (rsd > 5%)" : "", driverBound ? "DRIVER-BOUND" : "", r.extra ? `driver CPU ${fmt(r.extra.driver_cpu_pct_median, 0)}%` : ""].filter(Boolean).join(", ");
+      const flags = [r.invalid ? "INVALID" : "", r.noisy ? "NOISY (rsd > 5%)" : "", r.few_runs ? `FEW RUNS (n=${r.runs})` : "", driverBound ? "DRIVER-BOUND" : "", r.extra ? `driver CPU ${fmt(r.extra.driver_cpu_pct_median, 0)}%` : ""].filter(Boolean).join(", ");
       L.push(`| ${r.app} | ${fmt(r.rps.median)} | ${fmt(r.rps.min)} | ${fmt(r.rps.max)} | ${fmt(r.rps.rsd_pct, 1)} | ${fmt(r.p50_ms, 2)} | ${fmt(r.p99_ms, 2)} / ${fmt(r.p99_ms_worst, 2)} | ${fmt(r.peak_rss_kb / 1024, 1)} | ${r.non2xx + r.socket_errors} | ${rel} | ${flags} |`);
     }
     L.push("");
@@ -305,6 +350,7 @@ async function main() {
   if (cmd === "run") {
     const q = await waitUntilQuiet();
     env.force = opts.force;
+    env.quiet_wait_s = q.waited_s;
     if (q.problems.length) {
       const msg = `the machine is not quiet:\n  - ${q.problems.join("\n  - ")}`;
       if (!opts.force) { console.error(`REFUSING to run: ${msg}\nStop the other work or pass --force (the result is then marked noisy).`); process.exit(3); }
@@ -349,6 +395,8 @@ async function main() {
   await sleep(500);
   for (const a of live) a.idle_rss_kb = rssKb(a.server.pid).rss_kb; // sampled after the conformance requests
 
+  let window0 = null; // CPU accounting at the start of the first scenario, to find foreign CPU use during the run
+  let foreignPct = 0;
   const result = { environment: env, config: { runs: opts.runs, duration: opts.duration, warmup: opts.warmup, connections: opts.connections, threads: opts.threads, ws_clients: opts.wsClients, ws_senders: opts.wsSenders, pinning: cpus.note, label: opts.label }, apps: [], scenarios: [] };
   try {
     for (const sc of scenarios) {
@@ -357,6 +405,7 @@ async function main() {
       const samples = new Map(eligible.map((a) => [a.name, []]));
       // warmup: one unrecorded run per app
       const warmupErrors = new Map();
+      if (!window0) window0 = { stat: readStat(), self: procJiffies(process.pid, true), servers: new Map(live.map((a) => [a.name, procJiffies(a.server.pid)])), at: Date.now() };
       for (const a of eligible) {
         try { const w = await measure(sc, a.server, opts.warmup, cpus); warmupErrors.set(a.name, w.non2xx + w.socket_errors); }
         catch (e) { warmupErrors.set(a.name, 1); console.error(`  warmup ${a.name}: ${e.message}`); }
@@ -377,7 +426,7 @@ async function main() {
         if (!a.server) { rows.push({ app: a.name, skipped: a.status.replace(/^skipped: /, "") }); continue; }
         if (!eligible.includes(a)) { rows.push({ app: a.name, skipped: "no WebSocket support" }); continue; }
         const runs = samples.get(a.name);
-        if (!runs.length) { rows.push({ app: a.name, skipped: "every run failed" }); continue; }
+        if (!runs.length) { rows.push({ app: a.name, skipped: "every run failed", invalid: true }); continue; }
         const agg = aggregate(runs);
         if (runs.length < opts.runs) agg.invalid = true; // a failed run is an error too
         rows.push({ app: a.name, ...agg, warmup_errors: warmupErrors.get(a.name) || 0, ...rssKb(a.server.pid) });
@@ -386,11 +435,17 @@ async function main() {
     }
   } finally {
     result.apps = apps.map(({ server, ...rest }) => rest);
+    if (window0) {
+      const own = procJiffies(process.pid, true) - window0.self + live.reduce((sum, a) => sum + procJiffies(a.server.pid) - (window0.servers.get(a.name) || 0), 0);
+      foreignPct = foreignCpuPct(window0.stat, readStat(), own);
+    }
     for (const a of live) await stopServer(a.server);
   }
-  const after = await assertQuiet();
-  if (after.problems.length) { env.noisy = [...(env.noisy || []), ...after.problems.map((p) => `at the end of the run: ${p}`)]; console.error(`WARNING: the machine was not quiet at the end of the run: ${after.problems.join("; ")}`); }
-  const invalid = result.scenarios.flatMap((sc) => sc.results.filter((r) => r.invalid).map((r) => `${sc.name}/${r.app}`));
+  const problems = await assertQuietAfter();
+  if (foreignPct > opts.maxBusyPct) problems.unshift(`processes that are not ours used ${foreignPct.toFixed(0)}% of the CPU during the run (limit ${opts.maxBusyPct}%)`);
+  env.foreign_cpu_pct = +foreignPct.toFixed(1);
+  if (problems.length) { env.noisy = [...(env.noisy || []), ...problems.map((p) => `at the end of the run: ${p}`)]; console.error(`WARNING: the run was not quiet: ${problems.join("; ")}`); }
+  const invalid = invalidRows(result);
   result.invalid_rows = invalid;
   fs.mkdirSync(opts.out, { recursive: true });
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "Z");

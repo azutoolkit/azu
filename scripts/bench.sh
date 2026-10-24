@@ -31,6 +31,10 @@
 #   --allow-errors    accept a run with INVALID rows (non-2xx, socket errors, failed runs); default: exit 4
 #   --result-file F   also write the result path to F
 #
+# Exit status: 0 success; 1 an app or a build failed under --require-all/BENCH_REQUIRED, or an internal error;
+# 2 invalid usage; 3 refused because the machine is not quiet; 4 the run finished but has INVALID rows (errors or
+# failed runs; see --allow-errors).
+#
 # Environment: BENCH_CRYSTAL / BENCH_SHARDS name the compiler and shards commands (default crystal, shards).
 # Needs: crystal 1.19.1+, wrk, node 22+, sqlite3 CLI, libmagic (Athena), and git access for `shards install`.
 # The load generator and the apps share the machine: results are only comparable within one session.
@@ -38,7 +42,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 cmd=run
-case "${1:-}" in env|build|conformance|run) cmd=$1; shift ;; -h|--help) sed -n '2,36p' "$0"; exit 0 ;; esac
+case "${1:-}" in env|build|conformance|run) cmd=$1; shift ;; -h|--help) sed -n '2,41p' "$0"; exit 0 ;; esac
 
 build=1 reseed=0
 passthru=()
@@ -46,7 +50,7 @@ for a in "$@"; do
   case "$a" in
     --no-build) build=0 ;;
     --reseed) reseed=1 ;;
-    -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,41p' "$0"; exit 0 ;;
     *) passthru+=("$a") ;;
   esac
 done
@@ -61,25 +65,29 @@ if [ "$cmd" = env ]; then exec node "$runner" env; fi
 
 build_apps() {
   command -v "$crystal" >/dev/null || { echo "no Crystal compiler ($crystal): set BENCH_CRYSTAL" >&2; return 1; }
-  local failed=0 name dir flags
+  local plan failed=0 name dir flags
+  # not `done < <(...)`: a failing plan must stop the script, and a process substitution hides its exit status
+  plan=$(node "$runner" plan ${passthru[@]+"${passthru[@]}"})
   while IFS=$'\t' read -r name dir flags; do
+    [ -n "$name" ] || continue
     echo "== build $name" >&2
+    # a subshell on the left of || runs with set -e off: every command ends in || exit 1
     (
-      cd "benchmark/apps/$dir"
+      cd "benchmark/apps/$dir" || exit 1
       # the shard.lock files pin every version; --frozen refuses to change them
       if [ -n "${BENCH_REQUIRED:-}" ] || [ -n "${CI:-}" ]; then
         # a pin that cannot be honoured is an error, not something to repair silently
-        $shards install --frozen --ignore-crystal-version >&2
-      else
-        $shards install --frozen --ignore-crystal-version >&2 \
-          || { echo "WARNING: $dir/shard.lock does not match shard.yml; installing without --frozen (the result records the lock hash and changes)" >&2; $shards install --ignore-crystal-version >&2; }
+        $shards install --frozen --ignore-crystal-version >&2 || exit 1
+      elif ! $shards install --frozen --ignore-crystal-version >&2; then
+        echo "WARNING: $dir/shard.lock does not match shard.yml; installing without --frozen (the result records the lock hash and changes)" >&2
+        $shards install --ignore-crystal-version >&2 || exit 1
       fi
-      mkdir -p bin
+      mkdir -p bin || exit 1
       # shellcheck disable=SC2086
-      $crystal build --release --no-debug $flags -o "bin/$name" src/app.cr >&2
+      $crystal build --release --no-debug $flags -o "bin/$name" src/app.cr >&2 || exit 1
     ) || { echo "SKIP $name: build failed" >&2; failed=1; }
-  done < <(node "$runner" plan ${passthru[@]+"${passthru[@]}"})
-  if [ "$failed" = 1 ] && [ -n "${BENCH_REQUIRED:-}" ]; then return 1; fi
+  done <<< "$plan"
+  if [ "$failed" = 1 ] && [ -n "${BENCH_REQUIRED:-}${CI:-}" ]; then return 1; fi
   return 0
 }
 

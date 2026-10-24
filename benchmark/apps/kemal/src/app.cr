@@ -3,6 +3,7 @@ require "kemal"
 require "db"
 require "sqlite3"
 require "../../common/bench"
+require "../../common/ws_nodelay"
 
 module KemalApp
   DB      = ::DB.open(Bench::DB_URI)

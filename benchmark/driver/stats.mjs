@@ -22,7 +22,7 @@ export function rsd(xs) {
 }
 
 export function summarize(xs) {
-  return { n: xs.length, median: median(xs), min: Math.min(...xs), max: Math.max(...xs), mean: mean(xs), stddev: stddev(xs), rsd_pct: rsd(xs) };
+  return { n: xs.length, median: median(xs), min: Math.min(...xs), max: Math.max(...xs), mean: mean(xs), stddev: stddev(xs), rsd_pct: xs.length < 3 ? NaN : rsd(xs) }; // a spread of fewer than 3 samples says nothing
 }
 
 const UNIT = { us: 1e-3, ms: 1, s: 1000, m: 60000 };

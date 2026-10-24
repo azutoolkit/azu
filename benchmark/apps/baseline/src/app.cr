@@ -5,6 +5,7 @@ require "ecr"
 require "db"
 require "sqlite3"
 require "../../common/bench"
+require "../../common/ws_nodelay"
 
 module BaselineApp
   DB           = ::DB.open(Bench::DB_URI)
