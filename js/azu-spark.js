@@ -631,6 +631,7 @@ function failed(message) {
 // changed the value.
 
 var frame = []; // jobs for the next frame: {id?, run}
+var fallback = 0; // the timer that flushes when no animation frame comes
 var composing = null; // the element an IME is composing in
 var touched = new WeakSet(); // <details>/<dialog> the user opened or closed
 var served = new WeakMap(); // <details>/<dialog> -> the `open` the server sent last
@@ -639,7 +640,7 @@ function later(job) {
   frame.push(job);
   if (frame.length > 1) return;
   window.requestAnimationFrame(flushPatches);
-  setTimeout(flushPatches, 50); // a hidden tab gets no animation frames
+  fallback = setTimeout(flushPatches, 50); // a hidden tab gets no animation frames (and throttled timers: see visibilitychange)
 }
 
 function afterPatches(work) {
@@ -661,14 +662,17 @@ export function applyPatch(id, html) {
  * @returns {void}
  */
 export function flushPatches() {
+  clearTimeout(fallback); // a stale timer must not flush the next batch early
   var jobs = frame;
   frame = [];
   if (jobs.length === 0) return;
-  var kept = remember(jobs.map(function (job) { return job.id === undefined ? null : byId(job.id); }).filter(Boolean));
-  jobs.forEach(function (job) {
-    try { job.run(); } catch (e) { emit("error", { code: "patch_failed", message: String(e && e.message || e) }); }
-  });
-  recall(kept);
+  var kept = { scrolls: [], focus: null };
+  var guard = function (work) {
+    try { work(); } catch (e) { emit("error", { code: "patch_failed", message: String(e && e.message || e) }); }
+  };
+  guard(function () { kept = remember(jobs.map(function (job) { return job.id === undefined ? null : byId(job.id); }).filter(Boolean)); });
+  jobs.forEach(function (job) { guard(job.run); });
+  guard(function () { recall(kept); });
 }
 
 // Layout reads, all before the first write: scroll offsets inside the patched components, and the
@@ -715,7 +719,7 @@ function patchNow(id, html) {
   var element = byId(id);
   if (!element) return;
   var fragment = parsePatch(html);
-  sanitize(fragment, element.closest("[data-spark-allow-scripts]") !== null);
+  sanitize(fragment, element.closest("[" + OPT_IN + "]") !== null);
   // Child components that did not change are not part of this patch: keep their live elements.
   var live = new Map();
   Array.prototype.forEach.call(element.querySelectorAll("[data-spark-id]"), function (child) {
@@ -742,7 +746,12 @@ function trusted(html) {
   if (types !== policyFor) {
     policyFor = types;
     policy = null;
-    try { policy = types ? types.createPolicy("azu-spark", { createHTML: function (value) { return value; } }) : null; } catch (e) { /* the page's CSP does not list azu-spark */ }
+    try {
+      policy = types ? types.createPolicy("azu-spark", { createHTML: function (value) { return value; } }) : null;
+    } catch (e) {
+      // Not listed in the CSP trusted-types directive, or the name is taken (the script was loaded twice).
+      if (window.console) console.warn("azu-spark: cannot create the Trusted Types policy 'azu-spark': " + e.message);
+    }
   }
   return policy ? policy.createHTML(html) : html;
 }
@@ -798,6 +807,12 @@ function revive(old) {
   } catch (e) { old.remove(); }
 }
 
+// A form that posts to another origin would hand the user's data away: only this origin is a target.
+function foreignTarget(name, value) {
+  if (name !== "action" && name !== "formaction") return false;
+  try { return new URL(value, document.baseURI).origin !== location.origin; } catch (e) { return true; }
+}
+
 /**
  * Removes blocked elements, event handler attributes and script URLs from *root*, in place.
  * @param {ParentNode} root
@@ -813,7 +828,7 @@ export function sanitize(root, scripts) {
   Array.prototype.forEach.call(root.querySelectorAll("*"), function (node) {
     Array.prototype.slice.call(node.attributes).forEach(function (attr) {
       var name = attr.name.toLowerCase();
-      if (name.indexOf("on") === 0 || name === "srcdoc" ||
+      if (name.indexOf("on") === 0 || name === "srcdoc" || name === OPT_IN || foreignTarget(name, attr.value) ||
           (URL_ATTRIBUTES.indexOf(name) >= 0 && scriptUrl(attr.value, name))) node.removeAttribute(attr.name);
     });
   });
@@ -821,7 +836,7 @@ export function sanitize(root, scripts) {
 
 function keyOf(node) {
   if (node.nodeType !== 1) return null;
-  var key = node.getAttribute("data-spark-id") || node.getAttribute("data-spark-key") || node.id;
+  var key = node.getAttribute("data-spark-id") || node.getAttribute("data-spark-key") || node.getAttribute("id"); // not .id: <input name=id> clobbers it
   return key ? node.nodeName + "\0" + key : null;
 }
 
@@ -857,6 +872,10 @@ function place(parent, node, ref) {
 // Children match by key (data-spark-id, data-spark-key, id), unkeyed ones by position; a key that
 // is gone is inserted, a node nobody wants is removed, and only nodes outside the longest
 // already-ordered run move.
+function sameKind(a, b) {
+  return a.nodeType === b.nodeType && a.nodeName === b.nodeName;
+}
+
 function morphChildren(from, to, live) {
   var old = Array.prototype.slice.call(from.childNodes);
   var wanted = Array.prototype.slice.call(to.childNodes);
@@ -870,15 +889,21 @@ function morphChildren(from, to, live) {
     if (key === null) loose.push(node); else if (!keyed.has(key)) keyed.set(key, node);
   });
   var claimed = new Set();
-  var matches = wanted.map(function (want) {
+  var matches = wanted.map(function (want, i) {
     var key = keyOf(want);
     var node = null;
     if (key !== null) {
       node = keyed.get(key) || null;
       keyed.delete(key);
       if (want.hasAttribute("data-spark-slot") && live.has(want.getAttribute("data-spark-id"))) node = live.get(want.getAttribute("data-spark-id"));
-    } else if (loose[next] && loose[next].nodeType === want.nodeType && loose[next].nodeName === want.nodeName) {
-      node = loose[next++];
+    } else {
+      // A mismatch is an insertion when the following wanted node fits the old node, else a deletion: skip what the server dropped.
+      var from = next;
+      var after = wanted.slice(i + 1).filter(function (w) { return keyOf(w) === null; })[0];
+      if (!(loose[next] && after && sameKind(loose[next], after))) {
+        while (from < loose.length && !sameKind(loose[from], want)) from++;
+      }
+      if (from < loose.length && sameKind(loose[from], want)) { node = loose[from]; next = from + 1; }
     }
     if (node) claimed.add(node);
     return node;
@@ -919,6 +944,7 @@ function morphNode(from, to, live) {
 // Attributes that only seed a property the user then changes (value, checked, selected).
 var SEEDS = { INPUT: ["value", "checked"], OPTION: ["selected"] };
 var OPENABLE = /^(DETAILS|DIALOG)$/;
+var OPT_IN = "data-spark-allow-scripts";
 
 function morphAttributes(from, to) {
   var names = new Set();
@@ -930,7 +956,7 @@ function morphAttributes(from, to) {
   names.forEach(function (name) {
     var was = from.getAttribute(name);
     var now = to.getAttribute(name);
-    if (was === now || (openable && name === "open")) return;
+    if (was === now || (openable && name === "open") || name === OPT_IN) return; // the opt-in is the mount's, never a patch's
     var seeds = (SEEDS[from.nodeName] || []).indexOf(name) >= 0;
     // Typing wins: a focused or composing control keeps its text, and gets the server's value in a later patch.
     if (seeds && name === "value" && busy(from) && from.value !== (now || "")) return;
@@ -961,6 +987,7 @@ function watchUser() {
   var mark = function (event) { touched.add(event.target); };
   document.addEventListener("toggle", mark, true);
   document.addEventListener("close", mark, true);
+  document.addEventListener("visibilitychange", flushPatches); // background timers are throttled
   document.addEventListener("compositionstart", function (event) { composing = event.target; }, true);
   document.addEventListener("compositionend", function () { composing = null; }, true);
 }

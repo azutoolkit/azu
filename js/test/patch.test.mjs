@@ -81,6 +81,129 @@ describe("keyed matching", () => {
   });
 });
 
+describe("review fixes", () => {
+  it("keys by the id attribute, not by a form control named id", () => {
+    page.innerHTML = '<form><input name="id" value="1"></form><form><input name="id" value="2"></form>';
+    const [f1, f2] = nodes("form");
+    patch('<form><input name="id" value="1"></form><form><input name="id" value="2"></form><form><input name="id" value="3"></form>');
+    assert.deepEqual(nodes("form").slice(0, 2), [f1, f2]);
+    assert.equal(nodes("form").length, 3);
+  });
+
+  it("does not let a patch grant itself script rights", () => {
+    page.innerHTML = '<div id="w"><p>x</p></div>';
+    patch('<div id="w" data-spark-allow-scripts><p>x</p><script>window.__ran = 7</script></div>');
+    assert.equal(document.getElementById("w").hasAttribute("data-spark-allow-scripts"), false);
+    assert.equal(page.querySelector("script"), null);
+    assert.equal(window.__ran, undefined);
+  });
+
+  it("keeps the opt-in the server rendered at mount when a patch does not mention it", () => {
+    page.innerHTML = '<div id="w" data-spark-allow-scripts><p>x</p></div>';
+    patch('<div id="w"><p>y</p></div>');
+    assert.equal(document.getElementById("w").hasAttribute("data-spark-allow-scripts"), true);
+  });
+
+  it("settles jobs and keeps the queue even when reading the layout throws", () => {
+    page.innerHTML = "<p>a</p>";
+    const ran = [];
+    spark.applyPatch("c", "<p>b</p>");
+    const original = window.Element.prototype.querySelectorAll;
+    let calls = 0;
+    page.querySelectorAll = function (...args) { if (calls++ === 0) throw new Error("layout"); return original.apply(this, args); };
+    try { spark.flushPatches(); } finally { delete page.querySelectorAll; }
+    assert.equal(page.textContent, "b", "the patch still applied");
+    ran.push(1);
+  });
+
+  it("flushes queued patches when the tab becomes visible", () => {
+    page.innerHTML = "<p>a</p>";
+    const raf = window.requestAnimationFrame;
+    window.requestAnimationFrame = () => 1;
+    try {
+      spark.applyPatch("c", "<p>b</p>");
+      document.dispatchEvent(new window.Event("visibilitychange"));
+      assert.equal(page.textContent, "b");
+    } finally { window.requestAnimationFrame = raf; }
+  });
+
+  it("drops off-origin form actions", () => {
+    patch('<form action="https://evil.test/x"><button formaction="//evil.test/y">go</button></form><form action="/ok"></form>');
+    const [bad, good] = nodes("form");
+    assert.equal(bad.hasAttribute("action"), false);
+    assert.equal(bad.querySelector("button").hasAttribute("formaction"), false);
+    assert.equal(good.getAttribute("action"), "/ok");
+  });
+
+  it("reports patch_failed when the policy is missing and the parser refuses strings", () => {
+    const Parser = globalThis.DOMParser;
+    const errors = [];
+    const hear = (e) => errors.push(e.detail);
+    document.addEventListener("spark:error", hear);
+    globalThis.DOMParser = class { parseFromString(value, type) { if (typeof value === "string") throw new TypeError("This document requires 'TrustedHTML' assignment."); return new Parser().parseFromString(value, type); } };
+    try {
+      page.innerHTML = "<p>old</p>";
+      patch("<p>new</p>");
+    } finally { globalThis.DOMParser = Parser; document.removeEventListener("spark:error", hear); }
+    assert.equal(page.textContent, "old");
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].code, "patch_failed");
+  });
+
+  it("warns, once, and carries on when the policy name is taken (script loaded twice)", () => {
+    const warnings = [];
+    const warn = console.warn;
+    console.warn = (...a) => warnings.push(a.join(" "));
+    window.trustedTypes = { createPolicy() { throw new TypeError("Policy with name azu-spark already exists"); } };
+    try { patch("<p>1</p>"); patch("<p>2</p>"); } finally { console.warn = warn; }
+    assert.equal(page.textContent, "2");
+    assert.equal(warnings.length, 1);
+  });
+
+  it("falls back to insertBefore when moveBefore throws", () => {
+    page.innerHTML = '<i id="x"></i><i id="y"></i><i id="z"></i>';
+    page.moveBefore = () => { throw new Error("nope"); };
+    try { patch('<i id="z"></i><i id="x"></i><i id="y"></i>'); } finally { delete page.moveBefore; }
+    assert.deepEqual(nodes("i").map((n) => n.id), ["z", "x", "y"]);
+  });
+
+  it("does not recreate later unkeyed siblings after a type mismatch", () => {
+    page.innerHTML = "<p>a</p><span>b</span><em>c</em>";
+    const [, span, em] = [...page.children];
+    patch("<span>b</span><em>c</em>");
+    assert.deepEqual([...page.children], [span, em]);
+  });
+
+  it("keeps the form being typed in when a new element is inserted ahead of it", () => {
+    page.innerHTML = '<form><input name="q"></form><div class="footer">f</div>';
+    const [form, footer] = [...page.children];
+    form.firstChild.value = "typing";
+    patch('<div class="flash">new</div><form><input name="q"></form><div class="footer">f</div>');
+    assert.equal(page.children[1], form);
+    assert.equal(page.children[2], footer);
+    assert.equal(form.firstChild.value, "typing");
+    assert.equal(page.children[0].className, "flash");
+  });
+
+  it("tolerates duplicate keys: the second one is new, nothing is lost", () => {
+    page.innerHTML = '<i id="d">1</i><i id="d">2</i>';
+    patch('<i id="d">1</i><i id="d">2</i><i id="d">3</i>');
+    assert.deepEqual(nodes("i").map((n) => n.textContent), ["1", "2", "3"]);
+  });
+
+  it("removes srcdoc, SVG links, animate targets and the content of nested templates", () => {
+    patch('<iframe srcdoc="x"></iframe><div srcdoc="y"></div><svg><a xlink:href="javascript:x()"><text>t</text></a><animate attributeName="href" values="javascript:x()"></animate></svg><template><a href="javascript:x()" onclick="x()">t</a></template>');
+    assert.equal(page.querySelector("iframe"), null);
+    assert.equal(page.querySelector("div").hasAttribute("srcdoc"), false);
+    const link = page.querySelector("svg a");
+    assert.ok(!link.hasAttribute("xlink:href") && !link.getAttributeNS("http://www.w3.org/1999/xlink", "href"));
+    assert.equal(page.querySelector("animate"), null);
+    const inner = page.querySelector("template").content.querySelector("a");
+    assert.equal(inner.hasAttribute("href"), false);
+    assert.equal(inner.hasAttribute("onclick"), false);
+  });
+});
+
 describe("attributes and form state", () => {
   it("syncs attributes, boolean attributes and data-*", () => {
     page.innerHTML = '<button class="a" disabled data-x="1" hidden>go</button>';
@@ -341,11 +464,13 @@ describe("Trusted Types", () => {
   });
 
   it("never uses innerHTML on live nodes to patch", () => {
-    const descriptor = Object.getOwnPropertyDescriptor(window.Element.prototype, "innerHTML");
-    if (!descriptor || !descriptor.set) return;
+    let owner = window.Element.prototype;
+    while (owner && !Object.getOwnPropertyDescriptor(owner, "innerHTML")) owner = Object.getPrototypeOf(owner);
+    assert.ok(owner, "the DOM under test has an innerHTML setter to watch");
+    const descriptor = Object.getOwnPropertyDescriptor(owner, "innerHTML");
     let used = 0;
-    Object.defineProperty(window.Element.prototype, "innerHTML", { ...descriptor, set(v) { used++; return descriptor.set.call(this, v); } });
-    try { patch("<p>q</p>"); } finally { Object.defineProperty(window.Element.prototype, "innerHTML", descriptor); }
+    Object.defineProperty(owner, "innerHTML", { ...descriptor, set(v) { used++; return descriptor.set.call(this, v); } });
+    try { patch("<p>q</p>"); } finally { Object.defineProperty(owner, "innerHTML", descriptor); }
     assert.equal(used, 0);
   });
 });
