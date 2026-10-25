@@ -113,8 +113,14 @@ stripped of control characters (`Azu::LogText.safe`, also used by `Handler::Logg
 (with its exception and backtrace): that includes deliberate `503`/`504`s you raise yourself. An unexpected exception is `error` as before. The
 response status and body are unchanged. If you alert on `warn`/`error` lines for 404s, watch the request log (`Handler::Logger`) instead.
 
-**The global shim is deprecated.** `include Azu`, `configure` and `start` still work, and log one warning per
-process (at the first call, not when requiring azu) that names `Azu::App`.
+**`include Azu` is a supported facade, and `Azu::App` can start itself.** `include Azu`, `configure` and `Azu::CONFIG`
+are the single-app facade (global configuration, one app per process); they are not deprecated and log no warning.
+`Azu.warn_global_shim` and `Azu.reset_shim_warning` are gone (nothing calls them). `Azu::App#start` serves an app built as
+a value with the lifecycle the facade used (prepare, bind, SIGINT/SIGTERM, drain, `Azu.shutdown`), and `MyApp.start` is now
+`Azu::App.default.start`, one code path. New: `App#start(handlers, signals:, teardown:)`, `#running?`, `#address`,
+`#prepare`, `App::AlreadyRunning`. Differences for facade users: `start` raises `AlreadyRunning` when called twice on a
+running app; a SIGINT/SIGTERM now stops every app started with `start`; `Azu.shutdown` runs when the last of them stops.
+Reference: [App](api/app.md).
 
 **Per-app leftovers.** Building a configuration no longer applies its `i18n` settings to the process-wide
 `Helpers::I18n` (`I18nConfiguration#apply` does, called when an app builds its server, and it passes on only the settings that

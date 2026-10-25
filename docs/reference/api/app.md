@@ -1,0 +1,120 @@
+# App Reference
+
+`Azu::App` is an application as a value: its own configuration, router, handler chain and lifecycle. Two of them
+can live in one process. `include Azu` is the supported single-app facade over the same class: it drives
+`Azu::App.default`, the app built around the global `Azu::CONFIG`.
+
+```crystal
+require "azu"
+
+app = Azu::App.new
+app.config.port = 3000
+app.routes { get "/hello", HelloEndpoint }
+
+app.start # serves until SIGINT/SIGTERM or app.stop
+```
+
+## start
+
+```crystal
+app.start                                   # Azu::App#default_handlers
+app.start(handlers)                         # the array, exactly as given
+app.start(signals: false, teardown: false)  # embedded in a program (or a spec) that manages both itself
+```
+
+`start(handlers = default_handlers, *, signals = true, teardown = true) : Nil` blocks until the app stops. It does, in order:
+
+1. `prepare`: the async log pipeline, the upload temp directory and its cleanup, and the `azu/dev` hooks. When the
+   environment is the default (`CRYSTAL_ENV` not set, see [Environments](../configuration/environments.md#the-default-environment))
+   it logs one INFO line saying so and where the server listens.
+2. Builds the server for the handlers (`App#server`) and records them in `config.handlers`.
+3. Binds `config.host`:`config.port`, over TLS when `config.tls?`. A bind error is raised to the caller.
+4. With `signals: true`, traps SIGINT and SIGTERM. A signal stops **every** app started with `start` (they are
+   process-wide, there is one trap, not one per app): requests are refused with a `503`, open WebSockets get a close frame
+   `1001`, streaming responses see `Azu.shutdown_signal` close, and the servers close. The default handler is restored
+   as soon as a signal arrives, so a second signal ends the process; it is also restored when the last app stops.
+5. Listens. When the server closes (a signal, or `stop`) it waits up to `config.shutdown_timeout` for the requests in
+   flight and logs a warning when some were dropped.
+6. With `teardown: true`, once the **last** app started this way has stopped, runs `Azu.shutdown`: Spark connections,
+   presence, PubSub, the hooks registered with `Azu.on_shutdown` (in reverse order; `azu/cql` registers the closing of
+   the database pools) and the shared Redis pools. These parts are process-wide, which is why one app stopping while
+   another still runs leaves them alone.
+
+Calling `start` on an app that is running raises `Azu::App::AlreadyRunning`.
+
+| Method | |
+|---|---|
+| `stop(timeout = config.shutdown_timeout) : Bool` | Refuses new requests, closes the server and waits for the requests in flight. `true` when none was dropped. `start` returns afterwards. Safe to call twice |
+| `running? : Bool` | True from `start` until it returns |
+| `address : Socket::IPAddress?` | Where the server listens, once bound; with `config.port = 0` the port the system picked |
+| `begin_shutdown`, `draining?`, `drain(timeout)` | The pieces `stop` is made of |
+| `prepare : Nil` | What `start` does before it binds; `Azu.prepare` is `App.default.prepare` |
+
+An app on an ephemeral port, as the specs of Azu run it:
+
+```crystal
+app = Azu::App.new
+app.config.host = "127.0.0.1"
+app.config.port = 0
+app.routes { get "/hello", HelloEndpoint }
+
+spawn { app.start(signals: false, teardown: false) }
+sleep 10.milliseconds until app.address
+address = app.address.not_nil!
+
+HTTP::Client.get("http://#{address.address}:#{address.port}/hello")
+app.stop
+```
+
+## Several apps in one process
+
+Each `Azu::App` has its own configuration and router, so two can listen on two ports with different routes. Their
+handler chains are separate: build new handler instances for each (a handler belongs to one chain), which
+`default_handlers` does. What stays shared is listed in [Migrate to 0.6](../../how-to/migrate-to-0.6.md#still-shared-between-apps):
+`Channel.ws`, PubSub, Spark connections, `QueryStore`, the helper and i18n registries.
+
+## Mounting
+
+`mount` serves another app below a prefix of this one. Only the app that owns the server is started; the mounted
+app's routes are reached through its router, with its own configuration, and it is **not** started on its own:
+
+```crystal
+admin = Azu::App.new
+admin.routes { get "/users", UsersEndpoint }
+
+app = Azu::App.new
+app.routes { mount admin, at: "/admin" } # GET /admin/users
+app.start
+```
+
+An app can be mounted once. `Endpoint.path` includes the prefix. See [Router](router.md).
+
+## The include Azu facade
+
+```crystal
+module MyApp
+  include Azu
+
+  configure { |config| config.port = 3000 }
+end
+
+MyApp.start # Azu::App.default.start
+```
+
+`include Azu` is supported, not deprecated: it logs no warning and nothing about it is scheduled for removal. It is the
+shortest way to run one application. `MyApp.start` and `MyApp.start(handlers)` are `Azu::App.default.start` with the
+default arguments, so there is one lifecycle and one code path. Its limits are what the name says:
+
+- `configure`, `MyApp.config` and `Azu::CONFIG` are the one global configuration. A process has one facade app; run a
+  second application as an `Azu::App.new` and `start` it.
+- The endpoint verb macros (`get "/x"` inside an endpoint) register on that global app.
+- The facade does not pass `signals:` or `teardown:`; call `Azu::App.default.start(handlers, signals: false)` for those.
+
+Everything on this page works on `Azu::App.default` too (`Azu::App.default.stop`, `.address`, `.running?`).
+
+## See Also
+
+- [Core API](core.md)
+- [Router](router.md)
+- [Environments](../configuration/environments.md)
+- [Testing](testing.md): drive an app in process, without a socket

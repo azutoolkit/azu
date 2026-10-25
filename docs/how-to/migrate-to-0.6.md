@@ -2,9 +2,10 @@
 
 0.6 makes an application a value: `Azu::App` owns a configuration and a router, and nothing starts
 when you `require "azu"`. The global shim (`include Azu`, `configure`, `Azu::CONFIG`, the endpoint
-verb macros) still works and drives `Azu::App.default`, but it is deprecated: the first call to
-`configure` or `start` logs one warning per process naming `Azu::App`. This page shows each old
-form next to its replacement. The full list of behaviour changes is in
+verb macros) is a supported single-app facade: it drives `Azu::App.default`, logs no warning and is not
+scheduled for removal. It keeps one global configuration, so a process has one facade app; move to
+`Azu::App` when you need a second app, a configuration that is not global, or an app you start from code.
+This page shows each old form next to its replacement. The full list of behaviour changes is in
 [breaking changes](../reference/breaking-changes.md).
 
 ## Configuration
@@ -117,26 +118,24 @@ new ones for every app.
 
 ## Start and shutdown
 
-Before, `MyApp.start` bound the port, trapped signals and blocked. With an app you do those steps:
+Before, only `MyApp.start` bound the port, trapped signals and blocked, so an app built as a value had to repeat those
+steps by hand. `Azu::App#start` does them, and `MyApp.start` is `Azu::App.default.start`:
 
 ```crystal
 require "azu"
 
 app = Azu::App.new
-server = app.server(app.default_handlers)
-server.bind_tcp app.config.host, app.config.port
-
-Signal::TERM.trap do
-  app.stop
-end
-
-Azu.prepare
-server.listen
-Azu.shutdown
+app.config.port = 3000
+app.start
 ```
 
 `app.stop(timeout)` stops accepting connections and waits for the requests in flight, up to
-`config.shutdown_timeout`. `MyApp.start` still does all of this for `Azu::App.default`.
+`config.shutdown_timeout`; `start` returns afterwards, after `Azu.shutdown` (database pools, Redis, `Azu.on_shutdown`
+hooks) when it was the last app running. See [App](../reference/api/app.md#start) for `signals:` and `teardown:`, and for
+several apps in one process.
+
+If you built the server yourself (`app.server`, `bind_tcp`, `listen`), that keeps working; you call `Azu.prepare`,
+`Signal::TERM.trap { app.stop }` and `Azu.shutdown` yourself, as before.
 
 ## Logging
 
@@ -188,7 +187,6 @@ validations.
 These are process-wide in 0.6 and are not per app: the endpoint verb macros, `Channel.ws`, the PubSub
 backend, Spark connections, `QueryStore`, the helper and i18n registries (the last app to build a
 server applies the `i18n` settings that differ from the defaults, and an explicit
-`Azu::Helpers::I18n.configure` is never overwritten), `Azu.prepare` and `Azu.shutdown` (they use the global
-`Azu::CONFIG`), the dev handlers' `log:` default, and `Handler::Static`
+`Azu::Helpers::I18n.configure` is never overwritten), `Azu.shutdown` (and `Azu.prepare`, which prepares `Azu::App.default`), the dev handlers' `log:` default, and `Handler::Static`
 when built by hand (its `cache_max_age` defaults to the global configuration; `app.default_handlers`
 passes the app's).

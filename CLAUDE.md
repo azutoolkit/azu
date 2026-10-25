@@ -41,7 +41,7 @@ src/azu/
 ├── azu.cr              # Core module & startup
 ├── env.cr              # Azu::Env: `.env` loading, typed ENV accessors, `secret` (random outside production, error in production); standalone (`require "azu/env"`), no work at require time (`.env` files skip the CLI's denylist, i.e. LD_*/PATH/HOME/CRYSTAL_*/GIT_*/compiler and *FLAGS/proxy/cert/locale/TZ names, ... unless `unsafe: true`; `secret` warns once on the random fallback and raises in `strict_environments`)
 ├── clock.cr            # Azu::Clock: the time source for TTLs, windows and token lifetimes; Clock::Fake + `with_fake_clock` in specs
-├── app.cr              # Azu::App: an app as a value (config + router), App.default wraps the global CONFIG
+├── app.cr              # Azu::App: an app as a value (config + router + #start/#stop lifecycle), App.default wraps the global CONFIG; `include Azu` is the supported single-app facade over it
 ├── routable.cr         # Azu::Routable: what the router dispatches to (endpoints, upgraders, plain handlers)
 ├── router.cr           # Radix-tree routing with path caching
 ├── openapi/            # Azu::OpenAPI: OpenAPI 3.1 document from Endpoint contracts + Handler (docs/reference/api/openapi.md)

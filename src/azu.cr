@@ -164,21 +164,6 @@ module Azu
     current_config.cache
   end
 
-  @@shim_warned = Atomic(Int32).new(0)
-
-  # Logs, once per process, that the global shim (`include Azu`, `configure`, `Azu::CONFIG`) is in use
-  # and names its replacement. Called by the shim's own entry points (`configure` and `start`), never
-  # while requiring azu, so a library or an `Azu::App` based program stays silent.
-  def self.warn_global_shim : Nil
-    return unless @@shim_warned.compare_and_set(0, 1)[1]
-    CONFIG.log.warn { "`include Azu`, `configure` and `Azu::CONFIG` are deprecated: build an `Azu::App` and pass its config around instead (see docs/how-to/migrate-to-0.6.md)" }
-  end
-
-  # Lets the warning fire again; for specs.
-  def self.reset_shim_warning : Nil
-    @@shim_warned.set(0)
-  end
-
   # Installs Azu's log format and a Debug level for the whole process. Opt in by calling it once at
   # boot; neither requiring azu nor `start` does it, so an app that sets up `Log` itself keeps its
   # own backend and level.
@@ -189,8 +174,7 @@ module Azu
   # Starts the parts that need a running app: the async log pipeline, the development tools and
   # upload cleanup. `start` calls this. It never touches `Log`.
   def self.prepare : Nil
-    AsyncLogging.initialize
-    CONFIG.prepare
+    App.default.prepare
   end
 
   @@shutdown_hooks = [] of Proc(Nil)
@@ -229,7 +213,6 @@ module Azu
 
   macro included
     def self.configure(&)
-      Azu.warn_global_shim
       with CONFIG yield CONFIG
     end
 
@@ -245,59 +228,14 @@ module Azu
       CONFIG
     end
 
-    # Starts with `Azu::App#default_handlers`. Pass an array to choose the handlers yourself: it is
-    # used exactly as given and nothing is added to it.
+    # Serves `Azu::App.default` with `Azu::App#default_handlers` until SIGINT or SIGTERM: `Azu::App#start`.
     def self.start
-      start Azu::App.default.default_handlers
+      Azu::App.default.start
     end
 
+    # Pass an array to choose the handlers yourself: it is used exactly as given and nothing is added to it.
     def self.start(handlers : Array(HTTP::Handler))
-      Azu.warn_global_shim
-      Azu.prepare
-      config.announce_default_environment
-      config.handlers = handlers.map(&.as(HTTP::Handler))
-      server = Azu::App.default.server(handlers)
-
-      if config.tls?
-        Azu.bind_tls server, config.host, config.port, config.tls, config.port_reuse?, config.websocket.tcp_nodelay?
-      else
-        server.bind_tcp config.host, config.port, config.port_reuse?
-      end
-
-      {% for signal in [:INT, :TERM] %}
-        Signal::{{ signal.id }}.trap do
-          Signal::{{ signal.id }}.reset
-          log.info { "Shutting down server" }
-          Azu::App.default.begin_shutdown
-          server.close
-        end
-      {% end %}
-
-      begin
-        log.info { server_info }
-        server.listen
-      rescue e
-        log.error(exception: e) { "Server failed to start!" }
-      end
-
-      app = Azu::App.default
-      log.warn { "Shutdown timeout: requests still in flight were dropped" } unless app.drain
-      Azu.shutdown
-    end
-
-    private def self.server_info(time = Time.instant)
-      String.build do |s|
-        s << "Server started at #{Time.local.to_s("%a %m/%d/%Y %I:%M:%S")}.".colorize(:white).underline
-        s << "\n   ⤑  Environment: ".colorize(:white)
-        s << env.colorize(:light_blue)
-        s << "\n   ⤑  Host: ".colorize(:white)
-        s << config.host.colorize(:light_blue)
-        s << "\n   ⤑  Port: ".colorize(:white)
-        s << config.port.colorize(:light_blue)
-        s << "\n   ⤑  Startup Time: ".colorize(:white)
-        s << (Time.instant - time).total_milliseconds
-        s << " millis".colorize(:white)
-      end
+      Azu::App.default.start(handlers)
     end
   end
 end
