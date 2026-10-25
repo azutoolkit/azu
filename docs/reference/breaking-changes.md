@@ -53,7 +53,7 @@ error template unless it ran from a checkout of azu, so the production HTML erro
 built-in pages (before: `ERROR_TEMPLATE` first), so an `error.html` in your own template directory now overrides the
 built-in one. `TEMPLATES_PATH` is unchanged: it is for your templates and a relative entry is still resolved against the
 working directory, so run the app from its root or set an absolute path.
-`Templates#crinja.loader` is a `Crinja::Loader::ChoiceLoader` now, not a `FileSystemLoader`.
+`Templates#crinja.loader` is a `Crinja::Loader::ChoiceLoader` now, not a `FileSystemLoader`. The built-in pages are autoescaped like the file based ones, an `error.html` of yours that fails to render falls back to the built-in page, and a debug log line names an `error.html` that replaces a built-in one.
 
 **`Azu::Env` skips many more names from a `.env` file.** The denylist is now the one the `azu` CLI uses
 (`AzuCLI::DotEnv`), where it used to cover only `LD_*`, `DYLD_*`, `SHARDS_*`, `GIT_*`, `PATH`, `SHELL`, `IFS`,

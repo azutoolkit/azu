@@ -514,5 +514,104 @@ describe Azu::Params do
 
       expect_raises(Azu::Response::BadRequest) { Azu::Params(PrecedenceRequest).new(request).typed_request }
     end
+
+    it "reads JSON keys decoded: an escaped key cannot dodge the override" do
+      request = HTTP::Request.new("POST", "/users/5", HTTP::Headers{"Content-Type" => "application/json"}, %({"\\u0069d":1,"name":"x"}))
+      request.path_params = {"id" => "5"}
+
+      Azu::Params(PrecedenceRequest).new(request).typed_request.id.should eq 5
+    end
+
+    it "answers 400, not a server error, for a URL value that cannot take the JSON type of the body" do
+      %w[abc inf nan 1e999 -Infinity].each do |bad|
+        request = HTTP::Request.new("POST", "/items?price=#{bad}", HTTP::Headers{"Content-Type" => "application/json"}, %({"id":1,"price":1.5}))
+        expect_raises(Azu::Response::BadRequest) { Azu::Params(JsonOverrideRequest).new(request).typed_request }
+      end
+    end
+
+    it "copies the values it does not replace unchanged (integers beyond Int64, float notation)" do
+      request = HTTP::Request.new("POST", "/items/9", HTTP::Headers{"Content-Type" => "application/json"}, %({"id":1,"big":18446744073709551615,"price":1.10e2}))
+      request.path_params = {"id" => "9"}
+
+      typed = Azu::Params(JsonOverrideRequest).new(request).typed_request
+      typed.id.should eq 9
+      typed.big.should eq 18446744073709551615_u64
+      typed.price.should eq 110.0
+    end
+
+    it "overrides a field renamed with @[JSON::Field(key:)] through the URL parameter named like the field" do
+      request = HTTP::Request.new("POST", "/items/9?name=url", HTTP::Headers{"Content-Type" => "application/json"}, %({"id":1,"user_name":"body","big":1,"price":1.5}))
+
+      Azu::Params(JsonOverrideRequest).new(request).typed_request.name.should eq "url"
+    end
+
+    it "lets an empty query value win over the body, as a present key" do
+      request = HTTP::Request.new("POST", "/users?name=", HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"}, "id=1&name=body")
+      params = Azu::Params(PrecedenceRequest).new(request)
+      params["name"].should eq ""
+      params.typed_request.name.should eq ""
+    end
+
+    it "replaces only top-level keys: a nested key of the same name is left alone" do
+      request = HTTP::Request.new("POST", "/users/5", HTTP::Headers{"Content-Type" => "application/json"}, %({"id":1,"name":"x","meta":{"id":2}}))
+      request.path_params = {"id" => "5"}
+      params = Azu::Params(PrecedenceRequest).new(request)
+
+      typed = params.typed_request
+      typed.id.should eq 5
+      typed.name.should eq "x"
+    end
+
+    it "replaces every occurrence of a duplicated key" do
+      request = HTTP::Request.new("POST", "/users/5", HTTP::Headers{"Content-Type" => "application/json"}, %({"id":1,"name":"x","id":2}))
+      request.path_params = {"id" => "5"}
+
+      Azu::Params(PrecedenceRequest).new(request).typed_request.id.should eq 5
+    end
+
+    it "finds an escaped key that is not the first one" do
+      request = HTTP::Request.new("POST", "/users/5", HTTP::Headers{"Content-Type" => "application/json"}, %({"name":"x","\\u0069d":7}))
+      request.path_params = {"id" => "5"}
+
+      Azu::Params(PrecedenceRequest).new(request).typed_request.id.should eq 5
+    end
+
+    it "returns the body untouched when no top-level key matches" do
+      body = %({ "id" : 3,   "name":"x" })
+      request = HTTP::Request.new("POST", "/users?other=1", HTTP::Headers{"Content-Type" => "application/json"}, body)
+      params = Azu::Params(PrecedenceRequest).new(request)
+
+      params.json_with_url_overrides_for_spec(body).should be(body)
+    end
+
+    it "lets the real field name win over the renamed JSON key" do
+      request = HTTP::Request.new("POST", "/items?user_name=literal&name=field", HTTP::Headers{"Content-Type" => "application/json"}, %({"id":1,"user_name":"body","big":1,"price":1.5}))
+      Azu::Params(JsonOverrideRequest).new(request).typed_request.name.should eq "field"
+
+      other = HTTP::Request.new("POST", "/items?name=field&user_name=literal", HTTP::Headers{"Content-Type" => "application/json"}, %({"id":1,"user_name":"body","big":1,"price":1.5}))
+      Azu::Params(JsonOverrideRequest).new(other).typed_request.name.should eq "field"
+    end
+
+    it "does not add a path parameter the JSON body lacks (authorize on params, not on the contract field)" do
+      request = HTTP::Request.new("POST", "/users/5", HTTP::Headers{"Content-Type" => "application/json"}, %({"name":"x"}))
+      request.path_params = {"id" => "5"}
+      params = Azu::Params(PrecedenceRequest).new(request)
+
+      params["id"].should eq "5"
+      expect_raises(Azu::Response::BadRequest) { params.typed_request }
+    end
+  end
+end
+
+struct JsonOverrideRequest
+  include Azu::Request
+
+  getter id : Int64
+  @[JSON::Field(key: "user_name")]
+  getter name : String = ""
+  getter big : UInt64 = 0_u64
+  getter price : Float64 = 0.0
+
+  def initialize(@id = 0_i64, @name = "", @big = 0_u64, @price = 0.0)
   end
 end

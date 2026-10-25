@@ -64,34 +64,101 @@ module Azu
       else
         Request.from_www_form to_query
       end
-    rescue ex : JSON::ParseException | URI::SerializableError | Time::Format::Error | ArgumentError
+    rescue ex : JSON::Error | URI::SerializableError | Time::Format::Error | ArgumentError
       raise Response::BadRequest.new(ex.message.to_s)
     end
 
     # The path and the query string win over the body, as for forms. A JSON body is the contract's input, so a key
     # the URL also names is replaced there, keeping the JSON type the body gave it (a number stays a number when the
-    # URL value is one). Keys the body does not have are not added: a JSON contract declares what it takes from the body.
+    # URL value is one). Keys the body does not have are not added: a JSON contract declares what it takes from the
+    # body, and only top-level keys are replaced (`{"x":{"id":2}}` keeps `x.id`). Keys are compared decoded
+    # (`"\u0069d"` is `id`), a key renamed with `@[JSON::Field(key:)]` is matched by the URL parameter named like the
+    # field, and a body in which no key matches is returned as it came (one scan, nothing built). Otherwise the body is
+    # rewritten with the same values: numbers keep their raw text (integers beyond Int64, float notation), strings and
+    # nested values are re-serialized as equivalent JSON.
     private def json_with_url_overrides(body : String) : String
       return body if path.empty? && query.empty?
-      overrides = query.to_h.merge(path)
-      return body unless overrides.keys.any? { |key| body.includes?(key) }
+      overrides = url_overrides
+      return body unless json_object_names_any?(body, overrides)
 
-      object = JSON.parse(body).as_h? || return body
-      replaced = false
-      overrides.each do |key, value|
-        next unless current = object[key]?
-        object[key] = JSON::Any.new(same_json_type(value, current))
-        replaced = true
+      pull = JSON::PullParser.new(body)
+      JSON.build do |json|
+        json.object do
+          pull.read_object do |key|
+            if value = overrides[key]?
+              kind = pull.kind
+              pull.skip
+              json.field(key) { write_same_type(json, value, kind) }
+            else
+              json.field(key) { pull.read_raw(json) }
+            end
+          end
+        end
       end
-      replaced ? object.to_json : body
     end
 
-    private def same_json_type(value : String, like : JSON::Any) : JSON::Any::Type
-      case like.raw
-      when Int64   then value.to_i64? || value
-      when Float64 then value.to_f64? || value
-      when Bool    then value == "true" ? true : (value == "false" ? false : value)
-      else              value
+    # :nodoc: for specs
+    def json_with_url_overrides_for_spec(body : String) : String
+      json_with_url_overrides(body)
+    end
+
+    # URL parameters by the JSON key they replace. When `?user_name=` and `?name=` both target a field renamed to
+    # `user_name`, the real field name (`name`) wins; within a name the path wins over the query.
+    private def url_overrides : Hash(String, String)
+      overrides = Hash(String, String).new
+      {false, true}.each do |renamed|
+        {query.to_h, path}.each do |source|
+          source.each do |name, value|
+            key = json_key(name)
+            overrides[key] = value if (key != name) == renamed
+          end
+        end
+      end
+      overrides
+    end
+
+    private def json_object_names_any?(body : String, names : Hash(String, String)) : Bool
+      pull = JSON::PullParser.new(body)
+      return false unless pull.kind.begin_object?
+      pull.read_object do |key|
+        return true if names.has_key?(key)
+        pull.skip
+      end
+      false
+    end
+
+    # The JSON key of the contract field named `name` (its `@[JSON::Field(key:)]`, else the name itself).
+    private def json_key(name : String) : String
+      {% begin %}
+        {% if Request.is_a?(TypeNode) && !Request.instance_vars.empty? %}
+          case name
+          {% for ivar in Request.instance_vars %}
+            {% ann = ivar.annotation(::JSON::Field) %}
+            {% if ann && ann[:key] %}
+          when {{ ivar.name.stringify }} then {{ ann[:key] }}.to_s
+            {% end %}
+          {% end %}
+          else name
+          end
+        {% else %}
+          name
+        {% end %}
+      {% end %}
+    end
+
+    # Writes the URL `value` as the JSON type `like` the body used; a value that is not one (`abc` for a number, a
+    # non-finite float) stays a string, which the contract then refuses.
+    private def write_same_type(json : JSON::Builder, value : String, like : JSON::PullParser::Kind) : Nil
+      case like
+      when .int?
+        (number = value.to_i64?) ? json.number(number) : json.string(value)
+      when .float?
+        number = value.to_f64?
+        number && number.finite? ? json.number(number) : json.string(value)
+      when .bool?
+        value == "true" || value == "false" ? json.bool(value == "true") : json.string(value)
+      else
+        json.string(value)
       end
     end
 
