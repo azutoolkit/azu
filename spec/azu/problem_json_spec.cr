@@ -54,7 +54,7 @@ describe "error responses for JSON clients" do
 
   it "uses lower-case members and none of the old PascalCase ones" do
     body = JSON.parse(ProblemJsonSpec.get("/missing", "application/json").body).as_h
-    (body.keys & %w(Status Link Title Detail Source Errors ErrorId Fingerprint Context Backtrace Timestamp)).should be_empty
+    (body.keys & %w[Status Link Title Detail Source Errors ErrorId Fingerprint Context Backtrace Timestamp]).should be_empty
   end
 
   it "answers a raised Response::Error the same way, with its own status" do
