@@ -6,6 +6,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${DATABASE_URL:?set DATABASE_URL}"
+# Refuse anything that is not a local test database (the benchmark drops and creates a table).
+host="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[a-z]+://([^@/]*@)?(\[[^]]*\]|[^:/?]*).*#\2#')"
+database="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[a-z]+://[^/]*/([^?]*).*#\1#')"
+case "$host" in ""|localhost|127.0.0.1|"[::1]") ;; *) [ "${BENCH_ALLOW_REMOTE:-}" = 1 ] || { echo "refusing non-local host '$host' (BENCH_ALLOW_REMOTE=1 to allow)" >&2; exit 2; } ;; esac
+case "$database" in *bench*|*test*) ;; *) [ "${BENCH_I_KNOW:-}" = 1 ] || { echo "refusing database '$database': name must contain bench or test (BENCH_I_KNOW=1 to allow)" >&2; exit 2; } ;; esac
 RUNS="${BENCH_RUNS:-5}"
 OUT="${BENCH_OUT:-${TMPDIR:-/tmp}/azu_cql_driver_bench}"
 mkdir -p "$OUT"
@@ -17,6 +22,10 @@ for run in $(seq "$RUNS"); do
   "$OUT/bench" native >> "$OUT/raw.tsv"
   "$OUT/bench" engine >> "$OUT/raw.tsv"
 done
-sort -t$'\t' -k2,2 -k1,1 -k3,3n "$OUT/raw.tsv" | awk -F'\t' '
-  { key = $2 "\t" $1; v[key] = v[key] " " $3; n[key]++ }
-  END { for (k in v) { split(v[k], a, " "); m = asort(a); printf "%s\tmedian %d\t(runs:%s)\n", k, a[int((m + 1) / 2)], v[k] } }' | sort
+# Median per driver and workload with plain sort/awk (no gawk-only functions).
+cut -f1,2 "$OUT/raw.tsv" | sort -u | while IFS=$'\t' read -r driver workload; do
+  values="$(awk -F'\t' -v d="$driver" -v w="$workload" '$1 == d && $2 == w { print $3 }' "$OUT/raw.tsv" | sort -n)"
+  count="$(printf '%s\n' "$values" | wc -l)"
+  median="$(printf '%s\n' "$values" | sed -n "$(( (count + 1) / 2 ))p")"
+  printf '%s\t%s\tmedian %s\t(runs: %s)\n' "$workload" "$driver" "$median" "$(printf '%s' "$values" | tr '\n' ' ')"
+done | sort

@@ -112,6 +112,20 @@ end
       select_query.caller.to_s.should contain "bridge_postgres_spec.cr"
     end
 
+    it "keeps the health check true while every pooled connection is busy, without queueing behind the pool" do
+      PostgresSpec.require!
+      next unless driver == :engine
+      separator = PostgresSpec.url.includes?('?') ? '&' : '?'
+      schema = Azu::CQL.schema(:bridge_health, "#{PostgresSpec.url}#{separator}pool_size=1") { }
+      schema.with_connection do |_|
+        schema.pool_stats.in_flight.should eq 1
+        started = Time.instant
+        Azu::CQL.health_check(schema, 5.seconds).call.should be_true
+        (Time.instant - started).should be < 4.seconds
+      end
+      Azu::CQL.health_check(schema).call.should be_true
+    end
+
     it "records a failing statement with the server's error" do
       PostgresSpec.require!
       schema = BridgePostgresSpec.rebuild

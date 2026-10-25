@@ -33,7 +33,22 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: azu_test
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
+      # The Azu::CQL engine path needs a real PostgreSQL: specs fail (not pend) in CI without it.
+      AZU_TEST_PG_URL: postgres://postgres:postgres@postgres:5432/azu_test
+      # Specs that may be skipped in CI. Remove `engine` once shard.lock pins a cql release that has
+      # CQL::ConnectionSource / CQL::Postgres::EngineSource; until then the engine specs cannot run.
+      AZU_CI_ALLOW_PENDING: engine
       CRYSTAL_ENV: pipeline
       PORT: 4000
       PORT_REUSE: false
@@ -140,7 +155,22 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: azu_test
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
+      # The Azu::CQL engine path needs a real PostgreSQL: specs fail (not pend) in CI without it.
+      AZU_TEST_PG_URL: postgres://postgres:postgres@postgres:5432/azu_test
+      # Specs that may be skipped in CI. Remove `engine` once shard.lock pins a cql release that has
+      # CQL::ConnectionSource / CQL::Postgres::EngineSource; until then the engine specs cannot run.
+      AZU_CI_ALLOW_PENDING: engine
       CRYSTAL_ENV: pipeline
       PORT: 4000
       PORT_REUSE: false

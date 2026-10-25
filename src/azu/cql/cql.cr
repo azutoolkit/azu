@@ -23,6 +23,7 @@ require "../request_context"
 require "./instrumentor"
 require "./adapter"
 require "./driver"
+require "./engine_query"
 require "./mapping"
 require "./validation"
 require "./middleware"
@@ -98,41 +99,69 @@ module Azu
       QueryStore.instance.adapter = SchemaAdapter.new(block)
     end
 
-    @@schemas = [] of ::CQL::Schema
+    @@schemas = {} of Symbol => ::CQL::Schema
     @@schemas_mutex = Mutex.new
 
-    private def self.track(schema : ::CQL::Schema) : Nil
-      @@schemas_mutex.synchronize { @@schemas << schema unless @@schemas.any?(&.same?(schema)) }
+    # Registers a schema so `Azu.shutdown` closes its pool. `schema` and `attach` do it for you; call it for a
+    # schema made with CQL directly. A schema made earlier under the same name is closed and replaced, so
+    # building `:app` twice does not leak the first pool (keep one schema per name).
+    def self.track(schema : ::CQL::Schema) : Nil
+      replaced = @@schemas_mutex.synchronize do
+        previous = @@schemas[schema.name]?
+        @@schemas[schema.name] = schema
+        previous unless previous.nil? || previous.same?(schema)
+      end
+      close_quietly(replaced) if replaced
+    end
+
+    # Stops tracking a schema (its pool stays open until you close it).
+    def self.untrack(schema : ::CQL::Schema) : Nil
+      @@schemas_mutex.synchronize { @@schemas.delete(schema.name) if @@schemas[schema.name]?.try(&.same?(schema)) }
+    end
+
+    def self.tracked_schemas : Array(::CQL::Schema)
+      @@schemas_mutex.synchronize { @@schemas.values }
     end
 
     # Closes the connection pool of every schema made or attached through this module. `Azu.shutdown` calls
-    # it (after PubSub, before Redis); safe to call again. A pool that fails to close is logged, not raised.
+    # it (after PubSub, before Redis; hooks registered later by the app run first); safe to call again. A pool that
+    # fails to close is logged, not raised. Requests still running can meet a closed pool.
     def self.shutdown : Nil
-      schemas = @@schemas_mutex.synchronize { @@schemas.dup.tap { @@schemas.clear } }
-      schemas.each do |schema|
-        schema.close
-      rescue ex
-        ::Log.for("azu.cql").error(exception: ex) { "could not close the pool of schema #{schema.name}" }
-      end
+      schemas = @@schemas_mutex.synchronize { @@schemas.values.tap { @@schemas.clear } }
+      schemas.each { |schema| close_quietly(schema) }
+    end
+
+    private def self.close_quietly(schema : ::CQL::Schema) : Nil
+      schema.close
+    rescue ex
+      ::Log.for("azu.cql").error(exception: ex) { "could not close the pool of schema #{schema.name}" }
     end
 
     Azu.on_shutdown { Azu::CQL.shutdown }
 
     # A check for `Azu::Handler::HealthCheck`: `checks: {"database" => Azu::CQL.health_check(AppDB)}`.
-    # True when `SELECT 1` answers within `timeout` (a pool that is exhausted or a database that is down is false).
+    # True when the database answers `SELECT 1` within `timeout`. Meant to say "the database is up", not "the pool
+    # has room": on the engine, when every pooled connection is busy it probes over one extra connection that is
+    # opened and closed for the check (a full handshake, so do not poll faster than every few seconds) instead of
+    # queueing behind the pool. A probe that is still running (a hung database) is not stacked: the next
+    # check answers false until it ends, which `checkout_timeout`/`connect_timeout` bound.
     def self.health_check(schema : ::CQL::Schema, timeout : Time::Span = 2.seconds) : Proc(Bool)
       -> { ping(schema, timeout) }
     end
 
+    @@probing = Set(UInt64).new
+
     def self.ping(schema : ::CQL::Schema, timeout : Time::Span = 2.seconds) : Bool
+      id = schema.object_id
+      return false unless @@schemas_mutex.synchronize { @@probing.add?(id) }
       answered = ::Channel(Bool).new(1)
       spawn(name: "azu-cql-ping") do
         answered.send(begin
-          schema.with_connection(&.scalar("SELECT 1"))
-          true
+          probe(schema, timeout)
         rescue
           false
         end)
+        @@schemas_mutex.synchronize { @@probing.delete(id) }
       end
       select
       when result = answered.receive
@@ -149,6 +178,18 @@ module Azu
         schema.source.as?(::CQL::Postgres::EngineSource).try(&.engine)
       end
 
+      private def self.probe(schema : ::CQL::Schema, timeout : Time::Span) : Bool
+        engine = engine(schema) || return probe_pooled(schema)
+        stats = engine.pool.stats
+        return probe_pooled(schema) unless stats.idle == 0 && stats.in_use >= stats.max_size
+        connection = ::CQL::Postgres::Connection.open(engine.pool.config)
+        begin
+          connection.ping(timeout)
+        ensure
+          connection.close
+        end
+      end
+
       private def self.engine_schema(name : Symbol, base : String, config : ::CQL::Configure::Config, lazy : Bool, pool : Bool) : ::CQL::Schema
         url = engine_url(base, config, lazy, pool)
         adapter = adapter_for(base)
@@ -159,63 +200,77 @@ module Azu
         nil
       end
 
+      private def self.probe(schema : ::CQL::Schema, timeout : Time::Span) : Bool
+        probe_pooled(schema)
+      end
+
       private def self.engine_schema(name : Symbol, base : String, config : ::CQL::Configure::Config, lazy : Bool, pool : Bool) : ::CQL::Schema
         raise ArgumentError.new("the CQL engine driver needs a CQL release with CQL::Postgres::EngineSource; update the cql shard or use driver: :db")
       end
     {% end %}
 
+    private def self.probe_pooled(schema : ::CQL::Schema) : Bool
+      schema.with_connection(&.scalar("SELECT 1"))
+      true
+    end
+
     # The URL for the engine: `base` with crystal-db's pool parameters renamed or removed, plus the engine's
     # pool settings from `config.pool` when `pool` is true (the URL came from CQL's configuration). The engine reads
     # every unknown parameter as a server startup option, so nothing crystal-db owns may stay. Mapping:
     #
-    #   max_pool_size (or config.pool.size)      -> pool_size
-    #   initial_pool_size (eager: config.pool.initial_size, at most pool_size) -> pool_min_size (lazy: left at 0)
+    #   max_pool_size (or config.pool.size)      -> pool_size (`max_pool_size=0`, "unlimited" in crystal-db, means the default)
+    #   initial_pool_size (eager: config.pool.initial_size) -> pool_min_size (lazy: left at 0), never above pool_size
     #   checkout_timeout (or config.pool.checkout_timeout) -> checkout_timeout (seconds, same name)
-    #   config.pool.use_prepared_statements = false -> statement_cache_size=0
-    #   max_idle_pool_size, retry_attempts, retry_delay, prepared_statements, prepared_statements_cache, auth_methods -> dropped
+    #   prepared_statements=false, prepared_statements_cache=false, config.pool.use_prepared_statements = false
+    #                                            -> statement_cache_size=0 (a transaction-mode pooler), unless the URL sets it
+    #   max_idle_pool_size, retry_attempts, retry_delay, auth_methods -> dropped
     #
     # Parameters already on the URL win (`pool_size` over `max_pool_size`), and everything the engine understands
-    # itself (`sslmode`, `max_queries`, `statement_cache_size`, ...) passes through. Nothing before the `?` is touched.
+    # itself (`sslmode`, `max_queries`, `statement_cache_size`, ...) passes through. The query is edited as text: pairs that
+    # are kept stay byte for byte (see `EngineQuery`), and nothing before the `?` is touched.
     def self.engine_url(base : String, config : ::CQL::Configure::Config = ::CQL.config, lazy : Bool = true, pool : Bool = false) : String
       without_fragment, hash, fragment = base.partition('#')
       location, _, query = without_fragment.partition('?')
-      params = HTTP::Params.parse(query)
-      rename_param(params, "max_pool_size", "pool_size")
-      rename_param(params, "initial_pool_size", "pool_min_size")
-      ENGINE_DROPPED_PARAMS.each { |key| params.delete(key) if params.has_key?(key) }
-      wanted = engine_defaults(config, params, lazy, pool)
-      wanted.each { |key, value| params[key] = value unless params.has_key?(key) }
-      params.empty? ? "#{location}#{hash}#{fragment}" : "#{location}?#{params}#{hash}#{fragment}"
+      edit = EngineQuery.new(query)
+      uncached = PREPARED_STATEMENT_PARAMS.any? { |key| edit.value(key).try { |value| OFF_VALUES.includes?(value.downcase) } }
+      (PREPARED_STATEMENT_PARAMS + ENGINE_DROPPED_PARAMS).each { |key| edit.delete(key) }
+      edit.delete("max_pool_size") unless (edit.value("max_pool_size").try(&.to_i?) || 0) > 0
+      edit.rename("max_pool_size", "pool_size")
+      edit.rename("initial_pool_size", "pool_min_size")
+      edit.add("statement_cache_size", "0") if uncached
+      add_engine_defaults(edit, config, lazy, pool)
+      clamp_min_size(edit, pool ? config.pool.size : DEFAULT_ENGINE_POOL_SIZE)
+      edit.empty? ? "#{location}#{hash}#{fragment}" : "#{location}?#{edit}#{hash}#{fragment}"
     end
 
     # The engine's own default `pool_size`.
     DEFAULT_ENGINE_POOL_SIZE = 10
 
-    ENGINE_DROPPED_PARAMS = %w(max_idle_pool_size retry_attempts retry_delay prepared_statements prepared_statements_cache auth_methods)
+    ENGINE_DROPPED_PARAMS     = %w(max_idle_pool_size retry_attempts retry_delay auth_methods)
+    PREPARED_STATEMENT_PARAMS = %w(prepared_statements prepared_statements_cache)
+    OFF_VALUES                = %w(false 0 off no)
 
-    private def self.rename_param(params : HTTP::Params, from : String, to : String) : Nil
-      return unless value = params[from]?
-      params.delete(from)
-      params[to] = value unless params.has_key?(to)
+    private def self.add_engine_defaults(edit : EngineQuery, config : ::CQL::Configure::Config, lazy : Bool, pool : Bool) : Nil
+      if pool
+        edit.add("pool_size", config.pool.size.to_s)
+        edit.add("checkout_timeout", config.pool.checkout_timeout.total_seconds.to_s)
+        edit.add("statement_cache_size", "0") unless config.pool.use_prepared_statements?
+      end
+      return if lazy
+      size = edit.value("pool_size").try(&.to_i?) || (pool ? config.pool.size : DEFAULT_ENGINE_POOL_SIZE)
+      edit.add("pool_min_size", Math.min(pool ? config.pool.initial_size : 1, size).to_s)
     end
 
-    private def self.engine_defaults(config : ::CQL::Configure::Config, params : HTTP::Params, lazy : Bool, pool : Bool) : Hash(String, String)
-      wanted = {} of String => String
-      if pool
-        wanted["pool_size"] = config.pool.size.to_s
-        wanted["checkout_timeout"] = config.pool.checkout_timeout.total_seconds.to_s
-        wanted["statement_cache_size"] = "0" unless config.pool.use_prepared_statements?
-      end
-      unless lazy
-        size = (params["pool_size"]? || wanted["pool_size"]?).try(&.to_i?) || (pool ? config.pool.size : DEFAULT_ENGINE_POOL_SIZE)
-        wanted["pool_min_size"] = Math.min(pool ? config.pool.initial_size : 1, size).to_s
-      end
-      wanted
+    # The engine refuses a minimum above the maximum; crystal-db tolerated it.
+    private def self.clamp_min_size(edit : EngineQuery, default_size : Int32) : Nil
+      minimum = edit.value("pool_min_size").try(&.to_i?) || return
+      size = edit.value("pool_size").try(&.to_i?) || default_size
+      edit.replace_value("pool_min_size", size.to_s) if minimum > size
     end
 
     # Fails fast (for example at boot in production) when the database is unreachable.
     def self.verify!(schema : ::CQL::Schema) : ::CQL::Schema
-      schema.with_connection { |connection| connection.scalar("SELECT 1") }
+      schema.with_connection(&.scalar("SELECT 1"))
       schema
     rescue ex
       raise VerificationError.new(<<-MSG)

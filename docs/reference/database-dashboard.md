@@ -87,12 +87,15 @@ ran it. A runnable PostgreSQL example laid out like this is
   `CQL.config.pool` map to the engine's URL parameters: `pool.size` or `max_pool_size` become `pool_size`, an eager connection
   (`lazy: false`) opens `pool_min_size = min(pool.initial_size, pool_size)` connections, `checkout_timeout` keeps its name,
   `pool.use_prepared_statements = false` becomes `statement_cache_size=0`. `max_idle_pool_size`, `retry_attempts`, `retry_delay`,
-  `prepared_statements` and `auth_methods` are dropped (the engine does not retry connects). Parameters on the URL always win,
+  `auth_methods` are dropped (the engine does not retry connects); `prepared_statements=false` becomes `statement_cache_size=0`. Parameters on the URL always win,
   and engine-only ones (`sslmode`, `max_queries`, `max_idle_lifetime`, `statement_cache_size`, `binary_params`, ...) pass through.
   `Azu::CQL.engine(AppDB)` returns the `AsyncEngine` (for `pipeline`, `stream`, `transaction(isolation: ...)`), or `nil` on crystal-db's pool.
   Behind PgBouncer in transaction mode add `statement_cache_size=0`. `Azu.shutdown` closes the pools after PubSub, before Redis.
-* **Health check.** `Azu::Handler::HealthCheck.new(checks: {"database" => Azu::CQL.health_check(AppDB)})` runs `SELECT 1` and is
-  false when it fails or takes longer than 2 seconds.
+* **Health check.** `Azu::Handler::HealthCheck.new(checks: {"database" => Azu::CQL.health_check(AppDB, 2.seconds)})` runs `SELECT 1` and is
+  false when it fails or takes longer than the timeout. It answers "is the database up": when every pooled connection of an
+  engine schema is busy it uses one extra connection (a full handshake, so check every few seconds, not every request) instead
+  of queueing behind the pool. A probe still running (a hung database) is not stacked; the next check is false until it ends,
+  bounded by `checkout_timeout` and `connect_timeout`.
 * **While the database is down** the Database tab still renders: the pool card shows no open connections and the SQL playground
   reports the connection error.
 
