@@ -61,6 +61,12 @@ module Azu
       @host = host.presence
     end
 
+    # The host as `HOST` or `host=` set it, nil while the environment's default applies (`host` answers that default).
+    # What a spec saves and restores, so restoring `host` itself would not pin the default.
+    def configured_host : String?
+      @host
+    end
+
     # True when `host` was not set by `HOST` or `host=` and is the development default.
     def host_from_default? : Bool
       @host.nil? && env.development?

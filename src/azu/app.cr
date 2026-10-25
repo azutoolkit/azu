@@ -301,14 +301,16 @@ module Azu
     protected def self.trap_signals : Nil
       @@running_lock.synchronize do
         return if @@signals_trapped
+        # The flag says the traps are in place (a spec, or a thread, may signal the process once it is up), so it is
+        # set after they are installed. A signal that arrives meanwhile waits on this lock in `signal_received`.
+        {% for signal in [:INT, :TERM] %}
+          Signal::{{ signal.id }}.trap do
+            App.signal_received
+            App.interrupt_running
+          end
+        {% end %}
         @@signals_trapped = true
       end
-      {% for signal in [:INT, :TERM] %}
-        Signal::{{ signal.id }}.trap do
-          App.signal_received
-          App.interrupt_running
-        end
-      {% end %}
     end
 
     # The trap fired: the process owns no trap any more.

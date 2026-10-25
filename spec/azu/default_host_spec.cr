@@ -163,3 +163,17 @@ describe "the bind host warnings" do
     logged("development", "0.0.0.0", false, &.empty)
   end
 end
+
+describe "the configured host" do
+  it "tells a host that was set from the environment's default" do
+    with_process_env({"HOST" => nil, "CRYSTAL_ENV" => "production"}) do
+      config = Azu::Configuration.new
+      config.host.should eq "0.0.0.0"
+      config.configured_host.should be_nil # the default is not a setting
+      config.host = "0.0.0.0"
+      config.configured_host.should eq "0.0.0.0"
+      config.host = nil
+      config.configured_host.should be_nil
+    end
+  end
+end
