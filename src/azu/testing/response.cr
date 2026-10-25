@@ -52,9 +52,17 @@ module Azu
         T.from_json(body)
       end
 
-      # An RFC 9457 problem document (`application/problem+json`).
+      # An RFC 9457 problem document: sent as `application/problem+json`, or as JSON whose body has the members of
+      # one (`type`, `title` and `status`). Azu labels the body `problem+json` only for a client whose `Accept`
+      # names it, so the content type alone would miss the problem bodies of a client that asked for `application/json`.
       def problem? : Bool
-        content_type == "application/problem+json"
+        return true if content_type == "application/problem+json"
+        return false unless content_type.try { |type| type == "application/json" || type.ends_with?("+json") }
+
+        document = JSON.parse(body).as_h? || return false
+        {"type", "title"}.all? { |member| !document[member]?.try(&.as_s?).nil? } && !document["status"]?.try(&.as_i64?).nil?
+      rescue JSON::ParseException
+        false
       end
     end
   end

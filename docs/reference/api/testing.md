@@ -108,7 +108,7 @@ client.request("POST", "/greet", body: %({"name":"Lin"}), headers: {"Content-Typ
 ### Response
 
 `Response` is a value: `status`, `status_code`, `headers`, `body`, `header(name)`, `content_type`,
-`success?`, `redirect?`, `location`, `cookies`, `problem?` (the `application/problem+json` content type, which a client gets by naming it in `Accept`), `error`,
+`success?`, `redirect?`, `location`, `cookies`, `problem?` (true for the `application/problem+json` content type, which a client gets by naming it in `Accept`, and for a JSON body that has the `type`, `title` and `status` of a problem document, which every JSON client gets), `error`,
 `json` (a `JSON::Any`) and `json(Type)` (any `JSON::Serializable`).
 
 ```crystal

@@ -143,13 +143,24 @@ describe Azu::Testing::Client do
     missing = client.get "/nope"
     missing.status_code.should eq 404
     missing.content_type.should eq "application/json" # problem+json only for a client that names it
-    missing.problem?.should be_false
+    missing.problem?.should be_true                   # the body is a problem document whatever the Content-Type says
     JSON.parse(missing.body)["title"].should eq "Not Found"
 
     invalid = client.post "/notes/1", json: {title: ""}
     invalid.status_code.should eq 422
-    invalid.problem?.should be_false
+    invalid.problem?.should be_true
     JSON.parse(invalid.body)["status"].should eq 422
+
+    named = Azu::Testing::Client.new(TestingSpec.app).accept("application/problem+json").get "/nope"
+    named.content_type.should eq "application/problem+json"
+    named.problem?.should be_true
+  end
+
+  it "does not take an ordinary JSON body for a problem document" do
+    client = Azu::Testing::Client.new(TestingSpec.app).accept(:json)
+    ok = client.post "/notes/7", json: {id: 7, title: "a"}
+    ok.status_code.should eq 201
+    ok.problem?.should be_false
   end
 
   it "keeps cookies between requests, per client, and expires them with the fake clock" do

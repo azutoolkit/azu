@@ -319,7 +319,8 @@ exception, ...) predated problem+json and answered JSON clients with a PascalCas
 - Migration: accept the `+json` suffix and read the new members, or set `config.error_format = Azu::ErrorFormat::Legacy`
   (keeps all old bodies, as `application/json`, for one more minor release). The OpenAPI document follows the setting
   (`Azu.Error` is the problem schema, `Azu.LegacyError` the old one). `Testing::Response#problem?` is true for the
-  `application/problem+json` content type only.
+  `application/problem+json` content type and for a JSON body with the `type`, `title` and `status` of a problem document, so it
+  holds whichever `Accept` the test client sent.
 
 **Request contracts are enforced.** An endpoint whose request type has validations no longer runs when the
 request breaks them: the endpoint answers `422` before `call` (by itself, whether or not a `Rescuer` is in the handler stack),
