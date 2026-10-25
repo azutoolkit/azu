@@ -15,6 +15,7 @@ private def query_of(url : String) : Hash(String, String)
 end
 
 private ENGINE_UP = Azu::CQL::Driver::ENGINE_AVAILABLE
+private CAN_CLOSE = {{ ::CQL::Schema.has_method?("close") }}
 
 describe Azu::CQL::Driver do
   describe ".resolve" do
@@ -150,7 +151,7 @@ describe "Azu::CQL schema choice and lifecycle" do
     Azu::CONFIG.database.driver = original_driver
     Azu::CQL.tracked_schemas.each do |schema|
       Azu::CQL.untrack(schema)
-      schema.close
+      Azu::CQL.close(schema)
     end
     saved.each { |schema| Azu::CQL.track(schema) }
   end
@@ -163,20 +164,18 @@ describe "Azu::CQL schema choice and lifecycle" do
   it "runs a PostgreSQL schema on the engine's pool, lazily, by default" do
     CIPending.skip!("engine", "needs a CQL with CQL::Postgres::EngineSource") unless ENGINE_UP
     schema = Azu::CQL.schema(:driver_default, "postgres://u@127.0.0.1:1/db") { }
-    schema.source.class.name.should eq "CQL::Postgres::EngineSource"
     Azu::CQL.engine(schema).should_not be_nil
     schema.pool_stats.open.should eq 0
-    schema.close
+    Azu::CQL.close(schema)
   end
 
   it "keeps crystal-db's pool with driver: :db, with AZU_CQL_DRIVER=db, and for SQLite" do
     CIPending.skip!("engine", "needs a CQL with CQL::Postgres::EngineSource") unless ENGINE_UP
-    Azu::CQL.schema(:driver_db, "postgres://u@127.0.0.1:1/db", driver: :db) { }.source.should be_a ::CQL::DatabaseSource
+    Azu::CQL.engine(Azu::CQL.schema(:driver_db, "postgres://u@127.0.0.1:1/db", driver: :db) { }).should be_nil
     Azu::CONFIG.database.driver = "db"
-    Azu::CQL.schema(:driver_env, "postgres://u@127.0.0.1:1/db") { }.source.should be_a ::CQL::DatabaseSource
+    Azu::CQL.engine(Azu::CQL.schema(:driver_env, "postgres://u@127.0.0.1:1/db") { }).should be_nil
     Azu::CONFIG.database.driver = nil
     sqlite = Azu::CQL.schema(:driver_sqlite, "sqlite3://#{File.join(Dir.tempdir, "azu_cql_driver_spec.db")}") { }
-    sqlite.source.should be_a ::CQL::DatabaseSource
     Azu::CQL.engine(sqlite).should be_nil
   end
 
@@ -200,6 +199,7 @@ describe "Azu::CQL schema choice and lifecycle" do
   end
 
   it "Azu.shutdown runs registered hooks and closes the schemas made through the bridge" do
+    CIPending.skip!("engine", "needs a CQL with Schema#close") unless CAN_CLOSE
     order = [] of String
     Azu.on_shutdown { order << "hook" }
     schema = Azu::CQL.schema(:shutdown_spec, "sqlite3://#{File.join(Dir.tempdir, "azu_cql_shutdown_spec.db")}") { }
@@ -221,6 +221,7 @@ describe "Azu::CQL schema choice and lifecycle" do
   end
 
   it "closes the earlier schema when another is made under the same name" do
+    CIPending.skip!("engine", "needs a CQL with Schema#close") unless CAN_CLOSE
     path = "sqlite3://#{File.join(Dir.tempdir, "azu_cql_same_name.db")}"
     first = Azu::CQL.schema(:same_name, path) { }
     first.with_connection(&.scalar("SELECT 1"))

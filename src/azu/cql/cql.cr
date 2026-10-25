@@ -131,8 +131,16 @@ module Azu
       schemas.each { |schema| close_quietly(schema) }
     end
 
+    # Closes a schema's connection pool. A CQL without `Schema#close` has no way to close it from outside: the pool
+    # then stays open until the process ends.
+    def self.close(schema : ::CQL::Schema) : Nil
+      {% if ::CQL::Schema.has_method?("close") %}
+        schema.close
+      {% end %}
+    end
+
     private def self.close_quietly(schema : ::CQL::Schema) : Nil
-      schema.close
+      close(schema)
     rescue ex
       ::Log.for("azu.cql").error(exception: ex) { "could not close the pool of schema #{schema.name}" }
     end
