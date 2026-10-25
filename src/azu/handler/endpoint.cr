@@ -45,11 +45,6 @@ module Azu
       OpenAPI::Operation.of(self.class, Request, Response)
     end
 
-    # An endpoint writes the `X-Azu-Endpoint` header in `serve`, so the router leaves it alone.
-    def labels_request? : Bool
-      true
-    end
-
     # :nodoc:
     #
     # The router holds one instance per route. A struct is copied on dispatch; a class is copied here, so
@@ -74,7 +69,7 @@ module Azu
       @request_object = nil
 
       # Set endpoint name header for performance monitoring
-      endpoint_name = {{ @type.name.stringify.split("::").last }}
+      endpoint_name = self.class.name.split("::").last
       context.request.headers["X-Azu-Endpoint"] = endpoint_name
 
       RequestContext.scope(context) do |info|
