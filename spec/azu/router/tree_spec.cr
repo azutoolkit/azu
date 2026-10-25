@@ -167,3 +167,145 @@ describe Azu::Router::Tree do
     end
   end
 end
+
+private struct DiffEndpoint
+  include Azu::Routable
+
+  def call(context : HTTP::Server::Context)
+  end
+end
+
+private alias Declared = {Azu::Method | String, String}
+private alias Found = {String, Hash(String, String)}?
+private alias RouteTree = Azu::Router::Tree(Azu::Router::Route)
+
+private PUT = Azu::Method::Put
+private DEL = Azu::Method::Delete
+private WS  = Azu::Method::WebSocket
+
+# Routes as the specs declare them: a method is a Router#add, a verb (or "root", "mount") calls Router's method of that
+# name, so `get` adds HEAD and OPTIONS too and a mount adds its two routes for every method.
+private BENCH = [{"get", "/plaintext"}, {"get", "/json"}, {"get", "/template"}] +
+                (0...100).map { |i| {"get", "/api/v1/resource#{i}/:id"} } +
+                [{"get", "/db/item/:id"}, {"get", "/db/items"}, {WS, "/ws"}]
+# Each distinct route table of spec/azu/router_spec.cr, the bench app's (benchmark/apps/azu/src/app.cr) without and
+# with a mount, and precedence and backtracking shapes.
+private TABLES = [
+  [{"get", "/plain"}, {GET, "/struct"}, {"root", "/"}], [{GET, "/"}], [{POST, "/submit"}], [{GET, "/"}, {POST, "/api"}],
+  [{GET, "/users"}, {POST, "/users"}, {PUT, "/users"}, {DEL, "/users"}], [{GET, "/test"}], [{GET, "/users/:id"}],
+  [{GET, "/api/v1/users"}], [{WS, "/ws"}], [] of Declared, [{GET, "/duplicate"}],
+  [{GET, "/users"}, {GET, "/users/:id"}, {POST, "/users"}, {PUT, "/users/:id"}, {DEL, "/users/:id"}],
+  [{GET, "/users/:user_id/posts"}, {GET, "/users/:user_id/posts/:post_id"}, {POST, "/users/:user_id/posts"}],
+  [{GET, "/search"}, {GET, "/search/:query"}], [{GET, "/api/v1/users"}, {GET, "/api/v1/users/:id"}],
+  [{GET, "/" + "a" * 1000}], (0...100).map { |i| {GET, "/route#{i}"} }, [{"get", "/hello"}], [{WS, "/ws-test"}],
+  %w(get post put patch delete).map { |verb| {Azu::Method.parse(verb), "/test-#{verb}"} }, [{"get", "/test"}],
+  [{"get", "/cached-test"}], (1..100).map { |i| {"get", "/test#{i}"} }, (1..10).map { |i| {"get", "/concurrent#{i}"} },
+  (0...10).flat_map { |n| (1..5).map { |i| {"get", "/concurrent_write#{n}_#{i}"} } },
+  (1..20).map { |i| {"get", "/perf#{i}"} }, [{"post", "/data"}], [{"put", "/update"}],
+  %w(get post put patch delete).map { |verb| {verb, "/posts/:id"} },
+  BENCH, BENCH + [{"mount", "/admin"}],
+  [{GET, "/users/new"}, {GET, "/users/:id"}, {GET, "/a/b/c"}, {GET, "/a/:x/d"}],
+]
+
+# Where the tree differs from radix 0.4.1 on purpose, all GET: {routes, request path, tree's find, radix's find}.
+private FIND_DIFFERENCES = [
+  # radix keeps the parameter of a branch it backtracked out of
+  {[{GET, "/files/:id/meta"}, {GET, "/files/*path"}], "/files/a/b",
+   {"/get/files/*path", {"path" => "a/b"}}, {"/get/files/*path", {"id" => "a", "path" => "a/b"}}},
+  # the same below a mount whose prefix routes share
+  {[{"get", "/api/v1/resource5/:id"}, {"mount", "/api"}], "/api/v1/resource5/1/x",
+   {"/get/api/*mount_path", {"mount_path" => "v1/resource5/1/x"}},
+   {"/get/api/*mount_path", {"id" => "1", "mount_path" => "v1/resource5/1/x"}}},
+  # radix misses an empty glob once another route has split the node before it
+  {[{GET, "/files/*path"}, {GET, "/files/new"}], "/files", {"/get/files/*path", {"path" => ""}}, nil},
+]
+
+# GET routes radix accepts and the tree refuses: {paths, the tree's error}.
+private ADD_DIFFERENCES = [
+  # radix accepts both and finds neither (after a static sibling such as /posts/new, it raises SharedKeyError instead)
+  {["/posts/:id", "/posts/:post_id/comments"], "GET /posts/:post_id/comments: :post_id conflicts with :id of /posts/:id"},
+  {["/a/:id", "/a/:name"], "GET /a/:name: :name conflicts with :id of /a/:id"}, # radix accepts both and finds neither
+  {["/hello", "/hello/"], "GET /hello/ is already routed as /hello"},           # radix never finds the second
+  {["users"], "users: a route path must start with /"},                         # radix never finds it
+  {["/a/*rest/b"], "/a/*rest/b: a glob must be the last segment"},              # radix names the glob "rest/b"
+]
+
+private def router(routes : Array) : Azu::Router
+  router = Azu::Router.new
+  routes.each do |(how, path)|
+    case how
+    in Azu::Method then router.add path, DiffEndpoint.new, how
+    in String
+      case how
+      when "root"  then router.root DiffEndpoint.new
+      when "mount" then router.mount Azu::Configuration.new, at: path
+      else              router.register how, path, DiffEndpoint.new
+      end
+    end
+  end
+  router
+end
+
+private def tree(router : Azu::Router) : RouteTree
+  router.registered_routes.each_with_object(RouteTree.new) { |route, tree| tree.add route.method, route.path, route }
+end
+
+# What radix finds for a request, keyed as Router#process keys it.
+private def radix_find(router : Azu::Router, method : Azu::Method, path : String) : Found
+  result = router.radix.find((method.web_socket? ? "/ws" : "/#{method.to_s.downcase}") + path.rstrip('/'))
+  {result.payload.resource, result.params} if result.found?
+end
+
+private def tree_find(tree : RouteTree, method : Azu::Method, path : String) : Found
+  tree.find(method, path).try { |found| {found.payload.resource, found.params || {} of String => String} }
+end
+
+private def concrete(path : String, value : String, rest : String) : String
+  path.split('/').map { |segment| segment[0]? == ':' ? value : (segment[0]? == '*' ? rest : segment) }.join('/')
+end
+
+# Requests around each route: a hit, a trailing slash, one more segment, a longer last segment, empty parameters, the
+# parent path and a deep path; then paths of no route, or of a backtracking one.
+private def probes(router : Azu::Router) : Array(String)
+  router.registered_routes.flat_map do |route|
+    hit = concrete(route.path, "42", "a/b")
+    [hit, hit + "/", hit + "/x", hit + "x", concrete(route.path, "", ""), hit.rpartition('/')[0], hit + "/s" * 40]
+  end.uniq + ["", "/", "//", "/nope", "/s" * 40, "/a%2Fb", "/a/b/d"]
+end
+
+describe "Azu::Router::Tree against radix" do
+  it "finds the payload and params radix finds, for every table, probe and method" do
+    with_params = 0
+    mismatches = TABLES.flat_map do |routes|
+      router = router(routes)
+      tree = tree(router)
+      probes(router).flat_map do |path|
+        Azu::Method.values.compact_map do |method|
+          found, expected = tree_find(tree, method, path), radix_find(router, method, path)
+          with_params += 1 if expected.try { |(_, params)| !params.empty? }
+          "#{routes.first?} #{method} #{path.inspect}: tree #{found}, radix #{expected}" unless found == expected
+        end
+      end
+    end
+
+    mismatches.should be_empty
+    with_params.should be > 1000 # the probes reach parameter routes, not only misses
+  end
+
+  it "differs from radix where radix finds the wrong route or params" do
+    FIND_DIFFERENCES.each do |(routes, path, by_tree, by_radix)|
+      router = router(routes)
+
+      tree_find(tree(router), GET, path).should eq by_tree
+      radix_find(router, GET, path).should eq by_radix
+    end
+  end
+
+  it "refuses routes radix accepts without a word" do
+    ADD_DIFFERENCES.each do |(paths, message)|
+      router = router(paths.map { |path| {GET, path} })
+
+      expect_raises(Azu::Router::Tree::Error, message) { tree(router) }
+    end
+  end
+end
