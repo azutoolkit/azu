@@ -32,6 +32,16 @@ module AllocationBudgetSpec
       HotPath::Raw.new("ok")
     end
   end
+
+  module Deeply::Nested::Name::Space
+    struct LabelledEndpoint
+      include Azu::Endpoint(Azu::Request, HotPath::Raw)
+
+      def call : HotPath::Raw
+        HotPath::Raw.new("ok")
+      end
+    end
+  end
 end
 
 # One context for every call, so the measured bytes are the endpoint's own (a connection builds its request outside it).
@@ -131,6 +141,7 @@ describe "allocation budget" do
     pending "measures nothing for a block that allocates nothing"
     pending "measures what a block allocates"
     pending "a fieldless contract on a request without a body costs no more than no contract"
+    pending "an endpoint's label costs the same whatever its namespace depth"
     pending "the router adds nothing beyond its lookup to an endpoint call"
     pending "Static allocates nothing on a routed path when the public directory does not exist"
   {% else %}
@@ -182,6 +193,14 @@ describe "allocation budget" do
 
       # Nothing is declared to read or check, and a request without a body has nothing else to parse
       (fieldless - bare).should be <= 16
+    end
+
+    it "an endpoint's label costs the same whatever its namespace depth" do
+      shallow = endpoint_bytes(AllocationBudgetSpec::BareEndpoint.new)
+      deep = endpoint_bytes(AllocationBudgetSpec::Deeply::Nested::Name::Space::LabelledEndpoint.new)
+
+      # The label is known when the endpoint is compiled, so a longer name than BareEndpoint's adds no work per request
+      (deep - shallow).should be <= 8
     end
 
     it "the router adds nothing beyond its lookup to an endpoint call" do
