@@ -82,9 +82,9 @@ MyApp.env.test?        # => Bool
 
 ### start
 
-Start the HTTP server. Without arguments it serves the default handler stack
-(`RequestId`, `Logger`, `Rescuer`, `SecurityHeaders` and `Static`), and it shuts down gracefully on
-`SIGTERM` and `SIGINT`, waiting up to `shutdown_timeout` for requests in flight.
+Start the HTTP server: `MyApp.start` is `Azu::App.default.start` (see [App](app.md#start)). Without arguments it serves
+the default handler stack (`RequestId`, `Logger`, `Rescuer`, `SecurityHeaders` and `Static`), and it shuts down
+gracefully on `SIGTERM` and `SIGINT`, waiting up to `shutdown_timeout` for requests in flight.
 
 ```crystal
 module MyApp
@@ -116,7 +116,8 @@ MyApp.start [
 ## Apps
 
 `Azu::App` is an application as a value: its own configuration and router. `include Azu` and the
-endpoint macros drive `Azu::App.default`, the app built around the global `Azu::CONFIG`.
+endpoint macros drive `Azu::App.default`, the app built around the global `Azu::CONFIG`: a supported facade for a
+single app per process. `app.start` serves any app, see [App](app.md).
 
 ```crystal
 struct PingEndpoint
@@ -141,7 +142,8 @@ admin = Azu::App.new
 admin.routes { get "/ping", PingEndpoint }
 app.routes { mount admin, at: "/admin" }
 
-server = app.server([Azu::Handler::RequestId.new] of HTTP::Handler)
+server = app.server([Azu::Handler::RequestId.new] of HTTP::Handler) # an HTTP::Server you drive yourself
+app.start                                                             # or the whole lifecycle
 ```
 
 See [Router Reference](router.md) for `scope` and `mount`.

@@ -103,6 +103,7 @@ Task-oriented guides for specific goals:
 Technical specifications and API documentation:
 
 - [Core API](reference/api/) - Endpoint, Request, Response, Channel, Component
+- [App](reference/api/app.md) - `Azu::App#start`, mounting and the `include Azu` facade
 - [Handlers](reference/handlers/built-in.md) - Built-in middleware handlers
 - [Configuration](reference/configuration/options.md) - All configuration options
 - [Database](reference/database/) - CQL API, validations, query methods
