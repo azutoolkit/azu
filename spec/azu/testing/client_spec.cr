@@ -156,6 +156,15 @@ describe Azu::Testing::Client do
     named.problem?.should be_true
   end
 
+  it "does not take a JSON body that only looks like one for a problem document" do
+    response = Azu::Testing::Response.new(HTTP::Status.new(200), HTTP::Headers{"Content-Type" => "application/json"}, %({"type":"premium","title":"Dr","status":200}))
+    response.problem?.should be_false
+    mismatch = Azu::Testing::Response.new(HTTP::Status.new(404), HTTP::Headers{"Content-Type" => "application/json"}, %({"type":"about:blank","title":"Not Found","status":500}))
+    mismatch.problem?.should be_false
+    real = Azu::Testing::Response.new(HTTP::Status.new(404), HTTP::Headers{"Content-Type" => "application/json"}, %({"type":"about:blank","title":"Not Found","status":404}))
+    real.problem?.should be_true
+  end
+
   it "does not take an ordinary JSON body for a problem document" do
     client = Azu::Testing::Client.new(TestingSpec.app).accept(:json)
     ok = client.post "/notes/7", json: {id: 7, title: "a"}

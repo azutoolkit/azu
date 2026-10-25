@@ -35,6 +35,35 @@ describe "refusals written by handlers" do
     context.response.status_code.should eq 403
   end
 
+  it "names the client and, for CORS, the origin in the line" do
+    spoof = Azu::Handler::IpSpoofing.new
+    spoof.next = create_next_handler(0)[0]
+    context, _ = create_context_with_remote_addr("GET", "/spoofed", "192.0.2.7", HTTP::Headers{"X-Forwarded-For" => "1.1.1.1", "X-Client-IP" => "2.2.2.2"})
+    cors = Azu::Handler::CORS.new(origins: ["https://example.com"])
+    cors.next = create_next_handler(0)[0]
+    refused, _ = create_context_with_remote_addr("GET", "/data", "192.0.2.8", HTTP::Headers{"Origin" => "https://evil.test\u202e"})
+
+    Log.capture("*") do |logs|
+      spoof.call(context)
+      logs.next(:warn, /GET \/spoofed -> 403.*192\.0\.2\.7/)
+      cors.call(refused)
+      logs.next(:warn, /GET \/data -> 403.*192\.0\.2\.8.*https:\/\/evil\.test/)
+      logs.entry.message.should_not contain("\u202e")
+    end
+  end
+
+  it "calls a client without a peer address unknown" do
+    handler = Azu::Handler::IpSpoofing.new
+    handler.next = create_next_handler(0)[0]
+    context, _ = create_context("GET", "/spoofed", HTTP::Headers{"X-Forwarded-For" => "1.1.1.1", "X-Client-IP" => "2.2.2.2"})
+    context.request.remote_address = nil
+
+    Log.capture("*") do |logs|
+      handler.call(context)
+      logs.next(:warn, /\(client unknown\)/)
+    end
+  end
+
   it "logs a refused CORS origin and a refused preflight once each, at warn" do
     handler = Azu::Handler::CORS.new(origins: ["https://example.com"], methods: ["POST"], headers: ["Content-Type"])
     handler.next = create_next_handler(0)[0]
