@@ -44,7 +44,7 @@ Check these before upgrading:
 **`Handler::Static` redirects to the right path.** The redirect for a directory requested without its trailing slash answered
 `Location: /subdir//` (two slashes), and one for a path that was not in its normal form (`/a/../b.txt`) answered `/b.txt/` (a slash added to a
 file). Now `/subdir` redirects to `/subdir/`, `/a/../b.txt` to `/b.txt`, and the query string is kept. A
-`Location` always starts with exactly one `/`, so `//evil.com` can never become a protocol-relative redirect.
+path-only `Location` starts with exactly one `/`, so `//evil.com` is redirected to `/evil.com`, never to a protocol-relative URL.
 **Azu's error pages no longer depend on the working directory.** `error.html` and `error_debug.html` are compiled into
 the binary (`Azu::Templates::BUILTIN`), and `ERROR_TEMPLATE` defaults to the directory they live in inside the azu source
 (resolved at compile time) instead of `./src/azu/templates`. Before, an app that installed azu as a shard found no
