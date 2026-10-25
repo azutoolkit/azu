@@ -8,6 +8,10 @@ This document lists breaking changes between Azu versions and migration guides.
 
 Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
 
+**`Router#path_cache` is internal.** It is `:nodoc:` and its `get`/`set` now take the method and the path
+(`get("GET", "/x")`) instead of one `"GET:/x"` key; `path_cache.stats` and `clear_path_cache` are unchanged. Nothing
+outside the router should call `get` or `set`.
+
 **`Azu::CQL.schema` runs PostgreSQL on CQL's native engine pool.** With a CQL release that has
 `CQL::Postgres::EngineSource`, schemas for `postgres://` and `postgresql://` URLs use CQL's own wire driver and
 `AsyncEngine` pool instead of crystal-db's pool with the `pg` shard. SQLite, MySQL and `cockroachdb://` are unchanged

@@ -62,7 +62,7 @@ module Azu
 
       def initialize(@max_size : Int32 = DEFAULT_MAX_SIZE)
         @entries = Atomic(Entries).new(Entries.new)
-        @size = 0
+        @size = Atomic(Int32).new(0)
         @mutex = Mutex.new
       end
 
@@ -71,9 +71,12 @@ module Azu
       end
 
       def set(method : String, path : String, value : String) : Nil
+        # Once full, new paths are simply not cached; there is no eviction. Checked before the lock,
+        # so a scan of paths that do not exist does not make writers queue once the cache is full.
+        return if @size.get >= @max_size
+
         @mutex.synchronize do
-          # Once full, new paths are simply not cached; there is no eviction
-          return if @size >= @max_size
+          return if @size.get >= @max_size
 
           entries = @entries.get
           known = entries[method]?
@@ -84,14 +87,14 @@ module Azu
           next_entries = entries.dup
           next_entries[method] = paths
           @entries.set(next_entries)
-          @size += 1
+          @size.add(1)
         end
       end
 
       def clear : Nil
         @mutex.synchronize do
           @entries.set(Entries.new)
-          @size = 0
+          @size.set(0)
         end
       end
 
@@ -99,7 +102,7 @@ module Azu
       def stats
         @mutex.synchronize do
           {
-            size:         @size,
+            size:         @size.get,
             max_size:     @max_size,
             fill_percent: fill_percent,
           }
@@ -108,11 +111,12 @@ module Azu
 
       # How full the cache is, not a hit rate: nothing counts hits or misses.
       private def fill_percent : Float64
-        @size.to_f / @max_size.to_f * 100.0
+        @size.get.to_f / @max_size.to_f * 100.0
       end
     end
 
     getter radix : Radix::Tree(Route)
+    # :nodoc:
     getter path_cache : PathCache
     private getter method_cache : Hash(String, String)
     # Routes registry for development tools and introspection

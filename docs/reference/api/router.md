@@ -231,8 +231,9 @@ Azu::App.default.router.path_of(PathEndpoint) # => "/path"
 
 ### Path Caching
 
-The router caches the radix lookup key of the first 1000 distinct `METHOD:path` pairs. `clear_path_cache`
-empties it:
+The router caches the radix lookup key of the first 1000 distinct method and path pairs. The cache has two levels
+(method, then path), and reads take no lock: a lookup is two hash reads and allocates nothing. Once 1000 entries are
+cached, new paths are no longer added (there is no eviction). `clear_path_cache` empties it:
 
 ```crystal
 Azu::App.default.router.clear_path_cache
