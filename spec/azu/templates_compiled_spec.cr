@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "log/spec"
 
 private def with_template_dir(&)
   dir = File.join(Dir.tempdir, "azu_tpl_#{Random::Secure.hex(6)}")
@@ -235,7 +236,7 @@ describe "Azu::Templates compiled (every environment but development)" do
     end
   end
 
-  it "keeps a name that is broken in the first directory with the file loader, not the later directory's copy" do
+  it "keeps a name that is broken in the first directory (the lazy path: no prepare) with the file loader, not the later directory's copy" do
     with_template_dir do |dir|
       a = File.join(dir, "a")
       b = File.join(dir, "b")
@@ -360,6 +361,46 @@ describe "Azu::Templates compiled (every environment but development)" do
       templates.prepare
       templates.path = other
       templates.load("extra.jinja").render.should eq "extra"
+    end
+  end
+end
+
+private class DeniedTemplates < Azu::Templates
+  private def each_entry(dir : String, & : String ->) : Nil
+    raise File::AccessDeniedError.new("Error opening directory", file: dir) if File.basename(dir) == "locked"
+    super { |entry| yield entry }
+  end
+end
+
+describe "Azu::Templates with an unreadable directory (stubbed, also as root)" do
+  it "raises CompileError naming the subdirectory, with the cause attached, when strict" do
+    with_template_dir do |dir|
+      Dir.mkdir_p(File.join(dir, "a", "locked"))
+      File.write(File.join(dir, "ok.jinja"), "ok")
+      error = expect_raises(Crinja::Error) { DeniedTemplates.new([dir], File.join(dir, "errors"), hot_reload: false).prepare }
+      error.message.to_s.should contain File.join(dir, "a", "locked")
+      error.should be_a Azu::Templates::CompileError
+      error.cause.should be_a File::AccessDeniedError
+    end
+  end
+
+  it "warns once, publishes the rest and compiles once when lazy" do
+    with_template_dir do |dir|
+      Dir.mkdir_p(File.join(dir, "a", "locked"))
+      File.write(File.join(dir, "ok.jinja"), "ok")
+      File.write(File.join(dir, "a", "inner.jinja"), "inner")
+      templates = DeniedTemplates.new([dir], File.join(dir, "errors"), hot_reload: false)
+      Log.capture("azu.templates") do |logs|
+        3.times { templates.load("ok.jinja").render.should eq "ok" }
+        logs.check(:warn, /locked was not compiled.*may be shadowed by later directories/)
+        logs.check(:debug, /compiled \d+ templates/)
+        logs.empty
+      end
+      templates.compile_count.should eq 1
+      File.delete(File.join(dir, "ok.jinja"))
+      File.delete(File.join(dir, "a", "inner.jinja"))
+      templates.load("ok.jinja").render.should eq "ok"
+      templates.load("a/inner.jinja").render.should eq "inner"
     end
   end
 end

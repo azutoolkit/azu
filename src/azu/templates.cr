@@ -270,7 +270,7 @@ module Azu
     # directory with `[`, `{` or `*` in its name works, and so does a trailing slash. A directory that cannot be read
     # raises `CompileError` when strict; otherwise it is logged and skipped, and the file loader serves from it.
     private def template_names(dir : String, strict : Bool, prefix : String = "", names : Array(String) = [] of String) : Array(String)
-      Dir.each_child(dir) do |entry|
+      each_entry(dir) do |entry|
         next if entry.starts_with?('.')
         relative = prefix.empty? ? entry : "#{prefix}/#{entry}"
         full = File.join(dir, entry)
@@ -283,8 +283,13 @@ module Azu
       names
     rescue ex : File::Error
       raise CompileError.new("template directory #{dir}: #{ex.message}", ex) if strict
-      Log.for("azu.templates").warn(exception: ex) { "template directory #{dir} was not compiled: #{ex.message}" }
+      Log.for("azu.templates").warn(exception: ex) { "template directory #{dir} was not compiled: #{ex.message}. Templates in it may be shadowed by later directories; requests for them fall back to the file loader" }
       names
+    end
+
+    # The one place the walk reads a directory; specs override it to fail without needing a non-root user.
+    private def each_entry(dir : String, & : String ->) : Nil
+      Dir.each_child(dir) { |entry| yield entry }
     end
 
     private def ignored?(name : String) : Bool
