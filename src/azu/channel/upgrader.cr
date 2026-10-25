@@ -35,11 +35,9 @@ module Azu
         nodelay = config.websocket.tcp_nodelay?
         response.upgrade do |io|
           TCPNoDelay.apply(io, nodelay)
-          Azu.with_app(app) do
-            Azu.with_config(config) do
-              socket = HTTP::WebSocket.new(BoundedProtocol.new(io, @channel.max_message_size))
-              run(app, @channel.new(socket), context, socket)
-            end
+          Azu.with_scope(app, config) do
+            socket = HTTP::WebSocket.new(BoundedProtocol.new(io, @channel.max_message_size))
+            run(app, @channel.new(socket), context, socket)
           end
         end
       end

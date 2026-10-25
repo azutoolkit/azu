@@ -46,33 +46,56 @@ module Azu
     OVERRIDE_HEADER     = "X-HTTP-Method-Override"
     OVERRIDABLE_METHODS = %w(PUT PATCH DELETE)
 
+    # The path cache keeps WebSocket upgrades apart from the plain requests of the same path
+    private WEBSOCKET_CACHE = "ws"
+
     # Thread-safe path cache for frequently requested paths. Stops adding entries at `max_size`.
-    private struct PathCache
+    #
+    # A lookup takes no lock: the maps are never changed once they are published. `set` builds the
+    # next version under the lock (a copy of the map of one method with the new entry) and swaps it in
+    # with one atomic store, so a reader sees either the old version or the new one, complete. The
+    # copies are bounded, because nothing is added after `max_size` entries.
+    private class PathCache
       DEFAULT_MAX_SIZE = 1000
 
+      # Built paths by request method, then by the path as requested.
+      alias Entries = Hash(String, Hash(String, String))
+
       def initialize(@max_size : Int32 = DEFAULT_MAX_SIZE)
-        @cache = Hash(String, String).new
+        @entries = Atomic(Entries).new(Entries.new)
+        @size = Atomic(Int32).new(0)
         @mutex = Mutex.new
       end
 
-      def get(key : String) : String?
-        @mutex.synchronize do
-          @cache[key]?
-        end
+      def get(method : String, path : String) : String?
+        @entries.get[method]?.try(&.[path]?)
       end
 
-      def set(key : String, value : String) : Nil
+      def set(method : String, path : String, value : String) : Nil
+        # Once full, new paths are simply not cached; there is no eviction. Checked before the lock,
+        # so a scan of paths that do not exist does not make writers queue once the cache is full.
+        return if @size.get >= @max_size
+
         @mutex.synchronize do
-          # Once full, new paths are simply not cached; there is no eviction
-          if @cache.size < @max_size
-            @cache[key] = value
-          end
+          return if @size.get >= @max_size
+
+          entries = @entries.get
+          known = entries[method]?
+          return if known.try(&.has_key?(path))
+
+          paths = known ? known.dup : Hash(String, String).new
+          paths[path] = value
+          next_entries = entries.dup
+          next_entries[method] = paths
+          @entries.set(next_entries)
+          @size.add(1)
         end
       end
 
       def clear : Nil
         @mutex.synchronize do
-          @cache.clear
+          @entries.set(Entries.new)
+          @size.set(0)
         end
       end
 
@@ -80,7 +103,7 @@ module Azu
       def stats
         @mutex.synchronize do
           {
-            size:         @cache.size,
+            size:         @size.get,
             max_size:     @max_size,
             fill_percent: fill_percent,
           }
@@ -89,11 +112,12 @@ module Azu
 
       # How full the cache is, not a hit rate: nothing counts hits or misses.
       private def fill_percent : Float64
-        @cache.size.to_f / @max_size.to_f * 100.0
+        @size.get.to_f / @max_size.to_f * 100.0
       end
     end
 
     getter radix : Radix::Tree(Route)
+    # :nodoc:
     getter path_cache : PathCache
     private getter method_cache : Hash(String, String)
     # Routes registry for development tools and introspection
@@ -264,15 +288,10 @@ module Azu
       path_str = request.path
       upgraded = upgrade?(context)
 
-      # Create cache key for this specific request combination
-      cache_key = if upgraded
-                    "ws:#{path_str}"
-                  else
-                    "#{method_str}:#{path_str}"
-                  end
+      cache_method = upgraded ? WEBSOCKET_CACHE : method_str
 
       # Check cache first
-      if cached_path = @path_cache.get(cache_key)
+      if cached_path = @path_cache.get(cache_method, path_str)
         return cached_path
       end
 
@@ -296,7 +315,7 @@ module Azu
                    end
 
       # Cache the result for future requests
-      @path_cache.set(cache_key, built_path)
+      @path_cache.set(cache_method, path_str, built_path)
       built_path
     end
 

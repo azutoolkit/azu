@@ -196,6 +196,28 @@ jobs:
       - name: Run all specs
         run: crystal spec $(find spec -name '*_spec.cr' | sort)
 
+  # The concurrency specs only race with several threads: they run here in a -Dpreview_mt build
+  # (4 workers) on the oldest supported Crystal, where the flag is not yet deprecated.
+  test-mt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: crystallang/crystal:1.19.1
+    env:
+      CRYSTAL_ENV: pipeline
+      CRYSTAL_WORKERS: "4"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: apt-get update && apt-get install -y libsqlite3-dev
+
+      - name: Install dependencies
+        run: shards install
+
+      - name: Run the concurrency specs with threads
+        run: crystal spec -Dpreview_mt spec/azu/mt_stress_spec.cr spec/azu/app_scope_spec.cr spec/azu/router_path_cache_spec.cr spec/azu/graceful_shutdown_spec.cr
+
   release:
     runs-on: ubuntu-latest
     needs:
