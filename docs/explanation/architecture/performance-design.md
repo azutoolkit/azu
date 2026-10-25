@@ -210,7 +210,7 @@ puts "p95:      #{stats.p95_response_time.round(3)} ms"
 ```
 
 In an application put the monitor in the handler array of `start`; `Azu::Handler::DevDashboard` shows the same data
-in the browser during development. Cache operations are observable with `Azu::Instrumentation.on_cache` (see the
+in the browser during development (and only then: it passes every request on in any other environment). Cache operations are observable with `Azu::Instrumentation.on_cache` (see the
 [cache reference](../../reference/api/cache.md#observing-the-cache)), and the database tab of the dashboard lists
 slow queries and N+1 patterns (see [Database dashboard](../../reference/database-dashboard.md)).
 

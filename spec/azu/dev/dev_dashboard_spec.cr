@@ -7,13 +7,16 @@ include IntegrationHelpers
 # Renders the dashboard through the handler and returns the de-chunked HTML body.
 private def dashboard_html(metrics : Azu::PerformanceMetrics = Azu::PerformanceMetrics.new) : String
   context, io = create_context("GET", "/dev-dashboard")
-  Azu::Handler::DevDashboard.new(metrics: metrics).call(context)
+  with_azu_env(Azu::Environment::Development) { Azu::Handler::DevDashboard.new(metrics: metrics).call(context) }
   context.response.close
   io.rewind
   HTTP::Client::Response.from_io(io).body
 end
 
 describe Azu::Handler::DevDashboard do
+  # The dashboard serves in development only (see dev_dashboard_environment_spec.cr).
+  around_each { |example| with_azu_env(Azu::Environment::Development) { example.run } }
+
   describe "initialization" do
     it "initializes with default path" do
       handler = Azu::Handler::DevDashboard.new
@@ -371,6 +374,7 @@ describe Azu::Handler::DevDashboard do
 
     it "renders registered routes as a tree with verb chips and copy buttons" do
       config = Azu::Configuration.new
+      config.env = Azu::Environment::Development
       config.router.get "/users/:id", Azu::Handler::RequestId.new
       config.router.delete "/users/:id", Azu::Handler::RequestId.new
 

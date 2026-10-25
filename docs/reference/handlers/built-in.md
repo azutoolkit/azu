@@ -367,7 +367,9 @@ returns `"es"`; `"pt"` matches `"pt-BR"`, `"en-GB"` matches `"en"`, `"*"` and un
 ## Handlers from `azu/dev`
 
 `Handler::PerformanceMonitor` and `Handler::DevDashboard` exist only after `require "azu/dev"`; see
-[Performance Design](../../explanation/architecture/performance-design.md).
+[Performance Design](../../explanation/architecture/performance-design.md). `DevDashboard` serves in the development
+environment only: elsewhere it passes every request to the next handler, and building it logs a warning
+([Environments](../configuration/environments.md#what-depends-on-the-environment)).
 
 ## See Also
 

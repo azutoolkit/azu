@@ -128,7 +128,7 @@ CQL's types are also reachable under the Azu namespace (`Azu::CQL::Schema`,
 | `Dashboard::DatabaseData` | `src/azu/dev/dev_dashboard/database_data.cr` | numbers for the tab: from `QueryStore` when an integration is installed, else from CQL's monitor |
 | `Dashboard::DatabaseSection` | `src/azu/dev/dev_dashboard/database_section.cr` | server-rendered cards (queries, transactions, pool, playground) |
 | `dashboard.js` | `src/azu/dev/dev_dashboard/dashboard.js` | the playground's `fetch`; the tab itself refreshes with the dashboard's soft refresh |
-| `Handler::DevDashboard` | `src/azu/dev/dev_dashboard.cr` | serves `POST {path}/sql` for the playground |
+| `Handler::DevDashboard` | `src/azu/dev/dev_dashboard.cr` | serves the page and `POST {path}/sql` for the playground, in development only |
 
 Other ORMs can feed the same dashboard by calling `Azu::QueryStore.instance.record_query` and setting an `Azu::DatabaseAdapter`.
 
