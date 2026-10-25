@@ -8,6 +8,36 @@ This document lists breaking changes between Azu versions and migration guides.
 
 Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
 
+**`Static` can refuse paths (additive, nothing to change).** `Azu::Handler::Static.new(except: ["/templates"])` never serves
+`/templates` or anything below it; the request goes to the next handler, or answers `404` with `fallthrough: false`. Without
+`except` the handler behaves as before. Use it when template sources live under `public/`:
+
+```crystal
+Azu::Handler::Static.new("public", except: ["/templates"])
+```
+
+`except` is the supported way to keep paths under `public/` from being served. See [Handler::Static](handlers/built-in.md#handlerstatic).
+
+**`Static` refuses files of an unknown type.** A file whose extension has no content type used to raise `KeyError: Missing MIME type`
+and answer `500` (`.jinja`, `.ico`, `.webmanifest`, `.md`, `.mp4`, an extensionless file, and in a minimal container more).
+It is now refused as if there were no such file: the request goes to the next handler (the router answers its 404), or answers
+`404` with `fallthrough: false`. There is deliberately no default type, so a template is never sent as a download. Azu now
+serves `.ico .webmanifest .avif .mp4 .webm .mp3 .ogg .wav .m4a .csv .vtt .mjs .eot .rss .atom` and an extensionless file
+`/.well-known/<file>` and `/.well-known/<dir>/<file>` (as `text/plain`), plus archives (`.zip .gz .tgz .tar .bz2 .xz .7z`),
+`.ics .jsonld .xhtml .bmp .tif .tiff`. The table of types belongs to `Static` and is the same on every host: the operating
+system's `/etc/mime.types` is no longer consulted (a host that had it served `.yml` or `.md`; none does now). If you serve a type
+that is not in it, add it with `Static.new(mime_types: {".heic" => "image/heic"})`. Azu no longer registers `.woff`, `.ttf` and
+the others in the process-wide `MIME` registry; code that called `MIME.from_filename` for them must register them itself. Check any route that shares a path with a file of an unknown type: the
+router now answers it. See [Handler::Static](handlers/built-in.md#which-files-are-served).
+
+**Templates are compiled outside development.** With `template_hot_reload` off (the default for `staging`,
+`production` and any environment other than `development`, `test` and `pipeline`), `Azu.prepare` reads and parses
+every template once and requests no longer read template files: an edit to a template file needs a restart, where
+before it showed on the next request, and a template with a syntax error now stops the boot (with its name and
+line) instead of failing its first request, including a file that is not a template (a vendored `index.html`; list
+those in `template_compile_ignore`). Set `template_hot_reload = true` (or `TEMPLATE_HOT_RELOAD=true`) to keep
+reloading in an environment. See [Configuration](configuration/options.md#templates).
+
 **`Router#path_cache` is internal.** It is `:nodoc:` and its `get`/`set` now take the method and the path
 (`get("GET", "/x")`) instead of one `"GET:/x"` key; `path_cache.stats` and `clear_path_cache` are unchanged. Nothing
 outside the router should call `get` or `set`.
@@ -126,6 +156,26 @@ stripped of control characters (`Azu::LogText.safe`, also used by `Handler::Logg
 `Azu::Rescuer` (the Rescuer's was `http.server`, the Router's was the unnamed root source; bind `Azu::*` instead). The access lines of `Handler::Logger` and `SimpleLogger` keep targets up to 2048 characters, escape C0/C1 controls, line separators and bidi overrides in them (also in the user agent, request id and endpoint), and replace credential-looking query parameters (`?token=...`) in the logged target, so `Log.setup("Azu::*")` selects them. A raised 5xx `Response::Error` moves from `warn` to `error`
 (with its exception and backtrace): that includes deliberate `503`/`504`s you raise yourself. An unexpected exception is `error` as before. The
 response status and body are unchanged. If you alert on `warn`/`error` lines for 404s, watch the request log (`Handler::Logger`) instead.
+The refusals that `CSRF`, `CORS`, `IpSpoofing` and `Throttle` write themselves (they never reach `Rescuer`) are logged the same way, once per refused request, by
+`Azu::LogText.log_refusal` under the sources `Azu::Handler::CSRF`, `Azu::Handler::CORS`, `Azu::Handler::IpSpoofing` and the app's own log (`Throttle`): `403` and `429` at `warn`.
+Each line also names the client (the address of the connection) and the `Origin` header, cleaned like the path. `CSRF` no longer logs the request headers
+(cookies and credentials) at `debug`. `Throttle` writes at most `Throttle::LOG_PER_SECOND` (10) refusal lines a second per handler and begins the next second with one
+line saying how many it left out (`suppressed 40 similar refusals in the last second`). The other three log every refusal.
+**Throttle's HTML 429 page is cached for a second.** The page of `Throttle`'s own refusal (not an error you raise: a `RateLimitError` of yours, or a subclass,
+always renders its own text) is rendered once a second per templates, `Retry-After` and locale, and the response carries the `error_id` the page shows, so refusals within
+that second share an id. A custom `error.html` must therefore not depend on the request; development renders the page every time. Nothing reports a Throttle
+refusal to `ERROR_REPORTER`, which would want an id per occurrence.
+**`QueryStore#playground_available?` takes a `Configuration`.** It was `playground_available?(config : DatabaseConfiguration = Azu::CONFIG.database)` and judged the
+environment by the global configuration; it is now `playground_available?(config : Configuration = Azu.current_config)` and reads the database switch and the
+environment from the configuration of the app serving the request. A caller that passed `config.database` passes `config`. The dashboard's N+1 and slow-query thresholds
+follow the serving app the same way, and the `<resource>_path` template filter of an endpoint is registered with `Helpers::Registry` (every app's templates have it).
+`CORS` adds `Origin` to a `Vary` the response already has (it replaced it), and sets `Vary: Origin` on a request without an `Origin` header, in every configuration. With
+`origins: ["*"]` the request's `Origin` is reflected in `Access-Control-Allow-Origin`, so that response now carries `Vary: Origin` too (it sent no `Vary` before): a visible cache
+behaviour change, and a shared cache keeps one entry per origin.
+**`Vary` fields are compared as whole tokens.** `CORS`, `Static` and `Negotiation` add their fields through one helper that splits every `Vary` line on commas and compares
+trimmed tokens case-insensitively, so `Vary: Accept-Encoding` no longer hides `Accept` and `X-Origin` no longer hides `Origin`. A `Vary: *` is left untouched (`Negotiation`
+used to extend it). The fields are written as one comma list. `Compression` sets no `Vary: Accept-Encoding` itself (out of scope here). A subclass of `Throttle::Refusal` is
+treated like any error you raise: it shares neither the page cache nor the fingerprint of Throttle's own refusal.
 
 **`include Azu` is a supported facade, and `Azu::App` can start itself.** `include Azu`, `configure` and `Azu::CONFIG`
 are the single-app facade (global configuration, one app per process); they are not deprecated and log no warning.
@@ -291,7 +341,7 @@ interface. Unset still means development; the default host now depends on it:
 - Migration: an app run in development that must be reached from another machine, a container or a VM port-forward sets
   `HOST=0.0.0.0` (or `config.host = "0.0.0.0"`). Deployments that set `CRYSTAL_ENV` (production, staging, ...) are unchanged.
 - `Configuration#host` is no longer a plain `property`: `host=` accepts `nil` or `""` to go back to the default.
-- `start` logs a WARN when the server listens on a loopback address inside a container (`/.dockerenv` exists or
+- `start` logs a WARN when the server listens on a loopback address inside a container (`/.dockerenv` or Podman's `/run/.containerenv` exists, or
   `KUBERNETES_SERVICE_HOST` is set), naming the fix `HOST=0.0.0.0` (the usual cause: development, the default, a container);
   and a WARN when `CRYSTAL_ENV` was never set and the host is not loopback (the development pages are served on every
   interface). `Configuration#container=` overrides the detection.
@@ -329,7 +379,8 @@ exception, ...) predated problem+json and answered JSON clients with a PascalCas
 - Migration: accept the `+json` suffix and read the new members, or set `config.error_format = Azu::ErrorFormat::Legacy`
   (keeps all old bodies, as `application/json`, for one more minor release). The OpenAPI document follows the setting
   (`Azu.Error` is the problem schema, `Azu.LegacyError` the old one). `Testing::Response#problem?` is true for the
-  `application/problem+json` content type only.
+  `application/problem+json` content type and for a JSON body with the `type`, `title` and `status` of a problem document, so it
+  holds whichever `Accept` the test client sent.
 
 **Request contracts are enforced.** An endpoint whose request type has validations no longer runs when the
 request breaks them: the endpoint answers `422` before `call` (by itself, whether or not a `Rescuer` is in the handler stack),
@@ -415,7 +466,7 @@ See [Shut Down Gracefully](../how-to/deployment/graceful-shutdown.md).
   name a database host or user); the message stays in the log and in development bodies.
 - `Cache::RedisStore#increment` / `#decrement` set the TTL in one atomic Lua script, only when the key has
   none; `decrement` used to renew it on every call.
-- Not changed: Azu does not cache templates (`Templates#load` asks Crinja each time).
+- Not changed in this release: templates were not cached (`Templates#load` asked Crinja each time); see "Templates are compiled outside development" under Unreleased.
 
 **Content negotiation.** New: [`Response::Negotiable`](api/content-negotiation.md). Endpoints now write their
 response with `Response#write_to(context)`, which prints `render` unless the type overrides it, so existing

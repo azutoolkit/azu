@@ -146,7 +146,15 @@ Azu::Handler::Static.new(
   directory_listing: false,
   cache_control: "public, no-cache",
   cache_max_age: 31_536_000,
+  except: [] of String,
+  mime_types: {} of String => String,
 )
+```
+
+To keep template sources under `public/` from being downloaded:
+
+```crystal
+Azu::Handler::Static.new("public", except: ["/templates"])
 ```
 
 - `public_dir : String` - directory to serve (default `"public"`, relative to the working directory).
@@ -156,6 +164,72 @@ Azu::Handler::Static.new(
 - `directory_listing : Bool` - list directories without an `index.html`.
 - `cache_control : String` - `Cache-Control` of files without a fingerprint.
 - `cache_max_age : Int32` - seconds for fingerprinted files (default `config.assets.cache_max_age`, one year).
+- `except : Array(String)` - paths that are never served (default none): an entry and everything below it, for example
+  template sources kept in `public/templates`. A request for one falls through to the next handler (so the router
+  answers its 404), or answers `404` with `fallthrough: false`; `GET`, `HEAD` and the redirect of a directory are all covered.
+  Entries match whole directory names (`"/templates"` covers `/templates`, `/templates/` and `/templates/a/b.jinja`, not
+  `/templates-x`); a leading slash is added and a trailing one ignored. The check runs on the decoded, normalised request
+  path (`/%74emplates/x`, `//templates/x`, `/a/../templates/x`, backslashes, trailing dots and letter case included).
+  Limits to know:
+  - An entry is a literal path, not a URL: it is not percent-decoded.
+  - Matching ignores letter case, and trailing dots and spaces, so on a case-sensitive file system `/Templates` is
+    refused too (it can over-block).
+  - The check is lexical and does not resolve symlinks: a symlink in `public/` that points into an excluded directory is
+    served. Do not symlink into an excluded directory.
+  - With `directory_listing: true` the listing of the parent still names the excluded entry (never its content).
+  - An entry that resolves to the root (`""`, `"/"`, `"."`, `"/x/.."`) would exclude every path, so `new` raises `ArgumentError`.
+- `mime_types : Hash(String, String)` - extra extensions to serve, for the application's own file types (see below).
+
+### Which files are served
+
+A file is served only when its last extension (compared in lower case) has a content type: there is no default type.
+A file of any other type, or without an extension, is refused exactly like an `except` path: it falls through to the next
+handler (the router answers its negotiated 404), or answers `404` with `fallthrough: false`. `GET`, `HEAD`, `Range` and
+conditional requests are all refused before a header is sent, and the `except` check still runs first. A directory
+listing names the files of a directory, but a request for one of unknown type is refused. `X-Content-Type-Options: nosniff`
+is sent with every file.
+
+The types are the handler's own table (`Azu::Handler::Static::MIME_TYPES`), **the same on every host**: it never reads the
+operating system's `/etc/mime.types` and does not use the process-wide `MIME` registry. It holds Crystal's built-in
+defaults (`.css .gif .htm .html .jpg .jpeg .js .json .pdf .png .svg .txt .xml .wasm .webp`), the fonts and source maps Azu has
+always served (`.woff .woff2 .ttf .otf .sfnt .collection .map`), and these, so common assets keep working:
+
+| Extension | Content-Type |
+| --- | --- |
+| `.ico` | `image/vnd.microsoft.icon` |
+| `.webmanifest` | `application/manifest+json` |
+| `.avif` `.bmp` `.tif` `.tiff` | `image/avif` `image/bmp` `image/tiff` |
+| `.mp4` `.webm` | `video/mp4` `video/webm` |
+| `.mp3` `.ogg` `.wav` `.m4a` | `audio/mpeg` `audio/ogg` `audio/wav` `audio/mp4` |
+| `.csv` `.vtt` `.ics` | `text/csv` `text/vtt` `text/calendar` (UTF-8) |
+| `.mjs` | `text/javascript` (UTF-8) |
+| `.eot` | `application/vnd.ms-fontobject` |
+| `.rss` `.atom` `.jsonld` `.xhtml` | `application/rss+xml` `application/atom+xml` `application/ld+json` `application/xhtml+xml` |
+| `.zip` `.gz` `.tgz` `.tar` `.bz2` `.xz` `.7z` | `application/zip` `application/gzip` `application/x-tar` `application/x-bzip2` `application/x-xz` `application/x-7z-compressed` (downloads) |
+
+Everything else is refused on every host, among them `.jinja .j2 .ecr .cr .yml .yaml .env .sql .db .sqlite .md .markdown
+.pem .key .crt .bak .sh .py .rb .exe .dmg .apk .bin` and `.svgz` (it needs `Content-Encoding: gzip`). Opt in to any of
+them with `mime_types:`. A double extension is typed by its last one: `page.jinja.html` is HTML, `page.html.jinja` is refused.
+
+A file with no extension is refused, with one exception for ACME HTTP-01 challenges: `/.well-known/<file>` and
+`/.well-known/<dir>/<file>` (such as `/.well-known/acme-challenge/<token>`) are served as `text/plain; charset=utf-8` when no
+segment after `/.well-known` starts with a dot and the name does not end in a dot. Deeper paths (`/.well-known/a/b/c`) and
+dot names at any level (`/.well-known/.git/config`, `/.well-known/.env`, `/.well-known/.secrets.json`, even with a
+known extension) are refused, as is an extensionless file anywhere else; `/.well-known/a/b/c.json` and `/.well-known/.x.json`
+are refused too (an earlier release served them), deliberately. Only the root `/.well-known/` counts, whatever the case it
+is written in. An extensionless file there (`apple-app-site-association`, `openid-configuration`) is sent as `text/plain`:
+an app that needs JSON names the file `.json` or answers from a route.
+
+Files that are compressed on the fly (when the client accepts it and the file is over 860 bytes) are the text types:
+`.htm .html .txt .css .js .mjs .svg .json .jsonld .xml .xhtml .csv .vtt .ics .webmanifest .rss .atom .map .eot .otf .ttf .woff .woff2`,
+matched without regard to the case of the extension.
+
+To serve a type of your own, list it. The extension is lower-cased and gets its leading dot; it is exact (no wildcard), and
+the type must be a plain `type/subtype`, and two keys that are the same after that (`".Foo"` and `"foo"`) raise `ArgumentError`. It applies to this handler only and overrides a type the handler knows:
+
+```crystal
+Azu::Handler::Static.new("public", mime_types: {".heic" => "image/heic", "avifs" => "image/avif-sequence"})
+```
 
 Behaviour seen by running it:
 
@@ -164,8 +238,8 @@ Behaviour seen by running it:
 - Responses carry a weak `ETag` and `Vary: Accept-Encoding`; a matching `If-None-Match` answers `304`.
 - `Range: bytes=0-4` answers `206` with `Content-Range`; a range past the end answers `416`.
 - `GET /` serves `index.html` of the directory.
-- `.html .css .js .json .txt .svg .xml` and font files larger than 860 bytes are gzip or deflate compressed when the
-  client accepts it.
+- Text files (the extensions listed under "Which files are served") larger than 860 bytes are gzip or deflate compressed
+  when the client accepts it.
 - Methods other than `GET` and `HEAD` answer `405` with `Allow` (or fall through).
 - A `public_dir` that does not exist costs no file system calls per request (one monotonic clock read). A public dir created after boot is
   picked up within a second (the handler looks for a missing one again at most once a second); once found it is not
@@ -213,7 +287,7 @@ Observed with an allowed origin `https://app.example.com`:
 | `OPTIONS` preflight asking for an allowed method and header | `200` with `Access-Control-Allow-Methods`, `-Headers`, `-Max-Age`; the endpoint does not run |
 | preflight asking for a method not in `methods` | `403` |
 
-With `origins: ["*"]` the request's origin is echoed back and `Vary` is not sent. Put `CORS` before authentication
+With `origins: ["*"]` the request's origin is echoed back, so the response carries `Vary: Origin`. Put `CORS` before authentication
 handlers: a preflight carries no credentials, and an authentication handler in front of `CORS` answered it with `401`.
 
 ## Handler::CSRF

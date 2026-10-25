@@ -3,7 +3,7 @@ require "mime"
 module Azu
   module Handler
     class Static < HTTP::StaticFileHandler
-      ZIPPED_FILE_EXTENSIONS = %w(.htm .html .txt .css .js .svg .json .xml .otf .ttf .woff .woff2)
+      ZIPPED_FILE_EXTENSIONS = %w(.htm .html .txt .css .js .mjs .svg .json .jsonld .xml .xhtml .csv .vtt .ics .webmanifest .rss .atom .map .eot .otf .ttf .woff .woff2)
 
       # A single byte range: `bytes=first-last`, `bytes=first-` or `bytes=-suffix`
       RANGE_HEADER = /\Abytes=(\d*)-(\d*)\z/
@@ -18,15 +18,78 @@ module Azu
       # check on.
       MISSING_DIRECTORY_RECHECK = 1.second
 
-      MIME.register(".collection", "font/collection")
-      MIME.register(".otf", "font/otf")
-      MIME.register(".sfnt", "font/sfnt")
-      MIME.register(".ttf", "font/ttf")
-      MIME.register(".woff", "font/woff")
-      MIME.register(".woff2", "font/woff2")
-      MIME.register(".js", "text/javascript")
-      MIME.register(".png", "image/png")
-      MIME.register(".map", "application/json")
+      HTML_TYPE = "text/html; charset=utf-8"
+
+      # The content types the handler serves, by lower-case extension. The table is the handler's own and is
+      # the same on every host: it never consults the operating system's MIME database (`/etc/mime.types`
+      # would add `.sql`, `.yml`, `.md`, `.pem`, `.sh`, `.py`, ... on some hosts) nor the process-wide `MIME`
+      # registry. A file whose extension is not here is refused; there is no default type, so a template is
+      # never sent as a download. An application adds its own types with `mime_types:`.
+      #
+      # Crystal's built-in defaults, with Azu's `.js`/`.png` types, fonts and source maps ...
+      MIME_TYPES = {
+        ".css"        => "text/css; charset=utf-8",
+        ".gif"        => "image/gif",
+        ".htm"        => "text/html; charset=utf-8",
+        ".html"       => "text/html; charset=utf-8",
+        ".jpg"        => "image/jpeg",
+        ".jpeg"       => "image/jpeg",
+        ".js"         => "text/javascript",
+        ".json"       => "application/json",
+        ".pdf"        => "application/pdf",
+        ".png"        => "image/png",
+        ".svg"        => "image/svg+xml",
+        ".txt"        => "text/plain; charset=utf-8",
+        ".xml"        => "text/xml; charset=utf-8",
+        ".wasm"       => "application/wasm",
+        ".webp"       => "image/webp",
+        ".collection" => "font/collection",
+        ".otf"        => "font/otf",
+        ".sfnt"       => "font/sfnt",
+        ".ttf"        => "font/ttf",
+        ".woff"       => "font/woff",
+        ".woff2"      => "font/woff2",
+        ".map"        => "application/json",
+        # ... and what a web application serves that those lack: icons, manifests, images, media, captions,
+        # feeds, structured data, CSV, calendars, and archives (downloads, never code). Never anything that is
+        # source or data of the application itself (templates, `.cr`, `.yml`, `.env`, `.sql`, databases,
+        # Markdown, keys and certificates, scripts, executables) and not `.svgz`, which needs
+        # `Content-Encoding: gzip`: opt in with `mime_types:`.
+        ".ico"         => "image/vnd.microsoft.icon",
+        ".webmanifest" => "application/manifest+json",
+        ".avif"        => "image/avif",
+        ".bmp"         => "image/bmp",
+        ".tif"         => "image/tiff",
+        ".tiff"        => "image/tiff",
+        ".mp4"         => "video/mp4",
+        ".webm"        => "video/webm",
+        ".mp3"         => "audio/mpeg",
+        ".ogg"         => "audio/ogg",
+        ".wav"         => "audio/wav",
+        ".m4a"         => "audio/mp4",
+        ".csv"         => "text/csv; charset=utf-8",
+        ".vtt"         => "text/vtt; charset=utf-8",
+        ".ics"         => "text/calendar; charset=utf-8",
+        ".mjs"         => "text/javascript; charset=utf-8",
+        ".eot"         => "application/vnd.ms-fontobject",
+        ".rss"         => "application/rss+xml",
+        ".atom"        => "application/atom+xml",
+        ".jsonld"      => "application/ld+json",
+        ".xhtml"       => "application/xhtml+xml",
+        ".zip"         => "application/zip",
+        ".gz"          => "application/gzip",
+        ".tgz"         => "application/gzip",
+        ".tar"         => "application/x-tar",
+        ".bz2"         => "application/x-bzip2",
+        ".xz"          => "application/x-xz",
+        ".7z"          => "application/x-7z-compressed",
+      }
+
+      # The type of an extensionless file below `/.well-known/` (ACME HTTP-01 challenge tokens)
+      WELL_KNOWN_TYPE = "text/plain; charset=utf-8"
+
+      private EXTENSION    = /\A\.[a-z0-9][a-z0-9_+-]*\z/
+      private CONTENT_TYPE = %r{\A[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*(?:; ?[a-z0-9-]+=[a-z0-9"._-]+)*\z}i
 
       # Files with a fingerprint are cached for `cache_max_age` seconds and never revalidated;
       # every other file is sent with `cache_control`, which by default makes caches revalidate
@@ -37,14 +100,21 @@ module Azu
         directory_listing = false,
         @cache_control : String = "public, no-cache",
         cache_max_age : Int32 = CONFIG.assets.cache_max_age,
+        except excluded : Array(String) = [] of String,
+        mime_types : Hash(String, String) = {} of String => String,
       )
         super(public_dir, fallthrough, directory_listing)
+        @mime_types = MIME_TYPES.merge(normalized_mime_types(mime_types))
+        @excluded = excluded.map { |entry| excluded_segments(entry) }
         @fingerprinted_cache_control = "public, max-age=#{cache_max_age}, immutable"
         @clock_origin = Clock.instant
         @public_dir_found = Atomic(Bool).new(false)
         @next_directory_check = Atomic(Int64).new(0_i64)
         public_dir?
       end
+
+      @excluded : Array(Array(String))
+      @mime_types : Hash(String, String)
 
       def call(context : HTTP::Server::Context)
         return allow_get_or_head(context) unless method_get_or_head?(context.request.method)
@@ -57,6 +127,7 @@ module Azu
         return handle_invalid_path(context) unless valid_path?(original_path, request_path)
 
         path_info = resolve_path_info(original_path, request_path)
+        return refuse(context) if excluded?(path_info.normalized_path)
         return handle_directory_request(context, path_info) if path_info.is_dir_path? && info(path_info.root_file)
 
         file_info = info(path_info.file_path)
@@ -108,6 +179,40 @@ module Azu
         true
       end
 
+      # The segments of a path in its comparable form: backslashes are separators, dot segments are resolved
+      # against the root, case and trailing dots or spaces (which some file systems ignore) are dropped.
+      private def path_segments(path : String) : Array(String)
+        File.expand_path(path.tr("\\", "/"), "/").split('/').compact_map do |segment|
+          segment = segment.downcase.rstrip(". ")
+          segment unless segment.empty?
+        end
+      end
+
+      # An entry that resolves to the root (`""`, `"/"`, `"."`, `"/x/.."`) would exclude every path.
+      private def excluded_segments(entry : String) : Array(String)
+        segments = path_segments(entry)
+        raise ArgumentError.new("except entry #{entry.inspect} would exclude every path") if segments.empty?
+        segments
+      end
+
+      # Whether the resolved path is an `except` entry or lies below one. Whole segments are compared, so
+      # `/templates` does not cover `/templates-x`.
+      private def excluded?(normalized_path : String) : Bool
+        return false if @excluded.empty?
+        segments = path_segments(normalized_path)
+        @excluded.any? { |entry| segments.size >= entry.size && segments.first(entry.size) == entry }
+      end
+
+      # An excluded path is answered as if there were no such file.
+      private def refuse(context : HTTP::Server::Context)
+        if @fallthrough
+          call_next(context)
+        else
+          context.response.status_code = 404
+        end
+        nil
+      end
+
       private def handle_invalid_path(context : HTTP::Server::Context)
         Response::BadRequest.new("Invalid path").to_s(context)
         context.response.close
@@ -136,7 +241,7 @@ module Azu
 
       private def handle_directory_request(context : HTTP::Server::Context, path_info : PathInfo)
         return if not_modified?(context, path_info.root_file)
-        serve_file(context, path_info.root_file)
+        serve_file(context, path_info.root_file, HTML_TYPE)
       end
 
       # Where to send a request whose path is not in its normal form, or names a directory without the
@@ -185,8 +290,9 @@ module Azu
             context.response.status_code = 404
           end
         elsif file_info
+          return refuse(context) unless type = content_type(request_path, file_path)
           return if not_modified?(context, file_path)
-          serve_file(context, file_path)
+          serve_file(context, file_path, type)
         elsif @fallthrough
           call_next(context)
         else
@@ -200,7 +306,8 @@ module Azu
       private def not_modified?(context, file_path : String) : Bool
         headers = context.response.headers
         headers["Cache-Control"] = FINGERPRINTED.matches?(file_path) ? @fingerprinted_cache_control : @cache_control
-        headers["Vary"] = "Accept-Encoding"
+        # Joined to a Vary another handler set (CORS's Origin), never replacing it.
+        Vary.add(headers, "Accept-Encoding")
         etag(context, file_path)
       end
 
@@ -214,13 +321,43 @@ module Azu
         true
       end
 
-      private def mime_type(path)
-        MIME.from_filename path
+      # The type of the file by its last extension, nil when it is not one the handler serves.
+      private def content_type(request_path : String, file_path : String) : String?
+        well_known = well_known_segments(request_path)
+        return if well_known && !plain_well_known?(well_known)
+        extension = File.extname(file_path).downcase
+        return @mime_types[extension]? unless extension.empty?
+        WELL_KNOWN_TYPE if well_known && !File.basename(file_path).ends_with?('.')
       end
 
-      private def serve_file(env, path : String, mime_type : String? = nil)
+      # The segments below `/.well-known/` of the normalised request path; nil for any other path. The name is
+      # compared without regard to case, since a case-insensitive file system resolves `/.Well-Known/` to it.
+      private def well_known_segments(request_path : String) : Array(String)?
+        segments = File.expand_path(request_path, "/").split('/', remove_empty: true)
+        segments[1..] if segments.first?.try(&.downcase) == ".well-known"
+      end
+
+      # `/.well-known/<file>` or `/.well-known/<dir>/<file>` (ACME: `acme-challenge/<token>`), no dot name at
+      # any level: nothing hidden (`.git/config`, `.env`, `.secrets.json`) and nothing deeper is served from there.
+      private def plain_well_known?(segments : Array(String)) : Bool
+        (1..2).includes?(segments.size) && segments.none?(&.starts_with?('.'))
+      end
+
+      private def normalized_mime_types(types : Hash(String, String)) : Hash(String, String)
+        normalized_types = {} of String => String
+        types.each do |extension, type|
+          normalized = extension.downcase
+          normalized = ".#{normalized}" unless normalized.starts_with?('.')
+          raise ArgumentError.new("mime_types extension #{extension.inspect} is not a plain extension") unless EXTENSION.matches?(normalized)
+          raise ArgumentError.new("mime_types type #{type.inspect} is not a content type") unless CONTENT_TYPE.matches?(type)
+          raise ArgumentError.new("mime_types extension #{extension.inspect} is given twice (as #{normalized.inspect})") if normalized_types.has_key?(normalized)
+          normalized_types[normalized] = type
+        end
+        normalized_types
+      end
+
+      private def serve_file(env, path : String, mime_type : String)
         file_path = File.expand_path(path, Dir.current)
-        mime_type ||= mime_type(file_path)
         env.response.content_type = mime_type
         env.response.headers["Accept-Ranges"] = "bytes"
         env.response.headers["X-Content-Type-Options"] = "nosniff"
@@ -243,7 +380,7 @@ module Azu
       end
 
       private def zip_file?(path)
-        ZIPPED_FILE_EXTENSIONS.includes? File.extname(path)
+        ZIPPED_FILE_EXTENSIONS.includes? File.extname(path).downcase
       end
 
       private def range_request?(env)

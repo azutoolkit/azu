@@ -1,7 +1,23 @@
 require "../../spec_helper"
+require "log/spec"
 require "../../support/integration_helpers"
 
 include IntegrationHelpers
+
+class QuotaExceeded < Azu::Response::RateLimitError
+  def initialize(retry_after : Int32? = nil)
+    super(retry_after)
+    @title = "Quota exhausted"
+    @detail = "Upgrade your plan"
+  end
+end
+
+private class ThrottleRefusalSubclass < Azu::Handler::Throttle::Refusal
+  def initialize(retry_after : Int32)
+    super
+    @detail = "Custom refusal text"
+  end
+end
 
 describe Azu::Handler::Throttle do
   describe "initialization" do
@@ -265,6 +281,243 @@ describe Azu::Handler::Throttle do
 
       verify.call
       handler.reset
+    end
+  end
+
+  describe "the refusal" do
+    around_each do |example|
+      Azu::Handler::Throttle::RefusalPages.clear
+      example.run
+      Azu::Handler::Throttle::RefusalPages.clear
+    end
+
+    refuse = ->(accept : String?, remote : String) do
+      handler = Azu::Handler::Throttle.new(60, 60, 100, [remote], [] of String)
+      handler.next = create_next_handler(0)[0]
+      headers = HTTP::Headers.new
+      headers["Accept"] = accept if accept
+      context, io = create_context_with_remote_addr("GET", "/limited", remote, headers)
+      handler.call(context)
+      {context, get_response_body(context, io)}
+    end
+
+    it "answers a JSON client with the problem body, the Retry-After and the error id of the response" do
+      context, body = refuse.call("application/json", "10.1.0.1")
+
+      context.response.status_code.should eq 429
+      context.response.headers["Content-Type"].should eq "application/json"
+      context.response.headers["Retry-After"].should eq "0"
+      problem = JSON.parse(body)
+      problem["type"].as_s.should eq "about:blank"
+      problem["title"].as_s.should eq "Rate Limit Exceeded"
+      problem["status"].as_i.should eq 429
+      problem["detail"].as_s.should eq "Rate limit exceeded. Retry after 0 seconds."
+      problem["instance"].as_s.should eq "/limited"
+      problem["error_id"].as_s.should eq context.response.headers["X-Error-ID"]
+    end
+
+    it "labels the body problem+json for a client that names it" do
+      context, body = refuse.call("application/problem+json", "10.1.0.2")
+
+      context.response.headers["Content-Type"].should eq "application/problem+json"
+      JSON.parse(body)["status"].as_i.should eq 429
+    end
+
+    it "answers a plain-text and a missing Accept with text" do
+      refuse.call("text/plain", "10.1.0.3")[0].response.headers["Content-Type"].should eq "text/plain"
+      context, body = refuse.call(nil, "10.1.0.4")
+      context.response.headers["Content-Type"].should eq "text/plain"
+      body.should contain "Rate Limit Exceeded"
+    end
+
+    it "renders the HTML page once for refusals that read alike, and its error id is the header's" do
+      first_context, first = refuse.call("text/html", "10.1.0.5")
+      second_context, second = refuse.call("text/html", "10.1.0.6")
+
+      first_context.response.headers["Content-Type"].should eq "text/html"
+      first.should contain "Rate Limit Exceeded"
+      first.should contain first_context.response.headers["X-Error-ID"]
+      second.should eq first
+      second_context.response.headers["X-Error-ID"].should eq first_context.response.headers["X-Error-ID"]
+    end
+  end
+
+  describe "the cached HTML refusal" do
+    around_each do |example|
+      Azu::Handler::Throttle::RefusalPages.clear
+      example.run
+      Azu::Handler::Throttle::RefusalPages.clear
+    end
+
+    html_context = ->(remote : String) do
+      headers = HTTP::Headers{"Accept" => "text/html"}
+      context, io = create_context_with_remote_addr("GET", "/limited", remote, headers)
+      {context, io}
+    end
+
+    refuse = ->(remote : String) do
+      handler = Azu::Handler::Throttle.new(60, 60, 100, [remote], [] of String)
+      handler.next = create_next_handler(0)[0]
+      context, io = html_context.call(remote)
+      handler.call(context)
+      {context, get_response_body(context, io)}
+    end
+
+    it "is rendered once a second for Throttle's own refusals, with the error id of the page in the header" do
+      with_fake_clock do |clock|
+        first_context, first = refuse.call("10.2.0.1")
+        second_context, second = refuse.call("10.2.0.2")
+
+        first.should contain "Rate Limit Exceeded"
+        first.should contain first_context.response.headers["X-Error-ID"]
+        second.should eq first
+        second_context.response.headers["X-Error-ID"].should eq first_context.response.headers["X-Error-ID"]
+
+        clock.advance(1.5.seconds)
+        third_context, third = refuse.call("10.2.0.3")
+        third_context.response.headers["X-Error-ID"].should_not eq first_context.response.headers["X-Error-ID"]
+        third.should_not eq first
+      end
+    end
+
+    it "is kept apart per locale, so a request-dependent page is never served to another locale" do
+      with_fake_clock do
+        english = Azu::Helpers::I18n.with_locale("en") { refuse.call("10.2.0.4")[0].response.headers["X-Error-ID"] }
+        other = Azu::Helpers::I18n.with_locale("es") { refuse.call("10.2.0.5")[0].response.headers["X-Error-ID"] }
+        other.should_not eq english
+      end
+    end
+
+    it "is rendered fresh every time in development" do
+      with_fake_clock do
+        with_azu_env(Azu::Environment::Development) do
+          first = refuse.call("10.2.0.6")[0].response.headers["X-Error-ID"]
+          second = refuse.call("10.2.0.7")[0].response.headers["X-Error-ID"]
+          second.should_not eq first
+        end
+        Azu::Handler::Throttle::RefusalPages.size.should eq 0
+      end
+    end
+
+    it "keeps a bounded number of pages" do
+      with_fake_clock do
+        templates = Azu.current_config.templates
+        (Azu::Handler::Throttle::RefusalPages::MAX + 5).times do |seconds|
+          Azu::Handler::Throttle::RefusalPages.fetch(templates, seconds, "en") { {"id", "<p>#{seconds}</p>"} }
+        end
+        Azu::Handler::Throttle::RefusalPages.size.should be <= Azu::Handler::Throttle::RefusalPages::MAX
+      end
+    end
+
+    it "does not cache JSON, plain text or XML refusals" do
+      with_fake_clock do
+        ["application/json", "text/plain", "application/xml"].each do |accept|
+          handler = Azu::Handler::Throttle.new(60, 60, 100, ["10.2.1.1"], [] of String)
+          handler.next = create_next_handler(0)[0]
+          context, _ = create_context_with_remote_addr("GET", "/limited", "10.2.1.1", HTTP::Headers{"Accept" => accept})
+          handler.call(context)
+        end
+        Azu::Handler::Throttle::RefusalPages.size.should eq 0
+      end
+    end
+
+    it "keeps the fingerprints of RateLimitError and Throttle's refusal apart, whichever is built first" do
+      refusal = Azu::Handler::Throttle::Refusal.new(1)
+      plain = Azu::Response::RateLimitError.new(1)
+      refusal.fingerprint.should_not eq plain.fingerprint
+      Azu::Handler::Throttle::Refusal.new(9).fingerprint.should eq refusal.fingerprint
+      Azu::Response::RateLimitError.new(9).fingerprint.should eq plain.fingerprint
+    end
+
+    it "is never used for an error a user raised, which always renders its own text" do
+      with_fake_clock do
+        render = ->(error : Azu::Response::RateLimitError) do
+          context, io = html_context.call("10.2.0.8")
+          error.to_s(context)
+          get_response_body(context, io)
+        end
+
+        # The cache holds Throttle's page for Retry-After 5 before the user's errors render.
+        render.call(Azu::Handler::Throttle::Refusal.new(5))
+        Azu::Handler::Throttle::RefusalPages.size.should eq 1
+        first = render.call(Azu::Response::RateLimitError.new(5))
+        mine = Azu::Response::RateLimitError.new(5)
+        mine.detail = "Too many exports for acme-corp"
+        mine.errors = ["acme-corp is over its plan"]
+        second = render.call(mine)
+        other = Azu::Response::RateLimitError.new(5)
+        other.detail = "Too many exports for globex"
+        third = render.call(other)
+
+        second.should contain "Too many exports for acme-corp"
+        second.should_not eq first
+        third.should contain "Too many exports for globex"
+        third.should_not contain "acme-corp"
+      end
+    end
+
+    it "is never used for a subclass of the refusal itself, which shares neither its page cache nor its fingerprint" do
+      with_fake_clock do
+        context, io = html_context.call("10.2.0.10")
+        ThrottleRefusalSubclass.new(5).to_s(context)
+
+        Azu::Handler::Throttle::RefusalPages.size.should eq 0
+        get_response_body(context, io).should contain "Custom refusal text"
+        ThrottleRefusalSubclass.new(5).fingerprint.should_not eq Azu::Handler::Throttle::Refusal.new(5).fingerprint
+      end
+    end
+
+    it "is never used for a subclass with its own title and detail" do
+      with_fake_clock do
+        quota = QuotaExceeded.new(5)
+        context, io = html_context.call("10.2.0.9")
+        warm_context, _ = html_context.call("10.2.0.10")
+        Azu::Handler::Throttle::Refusal.new(5).to_s(warm_context) # the cache holds Throttle's page for Retry-After 5
+        Azu::Handler::Throttle::RefusalPages.size.should eq 1
+        quota.to_s(context)
+        body = get_response_body(context, io)
+        body.should contain "Quota exhausted"
+        body.should contain "Upgrade your plan"
+      end
+    end
+  end
+
+  describe "the refusal log line" do
+    around_each do |example|
+      Azu::Handler::Throttle::RefusalPages.clear
+      example.run
+    end
+
+    refuse = ->(handler : Azu::Handler::Throttle, remote : String) do
+      context, _ = create_context_with_remote_addr("GET", "/limited", remote)
+      handler.call(context)
+    end
+
+    it "names the client address" do
+      handler = Azu::Handler::Throttle.new(5, 900, 100, ["10.3.0.1"], [] of String, ::Log.for("throttle_line_spec"))
+      handler.next = create_next_handler(0)[0]
+      Log.capture("*") do |logs|
+        refuse.call(handler, "10.3.0.1")
+        logs.next(:warn, /GET \/limited -> 429 .*10\.3\.0\.1/)
+      end
+    end
+
+    it "writes at most a few lines a second and then one summary of what it left out" do
+      with_fake_clock do |clock|
+        handler = Azu::Handler::Throttle.new(5, 900, 100, ["10.3.0.2"], [] of String, ::Log.for("throttle_line_spec"))
+        handler.next = create_next_handler(0)[0]
+        Log.capture("*") do |logs|
+          30.times { refuse.call(handler, "10.3.0.2") }
+          Azu::Handler::Throttle::LOG_PER_SECOND.times { logs.next(:warn, /-> 429/) }
+          logs.empty
+
+          clock.advance(1.1.seconds)
+          refuse.call(handler, "10.3.0.2")
+          logs.next(:warn, /suppressed #{30 - Azu::Handler::Throttle::LOG_PER_SECOND} similar/)
+          logs.next(:warn, /-> 429/)
+          logs.empty
+        end
+      end
     end
   end
 

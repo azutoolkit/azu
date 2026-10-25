@@ -149,7 +149,9 @@ end
 ## Testing POST endpoints and validation
 
 A request contract is enforced before `call` runs: a body that fails validation is answered with `422`
-and `application/problem+json`, and a body that is not valid JSON with `400`. Test both.
+and an RFC 7807 problem document, and a body that is not valid JSON with `400`. Test both. The body is the same for every
+JSON client; its `Content-Type` is `application/problem+json` only when the request's `Accept` names it, and `application/json`
+otherwise (as with the `Accept: application/json` below).
 
 ```crystal
 require "spec"
@@ -222,7 +224,8 @@ describe CreateUserEndpoint do
       response = client.post "/users", headers: headers, body: {name: "", email: "nope"}.to_json
 
       response.status_code.should eq 422
-      response.content_type.should eq "application/problem+json"
+      response.content_type.should eq "application/json" # `application/problem+json` only if Accept names it
+      JSON.parse(response.body)["status"].as_i.should eq 422
       JSON.parse(response.body)["errors"].as_h.keys.should contain "email"
     end
   end

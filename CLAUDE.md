@@ -259,8 +259,10 @@ The dev dashboard, performance monitor, profiler and reporter live in `src/azu/d
 - Router path cache: stops adding entries at 1000 (no eviction, no LRU); `path_cache.stats` reports
   `fill_percent`, not a hit rate
 - No component pooling: components are plain objects created where they are rendered
-- Azu does not cache templates: `Templates#load` asks Crinja every time; the hot-reload flag only
-  controls checking template files for changes
+- Templates: with `template_hot_reload` off (default outside development/test/pipeline) they are compiled:
+  `Azu.prepare` reads and parses every template file once into an immutable name => template map (the Crinja
+  environment's loader, so includes/extends use it too) and `Templates#load` is a hash lookup; a syntax error
+  fails the boot (`template_compile_ignore` globs opt files out). With it on (development) `Templates#load` checks mtimes and Crinja re-reads the file
 - Multi-store cache: Memory (default), Redis (production)
 
 ### Optimization Checklist
@@ -285,6 +287,9 @@ The dev dashboard, performance monitor, profiler and reporter live in `src/azu/d
 - **Container:** crystallang/crystal:1.19.1
 - **Services:** Redis required for cache tests
 - **Excluded from complexity:** dev/ (performance_monitor, performance_reporter, dev_dashboard_component), demo_reporting
+- **Releases:** every green push to master is a release: the `release` job commits the `shard.yml` version
+  straight to master and tags that commit (no bump PR; it pushes with the `RELEASE_TOKEN` secret, as master is
+  protected). Do not bump `shard.yml` by hand; put `(MINOR)` or `(MAJOR)` in a commit message to pick the bump
 
 ## Common Tasks
 

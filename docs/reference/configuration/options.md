@@ -128,9 +128,45 @@ Azu::CONFIG.templates.path = "./public/templates"
 Azu::CONFIG.template_hot_reload = false
 ```
 
-With hot reload on, `templates` re-reads template files that changed (it checks at most once a second). Hot reload
-off does not mean templates are cached: a template whose file was rewritten rendered the new content with it off
-as well.
+With hot reload on, `templates` re-reads template files that changed (it checks at most once a second). With it off
+the templates are **compiled**: `Azu.prepare` (which `App#start` calls) finds every `*.html`, `*.jinja` and `*.j2`
+file below the template directories, reads and parses each once, and a request only looks the parsed template up
+by name. Nothing is read from disk per request, so an edit to a template file needs a restart. A template with a
+syntax error stops the start, with its name and line, instead of failing its first request (an app `error.html`
+that does not parse is the exception: the built-in page is used, as before). A file added after the compile is still
+found, by the file loader. Without `Azu.prepare` the compile happens on the first render.
+
+| Environment | Templates |
+|---|---|
+| `development` | reload (modification time checked at most once a second) |
+| `test`, `pipeline` | reload, as before, so specs can write templates while running |
+| `staging`, `production`, any other | compiled |
+| `build`, `integration`, `acceptance` | compiled (only `development`, `test` and `pipeline` reload) |
+| `template_hot_reload` / `TEMPLATE_HOT_RELOAD` set | wins over the environment, e.g. reload in staging |
+
+The default is read from `CRYSTAL_ENV` when the configuration is built; assigning `config.env = ...` afterwards does
+not change it. Assigning `config.template_hot_reload = ...` does, also for templates that were built already. All
+compiled templates stay in memory, and a template mounted from a volume or ConfigMap needs a restart to change.
+
+**Files that are not templates.** Every `*.html`, `*.jinja` and `*.j2` file below the template directories is parsed
+at boot, so a vendored page (a Swagger UI `index.html`) or a templates directory that is really `public/` can stop the
+boot, with the file name, path and line in the message. Name what to skip with globs on the path relative to a
+template directory (`*` does not cross `/`, `**` does; `TEMPLATE_COMPILE_IGNORE` splits on commas, so brace
+alternation such as `{a,b}` cannot be written there, use the Crystal setter); the files are still found when asked for.
+Dot directories and symlinked directories are not walked either, the file loader serves what is in them:
+
+```crystal
+require "azu"
+
+Azu::CONFIG.template_compile_ignore = ["vendor/**", "swagger/*.html"] # or TEMPLATE_COMPILE_IGNORE=vendor/**,swagger/*.html
+```
+
+A directory that cannot be read stops the boot with its name (`Azu.prepare`); a first render without `prepare` logs a
+warning once and skips it, and because the names inside are unknown, a valid copy of one of them in a later directory
+is served instead of falling back to the file loader's precedence. A name that does not parse in one directory is not
+replaced by a copy in a later directory; `Azu.prepare` validates again even when a first render compiled earlier.
+A directory that does not exist is skipped (an API-only app costs nothing); a very broad one such as `.` is scanned
+whole at boot, with the count and time logged at debug level.
 
 ## Request Contracts
 
@@ -138,7 +174,7 @@ as well.
 |---|---|---|
 | `error_format` | `Azu::ErrorFormat` | `Problem` |
 
-`Problem` answers every error a JSON client receives (a failed contract, a `404` from the router, `BadRequest`, a `500`, ...) with RFC 7807 `application/problem+json`; `Legacy` keeps the pre-0.6 PascalCase bodies as `application/json`.
+`Problem` answers every error a JSON client receives (a failed contract, a `404` from the router, `BadRequest`, a `500`, ...) with the same RFC 7807 problem body (`Content-Type: application/problem+json` only when the request's `Accept` names it, `application/json` otherwise); `Legacy` keeps the pre-0.6 PascalCase bodies as `application/json`.
 There is no `max_request_size` or `request_timeout` option; the size of uploaded files is limited below.
 
 ## Uploads

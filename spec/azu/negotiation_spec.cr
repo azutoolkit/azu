@@ -145,6 +145,24 @@ describe Azu::Negotiation do
     end
   end
 
+  describe ".prefers_problem?" do
+    it "is true when problem+json is named at least as eagerly as plain JSON" do
+      Azu::Negotiation.prefers_problem?("application/problem+json").should be_true
+      Azu::Negotiation.prefers_problem?("application/json, application/problem+json").should be_true
+      Azu::Negotiation.prefers_problem?("application/json;q=0.5, application/problem+json").should be_true
+      Azu::Negotiation.prefers_problem?("*/*, application/problem+json").should be_true
+    end
+
+    it "is false when it is not named, refused, or less wanted than plain JSON" do
+      Azu::Negotiation.prefers_problem?(nil).should be_false
+      Azu::Negotiation.prefers_problem?("application/json").should be_false
+      Azu::Negotiation.prefers_problem?("*/*").should be_false
+      Azu::Negotiation.prefers_problem?("application/problem+json;q=0").should be_false
+      Azu::Negotiation.prefers_problem?("application/json, application/problem+json;q=0.1").should be_false
+      Azu::Negotiation.prefers_problem?("application/json; profile=\"application/problem+json\"").should be_false
+    end
+  end
+
   describe ".negotiate" do
     it "answers the first format without Accept, with */*, or with a header that is not valid" do
       pick(nil).should eq "text/html"
@@ -332,5 +350,26 @@ describe "OpenAPI" do
 
     content = document["paths"]["/neg-page"]["get"]["responses"]["200"]["content"].as_h
     content.keys.sort!.should eq ["application/json", "application/xml", "text/html"]
+  end
+end
+
+describe "Azu::Negotiation.vary" do
+  it "adds Accept to a Vary that holds Accept-Encoding, and once only" do
+    response = HTTP::Server::Response.new(IO::Memory.new)
+    response.headers["Vary"] = "Accept-Encoding"
+
+    Azu::Negotiation.vary(response)
+    Azu::Negotiation.vary(response)
+
+    response.headers.get("Vary").should eq ["Accept-Encoding,Accept"]
+  end
+
+  it "leaves Vary: * alone" do
+    response = HTTP::Server::Response.new(IO::Memory.new)
+    response.headers["Vary"] = "*"
+
+    Azu::Negotiation.vary(response)
+
+    response.headers.get("Vary").should eq ["*"]
   end
 end

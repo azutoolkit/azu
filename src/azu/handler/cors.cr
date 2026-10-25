@@ -46,12 +46,18 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context)
-        return call_next(context) unless request_origin = @origin.of(context.request)
+        unless request_origin = @origin.of(context.request)
+          # The answer depends on the Origin header even when it is absent: a cache must not hand this one to a request with one.
+          Vary.add(context.response.headers, Headers::ORIGIN)
+          return call_next(context)
+        end
 
         if @origin.match?(request_origin)
           is_preflight_request = preflight?(context)
           put_expose_header(context.response)
-          Preflight.process(context, self) if is_preflight_request
+          # A refused preflight is already answered and closed: nothing more is granted on it.
+          return if is_preflight_request && !Preflight.process(context, self)
+
           put_response_headers(context.response, request_origin)
           call_next(context) unless is_preflight_request
         else
@@ -62,7 +68,10 @@ module Azu
       def forbidden(context)
         # A refusal grants nothing: drop whatever Access-Control-* header was already set for the request.
         context.response.headers.map { |name, _| name }.each { |name| context.response.headers.delete(name) if name.downcase.starts_with?("access-control-") }
-        Response::Forbidden.new.to_s(context)
+        Vary.add(context.response.headers, Headers::ORIGIN)
+        error = Response::Forbidden.new
+        LogText.log_refusal(Log.for("Azu::Handler::CORS"), context.request, error, client: true)
+        error.to_s(context)
         context.response.close
       end
 
@@ -73,14 +82,11 @@ module Azu
       private def put_response_headers(response, request_origin : String)
         response.headers[Headers::ALLOW_CREDENTIALS] = @credentials.to_s if @credentials
         response.headers[Headers::ALLOW_ORIGIN] = request_origin
-        response.headers[Headers::VARY] = vary unless @origin.origins.includes?("*")
+        Vary.add(response.headers, [Headers::ORIGIN] + vary)
       end
 
-      private def vary
-        String.build do |str|
-          str << Headers::ORIGIN
-          str << "," << @vary if @vary
-        end
+      private def vary : Array(String)
+        (@vary || "").split(',').map(&.strip).reject(&.empty?)
       end
 
       private def preflight?(context)
@@ -91,9 +97,15 @@ module Azu
     module Preflight
       extend self
 
-      def process(context, cors)
-        return cors.forbidden(context) unless valid?(context, cors)
+      # Answers the preflight: false when it was refused (a closed 403), true when its allow headers were written.
+      def process(context, cors) : Bool
+        unless valid?(context, cors)
+          cors.forbidden(context)
+          return false
+        end
+
         put_preflight_headers(context.request, context.response, cors.max_age)
+        true
       end
 
       def valid?(context, cors)

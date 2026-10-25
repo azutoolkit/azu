@@ -1,6 +1,6 @@
 module Azu
   module CQL
-    # CQL model validations as Azu's 422 problem+json.
+    # CQL model validations as Azu's 422 problem document.
     #
     # CQL and Azu requests share the `validate attribute, predicate: value, message: "..."` macro and most
     # predicates (`presence`, `required`, `size`, `match`, `in`, `exclude`, `eq`); see
@@ -42,7 +42,7 @@ end
 
 module CQL::ActiveRecord::Validations
   # Runs the model's validations; returns self when valid, else raises `Azu::Response::ValidationError`
-  # (422, problem+json with the failing fields), which an endpoint can `raise` or the `Rescuer` renders.
+  # (422, a problem document with the failing fields), which an endpoint can `raise` or the `Rescuer` renders.
   def valid_or_422!(context = nil) : self
     failures = errors(context)
     raise Azu::CQL.unprocessable(failures) unless failures.empty?

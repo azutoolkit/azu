@@ -61,6 +61,12 @@ module Azu
       @host = host.presence
     end
 
+    # The host as `HOST` or `host=` set it, nil while the environment's default applies (`host` answers that default).
+    # What a spec saves and restores, so restoring `host` itself would not pin the default.
+    def configured_host : String?
+      @host
+    end
+
     # True when `host` was not set by `HOST` or `host=` and is the development default.
     def host_from_default? : Bool
       @host.nil? && env.development?
@@ -69,12 +75,19 @@ module Azu
     # True when the address is only reachable from the machine itself.
     def loopback_host? : Bool
       address = host
-      address == "localhost" || address == "::1" || address.starts_with?("127.")
+      address == "localhost" || address == "::1" || address == "[::1]" || address.starts_with?("127.")
     end
 
-    # Whether the process looks containerised (Docker or Kubernetes). Detected when the configuration is built;
+    # Files a container runtime leaves in the container: Docker's and Podman's.
+    CONTAINER_MARKERS = ["/.dockerenv", "/run/.containerenv"]
+
+    def self.container_detected?(markers : Array(String) = CONTAINER_MARKERS) : Bool
+      markers.any? { |marker| File.exists?(marker) } || !ENV["KUBERNETES_SERVICE_HOST"]?.presence.nil?
+    end
+
+    # Whether the process looks containerised (Docker, Podman or Kubernetes). Detected when the configuration is built;
     # a spec or a container runtime Azu cannot recognise sets it.
-    property? container : Bool = File.exists?("/.dockerenv") || !ENV["KUBERNETES_SERVICE_HOST"]?.presence.nil?
+    property? container : Bool = Configuration.container_detected?
 
     LOOPBACK_HOST = "127.0.0.1"
     ANY_HOST      = "0.0.0.0"
@@ -118,7 +131,26 @@ module Azu
       env == "development" || env == "test" || env == "pipeline"
     end
 
-    property? template_hot_reload : Bool = ENV.fetch("TEMPLATE_HOT_RELOAD", Configuration.hot_reload_default.to_s) == "true"
+    @template_hot_reload : Bool = ENV.fetch("TEMPLATE_HOT_RELOAD", Configuration.hot_reload_default.to_s) == "true"
+    # Template names not compiled at boot (see `Templates#compile_ignore`); `TEMPLATE_COMPILE_IGNORE` takes a comma separated list.
+    @template_compile_ignore : Array(String) = ENV.fetch("TEMPLATE_COMPILE_IGNORE", "").split(',').map(&.strip).reject(&.empty?)
+
+    def template_hot_reload? : Bool
+      @template_hot_reload
+    end
+
+    # Also applies to the templates of this configuration when they were built already.
+    def template_hot_reload=(enabled : Bool)
+      @template_hot_reload = enabled
+      @templates.try(&.hot_reload = enabled)
+    end
+
+    getter template_compile_ignore : Array(String)
+
+    def template_compile_ignore=(patterns : Array(String))
+      @template_compile_ignore = patterns
+      @templates.try(&.compile_ignore = patterns)
+    end
 
     property ssl_cert : String = ENV.fetch("SSL_CERT", "")
     property ssl_key : String = ENV.fetch("SSL_KEY", "")
@@ -137,7 +169,7 @@ module Azu
     # How template helpers and the session CSRF token store reach the session library (see `SessionAdapter`).
     property session_adapter : SessionAdapter? = nil
 
-    # The shape of validation failures: RFC 7807 `application/problem+json`, or the pre-0.6 body.
+    # The shape of validation failures: an RFC 7807 problem body (labelled `application/problem+json` only for a client that names it in `Accept`), or the pre-0.6 body.
     property error_format : ErrorFormat = ErrorFormat::Problem
 
     # The query parameter that picks the format of a `Response::Negotiable` (`?format=json`), or nil
@@ -153,7 +185,8 @@ module Azu
       Templates.new(
         ENV.fetch("TEMPLATES_PATH", Path[TEMPLATES_PATH].expand.to_s).split(","),
         ENV.fetch("ERROR_TEMPLATE", Path[ERROR_TEMPLATE].expand.to_s),
-        template_hot_reload?
+        template_hot_reload?,
+        template_compile_ignore
       )
     end
 
@@ -188,6 +221,7 @@ module Azu
     # `Instrumentation.on_prepare` hooks add (`azu/dev` starts the profiler and memory monitor).
     # `Azu.start` calls this; building a configuration, and so requiring azu, starts nothing.
     def prepare : Nil
+      templates.prepare # App#prepare calls it first, before logging starts; this second call is a cheap no-op
       cache_config.validate!
       Instrumentation.prepare(self)
       upload.prepare

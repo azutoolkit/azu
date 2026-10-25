@@ -59,6 +59,18 @@ module Azu
       ranges
     end
 
+    # Whether the client asks for `application/problem+json` at least as eagerly as for plain JSON (`application/json`,
+    # or a wildcard that covers it): it is named with a `q` above zero and no JSON range has a higher one. A
+    # substring of the header is not enough (`application/json, application/problem+json;q=0.1` wants plain JSON).
+    def self.prefers_problem?(header : String?) : Bool
+      ranges = ranges(header)
+      problem = ranges.select { |range| range.type == "application" && range.subtype == "problem+json" }.max_of?(&.quality)
+      return false if problem.nil? || problem <= 0
+
+      json = ranges.select(&.matches?("application/json")).max_of?(&.quality) || 0.0
+      problem >= json
+    end
+
     # The format to answer with, or nil when the client accepts none of `formats`. `formats` is in
     # order of preference: the first is what a request without `Accept`, or with `*/*`, gets. A
     # `?format=json` in the query string takes the place of the header (nil when the response lacks
@@ -83,8 +95,7 @@ module Azu
 
     # Tells caches that the answer depends on the `Accept` header.
     def self.vary(response : HTTP::Server::Response) : Nil
-      return if response.headers.includes_word?("Vary", "Accept")
-      response.headers.add("Vary", "Accept")
+      Vary.add(response.headers, "Accept")
     end
 
     # The format `?format=` names (the parameter is `Configuration#format_parameter`). A value that

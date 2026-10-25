@@ -497,6 +497,32 @@ describe Azu::Handler::Static do
         end
       end
 
+      it "adds Accept-Encoding to a Vary that holds only a longer field, and not twice to one that has it" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir)
+          context, _ = create_context("GET", "/app.css")
+          context.response.headers["Vary"] = "X-Accept-Encoding"
+          handler.call(context)
+          context.response.headers["Vary"].split(',').map(&.strip).should eq ["X-Accept-Encoding", "Accept-Encoding"]
+
+          again, _ = create_context("GET", "/app.css")
+          again.response.headers["Vary"] = "origin, accept-encoding"
+          handler.call(again)
+          again.response.headers["Vary"].should eq "origin, accept-encoding"
+        end
+      end
+
+      it "adds Accept-Encoding to a Vary that is already set, such as CORS's Origin" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir)
+          context, _ = create_context("GET", "/app.css")
+          context.response.headers["Vary"] = "Origin"
+          handler.call(context)
+
+          context.response.headers["Vary"].split(',').map(&.strip).should eq ["Origin", "Accept-Encoding"]
+        end
+      end
+
       it "also sends the policy with a 304 so caches keep refreshing it" do
         with_temp_dir(files) do |dir|
           handler = Azu::Handler::Static.new(dir)
@@ -559,6 +585,28 @@ describe Azu::Handler::Static do
         handler.call(context)
 
         context.response.headers["Content-Encoding"]?.should eq("deflate")
+      end
+    end
+
+    it "compresses the other text types the handler serves, in either case of the extension" do
+      %w(app.mjs data.CSV subs.vtt site.webmanifest feed.rss feed.atom app.js.map data.jsonld page.xhtml font.eot).each do |name|
+        with_temp_file("x" * 2000, name) do |dir, _|
+          context, _ = create_context("GET", "/#{name}", HTTP::Headers{"Accept-Encoding" => "gzip"})
+          Azu::Handler::Static.new(dir).call(context)
+
+          {name, context.response.headers["Content-Encoding"]?}.should eq({name, "gzip"})
+        end
+      end
+    end
+
+    it "does not compress archives or images" do
+      %w(a.zip a.png a.mp4 a.gz).each do |name|
+        with_temp_file("x" * 2000, name) do |dir, _|
+          context, _ = create_context("GET", "/#{name}", HTTP::Headers{"Accept-Encoding" => "gzip"})
+          Azu::Handler::Static.new(dir).call(context)
+
+          context.response.headers.has_key?("Content-Encoding").should be_false
+        end
       end
     end
 
@@ -793,6 +841,662 @@ describe Azu::Handler::Static do
 
         context.response.status_code.should eq(200)
         body.should eq(content)
+      end
+    end
+  end
+
+  describe "except" do
+    files = {
+      "templates/layout.jinja"     => "SECRET-LAYOUT",
+      "templates/a/b.jinja"        => "SECRET-B",
+      "templates/note.txt"         => "SECRET-NOTE",
+      "templates/sub/index.html"   => "SECRET-INDEX",
+      "templates-x/a.txt"          => "PUBLIC-X",
+      "templates.txt"              => "PUBLIC-DOT",
+      "app.css"                    => "PUBLIC-CSS",
+      "other/templates/shared.txt" => "PUBLIC-NESTED",
+      "index.html"                 => "PUBLIC-HOME",
+      # Directories and files whose odd names exist on disk, so a request for them is served unless refused.
+      "templates /a/b.txt"       => "SECRET-SPACE",
+      "templates./a/b.txt"       => "SECRET-DOT",
+      "templates\\a\\b.txt"      => "SECRET-BACKSLASH",
+      "a\\..\\templates/a/b.txt" => "SECRET-DOTDOT-BACKSLASH",
+    }
+
+    on_disk = {
+      "/templates%20/a/b.txt"     => "SECRET-SPACE",
+      "/templates./a/b.txt"       => "SECRET-DOT",
+      "/templates\\a\\b.txt"      => "SECRET-BACKSLASH",
+      "/a\\..\\templates/a/b.txt" => "SECRET-DOTDOT-BACKSLASH",
+      "/templates/note.txt"       => "SECRET-NOTE",
+      "/%74emplates/note.txt"     => "SECRET-NOTE",
+    }
+
+    # What a request answers: the status, the body, and whether the next handler (the router) was reached.
+    serve = ->(handler : Azu::Handler::Static, method : String, path : String) do
+      reached = false
+      handler.next = ->(ctx : HTTP::Server::Context) { reached = true; ctx.response.print "NEXT" }
+      context, io = create_context(method, path)
+      handler.call(context)
+      body = get_response_body(context, io)
+      {context.response.status_code, body, reached, context.response.headers["Location"]?}
+    end
+
+    blocked = [
+      "/templates/layout.jinja", "/templates/a/b.jinja", "/Templates/a/b.jinja", "/TEMPLATES/A/B.JINJA",
+      "/%74emplates/a/b.jinja", "/templates%2Fa/b.jinja", "/templates/a%2Fb.jinja", "/%54EMPLATES/layout.jinja",
+      "//templates/a/b.jinja", "/a/../templates/a/b.jinja", "/./templates/a/b.jinja", "/templates/./a/b.jinja",
+      "/templates/../templates/a/b.jinja", "/other/../templates/layout.jinja", "/templates/a/../layout.jinja",
+      "/templates\\a\\b.jinja", "/a\\..\\templates/a/b.jinja", "/templates./a/b.jinja", "/templates%20/a/b.jinja",
+      "/templates\\a\\b.txt", "/a\\..\\templates/a/b.txt", "/templates./a/b.txt", "/templates%20/a/b.txt",
+      "/templates", "/templates/", "/templates%2F", "/templates/sub", "/templates/sub/", "/templates/sub/index.html",
+      "/%2e%2e/templates/layout.jinja",
+    ]
+
+    blocked.each do |path|
+      it "does not serve #{path} (falls through)" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir, except: ["/templates"])
+          status, body, reached, location = serve.call(handler, "GET", path)
+
+          body.should_not contain("SECRET")
+          reached.should be_true
+          body.should eq("NEXT")
+          location.should be_nil
+        end
+      end
+    end
+
+    it "does not serve a path that has a NUL byte" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, except: ["/templates"])
+        _, body, reached, _ = serve.call(handler, "GET", "/templates%00/a/b.jinja")
+
+        body.should_not contain("SECRET")
+        reached.should be_false
+      end
+    end
+
+    it "does not serve a HEAD request, nor redirect a directory" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, except: ["/templates"])
+
+        ["/templates/a/b.jinja", "/templates/sub", "/templates"].each do |path|
+          status, _, reached, location = serve.call(handler, "HEAD", path)
+          reached.should be_true
+          status.should_not eq(301)
+          location.should be_nil
+        end
+      end
+    end
+
+    on_disk.each do |path, secret|
+      it "serves #{path} without except and refuses it with except (the specs can fail)" do
+        with_temp_dir(files) do |dir|
+          _, body, reached, _ = serve.call(Azu::Handler::Static.new(dir), "GET", path)
+          body.should eq(secret)
+          reached.should be_false
+
+          _, body, reached, _ = serve.call(Azu::Handler::Static.new(dir, except: ["/templates"]), "GET", path)
+          body.should eq("NEXT")
+          reached.should be_true
+        end
+      end
+    end
+
+    ["", "/", ".", "..", "/x/..", "./", " ", "...", "\\", "/./."].each do |entry|
+      it "rejects the entry #{entry.inspect}, which would exclude every path" do
+        expect_raises(ArgumentError, /would exclude every path/) do
+          Azu::Handler::Static.new("public", except: [entry])
+        end
+      end
+    end
+
+    it "refuses a single file given with a trailing slash" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, except: ["/app.css/"])
+        serve.call(handler, "GET", "/app.css")[1].should eq("NEXT")
+      end
+    end
+
+    it "answers 405 for a POST under an excluded path with fallthrough: false" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, fallthrough: false, except: ["/templates"])
+        serve.call(handler, "POST", "/templates/a/b.jinja")[0].should eq(405)
+      end
+    end
+
+    it "does not raise on invalid UTF-8 after percent-decoding" do
+      with_temp_dir(files) do |dir|
+        [true, false].each do |fallthrough|
+          handler = Azu::Handler::Static.new(dir, fallthrough: fallthrough, except: ["/templates"])
+          ["/%ff", "/templates/%ff", "/%ff/templates/note.txt"].each do |path|
+            status, body, _, _ = serve.call(handler, "GET", path)
+            body.should_not contain("SECRET")
+            [200, 302, 400, 404].should contain(status)
+          end
+        end
+      end
+    end
+
+    it "refuses an excluded directory when directory_listing is on" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, directory_listing: true, except: ["/templates"])
+        serve.call(handler, "GET", "/templates/")[1].should eq("NEXT")
+        serve.call(handler, "GET", "/templates/a/")[1].should eq("NEXT")
+      end
+    end
+
+    # Known limit: the listing of the parent still names the excluded entry (the names, never the content).
+    pending "hides the excluded name from the listing of its parent"
+
+    # Known limit: the check is lexical. A symlink inside public/ that points into an excluded directory is a
+    # different path, so it is served; do not symlink into an excluded directory.
+    pending "refuses a symlink that points into an excluded directory"
+
+    it "answers 404 itself with fallthrough: false, for GET, HEAD and a directory" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, fallthrough: false, except: ["/templates"])
+
+        [{"GET", "/templates/a/b.jinja"}, {"HEAD", "/templates/a/b.jinja"}, {"GET", "/templates/sub"},
+         {"GET", "/%74emplates/sub/"}].each do |(method, path)|
+          status, body, reached, location = serve.call(handler, method, path)
+          status.should eq(404)
+          body.should_not contain("SECRET")
+          reached.should be_false
+          location.should be_nil
+        end
+      end
+    end
+
+    it "keeps serving files outside the excluded directory" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, except: ["/templates"])
+
+        {"/app.css" => "PUBLIC-CSS", "/templates-x/a.txt" => "PUBLIC-X", "/templates.txt" => "PUBLIC-DOT",
+         "/other/templates/shared.txt" => "PUBLIC-NESTED", "/" => "PUBLIC-HOME"}.each do |path, content|
+          _, body, reached, _ = serve.call(handler, "GET", path)
+          body.should eq(content)
+          reached.should be_false
+        end
+      end
+    end
+
+    it "normalises the entries: leading slash added, trailing slash, case and backslashes ignored" do
+      ["templates", "/templates/", "templates/", "/TEMPLATES", "\\templates", "/templates./", "/x/../templates"].each do |entry|
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir, except: [entry])
+          _, body, reached, _ = serve.call(handler, "GET", "/templates/a/b.jinja")
+
+          body.should eq("NEXT")
+          reached.should be_true
+        end
+      end
+    end
+
+    it "excludes several entries and nested ones, but only below the entry" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, except: ["/templates/a", "/app.css"])
+
+        serve.call(handler, "GET", "/templates/a/b.jinja")[1].should eq("NEXT")
+        serve.call(handler, "GET", "/app.css")[1].should eq("NEXT")
+        serve.call(handler, "GET", "/templates/note.txt")[1].should eq("SECRET-NOTE")
+        serve.call(handler, "GET", "/templates/ab")[1].should eq("NEXT")
+        serve.call(handler, "GET", "/app.css.map")[2].should be_true
+      end
+    end
+  end
+
+  describe "file types" do
+    files = {
+      "templates/layout.jinja"                           => "SECRET-JINJA",
+      "templates/x.JINJA"                                => "SECRET-UPPER",
+      "templates/y.ecr"                                  => "SECRET-ECR",
+      "templates/z.j2"                                   => "SECRET-J2",
+      "app.cr"                                           => "SECRET-CR",
+      ".env"                                             => "SECRET-ENV",
+      "config.yml"                                       => "SECRET-YML",
+      "dump.sql"                                         => "SECRET-SQL",
+      "data.db"                                          => "SECRET-DB",
+      "data.sqlite"                                      => "SECRET-SQLITE",
+      "README.md"                                        => "DOC-MD",
+      "server.pem"                                       => "SECRET-PEM",
+      "id.key"                                           => "SECRET-KEY",
+      "backup.bak"                                       => "SECRET-BAK",
+      "run.sh"                                           => "SECRET-SH",
+      "tool.py"                                          => "SECRET-PY",
+      "app.rb"                                           => "SECRET-RB",
+      "setup.exe"                                        => "SECRET-EXE",
+      "notes.markdown"                                   => "SECRET-MARKDOWN",
+      ".well-known/.git/config"                          => "SECRET-GIT",
+      ".well-known/.d/token"                             => "SECRET-DOTDIR",
+      ".well-known/a/b/c"                                => "SECRET-DEEP",
+      ".well-known/.secrets.json"                        => "SECRET-DOTJSON",
+      ".well-known/token."                               => "SECRET-TRAILING-DOT",
+      ".Well-Known/.secrets.json"                        => "SECRET-CASE-DOTJSON",
+      ".Well-Known/a/b/c.json"                           => "SECRET-CASE-DEEP",
+      ".well-known/openid-configuration"                 => "{}",
+      "LICENSE"                                          => "SECRET-EXTENSIONLESS",
+      "page.jinja.html"                                  => "<p>HTML</p>",
+      "page.html.jinja"                                  => "SECRET-HTML-JINJA",
+      "app.css"                                          => "PUBLIC-CSS",
+      "A.PNG"                                            => "PNGBYTES",
+      ".well-known/acme-challenge/Xy_z-0123456789abcdef" => "token.thumbprint",
+      ".well-known/security.txt"                         => "Contact: mailto:security@example.com",
+      ".well-known/.env"                                 => "SECRET-WELLKNOWN-ENV",
+      ".well-known/private-key"                          => "KEY",
+      ".well-known/notes.md"                             => "SECRET-WELLKNOWN-MD",
+      "other/.well-known/token"                          => "NOT-ROOT-WELLKNOWN",
+      "listing/known.txt"                                => "KNOWN",
+      "listing/unknown.jinja"                            => "SECRET-LISTED",
+    }
+
+    # The status, the body, whether the next handler (the router) was reached, and the response headers.
+    serve = ->(handler : Azu::Handler::Static, method : String, path : String, headers : HTTP::Headers) do
+      reached = false
+      handler.next = ->(ctx : HTTP::Server::Context) { reached = true; ctx.response.print "NEXT" }
+      context, io = create_context(method, path, headers)
+      handler.call(context)
+      body = get_response_body(context, io)
+      {context.response.status_code, body, reached, context.response.headers}
+    end
+    get = ->(handler : Azu::Handler::Static, path : String) { serve.call(handler, "GET", path, HTTP::Headers.new) }
+
+    refused = [
+      "/templates/layout.jinja", "/templates/x.JINJA", "/templates/x.jinja", "/templates/y.ecr", "/templates/z.j2",
+      "/app.cr", "/.env", "/config.yml", "/dump.sql", "/data.db", "/data.sqlite", "/README.md",
+      "/LICENSE", "/page.html.jinja", "/templates/layout.jinja.", "/templates/layout.jinja%20",
+      "/.well-known/.env", "/.well-known/notes.md", "/other/.well-known/token",
+      "/server.pem", "/id.key", "/backup.bak", "/run.sh", "/tool.py", "/app.rb", "/setup.exe", "/notes.markdown",
+      "/.well-known/.git/config", "/.well-known/.d/token", "/.well-known/a/b/c", "/.well-known/.secrets.json",
+      "/.well-known/token.",
+    ]
+
+    describe "an unknown type" do
+      refused.each do |path|
+        it "falls through for #{path}" do
+          with_temp_dir(files) do |dir|
+            status, body, reached, headers = get.call(Azu::Handler::Static.new(dir), path)
+
+            body.should eq("NEXT")
+            reached.should be_true
+            status.should eq(200)
+            headers["Content-Type"]?.should be_nil
+          end
+        end
+
+        it "answers 404 for #{path} without fallthrough" do
+          with_temp_dir(files) do |dir|
+            status, body, reached, headers = get.call(Azu::Handler::Static.new(dir, fallthrough: false), path)
+
+            status.should eq(404)
+            body.should_not contain("SECRET")
+            body.should_not contain("DOC-MD")
+            reached.should be_false
+            headers["Content-Type"]?.should be_nil
+          end
+        end
+      end
+
+      it "does not raise for an extension nothing registered (it was a KeyError and a 500)" do
+        with_temp_dir({"x.zzqq" => "BYTES"}) do |dir|
+          status, body, reached, _ = get.call(Azu::Handler::Static.new(dir), "/x.zzqq")
+
+          body.should eq("NEXT")
+          reached.should be_true
+          status.should eq(200)
+        end
+      end
+
+      it "answers a HEAD request as the path was not a file" do
+        with_temp_dir(files) do |dir|
+          status, body, reached, headers = serve.call(Azu::Handler::Static.new(dir), "HEAD", "/templates/layout.jinja", HTTP::Headers.new)
+
+          reached.should be_true
+          body.should eq("NEXT")
+          headers["ETag"]?.should be_nil
+        end
+      end
+
+      it "answers a HEAD request 404 without fallthrough" do
+        with_temp_dir(files) do |dir|
+          status, body, _, headers = serve.call(Azu::Handler::Static.new(dir, fallthrough: false), "HEAD", "/templates/layout.jinja", HTTP::Headers.new)
+
+          status.should eq(404)
+          body.should eq("")
+          headers["ETag"]?.should be_nil
+        end
+      end
+
+      it "does not honour a Range request" do
+        with_temp_dir(files) do |dir|
+          [true, false].each do |fallthrough|
+            status, body, _, headers = serve.call(Azu::Handler::Static.new(dir, fallthrough: fallthrough), "GET", "/templates/layout.jinja", HTTP::Headers{"Range" => "bytes=0-5"})
+
+            status.should_not eq(206)
+            body.should_not contain("SECRET")
+            headers["Content-Range"]?.should be_nil
+          end
+        end
+      end
+
+      it "is not answered 304 for a matching ETag" do
+        with_temp_dir(files) do |dir|
+          status, body, reached, _ = serve.call(Azu::Handler::Static.new(dir), "GET", "/templates/layout.jinja", HTTP::Headers{"If-None-Match" => "*"})
+
+          status.should_not eq(304)
+          reached.should be_true
+        end
+      end
+
+      it "is not listed as served: a directory listing does not serve the file it lists" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir, directory_listing: true)
+
+          get.call(handler, "/listing/known.txt")[1].should eq("KNOWN")
+          status, body, reached, _ = get.call(handler, "/listing/unknown.jinja")
+          body.should eq("NEXT")
+          reached.should be_true
+        end
+      end
+
+      it "is refused after the except check: an excluded unknown file falls through the same way" do
+        with_temp_dir(files) do |dir|
+          [true, false].each do |fallthrough|
+            handler = Azu::Handler::Static.new(dir, fallthrough: fallthrough, except: ["/templates"])
+            status, body, reached, _ = get.call(handler, "/templates/layout.jinja")
+
+            body.should_not contain("SECRET")
+            reached.should eq(fallthrough)
+            status.should eq(fallthrough ? 200 : 404)
+          end
+        end
+      end
+
+      it "leaves an excluded known type refused as before" do
+        with_temp_dir({"templates/a.txt" => "SECRET-TXT"}) do |dir|
+          handler = Azu::Handler::Static.new(dir, except: ["/templates"])
+          get.call(handler, "/templates/a.txt")[1].should eq("NEXT")
+        end
+      end
+    end
+
+    describe "a template under public/templates" do
+      # The scaffold keeps Jinja templates in public/templates. A page body never leaves the server, whether or
+      # not the application excludes the directory: without `except` the type is unknown and refused.
+      ["/templates/layout.jinja", "/templates/x.JINJA", "/templates/y.ecr", "/templates/z.j2"].each do |path|
+        [true, false].each do |fallthrough|
+          [[] of String, ["/templates"]].each do |except|
+            it "never returns the body of #{path} (fallthrough #{fallthrough}, except #{except})" do
+              with_temp_dir(files) do |dir|
+                handler = Azu::Handler::Static.new(dir, fallthrough: fallthrough, except: except)
+                status, body, reached, headers = get.call(handler, path)
+
+                body.should_not contain("SECRET")
+                status.should_not eq(500)
+                headers["Content-Type"]?.should be_nil
+                reached.should eq(fallthrough)
+              end
+            end
+          end
+        end
+      end
+    end
+
+    describe "a known type" do
+      {
+        "/app.css"         => "text/css; charset=utf-8",
+        "/A.PNG"           => "image/png",
+        "/page.jinja.html" => "text/html; charset=utf-8",
+      }.each do |path, type|
+        it "serves #{path} as #{type} with nosniff" do
+          with_temp_dir(files) do |dir|
+            status, _, reached, headers = get.call(Azu::Handler::Static.new(dir), path)
+
+            status.should eq(200)
+            reached.should be_false
+            headers["Content-Type"].should eq(type)
+            headers["X-Content-Type-Options"].should eq("nosniff")
+          end
+        end
+      end
+
+      it "types a double extension by its last one: page.jinja.html is HTML, page.html.jinja is refused" do
+        with_temp_dir(files) do |dir|
+          get.call(Azu::Handler::Static.new(dir), "/page.jinja.html")[1].should eq("<p>HTML</p>")
+          get.call(Azu::Handler::Static.new(dir), "/page.html.jinja")[1].should eq("NEXT")
+        end
+      end
+
+      it "serves a HEAD request without a body, with the type" do
+        with_temp_dir(files) do |dir|
+          status, body, reached, headers = serve.call(Azu::Handler::Static.new(dir), "HEAD", "/app.css", HTTP::Headers.new)
+
+          status.should eq(200)
+          reached.should be_false
+          headers["Content-Type"].should eq("text/css; charset=utf-8")
+        end
+      end
+
+      it "serves a Range request of a known type" do
+        with_temp_dir(files) do |dir|
+          status, body, _, headers = serve.call(Azu::Handler::Static.new(dir), "GET", "/app.css", HTTP::Headers{"Range" => "bytes=0-5"})
+
+          status.should eq(206)
+          body.should eq("PUBLIC")
+          headers["Content-Type"].should eq("text/css; charset=utf-8")
+        end
+      end
+    end
+
+    # What the handler adds to Crystal's own table, so assets a web application serves keep working.
+    registered = {
+      ".ico"         => "image/vnd.microsoft.icon",
+      ".webmanifest" => "application/manifest+json",
+      ".avif"        => "image/avif",
+      ".mp4"         => "video/mp4",
+      ".webm"        => "video/webm",
+      ".mp3"         => "audio/mpeg",
+      ".ogg"         => "audio/ogg",
+      ".wav"         => "audio/wav",
+      ".m4a"         => "audio/mp4",
+      ".csv"         => "text/csv; charset=utf-8",
+      ".vtt"         => "text/vtt; charset=utf-8",
+      ".mjs"         => "text/javascript; charset=utf-8",
+      ".eot"         => "application/vnd.ms-fontobject",
+      ".rss"         => "application/rss+xml",
+      ".atom"        => "application/atom+xml",
+      ".zip"         => "application/zip",
+      ".gz"          => "application/gzip",
+      ".tgz"         => "application/gzip",
+      ".tar"         => "application/x-tar",
+      ".bz2"         => "application/x-bzip2",
+      ".xz"          => "application/x-xz",
+      ".7z"          => "application/x-7z-compressed",
+      ".jsonld"      => "application/ld+json",
+      ".xhtml"       => "application/xhtml+xml",
+      ".ics"         => "text/calendar; charset=utf-8",
+      ".bmp"         => "image/bmp",
+      ".tif"         => "image/tiff",
+      ".tiff"        => "image/tiff",
+      ".woff"        => "font/woff",
+      ".woff2"       => "font/woff2",
+      ".ttf"         => "font/ttf",
+      ".otf"         => "font/otf",
+      ".map"         => "application/json",
+      ".xml"         => "text/xml; charset=utf-8",
+      ".webp"        => "image/webp",
+      ".wasm"        => "application/wasm",
+    }
+
+    describe "a registered type" do
+      registered.each do |extension, type|
+        it "serves #{extension} as #{type} with nosniff, in either case" do
+          ["file#{extension}", "FILE#{extension.upcase}"].each do |name|
+            with_temp_dir({name => "BYTES"}) do |dir|
+              status, body, reached, headers = get.call(Azu::Handler::Static.new(dir), "/#{name}")
+
+              body.should eq("BYTES")
+              status.should eq(200)
+              reached.should be_false
+              headers["Content-Type"].should eq(type)
+              headers["X-Content-Type-Options"].should eq("nosniff")
+            end
+          end
+        end
+      end
+
+      # The table is the handler's own: it never asks the operating system (/etc/mime.types would add .sql, .yml,
+      # .md, .pem, .key, .sh, .py, .rb, .bak ... on some hosts), so these are refused on every host.
+      %w(.jinja .j2 .cr .ecr .yml .yaml .env .sql .db .sqlite .sqlite3 .md .markdown .pem .key .crt .asc .bak .sh .py .rb .exe .dmg .apk .bin .svgz).each do |extension|
+        it "does not have #{extension}" do
+          Azu::Handler::Static::MIME_TYPES.has_key?(extension).should be_false
+        end
+      end
+
+      it "does not consult the operating system" do
+        Azu::Handler::Static::MIME_TYPES.keys.each { |extension| extension.should match(/\A\.[a-z0-9]+\z/) }
+        Azu::Handler::Static::MIME_TYPES[".sql"]?.should be_nil
+        Azu::Handler::Static::MIME_TYPES[".js"].should eq("text/javascript")
+      end
+
+      it "has every one of Crystal's built-in defaults with its type (Azu's .js has no charset), and nothing the OS adds" do
+        MIME::DEFAULT_TYPES.each do |extension, type|
+          expected = extension == ".js" ? "text/javascript" : type
+          Azu::Handler::Static::MIME_TYPES[extension]?.should eq(expected)
+        end
+      end
+    end
+
+    describe "an extensionless file" do
+      it "serves a file of /.well-known/ as text/plain (ACME HTTP-01 tokens, no extension)" do
+        with_temp_dir(files) do |dir|
+          status, body, reached, headers = get.call(Azu::Handler::Static.new(dir), "/.well-known/acme-challenge/Xy_z-0123456789abcdef")
+
+          status.should eq(200)
+          body.should eq("token.thumbprint")
+          reached.should be_false
+          headers["Content-Type"].should eq("text/plain; charset=utf-8")
+          headers["X-Content-Type-Options"].should eq("nosniff")
+        end
+      end
+
+      it "serves /.well-known/security.txt as text/plain" do
+        with_temp_dir(files) do |dir|
+          _, body, _, headers = get.call(Azu::Handler::Static.new(dir), "/.well-known/security.txt")
+
+          body.should eq("Contact: mailto:security@example.com")
+          headers["Content-Type"].should eq("text/plain; charset=utf-8")
+        end
+      end
+
+      it "serves any extensionless file directly below /.well-known/, and redirects a dot segment to it" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir)
+          get.call(handler, "/.well-known/private-key")[1].should eq("KEY")
+
+          status, _, _, headers = get.call(handler, "/x/../.well-known/private-key")
+          status.should eq(302)
+          headers["Location"].should eq("/.well-known/private-key")
+        end
+      end
+
+      it "serves /.well-known/<file> and /.well-known/<dir>/<file> only, with plain names" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir)
+          get.call(handler, "/.well-known/acme-challenge/Xy_z-0123456789abcdef")[1].should eq("token.thumbprint")
+          get.call(handler, "/.well-known/openid-configuration")[1].should eq("{}")
+          ["/.well-known/.git/config", "/.well-known/.d/token", "/.well-known/a/b/c", "/.well-known/.secrets.json", "/.well-known/token."].each do |path|
+            body = get.call(handler, path)[1]
+            body.should eq("NEXT")
+          end
+        end
+      end
+
+      it "applies the depth and dot rule whatever the case of .well-known" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir)
+          ["/.Well-Known/.secrets.json", "/.Well-Known/a/b/c.json"].each do |path|
+            get.call(handler, path)[1].should_not contain("SECRET")
+          end
+        end
+      end
+
+      it "refuses an extensionless file anywhere else, and a dotfile of /.well-known/" do
+        with_temp_dir(files) do |dir|
+          ["/LICENSE", "/other/.well-known/token", "/.well-known/.env"].each do |path|
+            get.call(Azu::Handler::Static.new(dir), path)[1].should eq("NEXT")
+          end
+        end
+      end
+    end
+
+    describe "mime_types" do
+      it "serves an extension the application adds, with the type it gave" do
+        with_temp_dir({"report.foo" => "FOOBYTES", "Photo.HEIC" => "HEIC"}) do |dir|
+          handler = Azu::Handler::Static.new(dir, mime_types: {".foo" => "text/x-foo", "heic" => "image/heic"})
+
+          _, body, _, headers = get.call(handler, "/report.foo")
+          body.should eq("FOOBYTES")
+          headers["Content-Type"].should eq("text/x-foo")
+          headers["X-Content-Type-Options"].should eq("nosniff")
+
+          get.call(handler, "/Photo.HEIC")[3]["Content-Type"].should eq("image/heic")
+        end
+      end
+
+      it "normalises the extension: lower case, leading dot" do
+        with_temp_dir({"a.foo" => "X"}) do |dir|
+          ["FOO", ".FOO", ".foo", "foo"].each do |extension|
+            handler = Azu::Handler::Static.new(dir, mime_types: {extension => "text/x-foo"})
+            get.call(handler, "/a.foo")[3]["Content-Type"].should eq("text/x-foo")
+          end
+        end
+      end
+
+      it "does not change the table for another handler or for Crystal" do
+        with_temp_dir({"a.foo" => "X"}) do |dir|
+          Azu::Handler::Static.new(dir, mime_types: {".foo" => "text/x-foo"})
+
+          get.call(Azu::Handler::Static.new(dir), "/a.foo")[1].should eq("NEXT")
+          MIME.from_extension?(".foo").should be_nil # the handler registers nothing globally
+        end
+      end
+
+      it "overrides a type the handler knows" do
+        with_temp_dir({"a.csv" => "X"}) do |dir|
+          handler = Azu::Handler::Static.new(dir, mime_types: {".csv" => "application/csv"})
+          get.call(handler, "/a.csv")[3]["Content-Type"].should eq("application/csv")
+        end
+      end
+
+      it "still refuses what it does not list" do
+        with_temp_dir({"a.foo" => "X", "t.jinja" => "SECRET"}) do |dir|
+          handler = Azu::Handler::Static.new(dir, mime_types: {".foo" => "text/x-foo"})
+          get.call(handler, "/t.jinja")[1].should eq("NEXT")
+        end
+      end
+
+      it "rejects two extensions that are the same after normalisation" do
+        expect_raises(ArgumentError) do
+          Azu::Handler::Static.new("public", mime_types: {".Foo" => "text/x-foo", "foo" => "text/x-bar"})
+        end
+      end
+
+      ["", ".", "*", ".*", "*.foo", "a/b", ".a.b", " ", ".foo ", "a b"].each do |extension|
+        it "rejects the extension #{extension.inspect}" do
+          expect_raises(ArgumentError) do
+            Azu::Handler::Static.new("public", mime_types: {extension => "text/x-foo"})
+          end
+        end
+      end
+
+      ["", "text", "text/", "/plain", "text/plain\r\nSet-Cookie: a=b", "*/*", "text/*", "text/a b"].each do |type|
+        it "rejects the type #{type.inspect}" do
+          expect_raises(ArgumentError) do
+            Azu::Handler::Static.new("public", mime_types: {".foo" => type})
+          end
+        end
       end
     end
   end

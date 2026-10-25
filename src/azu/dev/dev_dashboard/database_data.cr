@@ -105,11 +105,11 @@ module Azu
         end
 
         private def store_critical_threshold : Int32
-          Azu::CONFIG.database.n_plus_one_threshold * 3
+          Azu.current_config.database.n_plus_one_threshold * 3
         end
 
         private def store_database_stats : DatabaseStats
-          settings = Azu::CONFIG.database
+          settings = Azu.current_config.database
           queries = store_queries
           alerts = QueryAnalysis.n_plus_one(queries, settings.n_plus_one_threshold)
           durations = queries.map(&.duration_ms)
@@ -128,7 +128,7 @@ module Azu
         end
 
         private def store_slow_queries(limit : Int32) : Array(SlowQuery)
-          threshold = Azu::CONFIG.database.slow_query_ms
+          threshold = Azu.current_config.database.slow_query_ms
           store_queries.select { |query| query.duration_ms >= threshold }
             .sort_by!(&.duration_ms).reverse!.first(limit)
             .map { |query| SlowQuery.new(query.sql, query.duration_ms, query.rows || 0_i64, Time.unix_ms(query.started_ms)) }
@@ -143,7 +143,7 @@ module Azu
         end
 
         private def store_n_plus_one_issues : Array(NPlusOneIssue)
-          QueryAnalysis.n_plus_one(store_queries, Azu::CONFIG.database.n_plus_one_threshold).map do |alert|
+          QueryAnalysis.n_plus_one(store_queries, Azu.current_config.database.n_plus_one_threshold).map do |alert|
             where = [alert.endpoint || alert.path, alert.caller].compact.join(" at ")
             hint = alert.suggestion.try { |text| ". #{text}" } || ""
             severity = alert.count >= store_critical_threshold ? "critical" : "high"

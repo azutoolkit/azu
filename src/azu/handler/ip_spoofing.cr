@@ -31,7 +31,9 @@ module Azu
       end
 
       private def forbidden(context)
-        Response::Forbidden.new.to_s(context)
+        error = Response::Forbidden.new
+        LogText.log_refusal(Log.for("Azu::Handler::IpSpoofing"), context.request, error, client: true)
+        error.to_s(context)
         context.response.close
       end
     end

@@ -225,10 +225,10 @@ module Azu
     property adapter : DatabaseAdapter? = nil
     property? enabled : Bool = false
 
-    # The SQL playground needs a database, the development environment and the config switch
-    # (the handler additionally requires a loopback client).
-    def playground_available?(config : DatabaseConfiguration = Azu::CONFIG.database) : Bool
-      config.playground? && Azu::CONFIG.env.development? && !@adapter.nil?
+    # The SQL playground needs a database, the development environment and the config switch, judged by the
+    # configuration of the app serving the request (the handler additionally requires a loopback client).
+    def playground_available?(config : Configuration = Azu.current_config) : Bool
+      config.database.playground? && config.env.development? && !@adapter.nil?
     end
 
     def pool_provider=(provider : Proc(PoolSnapshot?)?)
