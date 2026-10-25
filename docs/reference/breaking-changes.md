@@ -66,6 +66,14 @@ environment instead, or load the file with `unsafe: true`. Note that `*FLAGS` al
   [Cache reference](api/cache.md).
 - `Cache::Store` has a new abstract method `clear_prefix(prefix : String) : Bool`; a custom store must implement it.
 
+**CSRF has a production guard.** `Handler::CSRF.new` without `secret_key:` generated a random key for each instance, silently, so after a restart
+or on a second server every token it had issued was rejected. It now uses `Azu::Env.secret("CSRF_SECRET")`: the `CSRF_SECRET` variable when set, a
+random per-process key outside production with one warning in the log, and `Azu::Env::MissingError` ("CSRF_SECRET is not set") when the environment
+is in `Azu::Env.strict_environments` (production by default) and neither a key nor the variable is set. An explicit `secret_key:` / `secret_key=`
+wins. The key is resolved when the handler is built (`CSRF.default` and `CSRF.configure`: after the block, so the block may assign it), so a
+misconfigured production app fails at boot. Instances built without a key in one process now share the one fallback key (they signed with
+different keys before). Apps made with `azu new` already set `CSRF_SECRET` and refuse to start without it, so they are unaffected.
+
 **The global shim is deprecated.** `include Azu`, `configure` and `start` still work, and log one warning per
 process (at the first call, not when requiring azu) that names `Azu::App`.
 
