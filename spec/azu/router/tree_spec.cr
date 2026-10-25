@@ -104,4 +104,34 @@ describe Azu::Router::Tree do
       HotPath.bytes_per_call { routes.find(GET, "/api/v1/resource57/123") }.should be_close(by_hand, 8)
     end
   end
+
+  describe "glob segments" do
+    it "captures the rest of the path, slashes included, after named and static routes" do
+      routes = tree({GET, "/files/*path"}, {GET, "/files/:id/meta"}, {GET, "/files/:id/*tail"})
+
+      routes.find(GET, "/files/a/b/c.txt").try(&.params).should eq({"id" => "a", "tail" => "b/c.txt"})
+      routes.find(GET, "/files/a/meta").try(&.params).should eq({"id" => "a"})
+      routes.find(GET, "/files/a").try(&.params).should eq({"id" => "a", "tail" => ""})
+      payload(routes, POST, "/files/a/b").should be_nil
+    end
+
+    it "captures an empty value when nothing follows the glob" do
+      routes = tree({GET, "/files/*path"})
+
+      routes.find(GET, "/files").try(&.params).should eq({"path" => ""})
+      routes.find(GET, "/files/x").try(&.params).should eq({"path" => "x"})
+      payload(routes, GET, "/filesx").should be_nil
+    end
+
+    it "matches a path of 40 segments" do
+      rest = (2..40).join('/')
+      routes = tree({GET, "/deep/*rest"})
+
+      routes.find(GET, "/deep/#{rest}").try(&.params).should eq({"rest" => rest})
+    end
+
+    it "refuses a glob before the last segment" do
+      expect_raises(Tree::Error, "/a/*rest/b: a glob must be the last segment") { tree({GET, "/a/*rest/b"}) }
+    end
+  end
 end

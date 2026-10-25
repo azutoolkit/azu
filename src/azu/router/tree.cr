@@ -12,6 +12,10 @@ module Azu
       # How many offsets `find` keeps on the stack; a path of more segments has them on the heap.
       private STACK_BOUNDS = 32
 
+      # A route `add` refuses.
+      class Error < Exception
+      end
+
       # What `find` returns: the route's payload and, when its path has parameters, their raw values.
       struct Match(T)
         getter params : Hash(String, String)?
@@ -26,8 +30,8 @@ module Azu
       end
 
       # :nodoc:
-      # A parameter of a route: its interned name and the index of the segment it reads.
-      record Param, name : String, segment : Int32
+      # A parameter of a route: its interned name and the index of the segment it reads (a glob, to the end of the path).
+      record Param, name : String, segment : Int32, glob : Bool
 
       # :nodoc:
       class Entry(T)
@@ -42,7 +46,8 @@ module Azu
 
           @params.each_with_object(Hash(String, String).new(initial_capacity: @params.size)) do |param, values|
             from = bounds[param.segment] + 1
-            values[param.name] = String.new(path.to_unsafe + from, bounds[param.segment + 1] - from)
+            to = param.glob ? bounds[-1] : bounds[param.segment + 1]
+            values[param.name] = String.new(path.to_unsafe + from, Math.max(to - from, 0))
           end
         end
       end
@@ -51,6 +56,7 @@ module Azu
       class Node(T)
         @static : Hash(Bytes, Node(T))?
         @dynamic : Node(T)?
+        @glob : Node(T)?
         # One slot per `Azu::Method`, indexed by its value
         {% begin %}
           @entries = StaticArray(Entry(T)?, {{ Azu::Method.constants.size }}).new(nil)
@@ -64,18 +70,27 @@ module Azu
           @dynamic ||= Node(T).new
         end
 
+        def glob : Node(T)
+          @glob ||= Node(T).new
+        end
+
+        def entry(method : Azu::Method) : Entry(T)?
+          @entries[method.value]
+        end
+
         def add(method : Azu::Method, entry : Entry(T)) : Nil
           @entries[method.value] = entry
         end
 
         # The route for `method` below this node, reached by the segments before `bounds[depth]`.
         def search(path : String, bounds : Slice(Int32), depth : Int32, method : Azu::Method) : Entry(T)?
-          return @entries[method.value] if depth == bounds.size - 1
+          return entry(method) || @glob.try(&.entry(method)) if depth == bounds.size - 1
 
           from = bounds[depth] + 1
           segment = Bytes.new(path.to_unsafe + from, bounds[depth + 1] - from, read_only: true)
           @static.try(&.[segment]?).try(&.search(path, bounds, depth + 1, method)) ||
-            @dynamic.try(&.search(path, bounds, depth + 1, method))
+            @dynamic.try(&.search(path, bounds, depth + 1, method)) ||
+            @glob.try(&.entry(method))
         end
       end
 
@@ -87,10 +102,16 @@ module Azu
       def add(method : Azu::Method, path : String, payload : T) : Nil
         node = @root
         params = [] of Param
-        path.lchop('/').split('/').each_with_index do |segment, index|
-          if segment.starts_with?(':')
-            params << Param.new(@names[segment[1..]] ||= segment[1..], index)
+        segments = path.lchop('/').split('/')
+        segments.each_with_index do |segment, index|
+          case segment[0]?
+          when ':'
+            params << Param.new(intern(segment), index, glob: false)
             node = node.dynamic
+          when '*'
+            raise Error.new("#{path}: a glob must be the last segment") unless index == segments.size - 1
+            params << Param.new(intern(segment), index, glob: true)
+            node = node.glob
           else
             node = node.static(segment)
           end
@@ -105,6 +126,12 @@ module Azu
         bounds = bounds(path.to_slice, stack.to_slice)
         entry = @root.search(path, bounds, 0, method)
         Match(T).new(entry, entry.params(path, bounds)) if entry
+      end
+
+      # The parameter name of `segment`, the same String for every route that uses it.
+      private def intern(segment : String) : String
+        name = segment[1..]
+        @names[name] ||= name
       end
 
       # The offset of each slash of `path`, then its size: segment `i` lies between `bounds[i]` and `bounds[i + 1]`.
