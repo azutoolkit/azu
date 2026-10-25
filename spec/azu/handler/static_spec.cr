@@ -579,7 +579,7 @@ describe Azu::Handler::Static do
       context, _ = create_context("GET", "/a/../b.txt")
       handler.call(context)
       context.response.status_code.should eq(302)
-      context.response.headers["Location"].should eq("/b.txt/")
+      context.response.headers["Location"].should eq("/b.txt")
 
       context, _ = create_context("GET", "/b%00.txt")
       handler.call(context)
@@ -612,13 +612,71 @@ describe Azu::Handler::Static do
   end
 
   describe "a request for a directory" do
-    it "redirects to the path with a trailing slash" do
+    it "redirects to the path with a single trailing slash" do
       with_temp_dir({"subdir/file.txt" => "content"}) do |dir|
         handler = Azu::Handler::Static.new(dir, fallthrough: true)
         context, _ = create_context("GET", "/subdir")
         handler.call(context)
         context.response.status_code.should eq(302)
-        context.response.headers["Location"].should eq("/subdir//")
+        context.response.headers["Location"].should eq("/subdir/")
+      end
+    end
+
+    it "keeps the query string and nested directories" do
+      with_temp_dir({"a/b/file.txt" => "content"}) do |dir|
+        handler = Azu::Handler::Static.new(dir, fallthrough: true)
+        context, _ = create_context("GET", "/a/b?x=1")
+        handler.call(context)
+        context.response.headers["Location"].should eq("/a/b/?x=1")
+      end
+    end
+
+    it "normalizes a path with dot segments and still ends a directory with one slash" do
+      with_temp_dir({"subdir/file.txt" => "content"}) do |dir|
+        handler = Azu::Handler::Static.new(dir, fallthrough: true)
+        context, _ = create_context("GET", "/x/../subdir")
+        handler.call(context)
+        context.response.headers["Location"].should eq("/subdir/")
+      end
+    end
+
+    it "serves a directory that ends in a slash without redirecting to itself" do
+      with_temp_dir({"subdir/file.txt" => "content"}) do |dir|
+        context, _ = create_context("GET", "/subdir/")
+        Azu::Handler::Static.new(dir).call(context)
+        context.response.status_code.should eq(404)
+        context.response.headers["Location"]?.should be_nil
+
+        context, io = create_context("GET", "/subdir/")
+        Azu::Handler::Static.new(dir, directory_listing: true).call(context)
+        context.response.status_code.should eq(200)
+        get_response_body(context, io).should contain("file.txt")
+      end
+    end
+
+    it "does not redirect a file requested with a trailing slash to itself" do
+      with_temp_dir({"b.txt" => "content"}) do |dir|
+        context, _ = create_context("GET", "/b.txt/")
+        Azu::Handler::Static.new(dir).call(context)
+        context.response.headers["Location"]?.should be_nil
+      end
+    end
+
+    it "never redirects to a protocol-relative location" do
+      with_temp_dir({"subdir/file.txt" => "content", "evil.com/x.txt" => "x"}) do |dir|
+        handler = Azu::Handler::Static.new(dir, fallthrough: true)
+        [
+          "//evil.com", "//evil.com/", "///evil.com", "//evil.com/../evil.com", "/%2Fevil.com", "/%2F%2Fevil.com/",
+          "//subdir", "/./\\evil.com", "/..//evil.com", "//evil.com//..", "/a/..//evil.com",
+        ].each do |path|
+          context, _ = create_context("GET", path)
+          handler.call(context)
+          if location = context.response.headers["Location"]?
+            location.should start_with("/")
+            location.should_not start_with("//")
+            location.should_not start_with("/\\")
+          end
+        end
       end
     end
   end

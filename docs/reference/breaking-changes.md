@@ -41,6 +41,11 @@ Check these before upgrading:
 - **New:** `Azu::CQL.health_check(schema)`, `Azu::CQL.engine(schema)`, `Azu::CQL.shutdown`, `.track`/`.untrack`, `Azu.on_shutdown`. A schema made
   twice under the same name closes the first one.
 
+**`Handler::Static` redirects to the right path.** The redirect for a directory requested without its trailing slash answered
+`Location: /subdir//` (two slashes), and one for a path that was not in its normal form (`/a/../b.txt`) answered `/b.txt/` (a slash added to a
+file). Now `/subdir` redirects to `/subdir/`, `/a/../b.txt` to `/b.txt`, and the query string is kept. A
+`Location` always starts with exactly one `/`, so `//evil.com` can never become a protocol-relative redirect.
+
 **`Azu::Env` skips many more names from a `.env` file.** The denylist is now the one the `azu` CLI uses
 (`AzuCLI::DotEnv`), where it used to cover only `LD_*`, `DYLD_*`, `SHARDS_*`, `GIT_*`, `PATH`, `SHELL`, `IFS`,
 `BASH_ENV`, `ENV`, `CRYSTAL_PATH`, `CRYSTAL_OPTS`, `CRYSTAL_LIBRARY_PATH`, `DOCKER_HOST` and `HOME`. It now also skips
