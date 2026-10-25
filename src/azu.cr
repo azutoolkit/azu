@@ -41,10 +41,27 @@ module Azu
   alias Validator = Schema::Validator
   CONFIG = Configuration.new
 
-  # Fiber-local configuration storage for testing and isolation
-  @@fiber_configs = {} of Fiber => Configuration
+  # What `with_app` and `with_config` set for a fiber, in one record so a request opens and closes
+  # both with one registry write each.
+  private struct FiberScope
+    getter app : App?
+    getter config : Configuration?
+
+    def initialize(@app : App? = nil, @config : Configuration? = nil)
+    end
+
+    def with_app(app : App) : FiberScope
+      FiberScope.new(app, @config)
+    end
+
+    def with_config(config : Configuration) : FiberScope
+      FiberScope.new(@app, config)
+    end
+  end
+
+  # Fiber-local configuration and app storage for testing and isolation
+  @@fiber_scopes = {} of Fiber => FiberScope
   @@config_mutex = Mutex.new
-  @@fiber_apps = {} of Fiber => App
 
   # Get the current configuration
   #
@@ -60,7 +77,7 @@ module Azu
   # ```
   def self.current_config : Configuration
     @@config_mutex.synchronize do
-      @@fiber_configs[Fiber.current]? || CONFIG
+      @@fiber_scopes[Fiber.current]?.try(&.config) || CONFIG
     end
   end
 
@@ -85,18 +102,43 @@ module Azu
   # there was none.
   def self.with_config(config : Configuration, &)
     fiber = Fiber.current
-    previous = @@config_mutex.synchronize do
-      @@fiber_configs[fiber]?.tap { @@fiber_configs[fiber] = config }
-    end
+    previous = enter_scope(fiber, &.with_config(config))
     begin
       yield
     ensure
-      @@config_mutex.synchronize do
-        if previous
-          @@fiber_configs[fiber] = previous
-        else
-          @@fiber_configs.delete(fiber)
-        end
+      leave_scope(fiber, previous)
+    end
+  end
+
+  # :nodoc:
+  #
+  # `with_app(app) { with_config(config) { ... } }` with one registry write on the way in and one on
+  # the way out, which is what serving a request does.
+  def self.with_scope(app : App?, config : Configuration, &)
+    fiber = Fiber.current
+    previous = enter_scope(fiber) { |scope| app ? scope.with_app(app).with_config(config) : scope.with_config(config) }
+    begin
+      yield
+    ensure
+      leave_scope(fiber, previous)
+    end
+  end
+
+  # Replaces the fiber's record with what the block makes of it and returns the one that was there.
+  private def self.enter_scope(fiber : Fiber, & : FiberScope -> FiberScope) : FiberScope?
+    @@config_mutex.synchronize do
+      previous = @@fiber_scopes[fiber]?
+      @@fiber_scopes[fiber] = yield(previous || FiberScope.new)
+      previous
+    end
+  end
+
+  private def self.leave_scope(fiber : Fiber, previous : FiberScope?) : Nil
+    @@config_mutex.synchronize do
+      if previous
+        @@fiber_scopes[fiber] = previous
+      else
+        @@fiber_scopes.delete(fiber)
       end
     end
   end
@@ -113,18 +155,18 @@ module Azu
   # The app serving the request this fiber is handling (or the fiber spawned by `spawn_scoped` from
   # it); nil outside one. A mounted app's requests belong to the app that owns the server.
   def self.current_app : App?
-    @@config_mutex.synchronize { @@fiber_apps[Fiber.current]? }
+    @@config_mutex.synchronize { @@fiber_scopes[Fiber.current]?.try(&.app) }
   end
 
   # Runs the block with `app` as the current app of this fiber. A nil `app` leaves things as they are.
   def self.with_app(app : App?, &)
     return yield unless app
     fiber = Fiber.current
-    previous = @@config_mutex.synchronize { @@fiber_apps[fiber]?.tap { @@fiber_apps[fiber] = app } }
+    previous = enter_scope(fiber, &.with_app(app))
     begin
       yield
     ensure
-      @@config_mutex.synchronize { previous ? (@@fiber_apps[fiber] = previous) : @@fiber_apps.delete(fiber) }
+      leave_scope(fiber, previous)
     end
   end
 
@@ -155,7 +197,8 @@ module Azu
   # Useful for cleanup in test suites.
   def self.clear_fiber_configs : Nil
     @@config_mutex.synchronize do
-      @@fiber_configs.clear
+      @@fiber_scopes.reject! { |_, scope| scope.app.nil? }
+      @@fiber_scopes.transform_values! { |scope| FiberScope.new(scope.app) }
     end
   end
 

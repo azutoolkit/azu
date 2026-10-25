@@ -36,9 +36,13 @@ module Azu
 
     @server : HTTP::Server?
     @lock = Mutex.new
-    @in_flight = 0
-    @draining = false
+    # Requests and sockets being served. Counted without the lock, so a request costs two atomic
+    # operations; the lock covers the idle waiters and the socket set.
+    @in_flight = Atomic(Int32).new(0)
+    @draining = Atomic(Int32).new(0)
     @idle_waiters = [] of ::Channel(Nil)
+    # How many of `@idle_waiters` there are, so the last request out only takes the lock when a drain is waiting.
+    @waiting = Atomic(Int32).new(0)
     @sockets = Set(Channel).new
     @shutdown_signal = ::Channel(Nil).new
 
@@ -63,7 +67,7 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context)
-        return if @app.track { Azu.with_app(@app) { Azu.with_config(@app.config) { call_next(context) } } }
+        return if @app.track { Azu.with_scope(@app, @app.config) { call_next(context) } }
 
         context.response.status_code = 503
         context.response.headers["Connection"] = "close"
@@ -85,7 +89,7 @@ module Azu
     end
 
     def draining? : Bool
-      @lock.synchronize { @draining }
+      @draining.get == 1
     end
 
     # Closed when shutdown begins. A streaming response waits on it (`Azu.shutdown_signal`).
@@ -112,8 +116,8 @@ module Azu
     # within the same `shutdown_timeout`.
     def begin_shutdown : Nil
       sockets = @lock.synchronize do
-        return if @draining
-        @draining = true
+        return if draining?
+        @draining.set(1)
         @sockets.to_a
       end
       @shutdown_signal.close
@@ -124,7 +128,12 @@ module Azu
     def drain(timeout : Time::Span = @config.shutdown_timeout) : Bool
       idle = ::Channel(Nil).new
       @lock.synchronize do
-        return true if @in_flight.zero?
+        # Announced before the count is read, see `leave`
+        @waiting.add(1)
+        if @in_flight.get.zero?
+          @waiting.sub(1)
+          return true
+        end
         @idle_waiters << idle
       end
 
@@ -132,7 +141,7 @@ module Azu
       when idle.receive?
         true
       when timeout(timeout)
-        @lock.synchronize { @idle_waiters.delete(idle) }
+        @lock.synchronize { @waiting.sub(1) if @idle_waiters.delete(idle) }
         false
       end
     end
@@ -147,26 +156,35 @@ module Azu
     end
 
     private def enter_socket(channel : Channel) : Bool
-      return false if @draining
-      @in_flight += 1
+      return false if draining?
+      @in_flight.add(1)
       @sockets << channel
       true
     end
 
+    # Counts first and looks at `@draining` after: `begin_shutdown` sets the flag before `drain` reads
+    # the count, so a request is either refused here or seen by the drain.
     private def enter : Bool
-      @lock.synchronize do
-        return false if @draining
-        @in_flight += 1
-        true
-      end
+      @in_flight.add(1)
+      return true unless draining?
+
+      leave
+      false
     end
 
+    # `Atomic#sub` answers with the value from before: 1 means this was the last one. Only then, and
+    # only when a drain announced itself in `@waiting` before it read the count (so one of the two
+    # sees the other), the lock is taken to wake it. The count is read again under the lock because a
+    # request can have entered since.
     private def leave : Nil
+      return unless @in_flight.sub(1) == 1
+      return if @waiting.get.zero?
+
       @lock.synchronize do
-        @in_flight -= 1
-        return unless @in_flight.zero?
+        return unless @in_flight.get.zero?
         @idle_waiters.each(&.close)
         @idle_waiters.clear
+        @waiting.set(0)
       end
     end
 

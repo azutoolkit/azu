@@ -298,7 +298,7 @@ module Azu
       end
 
       private def in_app(&)
-        Azu.with_app(@app) { Azu.with_config(@app.config) { yield } }
+        Azu.with_scope(@app, @app.config) { yield }
       end
 
       private def merge_headers(extra) : HTTP::Headers
