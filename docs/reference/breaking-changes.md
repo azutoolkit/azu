@@ -51,6 +51,17 @@ locale and time zone names `LANG`, `LC_*` and `TZ`. Matching is case-insensitive
 it (never the value) and is not set. If your `.env` sets one of them (typically `TZ` or `LANG`), set it in the real
 environment instead, or load the file with `unsafe: true`. Note that `*FLAGS` also matches application names such as `FEATURE_FLAGS`, `LOG_FLAGS` and `MY_CFLAGS`: rename them (for example `FEATURES`). See [Environment](configuration/env.md#trust).
 
+**An endpoint declared with the bare `Azu::Request` reads its params on first use.** A JSON, multipart or other
+non-urlencoded body is no longer read before `call`, so a bare-`Azu::Request` endpoint that never touches `params` no
+longer answers `400` or `413` for it; a large unread body is drained by `HTTP::Server` after the handler instead of
+being rejected. One that reads `params` gets the error where it asks. A `POST` with a urlencoded body is still read by
+the router (for `_method`) and still answers `413` before dispatch. Endpoints with a request contract (a struct that
+includes `Azu::Request`) are unchanged: they parse before `call`.
+
+**A request id is cut from a buffered chunk of secure random bytes.** The format `req_<ms>_<16 hex>` is unchanged.
+
+**A `Static` public directory created after boot is picked up within a second**, not at once.
+
 **A Redis cache needs an explicit URL, and `clear` only removes the cache's own keys.**
 
 - `cache_config.redis_url` is now `String?` and has no default (it used to be `redis://localhost:6379/0`).

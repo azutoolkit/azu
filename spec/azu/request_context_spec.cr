@@ -34,6 +34,12 @@ describe Azu::RequestContext do
       id.split('_')[1].to_i64.should be >= before
     end
 
+    it "refuses a number of random bytes it cannot serve" do
+      expect_raises(ArgumentError) { Azu::RequestContext.generate_id(0) }
+      expect_raises(ArgumentError) { Azu::RequestContext.generate_id(513) }
+      expect_raises(ArgumentError) { Azu::RequestContext.generate_id(-1) }
+    end
+
     it "takes the number of random bytes asked for" do
       Azu::RequestContext.generate_id(4).should match(/\Areq_\d+_[0-9a-f]{8}\z/)
     end
