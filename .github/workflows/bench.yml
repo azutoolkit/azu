@@ -1,0 +1,100 @@
+name: Framework benchmarks
+
+# Opt-in and manual only: never on pull requests, never scheduled, not a required check. It builds the benchmark
+# apps (benchmark/README.md), checks that every framework answers identically and measures them with wrk and a
+# WebSocket driver, then uploads the JSON and Markdown results as an artifact.
+#
+# A shared GitHub runner is noisy. Read its numbers as same-run comparisons; headline numbers come only from a
+# pinned, dedicated runner (see "Noise" in benchmark/README.md). The job refuses to measure on a busy machine
+# unless `force` is set, and the result then records why. A row with errors fails the job. The actions are pinned by
+# major-version tag (not by commit sha); pin them by sha for a runner that handles secrets.
+on:
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: comma list of apps (default set when empty; also azu-min, azu-rawdb)
+        type: string
+        default: ""
+      scenarios:
+        description: comma list of scenarios (all when empty)
+        type: string
+        default: ""
+      runs:
+        description: measured runs per app and scenario (5 or more)
+        type: string
+        default: "5"
+      duration:
+        description: seconds per run
+        type: string
+        default: "10"
+      force:
+        description: measure although the runner is not quiet (the result is marked)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    if: github.repository == 'azutoolkit/azu'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      INPUT_APPS: ${{ inputs.apps }}
+      INPUT_SCENARIOS: ${{ inputs.scenarios }}
+      INPUT_RUNS: ${{ inputs.runs }}
+      INPUT_DURATION: ${{ inputs.duration }}
+      INPUT_FORCE: ${{ inputs.force }}
+      # An app that cannot be built or is not conformant fails the job instead of being skipped quietly
+      BENCH_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: 1.19.1
+
+      - name: Install wrk, SQLite and libmagic
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wrk sqlite3 libsqlite3-dev libmagic-dev
+
+      - name: Driver tests
+        run: node --test "benchmark/driver/test/*.test.mjs"
+
+      - name: Measure
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The dispatch inputs are only ever used as quoted values, after being checked.
+          [[ "$INPUT_RUNS" =~ ^[0-9]+$ ]] && [ "$INPUT_RUNS" -ge 5 ] || { echo "runs must be a number, 5 or more" >&2; exit 2; }
+          [[ "$INPUT_DURATION" =~ ^[0-9]+$ ]] || { echo "duration must be a number" >&2; exit 2; }
+          [[ "$INPUT_APPS" =~ ^[a-z,-]*$ ]] || { echo "apps must be a comma list of names" >&2; exit 2; }
+          [[ "$INPUT_SCENARIOS" =~ ^[a-z_,]*$ ]] || { echo "scenarios must be a comma list of names" >&2; exit 2; }
+          args=(--runs "$INPUT_RUNS" --duration "$INPUT_DURATION" --out "$RUNNER_TEMP/results" --require-all --label ci --result-file "$RUNNER_TEMP/result-path")
+          [ -n "$INPUT_APPS" ] && args+=(--apps "$INPUT_APPS")
+          [ -n "$INPUT_SCENARIOS" ] && args+=(--scenarios "$INPUT_SCENARIOS")
+          [ "$INPUT_FORCE" = "true" ] && args+=(--force)
+          scripts/bench.sh run "${args[@]}"
+
+      - name: Summary
+        if: always()
+        run: |
+          md=$(sed 's/\.json$/.md/' "$RUNNER_TEMP/result-path" 2>/dev/null || true)
+          if [ -n "$md" ] && [ -f "$md" ]; then
+            { echo "### Framework benchmarks - shared runner, same-run comparisons only"; echo; cat "$md"; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-${{ github.run_id }}
+          path: ${{ runner.temp }}/results
+          if-no-files-found: warn

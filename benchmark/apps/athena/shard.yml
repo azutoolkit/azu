@@ -1,0 +1,10 @@
+name: bench_athena
+version: 0.0.0
+crystal: ">= 1.19.1"
+dependencies:
+  athena:
+    github: athena-framework/framework
+    version: 0.23.0
+  sqlite3:
+    github: crystal-lang/crystal-sqlite3
+    version: 0.21.0
