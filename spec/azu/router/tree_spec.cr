@@ -57,4 +57,51 @@ describe Azu::Router::Tree do
       HotPath.bytes_per_call { routes.find(GET, "/api/v1/resource57") }.should eq 0
     end
   end
+
+  describe "named segments" do
+    it "captures each parameter raw, without percent-decoding it, as radix does" do
+      routes = tree({GET, "/users/:id"}, {GET, "/users/:id/posts/:post_id"})
+
+      routes.find(GET, "/users/a%20b").try(&.params).should eq({"id" => "a%20b"})
+      routes.find(GET, "/users/7/posts/9").try(&.params).should eq({"id" => "7", "post_id" => "9"})
+      payload(routes, GET, "/users/7/posts").should be_nil
+    end
+
+    it "prefers a static segment to a parameter" do
+      routes = tree({GET, "/users/:id"}, {GET, "/users/new"})
+
+      payload(routes, GET, "/users/new").should eq "Get /users/new"
+      routes.find(GET, "/users/new").try(&.params).should be_nil
+      payload(routes, GET, "/users/newer").should eq "Get /users/:id"
+    end
+
+    it "backtracks to the parameter when the static branch dead-ends" do
+      routes = tree({GET, "/a/b/c"}, {GET, "/a/:x/d"})
+      found = routes.find(GET, "/a/b/d")
+
+      found.try(&.payload).should eq "Get /a/:x/d"
+      found.try(&.params).should eq({"x" => "b"})
+      payload(routes, GET, "/a/b/c").should eq "Get /a/b/c"
+    end
+
+    it "keeps the parameter names of each method's route" do
+      routes = tree({GET, "/posts/:id"}, {POST, "/posts/:post_id/comments"})
+
+      routes.find(GET, "/posts/1").try(&.params).should eq({"id" => "1"})
+      routes.find(POST, "/posts/1/comments").try(&.params).should eq({"post_id" => "1"})
+    end
+
+    it "interns the parameter names and allocates only the values and the params hash" do
+      routes = Tree.new
+      100.times { |i| routes.add GET, "/api/v1/resource#{i}/:id", "resource#{i}" }
+      names = {"/api/v1/resource1/1", "/api/v1/resource2/2"}.map { |path| routes.find(GET, path).try(&.params).try(&.keys.first) }
+
+      names.first.should_not be_nil
+      names.first.should be names.last
+      value = "123".to_slice
+      by_hand = HotPath.bytes_per_call { Hash(String, String).new(initial_capacity: 1)["id"] = String.new(value) }
+      # Within less than the smallest heap object (16 B): GC statistics add a byte or two of noise per call
+      HotPath.bytes_per_call { routes.find(GET, "/api/v1/resource57/123") }.should be_close(by_hand, 8)
+    end
+  end
 end
