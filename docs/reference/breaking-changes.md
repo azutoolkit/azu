@@ -8,6 +8,16 @@ This document lists breaking changes between Azu versions and migration guides.
 
 Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
 
+**`Static` can refuse paths (additive, nothing to change).** `Azu::Handler::Static.new(except: ["/templates"])` never serves
+`/templates` or anything below it; the request goes to the next handler, or answers `404` with `fallthrough: false`. Without
+`except` the handler behaves as before. Use it when template sources live under `public/`:
+
+```crystal
+Azu::Handler::Static.new("public", except: ["/templates"])
+```
+
+`except` is the supported way to keep paths under `public/` from being served. See [Handler::Static](handlers/built-in.md#handlerstatic).
+
 **Templates are compiled outside development.** With `template_hot_reload` off (the default for `staging`,
 `production` and any environment other than `development`, `test` and `pipeline`), `Azu.prepare` reads and parses
 every template once and requests no longer read template files: an edit to a template file needs a restart, where
