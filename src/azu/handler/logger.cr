@@ -1,5 +1,6 @@
 require "colorize"
 require "http/server/handler"
+require "../log_text"
 
 module Azu
   module Handler
@@ -45,7 +46,7 @@ module Azu
           str << addr.colorize(:green).underline
           str << " ⤑ "
           str << req.method.colorize(:yellow)
-          str << entry(:Path, req.resource, :light_blue)
+          str << entry(:Path, LogText.safe(req.resource), :light_blue)
           str << entry(:Endpoint, get_endpoint_class_name(req), :magenta)
           str << status(:Status, res.status_code)
           str << entry(:Latency, elapsed_text, :green)

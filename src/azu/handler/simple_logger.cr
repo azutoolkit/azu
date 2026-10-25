@@ -1,5 +1,6 @@
 require "colorize"
 require "http/server/handler"
+require "../log_text"
 require "../log_format"
 
 module Azu
@@ -72,7 +73,7 @@ module Azu
       private def build_request_context(context : HTTP::Server::Context, elapsed : Time::Span) : Hash(String, String)
         {
           "method"         => context.request.method,
-          "path"           => context.request.resource,
+          "path"           => LogText.safe(context.request.resource),
           "endpoint"       => get_endpoint_class_name(context),
           "status"         => context.response.status_code.to_s,
           "latency"        => format_latency(elapsed),
@@ -119,7 +120,7 @@ module Azu
         String.build do |str|
           str << "HTTP Request".colorize(:green).underline
           str << entry(:Method, context.request.method, :green)
-          str << entry(:Path, context.request.resource, :light_blue)
+          str << entry(:Path, LogText.safe(context.request.resource), :light_blue)
           str << status_entry(:Status, http_status(context.response.status_code))
           str << entry(:Latency, elapsed(Time.instant - time), :green)
         end
