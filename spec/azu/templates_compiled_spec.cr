@@ -186,6 +186,105 @@ describe "Azu::Templates compiled (every environment but development)" do
     page.render({"status" => 404, "title" => "Not Found", "detail" => "<script>alert(1)</script>"}).should_not contain "<script>alert(1)</script>"
   end
 
+  it "serves a symlinked file compiled, and leaves a symlinked directory to the file loader" do
+    with_template_dir do |dir|
+      real = File.join(dir, "real")
+      Dir.mkdir_p(real)
+      File.write(File.join(real, "inner.jinja"), "inner")
+      File.write(File.join(dir, "target.jinja"), "target")
+      main = File.join(dir, "main")
+      Dir.mkdir_p(main)
+      File.symlink(File.join(dir, "target.jinja"), File.join(main, "link.jinja"))
+      File.symlink(real, File.join(main, "linked_dir"))
+      templates = Azu::Templates.new([main], File.join(dir, "errors"), hot_reload: false)
+      templates.prepare
+      File.delete(File.join(dir, "target.jinja"))
+      templates.load("link.jinja").render.should eq "target"
+      templates.load("linked_dir/inner.jinja").render.should eq "inner"
+      File.delete(File.join(real, "inner.jinja"))
+      expect_raises(Crinja::TemplateNotFoundError) { templates.load("linked_dir/inner.jinja") }
+    end
+  end
+
+  it "compiles nested names and .html.jinja, and leaves a dot directory to the file loader" do
+    with_template_dir do |dir|
+      Dir.mkdir_p(File.join(dir, "a", "b"))
+      Dir.mkdir_p(File.join(dir, ".hidden"))
+      File.write(File.join(dir, "a", "b", "c.jinja"), "deep")
+      File.write(File.join(dir, "page.html.jinja"), "{{ x }}")
+      File.write(File.join(dir, ".hidden", "h.jinja"), "{% if %}")
+      templates = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false)
+      templates.prepare
+      File.delete(File.join(dir, "a", "b", "c.jinja"))
+      templates.load("a/b/c.jinja").render.should eq "deep"
+      templates.load("page.html.jinja").render({"x" => "y"}).should eq "y"
+      expect_raises(Crinja::Error) { templates.load(".hidden/h.jinja") }
+    end
+  end
+
+  it "ignores with * inside one directory and ** across directories" do
+    with_template_dir do |dir|
+      Dir.mkdir_p(File.join(dir, "vendor", "sub"))
+      File.write(File.join(dir, "vendor", "a.html"), "{% if %}")
+      File.write(File.join(dir, "vendor", "sub", "b.html"), "{% if %}")
+      one = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false, compile_ignore: ["vendor/*"])
+      error = expect_raises(Crinja::Error) { one.prepare }
+      error.message.to_s.should contain "vendor/sub/b.html"
+      error.message.to_s.should_not contain "template vendor/a.html"
+      Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false, compile_ignore: ["vendor/**"]).prepare
+    end
+  end
+
+  it "keeps a name that is broken in the first directory with the file loader, not the later directory's copy" do
+    with_template_dir do |dir|
+      a = File.join(dir, "a")
+      b = File.join(dir, "b")
+      Dir.mkdir_p(a)
+      Dir.mkdir_p(b)
+      File.write(File.join(a, "p.jinja"), "{% if %}")
+      File.write(File.join(b, "p.jinja"), "from b")
+      File.write(File.join(b, "q.jinja"), "q")
+      templates = Azu::Templates.new([a, b], File.join(dir, "errors"), hot_reload: false)
+      templates.load("q.jinja").render.should eq "q"
+      expect_raises(Crinja::Error) { templates.load("p.jinja") }
+    end
+  end
+
+  it "validates on prepare although a first render compiled leniently" do
+    with_template_dir do |dir|
+      File.write(File.join(dir, "good.jinja"), "good")
+      File.write(File.join(dir, "bad.jinja"), "{% if %}")
+      templates = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false)
+      templates.load("good.jinja").render.should eq "good"
+      expect_raises(Crinja::Error) { templates.prepare }
+    end
+  end
+
+  it "reports an unreadable directory: strict names it, lazy skips it" do
+    with_template_dir do |dir|
+      locked = File.join(dir, "locked")
+      Dir.mkdir_p(locked)
+      File.write(File.join(dir, "ok.jinja"), "ok")
+      File.chmod(locked, 0o000)
+      begin
+        readable = begin
+          Dir.each_child(locked) { }
+          true
+        rescue File::Error
+          false
+        end
+        pending!("the directory stays readable (running as root)") if readable
+        error = expect_raises(Crinja::Error) { Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false).prepare }
+        error.message.to_s.should contain "locked"
+        lazy = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false)
+        3.times { lazy.load("ok.jinja").render.should eq "ok" }
+        lazy.compile_count.should eq 1
+      ensure
+        File.chmod(locked, 0o755)
+      end
+    end
+  end
+
   it "keeps the search order: the first directory wins" do
     with_template_dir do |dir|
       a = File.join(dir, "a")

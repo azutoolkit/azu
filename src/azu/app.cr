@@ -190,6 +190,8 @@ module Azu
     # Starts what needs a running app: the async log pipeline, the upload temp directory and cleanup, the
     # `Instrumentation.on_prepare` hooks (see `Configuration#prepare`). `start` calls it.
     def prepare : Nil
+      # first: a template that does not parse stops the start before anything is started
+      @config.templates.prepare
       AsyncLogging.initialize
       @config.prepare
     end
