@@ -22,7 +22,7 @@ const opts = {
   apps: null, scenarios: null, runs: 5, duration: 10, warmup: 3, connections: 64, threads: 2,
   wsClients: 50, wsSenders: 4, out: path.join(root, "benchmark", "results"), force: false, maxLoad: 0.5,
   maxBusyPct: 10, serverCpus: process.env.BENCH_SERVER_CPUS || null, loadCpus: process.env.BENCH_LOAD_CPUS || null,
-  basePort: 3100, label: "", requireAll: false, allowErrors: false, waitQuiet: 300, resultFile: null, db: path.join(root, "benchmark", "db", "bench.sqlite3"), json: false,
+  basePort: 3100, label: "", requireAll: false, allowErrors: false, allowSkip: false, waitQuiet: 300, resultFile: null, db: path.join(root, "benchmark", "db", "bench.sqlite3"), json: false,
 };
 const flagTypes = { "--apps": "list", "--scenarios": "list", "--runs": "int", "--duration": "num", "--warmup": "num", "--connections": "int", "--threads": "int", "--ws-clients": "int", "--ws-senders": "int", "--out": "str", "--max-load": "num", "--max-busy": "num", "--server-cpus": "str", "--load-cpus": "str", "--base-port": "int", "--label": "str", "--db": "str", "--wait-quiet": "num", "--result-file": "str" };
 const keyOf = (f) => f.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
@@ -32,6 +32,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (f === "--require-all") opts.requireAll = true;
   else if (f === "--json") opts.json = true;
   else if (f === "--allow-errors") opts.allowErrors = true;
+  else if (f === "--allow-skip") opts.allowSkip = true;
   else if (flagTypes[f]) {
     const v = argv[++i];
     if (v === undefined) die(`${f} needs a value`);
@@ -299,6 +300,9 @@ export function aggregate(runs) {
 // ---------- report ----------
 const fmt = (x, d = 0) => (Number.isFinite(x) ? x.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }) : "n/a");
 
+// Requested apps that are not part of the measurement (not built, would not start, not conformant).
+export function skippedApps(apps) { return apps.filter((a) => a.status !== "ok"); }
+
 export function invalidRows(result) {
   return result.scenarios.flatMap((sc) => sc.results.filter((r) => r.invalid).map((r) => `${sc.name}/${r.app}`));
 }
@@ -314,11 +318,11 @@ export function markdown(result) {
   L.push("## Environment", "");
   for (const [k, v] of Object.entries(result.environment)) { if (k !== "shards") L.push(`- ${k}: ${show(v)}`); }
   L.push(`- pinning: ${result.config.pinning}`, `- load: wrk ${result.config.threads} threads, ${result.config.connections} connections, ${result.config.duration}s per run, ${result.config.warmup}s warmup, ${result.config.runs} runs; websocket ${result.config.ws_clients} clients, ${result.config.ws_senders} senders`, "");
-  L.push("## Apps", "", "Startup is one sample (spawn until the first 200). Idle RSS is sampled after the conformance requests. Response bytes are the whole response on the wire per scenario (plaintext / json / template); the content type shows the charset each framework adds.", "", "| app | stack | startup ms | idle RSS MiB | response bytes | content types | extra header names | status |", "|---|---|---:|---:|---|---|---|---|");
+  L.push("## Apps", "", "Startup is one sample (spawn until the first 200). Idle RSS is sampled after the conformance requests. The logs-on-404 column says whether the app writes a log line for an unknown route (allowed, not measured, reported). Response bytes are the whole response on the wire per scenario (plaintext / json / template); the content type shows the charset each framework adds.", "", "| app | stack | startup ms | idle RSS MiB | response bytes | content types | extra header names | logs on 404 | status |", "|---|---|---:|---:|---|---|---|---|---|");
   for (const a of result.apps) {
     const b = a.response_bytes || {};
     const ct = a.content_types || {};
-    L.push(`| ${a.name} | ${a.stack} | ${a.startup_ms ? fmt(a.startup_ms) : ""} | ${a.idle_rss_kb ? fmt(a.idle_rss_kb / 1024, 1) : ""} | ${b.plaintext ?? ""} / ${b.json ?? ""} / ${b.template ?? ""} | ${[ct.plaintext, ct.json, ct.template].filter(Boolean).join(" ; ")} | ${(a.headers || []).join(", ")} | ${a.status} |`);
+    L.push(`| ${a.name} | ${a.stack} | ${a.startup_ms ? fmt(a.startup_ms) : ""} | ${a.idle_rss_kb ? fmt(a.idle_rss_kb / 1024, 1) : ""} | ${b.plaintext ?? ""} / ${b.json ?? ""} / ${b.template ?? ""} | ${[ct.plaintext, ct.json, ct.template].filter(Boolean).join(" ; ")} | ${(a.headers || []).join(", ")} | ${a.logs_on_404 ? (a.logs_on_404.logs ? "yes" : "no") : ""} | ${a.status} |`);
   }
   L.push("");
   for (const sc of result.scenarios) {
@@ -372,25 +376,29 @@ async function main() {
   for (const app of appList()) {
     const entry = { name: app.name, stack: app.stack, websocket: app.websocket, status: "ok" };
     apps.push(entry);
-    if (!fs.existsSync(binaryOf(app))) { entry.status = `skipped: not built (${path.relative(root, binaryOf(app))})`; console.error(`SKIP ${app.name}: ${entry.status}`); failed ||= opts.requireAll; continue; }
+    if (!fs.existsSync(binaryOf(app))) { entry.status = `skipped: not built (${path.relative(root, binaryOf(app))})`; console.error(`SKIP ${app.name}: ${entry.status}`); failed ||= !opts.allowSkip; continue; }
     try {
       entry.server = await startServer(app, port++, cpus);
       entry.startup_ms = entry.server.startup_ms;
-    } catch (e) { entry.status = `skipped: ${e.message}`; console.error(`SKIP ${app.name}: ${entry.status}`); failed ||= opts.requireAll; continue; }
+    } catch (e) { entry.status = `skipped: ${e.message}`; console.error(`SKIP ${app.name}: ${entry.status}`); failed ||= !opts.allowSkip; continue; }
     await sleep(300);
-    const { failures, headers, contentTypes, bytes } = await check(`http://127.0.0.1:${entry.server.port}`, { ws: app.websocket, output: entry.server.newOutput });
-    entry.headers = headers; entry.content_types = contentTypes; entry.response_bytes = bytes;
+    const { failures, headers, contentTypes, bytes, notFoundLogging } = await check(`http://127.0.0.1:${entry.server.port}`, { ws: app.websocket, output: entry.server.newOutput });
+    entry.headers = headers; entry.content_types = contentTypes; entry.response_bytes = bytes; entry.logs_on_404 = notFoundLogging;
     if (failures.length) {
       entry.status = `skipped: not conformant (${failures.length} difference(s))`;
       entry.conformance = failures;
       console.error(`FAIL ${app.name}: ${failures.length} conformance difference(s)`);
       for (const f of failures.slice(0, 5)) console.error(`  ${f.scenario} ${f.path}: ${f.what}`);
-      await stopServer(entry.server); entry.server = null; failed ||= opts.requireAll || cmd === "conformance";
-    } else console.error(`ok   ${app.name}: conformant`);
+      await stopServer(entry.server); entry.server = null; failed ||= !opts.allowSkip || cmd === "conformance";
+    } else console.error(`ok   ${app.name}: conformant${notFoundLogging ? `; logs on 404: ${notFoundLogging.logs ? `yes (${notFoundLogging.bytes}+ bytes)` : "no"}` : ""}`);
   }
   const live = apps.filter((a) => a.server);
   if (cmd === "conformance") { for (const a of live) await stopServer(a.server); process.exit(failed || live.length === 0 ? 1 : 0); }
-  if (failed) { for (const a of live) await stopServer(a.server); die("--require-all: an app was skipped"); }
+  if (failed) {
+    for (const a of live) await stopServer(a.server);
+    console.error(`FAILED: ${skippedApps(apps).map((a) => `${a.name} (${a.status.replace(/^skipped: /, "")})`).join("; ")} could not be measured. A requested app never drops out of a result silently: fix it, leave it out with --apps, or pass --allow-skip.`);
+    process.exit(1);
+  }
   if (!live.length) die("no app could be started");
   await sleep(500);
   for (const a of live) a.idle_rss_kb = rssKb(a.server.pid).rss_kb; // sampled after the conformance requests
