@@ -104,6 +104,40 @@ describe "Dev dashboard Database tab backed by the query store" do
     html.should contain("role='meter'")
   end
 
+  describe "serving app configuration" do
+    # The dashboard answers for the app serving the request: its environment, playground switch and thresholds, not the
+    # global configuration's.
+    it "offers the playground and applies the app's thresholds although the global configuration is production" do
+      development = Azu::Configuration.new
+      development.env = Azu::Environment::Development
+      development.database.n_plus_one_threshold = 10
+      store.enabled = true
+      store.adapter = StubAdapter.new
+      4.times { |i| add_query(store, "SELECT * FROM posts WHERE posts.user_id = #{i}") }
+
+      with_azu_env(Azu::Environment::Production) do
+        Azu.with_config(development) do
+          html = dashboard_page
+          html.should contain("id='azd-sql'")
+          html.should_not contain("4x SELECT * FROM posts") # 4 repeats stay under the app's threshold of 10
+        end
+        Azu.with_config(Azu::Configuration.new) { dashboard_page.should contain("4x SELECT * FROM posts") } # the default threshold is 3
+      end
+    end
+
+    it "hides the playground when the app switched it off, whatever the global configuration says" do
+      quiet = Azu::Configuration.new
+      quiet.env = Azu::Environment::Development
+      quiet.database.playground = false
+      store.enabled = true
+      store.adapter = StubAdapter.new
+
+      with_azu_env(Azu::Environment::Development) do
+        Azu.with_config(quiet) { dashboard_page.should_not contain("id='azd-sql'") }
+      end
+    end
+  end
+
   describe "SQL playground" do
     handler = Azu::Handler::DevDashboard.new
     around_each { |example| with_azu_env(Azu::Environment::Development) { example.run } }

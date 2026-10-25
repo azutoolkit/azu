@@ -295,9 +295,14 @@ module Azu
         resource_name = resource_name.size > 1 ? resource_name[-2..-1].join("_") : resource_name.last
         resource_name = resource_name.underscore.gsub(/\_endpoint/, "").id
       %}
-      Azu::CONFIG.templates.crinja.filters[:{{resource_name}}_path] = Crinja.filter({id: nil}) do
-        {{@type.name.id}}.path(id: arguments["id"])
-      end
+      # Registered with the helper registry, which every app's templates apply, so a non-default app's templates
+      # have it too; persistent, so `Registry.reset!` (a spec's clean slate) cannot drop an endpoint's filter.
+      Azu::Helpers::Registry.register_filter(
+        :{{resource_name}}_path,
+        Crinja.filter({id: nil}) do
+          {{@type.name.id}}.path(id: arguments["id"])
+        end,
+        persistent: true)
 
       def self.helper_path_name
         :{{resource_name}}_path
