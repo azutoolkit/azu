@@ -282,11 +282,15 @@ describe Azu::Response::Negotiable do
       get(negotiating_app, "/neg-page?format=json", "text/html").body.should eq %({"name":"<Ada>"})
     end
 
-    it "answers 406 as problem+json listing what it can render" do
+    it "labels the 406 application/problem+json for a client that names it" do
+      get(negotiating_app, "/neg-page", "image/png, application/problem+json").headers["Content-Type"].should eq "application/problem+json"
+    end
+
+    it "answers 406 as a problem document listing what it can render" do
       response = get(negotiating_app, "/neg-page", "image/png")
 
       response.status_code.should eq 406
-      response.headers["Content-Type"].should eq "application/problem+json"
+      response.headers["Content-Type"].should eq "application/json"
       response.headers["Vary"].should eq "Accept"
       body = JSON.parse(response.body)
       body["status"].as_i.should eq 406

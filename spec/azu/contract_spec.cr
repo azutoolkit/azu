@@ -62,7 +62,7 @@ describe "request contracts" do
     response = post(signup_app, %({"name": "", "email": "a@b.c"}))
 
     response.status_code.should eq 422
-    response.content_type.should eq "application/problem+json"
+    response.content_type.should eq "application/json"
     body = JSON.parse(response.body)
     body["status"].should eq 422
     body["errors"]["name"].should eq ["must be present"]
@@ -86,6 +86,14 @@ describe "request contracts" do
     post(app, %({"name": "first", "email": "a@b.c"})).body.should contain "first"
     post(app, %({"name": "", "email": "a@b.c"})).status_code.should eq 422
     post(app, %({"name": "third", "email": "a@b.c"})).body.should contain "third"
+  end
+
+  it "labels the 422 application/problem+json for a client that names it in Accept" do
+    response = post(signup_app, %({"name": "", "email": "a@b.c"}), "application/problem+json")
+
+    response.status_code.should eq 422
+    response.content_type.should eq "application/problem+json"
+    JSON.parse(response.body)["errors"]["name"].should eq ["must be present"]
   end
 
   it "lets a valid request through" do

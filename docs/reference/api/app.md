@@ -37,29 +37,37 @@ app.start(signals: false, teardown: false)  # embedded in a program (or a spec) 
 
 `start(handlers = default_handlers, *, signals = true, teardown = true) : Nil` blocks until the app stops. It does, in order:
 
-1. `prepare`: the async log pipeline, the upload temp directory and its cleanup, and the `azu/dev` hooks. When the
-   environment is the default (`CRYSTAL_ENV` not set, see [Environments](../configuration/environments.md#the-default-environment))
-   it logs one INFO line saying so and where the server listens.
-2. Builds the server for the handlers (`App#server`) and records them in `config.handlers`.
-3. Binds `config.host`:`config.port`, over TLS when `config.tls?`. A bind error is raised to the caller.
-4. With `signals: true`, traps SIGINT and SIGTERM. A signal stops **every** app started with `start` (they are
-   process-wide, there is one trap, not one per app): requests are refused with a `503`, open WebSockets get a close frame
-   `1001`, streaming responses see `Azu.shutdown_signal` close, and the servers close. The default handler is restored
-   as soon as a signal arrives, so a second signal ends the process; it is also restored when the last app stops.
-5. Listens. When the server closes (a signal, or `stop`) it waits up to `config.shutdown_timeout` for the requests in
+1. Builds the server for the handlers (`App#server`) and binds `config.host`:`config.port`, over TLS when `config.tls?`. A bind
+   error (the port is taken) is raised to the caller with nothing left behind: nothing was prepared, the handlers are
+   unchained, so the same array can be passed to a second `start`.
+2. `prepare`: the async log pipeline, the upload temp directory and its cleanup, and the `azu/dev` hooks. Then the log
+   lines about the environment and the address: one INFO when the environment is the default (`CRYSTAL_ENV` not set, see
+   [Environments](../configuration/environments.md#the-default-environment)), and the WARNs about a loopback address inside
+   a container (`set HOST=0.0.0.0`) or the development pages on every interface.
+3. With `signals: true`, traps SIGINT and SIGTERM. A signal stops **every** app started with `start` (the trap is
+   process-wide, there is one, not one per app): requests are refused with a `503`, open WebSockets get a close frame
+   `1001`, streaming responses see `Azu.shutdown_signal` close, and the servers close. The trap replaces any trap the
+   program installed; there is no chaining, so a program with its own signal handling passes `signals: false` and calls
+   `stop` itself. The default handlers return as soon as a signal arrives (a second signal ends the process, and an app
+   started while another drains installs its own trap) and when the last app stops while the trap is still ours.
+   `App.signals_trapped?` tells whether the trap is in place.
+4. Listens. When the server closes (a signal, or `stop`) it waits up to `config.shutdown_timeout` for the requests in
    flight and logs a warning when some were dropped.
-6. With `teardown: true`, once the **last** app started this way has stopped, runs `Azu.shutdown`: Spark connections,
+5. With `teardown: true`, once the **last** app started this way has stopped, runs `Azu.shutdown`: Spark connections,
    presence, PubSub, the hooks registered with `Azu.on_shutdown` (in reverse order; `azu/cql` registers the closing of
    the database pools) and the shared Redis pools. These parts are process-wide, which is why one app stopping while
    another still runs leaves them alone.
 
-Calling `start` on an app that is running raises `Azu::App::AlreadyRunning`.
+**An app starts once.** `start` on a running app raises `Azu::App::AlreadyRunning`; on an app that has stopped, or has
+begun shutting down (`stop`, a signal, `begin_shutdown`), it raises `Azu::App::AlreadyStopped`: a stopped app refuses
+requests for good, so build a new `Azu::App` to serve again. A `start` that failed to bind does not count and can be repeated.
+This holds for `Azu::App.default` too, so `MyApp.start` runs once per process.
 
 | Method | |
 |---|---|
 | `stop(timeout = config.shutdown_timeout) : Bool` | Refuses new requests, closes the server and waits for the requests in flight. `true` when none was dropped. `start` returns afterwards. Safe to call twice |
 | `running? : Bool` | True from `start` until it returns |
-| `address : Socket::IPAddress?` | Where the server listens, once bound; with `config.port = 0` the port the system picked |
+| `address : Socket::IPAddress?` | Where the server listens, once bound; with `config.port = 0` the port the system picked. nil before `start` has bound and after the server has closed |
 | `begin_shutdown`, `draining?`, `drain(timeout)` | The pieces `stop` is made of |
 | `prepare : Nil` | What `start` does before it binds; `Azu.prepare` is `App.default.prepare` |
 

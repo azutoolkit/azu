@@ -57,8 +57,24 @@ module Azu
       @host || (env.development? ? LOOPBACK_HOST : ANY_HOST)
     end
 
-    def host=(@host : String?) : String?
+    def host=(host : String?) : String?
+      @host = host.presence
     end
+
+    # True when `host` was not set by `HOST` or `host=` and is the development default.
+    def host_from_default? : Bool
+      @host.nil? && env.development?
+    end
+
+    # True when the address is only reachable from the machine itself.
+    def loopback_host? : Bool
+      address = host
+      address == "localhost" || address == "::1" || address.starts_with?("127.")
+    end
+
+    # Whether the process looks containerised (Docker or Kubernetes). Detected when the configuration is built;
+    # a spec or a container runtime Azu cannot recognise sets it.
+    property? container : Bool = File.exists?("/.dockerenv") || !ENV["KUBERNETES_SERVICE_HOST"]?.presence.nil?
 
     LOOPBACK_HOST = "127.0.0.1"
     ANY_HOST      = "0.0.0.0"
@@ -79,10 +95,22 @@ module Azu
       @env_from_default
     end
 
-    # Logs, when the environment is the default, that it is, and where the server will listen. `Azu.start` calls it.
+    # Logs, when the environment is the default, that it is, and where the server will listen. `App#start` calls it.
     def announce_default_environment : Nil
       return unless env_from_default?
       log.info { "CRYSTAL_ENV not set, running in #{env.to_s.downcase}, listening on #{host}" }
+    end
+
+    # Warns about the two ways the bind address surprises: a loopback address inside a container (nothing outside it
+    # can connect: the usual cause is the development default, fixed by `HOST=0.0.0.0`), and the development pages
+    # served on every interface because `CRYSTAL_ENV` was never set. `App#start` calls it.
+    def warn_about_bind_host : Nil
+      if loopback_host? && container?
+        origin = host_from_default? ? "the development default" : "the configured host"
+        log.warn { "listening on #{host} (#{origin}) inside a container: connections from outside the container are refused. Set HOST=0.0.0.0 to accept them" }
+      elsif env_from_default? && !loopback_host?
+        log.warn { "CRYSTAL_ENV is not set, so this is a development server, and it listens on #{host}: the development dashboard and debug pages are served on every interface. Set CRYSTAL_ENV (production, staging, ...) or bind 127.0.0.1" }
+      end
     end
 
     def self.hot_reload_default

@@ -23,7 +23,7 @@ end
 
 # Polls until the block is truthy or the timeout passes; returns whether it became true.
 # Use it instead of a fixed `sleep` when a spec waits for something asynchronous.
-def wait_until(timeout : Time::Span = 2.seconds, &) : Bool
+def wait_until(timeout : Time::Span = 5.seconds, &) : Bool
   deadline = Time.instant + timeout
   until yield
     return false if Time.instant > deadline

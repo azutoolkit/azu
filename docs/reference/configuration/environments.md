@@ -39,6 +39,13 @@ development is `127.0.0.1`, not `0.0.0.0`: a process that forgot its `CRYSTAL_EN
 - The address follows `config.env` when `host` is read, so `config.env = Production` in `configure` also moves the default.
 - When the environment came from the default (neither `CRYSTAL_ENV` nor `config.env=` chose it), `start` logs one INFO line:
   `CRYSTAL_ENV not set, running in development, listening on 127.0.0.1`. `Configuration#env_from_default?` answers it.
+- Test, Pipeline, Build, Integration, Acceptance, Staging and Production are not development: they bind `0.0.0.0` unless a host
+  is set.
+- `start` warns (WARN) when the server listens on a loopback address inside a container (`/.dockerenv` exists or
+  `KUBERNETES_SERVICE_HOST` is set; `Configuration#container=` overrides): connections from outside the container are
+  refused, and the line names the fix, `HOST=0.0.0.0`. It does so also with `CRYSTAL_ENV=development` set explicitly. It warns
+  as well when `CRYSTAL_ENV` was never set and the host is not loopback, because the development pages are then served on every
+  interface.
 - A container that must be reached from outside sets `CRYSTAL_ENV` and `HOST` itself, as the Dockerfile in
   [Deploying to production](../../tutorials/deploying-to-production.md) does.
 

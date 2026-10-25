@@ -254,11 +254,11 @@ describe "contract <-> model bridge" do
       ContractBridgeSpec::Person.new("Ada", "a@b").valid_or_422!.name.should eq "Ada"
     end
 
-    it "answers 422 problem+json over HTTP, and nothing is stored" do
+    it "answers a 422 problem document over HTTP, and nothing is stored" do
       ContractBridgeSpec.serve do |base|
         response = ContractBridgeSpec.post(base, "/people", "Ada", "not-an-email")
         response.status_code.should eq 422
-        response.headers["Content-Type"].should start_with "application/problem+json"
+        response.headers["Content-Type"].should start_with "application/json"
         JSON.parse(response.body)["errors"]["email"].as_a.size.should eq 1
         ContractBridgeSpec.names.should be_empty
       end

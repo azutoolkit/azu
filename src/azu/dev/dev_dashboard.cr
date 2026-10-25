@@ -13,7 +13,9 @@ module Azu
     #
     # It serves only in the development environment: in any other environment (judged on every request, by the
     # configuration of the app serving it) it hands the request to the next handler as if it were not in the chain, and
-    # building one logs a warning. There is no opt-in for production.
+    # building one logs a warning (judged by the configuration current at construction, which is the global one
+    # unless built inside `Azu.with_config`). There is no opt-in for production. Its SQL playground path is exempt from
+    # CSRF checks in every environment; the exemption is inert while the dashboard passes requests on.
     #
     # Usage:
     # ```
@@ -37,9 +39,11 @@ module Azu
       def initialize(@path = DEFAULT_PATH, metrics : PerformanceMetrics? = nil, @log : ::Log = Azu::CONFIG.log, @queries : QueryStore = QueryStore.instance)
         @metrics = metrics || Azu::CONFIG.performance_monitor.try(&.metrics) || PerformanceMetrics.new
         @start_time = Time.utc
-        if serving?
-          CSRF.exempt("#{@path}/sql") # guarded by `run_playground` itself, and sent without a token by dashboard.js
-        else
+        # Guarded by `run_playground` itself, and sent without a token by dashboard.js. Registered whatever the
+        # environment: the handler is built before the app that will serve it is known, and the exemption only matters
+        # if the dashboard serves, which `call` allows in development only.
+        CSRF.exempt("#{@path}/sql")
+        unless serving?
           @log.warn { "Handler::DevDashboard was built in the #{Azu.current_config.env.to_s.downcase} environment: it only serves in development and passes every request on" }
         end
       end
@@ -123,7 +127,7 @@ module Azu
       end
 
       private def playground_allowed?(context : HTTP::Server::Context) : Bool
-        return false unless Azu::CONFIG.database.playground? && serving?
+        return false unless Azu.current_config.database.playground? && serving?
         address = context.request.remote_address
         address.is_a?(Socket::IPAddress) && address.loopback?
       end

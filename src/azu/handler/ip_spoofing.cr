@@ -31,9 +31,7 @@ module Azu
       end
 
       private def forbidden(context)
-        context.response.headers["Content-Type"] = "text/plain"
-        context.response.headers["Content-Length"] = "0"
-        context.response.status_code = HTTP::Status::FORBIDDEN.value
+        Response::Forbidden.new.to_s(context)
         context.response.close
       end
     end
