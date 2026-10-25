@@ -28,19 +28,24 @@ module Azu
         @mutex = Mutex.new
       end
 
-      def hex(bytes : Int32) : String
+      # Yields `bytes` random bytes no other call gets. They are a view of the buffer, valid only inside the
+      # block, which runs under the lock.
+      def take(bytes : Int32, & : Bytes -> T) : T forall T
         raise ArgumentError.new("random bytes must be between 1 and #{CHUNK}, got #{bytes}") unless 1 <= bytes <= CHUNK
         @mutex.synchronize do
           if @offset + bytes > CHUNK
             Random::Secure.random_bytes(@buffer)
             @offset = 0
           end
-          hex = @buffer[@offset, bytes].hexstring
+          random = @buffer[@offset, bytes]
           @offset += bytes
-          hex
+          yield random
         end
       end
     end
+
+    private ID_PREFIX  = "req_"
+    private HEX_DIGITS = "0123456789abcdef"
 
     @@mutex = Mutex.new
     @@contexts = {} of Fiber => Info
@@ -50,7 +55,35 @@ module Azu
     #
     # A new request id: `req_<unix ms>_<2 * random_bytes hex digits>`; 1 to 512 random bytes.
     def self.generate_id(random_bytes : Int32 = 8) : String
-      "req_#{Time.utc.to_unix_ms}_#{@@entropy.hex(random_bytes)}"
+      millis = Math.max(Time.utc.to_unix_ms, 0_i64).to_u64 # a clock before 1970 counts as 0
+      @@entropy.take(random_bytes) { |random| build_id(millis, random) }
+    end
+
+    # The id written straight into one String: no String for the digits or for the hex.
+    private def self.build_id(millis : UInt64, random : Bytes) : String
+      digits = 1
+      rest = millis
+      while rest >= 10
+        rest //= 10
+        digits += 1
+      end
+      separator = ID_PREFIX.bytesize + digits
+      capacity = separator + 1 + random.size * 2
+
+      String.new(capacity) do |buffer|
+        ID_PREFIX.to_unsafe.copy_to(buffer, ID_PREFIX.bytesize)
+        rest = millis
+        (1..digits).each do |place|
+          buffer[separator - place] = '0'.ord.to_u8 + rest % 10
+          rest //= 10
+        end
+        buffer[separator] = '_'.ord.to_u8
+        random.each_with_index do |byte, index|
+          buffer[separator + 1 + 2 * index] = HEX_DIGITS.to_unsafe[byte >> 4]
+          buffer[separator + 2 + 2 * index] = HEX_DIGITS.to_unsafe[byte & 0x0f]
+        end
+        {capacity, capacity}
+      end
     end
 
     def self.current? : Info?

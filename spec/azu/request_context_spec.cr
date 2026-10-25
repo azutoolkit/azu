@@ -1,5 +1,6 @@
 require "../spec_helper"
 require "../support/integration_helpers"
+require "../../benchmark/micro/harness"
 
 include IntegrationHelpers
 
@@ -50,6 +51,20 @@ describe Azu::RequestContext do
       suffixes = ids.map { |id| id.split('_').last.to_u64(16) }
       suffixes.each_cons(2).count { |pair| pair[1] == pair[0] + 1 }.should eq 0
     end
+
+    it "does not repeat over 10k ids" do
+      Array.new(10_000) { Azu::RequestContext.generate_id }.uniq.size.should eq 10_000
+    end
+
+    {% if flag?(:preview_mt) %}
+      # GC.stats.total_bytes counts every thread, so a window would include the other workers' garbage
+      pending "builds an id in one allocation"
+    {% else %}
+      it "builds an id in one allocation" do
+        # One String of 34 bytes (`req_` + 13 digits + `_` + 16 hex digits) plus its header: 48 B in the GC
+        HotPath.bytes_per_call { Azu::RequestContext.generate_id }.should be <= 48
+      end
+    {% end %}
 
     it "gives every fiber its own ids when requests run at once" do
       done = Channel(Array(String)).new
