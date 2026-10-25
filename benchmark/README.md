@@ -225,6 +225,7 @@ the Logger handler, with Static pointed at a fixed non-existent directory; what 
 framework's cost per request. **Bytes/request is repeatable to about 0.3%** (GC byte counting granularity), and
 `spec/azu/allocation_budget_spec.cr` guards the `/plaintext` and parameterised rows in CI (budgets calibrated on the
 whole-suite build, which measures a little more than a single-file one); the routing row has no CI budget.
-**ns/request** is the fastest measured window, timed around request processing only, and moves with the machine.
+**ns/request** is the fastest measured window, timed around request processing only, and moves with the machine:
+a ns difference under about 15% in a single run is noise, so repeat the run and compare the per-row minimums.
 Inputs differ by scenario, so rows of different scenarios are not comparable in ns: compare a row with the same row of
 another commit, or with the baseline row.
