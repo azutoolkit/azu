@@ -67,8 +67,12 @@ module Azu
     end
 
     REDACTED      = "[FILTERED]"
-    SENSITIVE     = /SECRET|PASSWORD|PASSWD|TOKEN|PRIVATE|CREDENTIAL|KEY\z|(\A|_)KEY_|COOKIE|AUTH|DSN|SALT|SIGNING/i
-    URL_SECRET    = %r{\A([a-z][a-z0-9+.\-]*://[^:/@\s]*):[^\s]*@}i
+    # Names (environment variables, header names, query parameter names; `-` counts like `_`) that hold a credential.
+    SENSITIVE = /SECRET|PASSWORD|PASSWD|TOKEN|PRIVATE|CREDENTIAL|KEY\z|[_-]KEY[_-]|\AKEY[_-]|COOKIE|AUTH|DSN|SALT|SIGNING|SIGNATURE|JWT|SESSION|CONNECTION[_-]?STRING|(\A|[_-])(PASS|PWD|SID|OTP|PIN|CVV|CVC|SSN|CARD)([_-]|\z)/i
+    # `scheme://user:password@host` anywhere in a value.
+    URL_SECRET = %r{([a-z][a-z0-9+.\-]*://[^:/@\s]*):[^\s]*@}i
+    # `?name=value` / `&name=value` anywhere in a value.
+    QUERY_PAIR    = /([?&;])([^=&#\s]+)=([^&#\s]*)/
     MAX_FILE_SIZE = 1_048_576
     # Names that change how processes start, where they look for code, libraries, certificates or proxies, or how the
     # toolchain behaves; `.env` files may not set them by default. Matched case-insensitively. This is the same set as
@@ -223,7 +227,16 @@ module Azu
     def self.redact(name : String, value : String) : String
       return REDACTED if name.matches?(SENSITIVE)
 
-      value.sub(URL_SECRET, "\\1:#{REDACTED}@")
+      redact_url(value)
+    end
+
+    # A value that holds URLs (a referer, a request target, a connection string): the password of
+    # `scheme://user:password@host` and the value of a credential-looking query parameter (`?token=...`) are replaced,
+    # wherever they are in the text.
+    def self.redact_url(value : String) : String
+      value.gsub(URL_SECRET, "\\1:#{REDACTED}@").gsub(QUERY_PAIR) do |pair, match|
+        match[2].matches?(SENSITIVE) ? "#{match[1]}#{match[2]}=#{REDACTED}" : pair
+      end
     end
 
     def self.redacted(vars : Hash(String, String)) : Hash(String, String)

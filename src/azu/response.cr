@@ -116,7 +116,7 @@ module Azu
       end
 
       def html(context)
-        return ExceptionPage.new(context, self).to_s if env.development?
+        return ExceptionPage.redacted(context, self).to_s if env.development?
         html
       end
 
