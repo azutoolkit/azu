@@ -137,13 +137,14 @@ describe Azu::Testing::Client do
     response.body.should contain "cfg=Test"
   end
 
-  it "answers an unknown path with a JSON error and a contract violation with a 422 problem" do
+  it "answers an unknown path and a contract violation with problem+json" do
     client = Azu::Testing::Client.new(TestingSpec.app).accept(:json)
 
     missing = client.get "/nope"
     missing.status_code.should eq 404
-    missing.content_type.should eq "application/json"
-    missing.problem?.should be_false
+    missing.content_type.should eq "application/problem+json"
+    missing.problem?.should be_true
+    JSON.parse(missing.body)["title"].should eq "Not Found"
 
     invalid = client.post "/notes/1", json: {title: ""}
     invalid.status_code.should eq 422

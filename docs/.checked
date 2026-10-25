@@ -4,6 +4,7 @@
 docs/README.md
 README.md
 docs/tutorials/getting-started.md
+docs/reference/api/app.md
 docs/reference/api/core.md
 docs/reference/api/endpoint.md
 docs/reference/api/openapi.md

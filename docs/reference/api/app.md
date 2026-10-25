@@ -7,6 +7,14 @@ can live in one process. `include Azu` is the supported single-app facade over t
 ```crystal
 require "azu"
 
+struct HelloEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  def call : Azu::Response::Empty
+    Azu::Response::Empty.new
+  end
+end
+
 app = Azu::App.new
 app.config.port = 3000
 app.routes { get "/hello", HelloEndpoint }
@@ -17,6 +25,11 @@ app.start # serves until SIGINT/SIGTERM or app.stop
 ## start
 
 ```crystal
+require "azu"
+
+app = Azu::App.new
+handlers = [Azu::Handler::RequestId.new] of HTTP::Handler
+
 app.start                                   # Azu::App#default_handlers
 app.start(handlers)                         # the array, exactly as given
 app.start(signals: false, teardown: false)  # embedded in a program (or a spec) that manages both itself
@@ -53,13 +66,26 @@ Calling `start` on an app that is running raises `Azu::App::AlreadyRunning`.
 An app on an ephemeral port, as the specs of Azu run it:
 
 ```crystal
+require "azu"
+require "http/client"
+
+struct HelloEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  def call : Azu::Response::Empty
+    Azu::Response::Empty.new
+  end
+end
+
 app = Azu::App.new
 app.config.host = "127.0.0.1"
 app.config.port = 0
 app.routes { get "/hello", HelloEndpoint }
 
 spawn { app.start(signals: false, teardown: false) }
-sleep 10.milliseconds until app.address
+until app.address
+  sleep 10.milliseconds
+end
 address = app.address.not_nil!
 
 HTTP::Client.get("http://#{address.address}:#{address.port}/hello")
@@ -79,6 +105,16 @@ handler chains are separate: build new handler instances for each (a handler bel
 app's routes are reached through its router, with its own configuration, and it is **not** started on its own:
 
 ```crystal
+require "azu"
+
+struct UsersEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  def call : Azu::Response::Empty
+    Azu::Response::Empty.new
+  end
+end
+
 admin = Azu::App.new
 admin.routes { get "/users", UsersEndpoint }
 
@@ -92,6 +128,8 @@ An app can be mounted once. `Endpoint.path` includes the prefix. See [Router](ro
 ## The include Azu facade
 
 ```crystal
+require "azu"
+
 module MyApp
   include Azu
 
