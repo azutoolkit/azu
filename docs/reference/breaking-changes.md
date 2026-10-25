@@ -66,6 +66,13 @@ environment instead, or load the file with `unsafe: true`. Note that `*FLAGS` al
   [Cache reference](api/cache.md).
 - `Cache::Store` has a new abstract method `clear_prefix(prefix : String) : Bool`; a custom store must implement it.
 
+**Path and query parameters win over the request body.** `Params#[]`, `#[]?`, `#fetch_all` and `#to_h` looked the form
+body up first, then the path, then the query string, so `POST /users/5` with `id=1` in the body handed the endpoint
+`id=1` (and the typed request of a form got the body's value too). The order is now path, query string, body. A JSON
+body is applied the same way when the typed request is built: a path or query value replaces a key the body already
+has (keeping the JSON type of the body's value); keys the body lacks are not added. Migration: an endpoint that read a
+value the client was meant to override from the body must stop naming that field like a path parameter or a query key.
+
 **The global shim is deprecated.** `include Azu`, `configure` and `start` still work, and log one warning per
 process (at the first call, not when requiring azu) that names `Azu::App`.
 

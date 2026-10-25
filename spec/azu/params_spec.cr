@@ -29,14 +29,45 @@ describe Azu::Params do
       params["email"].should eq("john@example.com")
     end
 
-    it "prioritizes form over path over query" do
+    it "prioritizes path over query over form" do
       request = HTTP::Request.new("POST", "/users/123?name=query")
       request.headers["Content-Type"] = "application/x-www-form-urlencoded"
       request.body = "name=form"
       request.path_params = {"name" => "path"}
       params = Azu::Params(TestRequest).new(request)
 
+      params["name"].should eq("path")
+    end
+
+    it "lets the query win over the body when there is no path parameter" do
+      request = HTTP::Request.new("POST", "/users?name=query")
+      request.headers["Content-Type"] = "application/x-www-form-urlencoded"
+      request.body = "name=form"
+      params = Azu::Params(TestRequest).new(request)
+
+      params["name"].should eq("query")
+      params["name"]?.should eq("query")
+    end
+
+    it "falls back to the body when neither path nor query has the key" do
+      request = HTTP::Request.new("POST", "/users")
+      request.headers["Content-Type"] = "application/x-www-form-urlencoded"
+      request.body = "name=form"
+      params = Azu::Params(TestRequest).new(request)
+
       params["name"].should eq("form")
+    end
+
+    it "fetch_all follows the same precedence" do
+      request = HTTP::Request.new("POST", "/users/5?tag=q1&tag=q2")
+      request.headers["Content-Type"] = "application/x-www-form-urlencoded"
+      request.body = "id=1&tag=f1&other=f1&other=f2"
+      request.path_params = {"id" => "5"}
+      params = Azu::Params(TestRequest).new(request)
+
+      params.fetch_all("id").should eq ["5"]
+      params.fetch_all("tag").should eq ["q1", "q2"]
+      params.fetch_all("other").should eq ["f1", "f2"]
     end
   end
 
@@ -190,15 +221,17 @@ describe Azu::Params do
       hash["type"].should eq("user")
     end
 
-    it "prioritizes form over path over query in hash" do
-      request = HTTP::Request.new("POST", "/users/123?name=query")
+    it "prioritizes path over query over form in hash" do
+      request = HTTP::Request.new("POST", "/users/123?name=query&age=7")
       request.headers["Content-Type"] = "application/x-www-form-urlencoded"
-      request.body = "name=form"
+      request.body = "name=form&age=1&email=form"
       request.path_params = {"name" => "path"}
       params = Azu::Params(TestRequest).new(request)
 
       hash = params.to_h
-      hash["name"].should eq("form")
+      hash["name"].should eq("path")
+      hash["age"].should eq("7")
+      hash["email"].should eq("form")
     end
   end
 
@@ -412,5 +445,74 @@ class CountingIO < IO
 
   def write(slice : Bytes) : Nil
     raise "read-only"
+  end
+end
+
+# A request body must not be able to change what the URL addressed: `POST /users/5` with `id=1` is user 5.
+struct PrecedenceRequest
+  include Azu::Request
+
+  getter id : Int64
+  getter name : String
+  getter admin : Bool = false
+
+  def initialize(@id = 0_i64, @name = "", @admin = false)
+  end
+end
+
+describe Azu::Params do
+  describe "typed_request precedence" do
+    it "a form body cannot override a path parameter" do
+      request = HTTP::Request.new("POST", "/users/5", HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"}, "id=1&name=body")
+      request.path_params = {"id" => "5"}
+
+      typed = Azu::Params(PrecedenceRequest).new(request).typed_request
+      typed.id.should eq 5
+      typed.name.should eq "body"
+    end
+
+    it "a form body cannot override a query parameter" do
+      request = HTTP::Request.new("POST", "/users?id=7", HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"}, "id=1&name=body")
+
+      Azu::Params(PrecedenceRequest).new(request).typed_request.id.should eq 7
+    end
+
+    it "a JSON body cannot override a path parameter" do
+      request = HTTP::Request.new("POST", "/users/5", HTTP::Headers{"Content-Type" => "application/json"}, %({"id":1,"name":"body"}))
+      request.path_params = {"id" => "5"}
+
+      typed = Azu::Params(PrecedenceRequest).new(request).typed_request
+      typed.id.should eq 5
+      typed.name.should eq "body"
+    end
+
+    it "a JSON body cannot override a query parameter, and the path still wins over the query" do
+      request = HTTP::Request.new("POST", "/users/5?id=7&name=q", HTTP::Headers{"Content-Type" => "application/json"}, %({"id":1,"name":"body","admin":false}))
+      request.path_params = {"id" => "5"}
+
+      typed = Azu::Params(PrecedenceRequest).new(request).typed_request
+      typed.id.should eq 5
+      typed.name.should eq "q"
+    end
+
+    it "keeps the JSON value type: a boolean field is overridden by a boolean" do
+      request = HTTP::Request.new("POST", "/users/5?admin=false", HTTP::Headers{"Content-Type" => "application/json"}, %({"id":5,"name":"x","admin":true}))
+
+      Azu::Params(PrecedenceRequest).new(request).typed_request.admin.should be_false
+    end
+
+    it "leaves a JSON body alone when nothing in the URL names one of its keys" do
+      request = HTTP::Request.new("POST", "/users/5?other=1", HTTP::Headers{"Content-Type" => "application/json"}, %({"id":3,"name":"body"}))
+
+      typed = Azu::Params(PrecedenceRequest).new(request).typed_request
+      typed.id.should eq 3
+    end
+
+    it "a JSON array body is left as is" do
+      request = HTTP::Request.new("POST", "/users/5", HTTP::Headers{"Content-Type" => "application/json"}, %([1,2]))
+      request.path_params = {"id" => "5"}
+
+      expect_raises(Azu::Response::BadRequest) { Azu::Params(PrecedenceRequest).new(request).typed_request }
+    end
   end
 end
