@@ -16,6 +16,14 @@ module Azu
       class Error < Exception
       end
 
+      # The same method and path were added twice; Router reports it as `Router::DuplicateRoute`.
+      class DuplicateError < Error
+      end
+
+      # Two routes of one method name the parameter at the same position differently.
+      class ConflictError < Error
+      end
+
       # What `find` returns: the route's payload and, when its path has parameters, their raw values.
       struct Match(T)
         getter params : Hash(String, String)?
@@ -36,8 +44,9 @@ module Azu
       # :nodoc:
       class Entry(T)
         getter payload : T
+        getter path : String
 
-        def initialize(@payload : T, @params : Array(Param))
+        def initialize(@payload : T, @path : String, @params : Array(Param))
         end
 
         # The raw values of the route's parameters in `path`; nil when it has none.
@@ -57,6 +66,8 @@ module Azu
         @static : Hash(Bytes, Node(T))?
         @dynamic : Node(T)?
         @glob : Node(T)?
+        # On a dynamic or glob node, the segment each method's routes name it with and the first path that did
+        @names : Hash(Azu::Method, {String, String})?
         # One slot per `Azu::Method`, indexed by its value
         {% begin %}
           @entries = StaticArray(Entry(T)?, {{ Azu::Method.constants.size }}).new(nil)
@@ -78,7 +89,16 @@ module Azu
           @entries[method.value]
         end
 
+        def name(method : Azu::Method, segment : String, path : String) : Nil
+          named, by = (@names ||= {} of Azu::Method => {String, String})[method] ||= {segment, path}
+          return if named == segment
+          raise ConflictError.new("#{method.to_s.upcase} #{path}: #{segment} conflicts with #{named} of #{by}")
+        end
+
         def add(method : Azu::Method, entry : Entry(T)) : Nil
+          if existing = entry(method)
+            raise DuplicateError.new("#{method.to_s.upcase} #{entry.path} is already routed as #{existing.path}")
+          end
           @entries[method.value] = entry
         end
 
@@ -102,30 +122,42 @@ module Azu
       def add(method : Azu::Method, path : String, payload : T) : Nil
         node = @root
         params = [] of Param
-        segments = path.lchop('/').split('/')
-        segments.each_with_index do |segment, index|
+        segments(path).each_with_index do |segment, index|
           case segment[0]?
-          when ':'
-            params << Param.new(intern(segment), index, glob: false)
-            node = node.dynamic
-          when '*'
-            raise Error.new("#{path}: a glob must be the last segment") unless index == segments.size - 1
-            params << Param.new(intern(segment), index, glob: true)
-            node = node.glob
+          when ':', '*'
+            glob = segment.starts_with?('*')
+            params << Param.new(intern(segment), index, glob)
+            node = glob ? node.glob : node.dynamic
+            node.name method, segment, path
           else
             node = node.static(segment)
           end
         end
-        node.add method, Entry(T).new(payload, params)
+        node.add method, Entry(T).new(payload, path, params)
       end
 
+      # Trailing slashes aside, as Router strips them from the request path.
       def find(method : Azu::Method, path : String) : Match(T)?
-        return unless path.starts_with?('/')
+        bytes = path.to_slice
+        size = bytes.size
+        while size > 0 && bytes[size - 1] == SLASH
+          size -= 1
+        end
+        return if size > 0 && bytes[0] != SLASH
 
         stack = uninitialized StaticArray(Int32, STACK_BOUNDS)
-        bounds = bounds(path.to_slice, stack.to_slice)
+        bounds = bounds(bytes[0, size], stack.to_slice)
         entry = @root.search(path, bounds, 0, method)
         Match(T).new(entry, entry.params(path, bounds)) if entry
+      end
+
+      # The segments of a route path, trailing slashes aside. Checked before the tree changes, so a refused path leaves
+      # no parameter names behind.
+      private def segments(path : String) : Array(String)
+        raise Error.new("#{path}: a route path must start with /") unless path.empty? || path.starts_with?('/')
+        segments = path.rstrip('/').split('/').skip(1)
+        raise Error.new("#{path}: a glob must be the last segment") if segments[0...-1].any?(&.starts_with?('*'))
+        segments
       end
 
       # The parameter name of `segment`, the same String for every route that uses it.

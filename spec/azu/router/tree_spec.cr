@@ -134,4 +134,36 @@ describe Azu::Router::Tree do
       expect_raises(Tree::Error, "/a/*rest/b: a glob must be the last segment") { tree({GET, "/a/*rest/b"}) }
     end
   end
+
+  describe "edge rules" do
+    it "ignores a trailing slash on the request and on the route, as Router does with radix" do
+      routes = tree({GET, "/"}, {GET, "/users"}, {GET, "/posts/"}, {GET, "/a/:id/"})
+
+      payload(routes, GET, "/users/").should eq "Get /users"
+      payload(routes, GET, "/users//").should eq "Get /users"
+      payload(routes, GET, "/posts").should eq "Get /posts/"
+      payload(routes, GET, "/posts/").should eq "Get /posts/"
+      routes.find(GET, "/a/1/").try(&.params).should eq({"id" => "1"})
+      payload(routes, GET, "//").should eq "Get /"
+      payload(routes, GET, "").should eq "Get /"
+    end
+
+    it "refuses the same method and path twice, trailing slash or not" do
+      routes = tree({GET, "/hello"}, {POST, "/hello/"})
+
+      expect_raises(Tree::DuplicateError, "GET /hello/ is already routed as /hello") { routes.add GET, "/hello/", "again" }
+      expect_raises(Tree::DuplicateError, "POST /hello is already routed as /hello/") { routes.add POST, "/hello", "again" }
+    end
+
+    it "refuses two names for one parameter of one method's routes, naming both paths" do
+      routes = tree({GET, "/a/:id"}, {POST, "/a/:name/b"}, {GET, "/f/*path"})
+
+      expect_raises(Tree::ConflictError, "GET /a/:name/b: :name conflicts with :id of /a/:id") { routes.add GET, "/a/:name/b", "x" }
+      expect_raises(Tree::ConflictError, "GET /f/*rest: *rest conflicts with *path of /f/*path") { routes.add GET, "/f/*rest", "x" }
+    end
+
+    it "refuses a route path that does not start with a slash" do
+      expect_raises(Tree::Error, "users: a route path must start with /") { tree({GET, "users"}) }
+    end
+  end
 end
