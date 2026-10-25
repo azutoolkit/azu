@@ -41,6 +41,16 @@ Check these before upgrading:
 - **New:** `Azu::CQL.health_check(schema)`, `Azu::CQL.engine(schema)`, `Azu::CQL.shutdown`, `.track`/`.untrack`, `Azu.on_shutdown`. A schema made
   twice under the same name closes the first one.
 
+**Azu's error pages no longer depend on the working directory.** `error.html` and `error_debug.html` are compiled into
+the binary (`Azu::Templates::BUILTIN`), and `ERROR_TEMPLATE` defaults to the directory they live in inside the azu source
+(resolved at compile time) instead of `./src/azu/templates`. Before, an app that installed azu as a shard found no
+error template unless it ran from a checkout of azu, so the production HTML error page raised
+`Crinja::TemplateNotFoundError`. The lookup order is now your `templates.path` directories, then `ERROR_TEMPLATE`, then the
+built-in pages (before: `ERROR_TEMPLATE` first), so an `error.html` in your own template directory now overrides the
+built-in one. `TEMPLATES_PATH` is unchanged: it is for your templates and a relative entry is still resolved against the
+working directory, so run the app from its root or set an absolute path.
+`Templates#crinja.loader` is a `Crinja::Loader::ChoiceLoader` now, not a `FileSystemLoader`.
+
 **`Azu::Env` skips many more names from a `.env` file.** The denylist is now the one the `azu` CLI uses
 (`AzuCLI::DotEnv`), where it used to cover only `LD_*`, `DYLD_*`, `SHARDS_*`, `GIT_*`, `PATH`, `SHELL`, `IFS`,
 `BASH_ENV`, `ENV`, `CRYSTAL_PATH`, `CRYSTAL_OPTS`, `CRYSTAL_LIBRARY_PATH`, `DOCKER_HOST` and `HOME`. It now also skips
