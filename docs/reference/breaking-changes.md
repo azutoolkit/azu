@@ -182,7 +182,7 @@ environment is now `Azu::Env.redacted(ENV.to_h)` (values of names such as `*_SEC
 `[FILTERED]`, and the password of a `scheme://user:password@host` URL is hidden), the header values of `Authorization`, `Cookie`, `Set-Cookie`,
 `X-CSRF-Token`, `X-API-Key` and the like are `[FILTERED]` in `to_h`/`to_json` (`ErrorContext#headers` is still the real request headers; use
 `#redacted_headers` for display), and query parameters with such names are redacted in `#redacted_params`. If you read a secret value out of an
-error JSON in development, read it from the environment instead.
+error JSON in development, read it from the environment instead. `Azu::Env.redact` also filters names with `PASS`, `PWD`, `JWT`, `SESSION`, `SID`, `SIGNATURE`, `CONNECTION_STRING`, `OTP`, `PIN`, `CVV`, `CARD`, `SSN` (hyphenated header names count like underscored ones), and the new `Azu::Env.redact_url` hides URL passwords and credential query parameters (`?token=...`) anywhere in a value (referer, endpoint). The development exception page (the `exception_page` shard) is built from redacted query parameters, response headers and response cookies.
 
 **Template helpers no longer read `_session` and `_flash` cookies.** `Helpers::TemplateContext#session` and
 `#flash` decoded an unsigned Base64 JSON cookie that no session library writes, so any client could forge
