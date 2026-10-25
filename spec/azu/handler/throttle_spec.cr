@@ -12,6 +12,13 @@ class QuotaExceeded < Azu::Response::RateLimitError
   end
 end
 
+private class ThrottleRefusalSubclass < Azu::Handler::Throttle::Refusal
+  def initialize(retry_after : Int32)
+    super
+    @detail = "Custom refusal text"
+  end
+end
+
 describe Azu::Handler::Throttle do
   describe "initialization" do
     it "initializes with default values" do
@@ -446,6 +453,17 @@ describe Azu::Handler::Throttle do
         second.should_not eq first
         third.should contain "Too many exports for globex"
         third.should_not contain "acme-corp"
+      end
+    end
+
+    it "is never used for a subclass of the refusal itself, which shares neither its page cache nor its fingerprint" do
+      with_fake_clock do
+        context, io = html_context.call("10.2.0.10")
+        ThrottleRefusalSubclass.new(5).to_s(context)
+
+        Azu::Handler::Throttle::RefusalPages.size.should eq 0
+        get_response_body(context, io).should contain "Custom refusal text"
+        ThrottleRefusalSubclass.new(5).fingerprint.should_not eq Azu::Handler::Throttle::Refusal.new(5).fingerprint
       end
     end
 

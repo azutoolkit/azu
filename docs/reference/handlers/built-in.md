@@ -212,7 +212,7 @@ Observed with an allowed origin `https://app.example.com`:
 | `OPTIONS` preflight asking for an allowed method and header | `200` with `Access-Control-Allow-Methods`, `-Headers`, `-Max-Age`; the endpoint does not run |
 | preflight asking for a method not in `methods` | `403` |
 
-With `origins: ["*"]` the request's origin is echoed back and `Vary` is not sent. Put `CORS` before authentication
+With `origins: ["*"]` the request's origin is echoed back, so the response carries `Vary: Origin`. Put `CORS` before authentication
 handlers: a preflight carries no credentials, and an authentication handler in front of `CORS` answered it with `401`.
 
 ## Handler::CSRF

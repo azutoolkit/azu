@@ -185,9 +185,7 @@ module Azu
         headers = context.response.headers
         headers["Cache-Control"] = FINGERPRINTED.matches?(file_path) ? @fingerprinted_cache_control : @cache_control
         # Joined to a Vary another handler set (CORS's Origin), never replacing it.
-        unless headers["Vary"]? == "*" || headers.includes_word?("Vary", "Accept-Encoding")
-          headers.add("Vary", "Accept-Encoding")
-        end
+        Vary.add(headers, "Accept-Encoding")
         etag(context, file_path)
       end
 

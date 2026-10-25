@@ -137,7 +137,13 @@ refusal to `ERROR_REPORTER`, which would want an id per occurrence.
 environment by the global configuration; it is now `playground_available?(config : Configuration = Azu.current_config)` and reads the database switch and the
 environment from the configuration of the app serving the request. A caller that passed `config.database` passes `config`. The dashboard's N+1 and slow-query thresholds
 follow the serving app the same way, and the `<resource>_path` template filter of an endpoint is registered with `Helpers::Registry` (every app's templates have it).
-`CORS` adds `Origin` to a `Vary` the response already has (it replaced it), and sets `Vary: Origin` on a request without an `Origin` header when the origins are restricted.
+`CORS` adds `Origin` to a `Vary` the response already has (it replaced it), and sets `Vary: Origin` on a request without an `Origin` header, in every configuration. With
+`origins: ["*"]` the request's `Origin` is reflected in `Access-Control-Allow-Origin`, so that response now carries `Vary: Origin` too (it sent no `Vary` before): a visible cache
+behaviour change, and a shared cache keeps one entry per origin.
+**`Vary` fields are compared as whole tokens.** `CORS`, `Static` and `Negotiation` add their fields through one helper that splits every `Vary` line on commas and compares
+trimmed tokens case-insensitively, so `Vary: Accept-Encoding` no longer hides `Accept` and `X-Origin` no longer hides `Origin`. A `Vary: *` is left untouched (`Negotiation`
+used to extend it). The fields are written as one comma list. `Compression` sets no `Vary: Accept-Encoding` itself (out of scope here). A subclass of `Throttle::Refusal` is
+treated like any error you raise: it shares neither the page cache nor the fingerprint of Throttle's own refusal.
 
 **`include Azu` is a supported facade, and `Azu::App` can start itself.** `include Azu`, `configure` and `Azu::CONFIG`
 are the single-app facade (global configuration, one app per process); they are not deprecated and log no warning.

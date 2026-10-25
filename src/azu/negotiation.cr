@@ -95,8 +95,7 @@ module Azu
 
     # Tells caches that the answer depends on the `Accept` header.
     def self.vary(response : HTTP::Server::Response) : Nil
-      return if response.headers.includes_word?("Vary", "Accept")
-      response.headers.add("Vary", "Accept")
+      Vary.add(response.headers, "Accept")
     end
 
     # The format `?format=` names (the parameter is `Configuration#format_parameter`). A value that

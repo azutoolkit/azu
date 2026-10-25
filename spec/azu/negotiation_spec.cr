@@ -352,3 +352,24 @@ describe "OpenAPI" do
     content.keys.sort!.should eq ["application/json", "application/xml", "text/html"]
   end
 end
+
+describe "Azu::Negotiation.vary" do
+  it "adds Accept to a Vary that holds Accept-Encoding, and once only" do
+    response = HTTP::Server::Response.new(IO::Memory.new)
+    response.headers["Vary"] = "Accept-Encoding"
+
+    Azu::Negotiation.vary(response)
+    Azu::Negotiation.vary(response)
+
+    response.headers.get("Vary").should eq ["Accept-Encoding,Accept"]
+  end
+
+  it "leaves Vary: * alone" do
+    response = HTTP::Server::Response.new(IO::Memory.new)
+    response.headers["Vary"] = "*"
+
+    Azu::Negotiation.vary(response)
+
+    response.headers.get("Vary").should eq ["*"]
+  end
+end
