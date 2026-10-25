@@ -119,6 +119,33 @@ private def logged(env : String?, host : String?, container : Bool, &)
   end
 end
 
+describe "the container and loopback detection" do
+  it "recognises Docker, Podman and Kubernetes" do
+    with_process_env({"KUBERNETES_SERVICE_HOST" => nil}) do
+      File.tempfile("containerenv") do |marker|
+        Azu::Configuration.container_detected?(["/nonexistent/.dockerenv"]).should be_false
+        Azu::Configuration.container_detected?(["/nonexistent/.dockerenv", marker.path]).should be_true
+      end
+    end
+    with_process_env({"KUBERNETES_SERVICE_HOST" => "10.0.0.1"}) do
+      Azu::Configuration.container_detected?(["/nonexistent/.dockerenv"]).should be_true
+    end
+    Azu::Configuration::CONTAINER_MARKERS.should contain "/run/.containerenv" # Podman
+  end
+
+  it "takes the bracketed IPv6 loopback for loopback" do
+    config = Azu::Configuration.new
+    {"127.0.0.1", "localhost", "::1", "[::1]"}.each do |address|
+      config.host = address
+      config.loopback_host?.should be_true
+    end
+    {"0.0.0.0", "::", "[::]", "10.0.0.5"}.each do |address|
+      config.host = address
+      config.loopback_host?.should be_false
+    end
+  end
+end
+
 describe "the bind host warnings" do
   it "treats an empty host like no host" do
     with_process_env({"HOST" => nil, "CRYSTAL_ENV" => "development"}) do

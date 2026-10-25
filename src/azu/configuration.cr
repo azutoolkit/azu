@@ -75,12 +75,19 @@ module Azu
     # True when the address is only reachable from the machine itself.
     def loopback_host? : Bool
       address = host
-      address == "localhost" || address == "::1" || address.starts_with?("127.")
+      address == "localhost" || address == "::1" || address == "[::1]" || address.starts_with?("127.")
     end
 
-    # Whether the process looks containerised (Docker or Kubernetes). Detected when the configuration is built;
+    # Files a container runtime leaves in the container: Docker's and Podman's.
+    CONTAINER_MARKERS = ["/.dockerenv", "/run/.containerenv"]
+
+    def self.container_detected?(markers : Array(String) = CONTAINER_MARKERS) : Bool
+      markers.any? { |marker| File.exists?(marker) } || !ENV["KUBERNETES_SERVICE_HOST"]?.presence.nil?
+    end
+
+    # Whether the process looks containerised (Docker, Podman or Kubernetes). Detected when the configuration is built;
     # a spec or a container runtime Azu cannot recognise sets it.
-    property? container : Bool = File.exists?("/.dockerenv") || !ENV["KUBERNETES_SERVICE_HOST"]?.presence.nil?
+    property? container : Bool = Configuration.container_detected?
 
     LOOPBACK_HOST = "127.0.0.1"
     ANY_HOST      = "0.0.0.0"

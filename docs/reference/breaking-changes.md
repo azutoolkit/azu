@@ -285,7 +285,7 @@ interface. Unset still means development; the default host now depends on it:
 - Migration: an app run in development that must be reached from another machine, a container or a VM port-forward sets
   `HOST=0.0.0.0` (or `config.host = "0.0.0.0"`). Deployments that set `CRYSTAL_ENV` (production, staging, ...) are unchanged.
 - `Configuration#host` is no longer a plain `property`: `host=` accepts `nil` or `""` to go back to the default.
-- `start` logs a WARN when the server listens on a loopback address inside a container (`/.dockerenv` exists or
+- `start` logs a WARN when the server listens on a loopback address inside a container (`/.dockerenv` or Podman's `/run/.containerenv` exists, or
   `KUBERNETES_SERVICE_HOST` is set), naming the fix `HOST=0.0.0.0` (the usual cause: development, the default, a container);
   and a WARN when `CRYSTAL_ENV` was never set and the host is not loopback (the development pages are served on every
   interface). `Configuration#container=` overrides the detection.
