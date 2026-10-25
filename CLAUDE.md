@@ -287,6 +287,9 @@ The dev dashboard, performance monitor, profiler and reporter live in `src/azu/d
 - **Container:** crystallang/crystal:1.19.1
 - **Services:** Redis required for cache tests
 - **Excluded from complexity:** dev/ (performance_monitor, performance_reporter, dev_dashboard_component), demo_reporting
+- **Releases:** every green push to master is a release: the `release` job commits the `shard.yml` version
+  straight to master and tags that commit (no bump PR; it pushes with the `RELEASE_TOKEN` secret, as master is
+  protected). Do not bump `shard.yml` by hand; put `(MINOR)` or `(MAJOR)` in a commit message to pick the bump
 
 ## Common Tasks
 
