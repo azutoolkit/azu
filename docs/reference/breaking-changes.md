@@ -12,7 +12,8 @@ Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/mig
 `production` and any environment other than `development`, `test` and `pipeline`), `Azu.prepare` reads and parses
 every template once and requests no longer read template files: an edit to a template file needs a restart, where
 before it showed on the next request, and a template with a syntax error now stops the boot (with its name and
-line) instead of failing its first request. Set `template_hot_reload = true` (or `TEMPLATE_HOT_RELOAD=true`) to keep
+line) instead of failing its first request, including a file that is not a template (a vendored `index.html`; list
+those in `template_compile_ignore`). Set `template_hot_reload = true` (or `TEMPLATE_HOT_RELOAD=true`) to keep
 reloading in an environment. See [Configuration](configuration/options.md#templates).
 
 **`Router#path_cache` is internal.** It is `:nodoc:` and its `get`/`set` now take the method and the path
