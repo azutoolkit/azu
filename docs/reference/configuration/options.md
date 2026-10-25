@@ -233,6 +233,7 @@ Only the instrumentation of `azu/cql` is configured here; the connection is CQL'
 |---|---|---|---|
 | `database.uri` | `String?` | `nil` | `DATABASE_URL` |
 | `database.lazy_connect?` | `Bool` | `true` | `AZU_DB_LAZY` |
+| `database.driver` | `String?` | `nil` (engine for `postgres://`) | `AZU_CQL_DRIVER` (`engine` or `db`) |
 | `database.instrument?` | `Bool` | `true` | `AZU_DB_INSTRUMENT` |
 | `database.n_plus_one_threshold` | `Int32` | 3 | `AZU_DB_N_PLUS_ONE_THRESHOLD` |
 | `database.slow_query_ms` | `Float64` | 50.0 | `AZU_DB_SLOW_QUERY_MS` |

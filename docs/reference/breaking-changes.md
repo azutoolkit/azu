@@ -8,6 +8,39 @@ This document lists breaking changes between Azu versions and migration guides.
 
 Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
 
+**`Azu::CQL.schema` runs PostgreSQL on CQL's native engine pool.** With a CQL release that has
+`CQL::Postgres::EngineSource`, schemas for `postgres://` and `postgresql://` URLs use CQL's own wire driver and
+`AsyncEngine` pool instead of crystal-db's pool with the `pg` shard. SQLite, MySQL and `cockroachdb://` are unchanged
+(`cockroachdb://` runs on the engine only with `driver: :engine`, which is experimental: CQL checked it against CockroachDB 24.3 only).
+Check these before upgrading:
+
+- **Errors.** Server errors are `CQL::Postgres::Error` subclasses (`UniqueViolation`, `ForeignKeyViolation`,
+  `SerializationFailure`, ...), not `PQ::PQError`, and not `DB::Error`. Pool errors are `CQL::Postgres::PoolTimeout` and
+  `PoolClosed`. A connection that cannot be opened is still `DB::ConnectionRefused`. Migration: change
+  `rescue ex : DB::Error` to `rescue ex : DB::Error | CQL::Postgres::Error` (and `PQ::PQError` to `CQL::Postgres::ServerError`).
+- **Failed-query text.** The dashboard shows the SQLSTATE and the message the driver considers safe (`undefined table (SQLSTATE 42P01)`),
+  not the relation or column name: the driver keeps server wording that can carry bound values out of messages. CQL could attach
+  `table_name`/`column_name` metadata to the error; that is a proposal for CQL, not part of this change.
+- **Decoding.** `numeric` columns decode to `CQL::Postgres::Types::DecimalText` and arrays to their text form;
+  `read(Float64)` or `read(Array(Int32))` on them raises `TypeCastError`.
+- **TLS and URLs.** `sslmode` accepts `disable`, `prefer`, `require` and `verify-full`. `verify-ca`, `allow`, `sslcert` and `sslkey`
+  raise `ArgumentError` when the schema is created, even with `lazy: true` (the URL is parsed then). The engine keeps a literal `+`
+  in a user name or password; crystal-db read `+` there as a space, so a password that relied on that must be written with a
+  real space (`%20`).
+- **Pool.** The pool is the engine's. Azu maps `CQL.config.pool` and crystal-db's `max_pool_size` (`0`, meaning unlimited there,
+  becomes the default of 10), `initial_pool_size` (never above the pool size) and `checkout_timeout` for you. `prepared_statements=false`
+  and `prepared_statements_cache=false` become `statement_cache_size=0` unless the URL sets it. `max_idle_pool_size`, `retry_attempts`,
+  `retry_delay` and `auth_methods` are dropped: the engine does not retry connects. Behind a transaction-mode pooler (PgBouncer) use
+  `statement_cache_size=0` (or `prepared_statements=false`). The rest of the URL is passed on byte for byte.
+- **Shutdown.** `Azu.shutdown` closes the database pools: `Azu.on_shutdown` hooks run in reverse registration order between PubSub and Redis,
+  and the pools close in the hook `azu/cql` registered when it was required, so hooks your app registers later run first. Handler
+  fibers still serving a request when the server stops can meet a closed pool, as with Redis.
+- **Opt out** per schema with `driver: :db` or for the app with `AZU_CQL_DRIVER=db`; crystal-db's pool and the registered driver (the
+  `pg` shard if you require it) then serve the URL as before. `driver:` and `AZU_CQL_DRIVER` apply only to `Azu::CQL.schema`: a schema
+  made directly with `CQL::Schema.define` or `.new` is unaffected. An unknown `AZU_CQL_DRIVER` value raises `ArgumentError` for every schema.
+- **New:** `Azu::CQL.health_check(schema)`, `Azu::CQL.engine(schema)`, `Azu::CQL.shutdown`, `.track`/`.untrack`, `Azu.on_shutdown`. A schema made
+  twice under the same name closes the first one.
+
 **`Azu::Env` skips many more names from a `.env` file.** The denylist is now the one the `azu` CLI uses
 (`AzuCLI::DotEnv`), where it used to cover only `LD_*`, `DYLD_*`, `SHARDS_*`, `GIT_*`, `PATH`, `SHELL`, `IFS`,
 `BASH_ENV`, `ENV`, `CRYSTAL_PATH`, `CRYSTAL_OPTS`, `CRYSTAL_LIBRARY_PATH`, `DOCKER_HOST` and `HOME`. It now also skips

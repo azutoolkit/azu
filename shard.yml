@@ -19,6 +19,7 @@ dependencies:
 development_dependencies:
   cql:
     github: azutoolkit/cql
+    version: ">= 0.0.609" # first release with CQL::ConnectionSource / CQL::Postgres::EngineSource
   sqlite3:
     github: crystal-lang/crystal-sqlite3
   pg:

@@ -193,15 +193,38 @@ module Azu
     CONFIG.prepare
   end
 
+  @@shutdown_hooks = [] of Proc(Nil)
+  @@shutdown_hooks_mutex = Mutex.new
+
+  # Registers work for `Azu.shutdown`: it runs after the PubSub backend has stopped and before the shared
+  # Redis pools close. Hooks run in reverse registration order, like `at_exit`, so a hook an app registers
+  # (flushing a queue through the database, say) runs before the database pools that `azu/cql` registered
+  # when it was required are closed. Optional subsystems that core does not require use it. A hook that raises
+  # is logged and does not stop the others. Handler fibers still serving a request when the server stops
+  # can meet a closed pool, as they can a closed Redis pool.
+  def self.on_shutdown(&block : ->) : Nil
+    @@shutdown_hooks_mutex.synchronize { @@shutdown_hooks << block }
+  end
+
   # Stops the long lived parts of the framework: closes Spark connections, the default presence tracker
-  # (so its entries leave before the PubSub backend stops), the PubSub backend and, last, the shared Redis pools
-  # those used.
+  # (so its entries leave before the PubSub backend stops), the PubSub backend, whatever was registered with
+  # `on_shutdown` (such as database pools) and, last, the shared Redis pools those used.
   # Called by `start` once the server stops; safe to call again.
   def self.shutdown : Nil
     Spark.shutdown
     Presence.shutdown
     PubSub.shutdown
+    run_shutdown_hooks
     Redis.shutdown
+  end
+
+  private def self.run_shutdown_hooks : Nil
+    hooks = @@shutdown_hooks_mutex.synchronize { @@shutdown_hooks.dup }
+    hooks.reverse_each do |hook|
+      hook.call
+    rescue ex
+      ::Log.for("azu.shutdown").error(exception: ex) { "a shutdown hook failed" }
+    end
   end
 
   macro included

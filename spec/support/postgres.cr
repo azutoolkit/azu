@@ -1,12 +1,13 @@
 require "pg"
+require "./ci_pending"
 
-# Specs that need a real PostgreSQL server (`AZU_TEST_DATABASE_URL`, default
+# Specs that need a real PostgreSQL server (`AZU_TEST_PG_URL`, or `AZU_TEST_DATABASE_URL`, default
 # postgres://localhost/azu_test). Without one they are reported as pending.
 module PostgresSpec
   @@available : Bool? = nil
 
   def self.url : String
-    ENV["AZU_TEST_DATABASE_URL"]? || "postgres://localhost/azu_test"
+    ENV["AZU_TEST_PG_URL"]? || ENV["AZU_TEST_DATABASE_URL"]? || "postgres://localhost/azu_test"
   end
 
   def self.available? : Bool
@@ -20,6 +21,6 @@ module PostgresSpec
 
   # Call at the top of an example: marks it pending when Postgres is unreachable.
   macro require!
-    pending!("PostgreSQL not reachable at #{PostgresSpec.url}") unless PostgresSpec.available?
+    CIPending.skip!("postgres", "PostgreSQL not reachable at #{PostgresSpec.url}") unless PostgresSpec.available?
   end
 end

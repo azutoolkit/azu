@@ -203,6 +203,11 @@ module Azu
     # Open the connection on the first query instead of when the schema is created, so the app
     # (and tasks that only load it) boots without a database. `Azu::CQL.verify!` fails fast.
     property? lazy_connect : Bool = ENV.fetch("AZU_DB_LAZY", "true") == "true"
+    # Which connection layer `Azu::CQL.schema` uses for `postgres://` and `postgresql://` URLs: "engine" (CQL's native
+    # PostgreSQL `AsyncEngine` pool, the default) or "db" (crystal-db's pool, with whichever driver is registered,
+    # e.g. the `pg` shard). `cockroachdb://` URLs use "db" unless this is "engine". From `AZU_CQL_DRIVER`; the
+    # `driver:` argument of `Azu::CQL.schema` wins.
+    property driver : String? = Env.fetch?("AZU_CQL_DRIVER")
     # Record queries/transactions into `Azu::QueryStore`.
     property? instrument : Bool = ENV.fetch("AZU_DB_INSTRUMENT", "true") == "true"
     # Same query shape this many times in one request raises an N+1 alert.
