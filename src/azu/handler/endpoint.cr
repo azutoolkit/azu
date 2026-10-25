@@ -61,11 +61,10 @@ module Azu
     protected def serve(context : HTTP::Server::Context)
       @context = context
       @params = nil
-      {% unless Request.stringify == "Azu::Request" %}
-        # A contract is checked before `call`, so its body is read now and a body that cannot be read is
-        # refused at the same point as ever.
-        @params = Params(Request).new(context.request)
-      {% end %}
+      check_contract = check_contract?(context.request)
+      # A contract is checked before `call`, so its body is read now and a body that cannot be read is
+      # refused at the same point as ever.
+      @params = Params(Request).new(context.request) if check_contract
       @request_object = nil
 
       # Set endpoint name header for performance monitoring
@@ -75,7 +74,7 @@ module Azu
       RequestContext.scope(context) do |info|
         info.endpoint = endpoint_name
         begin
-          enforce_contract
+          enforce_contract if check_contract
           negotiate_format
         rescue ex : Azu::Response::Error
           ex.to_s(context)
@@ -84,6 +83,20 @@ module Azu
         write_response(call, context)
       end
       context
+    end
+
+    # Whether the request is parsed and checked against its contract before `call`. A contract with no fields
+    # and no rules has nothing to check, so only a body that names its format is still read (a malformed one is
+    # a 400). A contract that inherits its rules defines no constants of its own and is always checked.
+    private def check_contract?(request : HTTP::Request) : Bool
+      {% if Request.stringify == "Azu::Request" %}
+        false
+      {% elsif Request.resolve.instance_vars.empty? && Request.resolve.has_constant?("SCHEMA_VALIDATORS") && Request.resolve.has_constant?("SCHEMA_VALIDATIONS") &&
+                 Request.resolve.constant("SCHEMA_VALIDATORS").empty? && Request.resolve.constant("SCHEMA_VALIDATIONS").empty? %}
+        Params::Body.format?(request)
+      {% else %}
+        true
+      {% end %}
     end
 
     # Refuses a request the response type cannot be rendered for before `call` runs (406), when the

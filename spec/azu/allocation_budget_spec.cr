@@ -16,6 +16,35 @@ private def bytes_over_baseline(stack : HotPath::Stack, path : String) : Float64
   HotPath.measure(stack, path).bytes - HotPath.measure(HotPath::Stack::Baseline, path).bytes
 end
 
+module AllocationBudgetSpec
+  struct BareEndpoint
+    include Azu::Endpoint(Azu::Request, HotPath::Raw)
+
+    def call : HotPath::Raw
+      HotPath::Raw.new("ok")
+    end
+  end
+
+  struct FieldlessEndpoint
+    include Azu::Endpoint(HotPath::NoRequest, HotPath::Raw)
+
+    def call : HotPath::Raw
+      HotPath::Raw.new("ok")
+    end
+  end
+end
+
+# One context for every call, so the measured bytes are the endpoint's own (a connection builds its request outside it).
+private def endpoint_bytes(endpoint : T) : Float64 forall T
+  context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/items?page=2"), HTTP::Server::Response.new(HotPath::NullIO.new))
+  endpoint.call(context)
+
+  HotPath.bytes_per_call do
+    context.response.reset
+    endpoint.call(context)
+  end
+end
+
 # What Static falls through to; it answers nothing, so the measured bytes are Static's own.
 private class NoopHandler
   include HTTP::Handler
@@ -101,6 +130,7 @@ describe "allocation budget" do
     pending "measures the cycling routing scenario"
     pending "measures nothing for a block that allocates nothing"
     pending "measures what a block allocates"
+    pending "a fieldless contract on a request without a body costs no more than no contract"
     pending "Static allocates nothing on a routed path when the public directory does not exist"
   {% else %}
     it "keeps the default stack on /plaintext within its budget over the baseline" do
@@ -143,6 +173,14 @@ describe "allocation budget" do
     it "measures what a block allocates" do
       # The positive control: without it the helper could report 0 for everything and still pass the check above
       HotPath.bytes_per_call { "x" * 200 }.should be >= 200
+    end
+
+    it "a fieldless contract on a request without a body costs no more than no contract" do
+      bare = endpoint_bytes(AllocationBudgetSpec::BareEndpoint.new)
+      fieldless = endpoint_bytes(AllocationBudgetSpec::FieldlessEndpoint.new)
+
+      # Nothing is declared to read or check, and a request without a body has nothing else to parse
+      (fieldless - bare).should be <= 16
     end
 
     it "Static allocates nothing on a routed path when the public directory does not exist" do

@@ -76,6 +76,10 @@ being rejected. One that reads `params` gets the error where it asks. A `POST` w
 the router (for `_method`) and still answers `413` before dispatch. Endpoints with a request contract (a struct that
 includes `Azu::Request`) are unchanged: they parse before `call`.
 
+**A contract with no fields and no `validate`/`use` rules is not parsed or checked for a request without a `Content-Type`.**
+Its params are read on first use, as for the bare `Azu::Request`. A custom `errors` override on such a contract is not
+called for those requests: add a field or a `use` validator to keep it checked.
+
 **A request id is cut from a buffered chunk of secure random bytes.** The format `req_<ms>_<16 hex>` is unchanged.
 
 **A `Static` public directory created after boot is picked up within a second**, not at once.

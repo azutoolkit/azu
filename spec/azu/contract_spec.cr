@@ -45,6 +45,45 @@ module ContractSpec
       SignupResponse.new signup_request.name
     end
   end
+
+  # No fields and no rules: nothing for the contract to read or check.
+  struct FieldlessRequest
+    include Azu::Request
+  end
+
+  struct PageEndpoint
+    include Azu::Endpoint(FieldlessRequest, SignupResponse)
+
+    def call : SignupResponse
+      content_type "application/json"
+      SignupResponse.new params["page"]
+    end
+  end
+
+  class AlwaysInvalid < Schema::Validator
+    def initialize(@record : RuledFieldlessRequest)
+    end
+
+    def valid? : Array(Schema::Error)
+      [Schema::Error.new(:base, "is never valid")]
+    end
+  end
+
+  # Still no fields, but a rule that refuses every request.
+  struct RuledFieldlessRequest
+    include Azu::Request
+
+    use AlwaysInvalid
+  end
+
+  struct RuledEndpoint
+    include Azu::Endpoint(RuledFieldlessRequest, SignupResponse)
+
+    def call : SignupResponse
+      content_type "application/json"
+      SignupResponse.new "reached"
+    end
+  end
 end
 
 private def post(app : Azu::App, body : String, accept : String = "application/json", handlers : Array(HTTP::Handler) = [Azu::Handler::Rescuer.new] of HTTP::Handler) : Azu::Testing::Response
@@ -54,6 +93,21 @@ end
 private def signup_app : Azu::App
   app = Azu::App.new
   app.routes { post "/signup", ContractSpec::SignupEndpoint }
+  app
+end
+
+private def page_app : Azu::App
+  app = Azu::App.new
+  app.routes do
+    get "/page", ContractSpec::PageEndpoint
+    post "/page", ContractSpec::PageEndpoint
+  end
+  app
+end
+
+private def ruled_app : Azu::App
+  app = Azu::App.new
+  app.routes { get "/ruled", ContractSpec::RuledEndpoint }
   app
 end
 
@@ -112,5 +166,27 @@ describe "request contracts" do
     response.status_code.should eq 422
     response.content_type.should eq "application/json"
     JSON.parse(response.body)["FieldErrors"]["name"].should eq ["must be present"]
+  end
+end
+
+describe "fieldless request contracts" do
+  it "leaves the query string to params" do
+    response = Azu::Testing::Client.new(page_app).get("/page?page=2")
+
+    response.status_code.should eq 200
+    JSON.parse(response.body)["name"].should eq "2"
+  end
+
+  it "answers 400 for a body that is not JSON" do
+    response = Azu::Testing::Client.new(page_app).post("/page", headers: {"Content-Type" => "application/json"}, body: "{bad")
+
+    response.status_code.should eq 400
+  end
+
+  it "answers 422 when a Schema validator it uses refuses the request" do
+    response = Azu::Testing::Client.new(ruled_app).get("/ruled", headers: {"Accept" => "application/json"})
+
+    response.status_code.should eq 422
+    JSON.parse(response.body)["errors"]["base"].should eq ["is never valid"]
   end
 end
