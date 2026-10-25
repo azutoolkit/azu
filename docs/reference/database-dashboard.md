@@ -18,7 +18,7 @@ which configures CQL with its own `configure` and attaches the dashboard:
 
 ```crystal
 # src/initializers/cql_config.cr
-require "pg"           # or sqlite3; add `cql` and the driver to your shard.yml
+require "sqlite3"      # not needed for PostgreSQL (CQL's native engine); mysql for MySQL; add `cql` to your shard.yml
 require "azu/cql"
 
 Azu::CQL.configure do |c|            # forwards to CQL.configure
@@ -77,6 +77,22 @@ ran it. A runnable PostgreSQL example laid out like this is
   without a database and the first query connects. Turn it off with `Azu.configure { |c| c.database.lazy_connect = false }`
   (`AZU_DB_LAZY=false`), per schema with `Azu::CQL.schema(:app, lazy: false)`, or with `initial_pool_size` in the URL.
   To fail fast (for example at boot in production) call `Azu::CQL.verify!(AppDB)`.
+* **PostgreSQL runs on CQL's native engine by default.** For `postgres://` and `postgresql://` URLs the schema is built
+  on `CQL::Postgres::EngineSource` (a `CQL::Postgres::AsyncEngine` pool: fiber-safe, prepared-statement cache, binary
+  results, health-checked connections), so models, queries, `Model.transaction` and migrations use it and the `pg` shard is
+  not needed. It needs a CQL release that provides `CQL::Postgres::EngineSource`; older releases keep crystal-db's pool.
+  SQLite and MySQL are unchanged; `cockroachdb://` stays on crystal-db unless you ask for `driver: :engine`.
+  Opt out with `Azu::CQL.schema(:app, driver: :db)` or `AZU_CQL_DRIVER=db` (crystal-db's pool and whichever driver is
+  registered; with `require "pg"` that is the `pg` shard). The argument wins over the variable. Pool settings from
+  `CQL.config.pool` map to the engine's URL parameters: `pool.size` or `max_pool_size` become `pool_size`, an eager connection
+  (`lazy: false`) opens `pool_min_size = min(pool.initial_size, pool_size)` connections, `checkout_timeout` keeps its name,
+  `pool.use_prepared_statements = false` becomes `statement_cache_size=0`. `max_idle_pool_size`, `retry_attempts`, `retry_delay`,
+  `prepared_statements` and `auth_methods` are dropped (the engine does not retry connects). Parameters on the URL always win,
+  and engine-only ones (`sslmode`, `max_queries`, `max_idle_lifetime`, `statement_cache_size`, `binary_params`, ...) pass through.
+  `Azu::CQL.engine(AppDB)` returns the `AsyncEngine` (for `pipeline`, `stream`, `transaction(isolation: ...)`), or `nil` on crystal-db's pool.
+  Behind PgBouncer in transaction mode add `statement_cache_size=0`. `Azu.shutdown` closes the pools after PubSub, before Redis.
+* **Health check.** `Azu::Handler::HealthCheck.new(checks: {"database" => Azu::CQL.health_check(AppDB)})` runs `SELECT 1` and is
+  false when it fails or takes longer than 2 seconds.
 * **While the database is down** the Database tab still renders: the pool card shows no open connections and the SQL playground
   reports the connection error.
 

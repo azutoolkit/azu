@@ -9,8 +9,11 @@ include IntegrationHelpers
 # The CQL bridge against a real PostgreSQL: CQL's Postgres dialect ($n placeholders, RETURNING,
 # identity keys), real transactions and pool counters, and the dashboard playground's EXPLAIN.
 module BridgePostgresSpec
+  # :engine or :db (crystal-db with the pg shard): the examples run once on each.
+  class_property driver : Symbol = :db
+
   def self.schema : CQL::Schema
-    Azu::CQL.schema(:bridge_pg, PostgresSpec.url) do
+    Azu::CQL.schema(:bridge_pg, PostgresSpec.url, driver: driver) do
       table :bridge_authors do
         primary :id, Int64
         column :name, String
@@ -54,7 +57,10 @@ module BridgePostgresSpec
   end
 end
 
-describe "Azu::CQL bridge on PostgreSQL" do
+(Azu::CQL::Driver::ENGINE_AVAILABLE ? [:engine, :db] : [:db]).each do |driver|
+describe "Azu::CQL bridge on PostgreSQL (#{driver})" do
+  before_each { BridgePostgresSpec.driver = driver }
+
   store = Azu::QueryStore.instance
 
   before_each do
@@ -222,4 +228,5 @@ describe "Azu::CQL bridge on PostgreSQL" do
       html.should contain "id='azd-sql'"
     end
   end
+end
 end

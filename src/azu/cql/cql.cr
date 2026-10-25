@@ -1,8 +1,8 @@
 # Opt-in bridge between the CQL ORM and Azu's dev dashboard.
 #
 #   # src/initializers/cql_config.cr
-#   require "pg"
-#   require "azu/cql"
+#   require "azu/cql"                   # PostgreSQL needs no driver shard: CQL's native engine serves it
+#                                       # (require "sqlite3" or "mysql" for those databases)
 #
 #   Azu::CQL.configure do |c|            # CQL's own configuration
 #     c.db = ENV["DATABASE_URL"]
@@ -22,6 +22,7 @@ require "../query_store"
 require "../request_context"
 require "./instrumentor"
 require "./adapter"
+require "./driver"
 require "./mapping"
 require "./validation"
 require "./middleware"
@@ -60,11 +61,21 @@ module Azu
     # `Azu::CONFIG.database.uri` (deprecated, defaults to `DATABASE_URL`). The adapter is picked from
     # the URL scheme. The connection is lazy by default (`database.lazy_connect`, or `lazy:`): the
     # schema is created without opening a socket and the first query connects.
-    def self.schema(name : Symbol = :app, uri : String? = nil, lazy : Bool? = nil, &) : ::CQL::Schema
+    #
+    # `postgres://` and `postgresql://` URLs run on CQL's native `AsyncEngine` pool (its own fiber-safe pool,
+    # prepared-statement cache and binary results) when the installed CQL has `CQL::Postgres::EngineSource`.
+    # `driver: :db` (or `AZU_CQL_DRIVER=db`) keeps crystal-db's pool and whichever driver it has registered, such as
+    # the `pg` shard; `driver: :engine` also opts a `cockroachdb://` URL in. See `Driver`.
+    def self.schema(name : Symbol = :app, uri : String? = nil, lazy : Bool? = nil, driver : Symbol? = nil, &) : ::CQL::Schema
       base, from_config = resolve_uri(uri)
-      resolved = connection_url(base, ::CQL.config, lazy.nil? ? Azu::CONFIG.database.lazy_connect? : lazy, pool: from_config)
+      lazy_connect = lazy.nil? ? Azu::CONFIG.database.lazy_connect? : lazy
       Instrumentor.install
-      schema = ::CQL::Schema.new(name, resolved, adapter_for(resolved))
+      schema = if Driver.resolve(base, driver, Azu::CONFIG.database.driver).engine?
+                 engine_schema(name, base, ::CQL.config, lazy_connect, from_config)
+               else
+                 resolved = connection_url(base, ::CQL.config, lazy_connect, pool: from_config)
+                 ::CQL::Schema.new(name, resolved, adapter_for(resolved))
+               end
       with schema yield
       attach(schema)
     end
@@ -72,6 +83,7 @@ module Azu
     # Wires instrumentation and the dashboard playground to an existing schema.
     def self.attach(schema : ::CQL::Schema) : ::CQL::Schema
       Instrumentor.install
+      track(schema)
       QueryStore.instance.adapter = SchemaAdapter.new(schema)
       schema
     end
@@ -84,6 +96,121 @@ module Azu
     def self.attach(&block : -> ::CQL::Schema) : Nil
       Instrumentor.install
       QueryStore.instance.adapter = SchemaAdapter.new(block)
+    end
+
+    @@schemas = [] of ::CQL::Schema
+    @@schemas_mutex = Mutex.new
+
+    private def self.track(schema : ::CQL::Schema) : Nil
+      @@schemas_mutex.synchronize { @@schemas << schema unless @@schemas.any?(&.same?(schema)) }
+    end
+
+    # Closes the connection pool of every schema made or attached through this module. `Azu.shutdown` calls
+    # it (after PubSub, before Redis); safe to call again. A pool that fails to close is logged, not raised.
+    def self.shutdown : Nil
+      schemas = @@schemas_mutex.synchronize { @@schemas.dup.tap { @@schemas.clear } }
+      schemas.each do |schema|
+        schema.close
+      rescue ex
+        ::Log.for("azu.cql").error(exception: ex) { "could not close the pool of schema #{schema.name}" }
+      end
+    end
+
+    Azu.on_shutdown { Azu::CQL.shutdown }
+
+    # A check for `Azu::Handler::HealthCheck`: `checks: {"database" => Azu::CQL.health_check(AppDB)}`.
+    # True when `SELECT 1` answers within `timeout` (a pool that is exhausted or a database that is down is false).
+    def self.health_check(schema : ::CQL::Schema, timeout : Time::Span = 2.seconds) : Proc(Bool)
+      -> { ping(schema, timeout) }
+    end
+
+    def self.ping(schema : ::CQL::Schema, timeout : Time::Span = 2.seconds) : Bool
+      answered = Channel(Bool).new(1)
+      spawn(name: "azu-cql-ping") do
+        answered.send(begin
+          schema.with_connection { |connection| connection.scalar("SELECT 1") }
+          true
+        rescue
+          false
+        end)
+      end
+      select
+      when result = answered.receive
+        result
+      when timeout(timeout)
+        false
+      end
+    end
+
+    {% if ::CQL.has_constant?("ConnectionSource") && ::CQL.has_constant?("Postgres") && ::CQL::Postgres.has_constant?("EngineSource") %}
+      # The `AsyncEngine` behind a schema that runs on one (for `pipeline`, `stream`, `with_connection` with
+      # LISTEN/NOTIFY or COPY, `transaction(isolation: ...)`); nil for a schema on crystal-db's pool.
+      def self.engine(schema : ::CQL::Schema) : ::CQL::Postgres::AsyncEngine?
+        schema.source.as?(::CQL::Postgres::EngineSource).try(&.engine)
+      end
+
+      private def self.engine_schema(name : Symbol, base : String, config : ::CQL::Configure::Config, lazy : Bool, pool : Bool) : ::CQL::Schema
+        url = engine_url(base, config, lazy, pool)
+        adapter = adapter_for(base)
+        ::CQL::Schema.new(name, url, adapter, source: ::CQL::Postgres::EngineSource.connect(url, adapter))
+      end
+    {% else %}
+      def self.engine(schema : ::CQL::Schema) : Nil
+        nil
+      end
+
+      private def self.engine_schema(name : Symbol, base : String, config : ::CQL::Configure::Config, lazy : Bool, pool : Bool) : ::CQL::Schema
+        raise ArgumentError.new("the CQL engine driver needs a CQL release with CQL::Postgres::EngineSource; update the cql shard or use driver: :db")
+      end
+    {% end %}
+
+    # The URL for the engine: `base` with crystal-db's pool parameters renamed or removed, plus the engine's
+    # pool settings from `config.pool` when `pool` is true (the URL came from CQL's configuration). The engine reads
+    # every unknown parameter as a server startup option, so nothing crystal-db owns may stay. Mapping:
+    #
+    #   max_pool_size (or config.pool.size)      -> pool_size
+    #   initial_pool_size (eager: config.pool.initial_size, at most pool_size) -> pool_min_size (lazy: left at 0)
+    #   checkout_timeout (or config.pool.checkout_timeout) -> checkout_timeout (seconds, same name)
+    #   config.pool.use_prepared_statements = false -> statement_cache_size=0
+    #   max_idle_pool_size, retry_attempts, retry_delay, prepared_statements, prepared_statements_cache, auth_methods -> dropped
+    #
+    # Parameters already on the URL win (`pool_size` over `max_pool_size`), and everything the engine understands
+    # itself (`sslmode`, `max_queries`, `statement_cache_size`, ...) passes through. Nothing before the `?` is touched.
+    def self.engine_url(base : String, config : ::CQL::Configure::Config = ::CQL.config, lazy : Bool = true, pool : Bool = false) : String
+      without_fragment, hash, fragment = base.partition('#')
+      location, _, query = without_fragment.partition('?')
+      params = HTTP::Params.parse(query)
+      rename_param(params, "max_pool_size", "pool_size")
+      rename_param(params, "initial_pool_size", "pool_min_size")
+      ENGINE_DROPPED_PARAMS.each { |key| params.delete(key) }
+      wanted = engine_defaults(config, params, lazy, pool)
+      wanted.each { |key, value| params[key] = value unless params.has_key?(key) }
+      params.empty? ? "#{location}#{hash}#{fragment}" : "#{location}?#{params}#{hash}#{fragment}"
+    end
+
+    # The engine's own default `pool_size`.
+    DEFAULT_ENGINE_POOL_SIZE = 10
+
+    ENGINE_DROPPED_PARAMS = %w(max_idle_pool_size retry_attempts retry_delay prepared_statements prepared_statements_cache auth_methods)
+
+    private def self.rename_param(params : HTTP::Params, from : String, to : String) : Nil
+      return unless value = params[from]?
+      params.delete(from)
+      params[to] = value unless params.has_key?(to)
+    end
+
+    private def self.engine_defaults(config : ::CQL::Configure::Config, params : HTTP::Params, lazy : Bool, pool : Bool) : Hash(String, String)
+      wanted = {} of String => String
+      if pool
+        wanted["pool_size"] = config.pool.size.to_s
+        wanted["checkout_timeout"] = config.pool.checkout_timeout.total_seconds.to_s
+        wanted["statement_cache_size"] = "0" unless config.pool.use_prepared_statements?
+      end
+      unless lazy
+        size = (params["pool_size"]? || wanted["pool_size"]?).try(&.to_i?) || (pool ? config.pool.size : DEFAULT_ENGINE_POOL_SIZE)
+        wanted["pool_min_size"] = Math.min(pool ? config.pool.initial_size : 1, size).to_s
+      end
+      wanted
     end
 
     # Fails fast (for example at boot in production) when the database is unreachable.
