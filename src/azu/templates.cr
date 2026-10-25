@@ -19,13 +19,21 @@ module Azu
   # ```
   class Templates
     @crinja : Crinja
-    @loader : Crinja::Loader::FileSystemLoader?
+    @loader : Crinja::Loader::ChoiceLoader?
     @template_mtimes : Hash(String, Time) = Hash(String, Time).new
     @template_mtimes_mutex : Mutex = Mutex.new
     @last_check : Time = Time.utc
     @check_interval : Time::Span = 1.second
     @hot_reload_enabled : Bool = false
     @helpers_revision : UInt64? = nil
+
+    # Azu's own error pages, compiled into the binary. They are the last place the loader looks, so an app that
+    # runs from any working directory (or from a container that holds only the binary) always finds them, and a
+    # template of the same name in the app's directories, or in `error_path`, takes precedence.
+    BUILTIN = {
+      "error.html"       => {{ read_file("#{__DIR__}/templates/error.html") }},
+      "error_debug.html" => {{ read_file("#{__DIR__}/templates/error_debug.html") }},
+    }
 
     getter crinja = Crinja.new
     getter path : Array(String)
@@ -121,9 +129,12 @@ module Azu
     end
 
     private def initialize_loader
-      all_paths = ([error_path] + path).uniq
-      @loader = Crinja::Loader::FileSystemLoader.new(all_paths)
-      crinja.loader = @loader.as(Crinja::Loader::FileSystemLoader)
+      loader = Crinja::Loader::ChoiceLoader.new([
+        Crinja::Loader::FileSystemLoader.new((path + [error_path]).uniq).as(Crinja::Loader),
+        Crinja::Loader::HashLoader.new(BUILTIN).as(Crinja::Loader),
+      ])
+      @loader = loader
+      crinja.loader = loader
 
       # Register all built-in helpers and apply to Crinja environment
       Helpers::Builtin.register_all

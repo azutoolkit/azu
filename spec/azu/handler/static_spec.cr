@@ -551,7 +551,7 @@ describe Azu::Handler::Static do
   describe "a public directory that does not exist" do
     missing = File.join(Dir.tempdir, "azu-static-missing-#{Process.pid}")
 
-    it "passes every request on without asking the file system" do
+    it "passes every request on (regression guard; that no file system call is made is shown by the recheck example below)" do
       FileUtils.rm_rf(missing)
       handler = Azu::Handler::Static.new(missing, fallthrough: true)
       next_handler, verify = create_next_handler(1)
@@ -564,7 +564,7 @@ describe Azu::Handler::Static do
       verify.call
     end
 
-    it "answers 404 without fallthrough" do
+    it "answers 404 without fallthrough (regression guard)" do
       FileUtils.rm_rf(missing)
       handler = Azu::Handler::Static.new(missing)
       context, _ = create_context("GET", "/anything.txt")
@@ -572,7 +572,7 @@ describe Azu::Handler::Static do
       context.response.status_code.should eq(404)
     end
 
-    it "still redirects a path that is not in its normal form, and still refuses a null byte" do
+    it "still redirects a path that is not in its normal form, and still refuses a null byte (regression guard)" do
       FileUtils.rm_rf(missing)
       handler = Azu::Handler::Static.new(missing, fallthrough: true)
 

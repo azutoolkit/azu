@@ -43,7 +43,7 @@ module Azu
     end
 
     def refresh_environment : Hash(String, String)
-      @_cached_env = ENV.to_h
+      @_cached_env = Azu::Env.redacted(ENV.to_h)
       @_cache_time = Time.utc
       @_cached_env.as(Hash(String, String))
     end
@@ -123,10 +123,23 @@ module Azu
         json.field "referer", referer
         json.field "endpoint", endpoint
         json.field "method", method
-        json.field "params", params
-        json.field "headers", headers.try(&.to_h)
+        json.field "params", redacted_params
+        json.field "headers", redacted_headers
         json.field "environment", environment
       end
+    end
+
+    # The request headers for display: the value of a credential (Authorization, Cookie, tokens, API keys, matched
+    # by `Azu::Env.redact`) is replaced, the rest is kept.
+    def redacted_headers : Hash(String, Array(String))?
+      headers.try do |all|
+        all.to_h.to_h { |name, values| {name, values.map { |value| Azu::Env.redact(name, value) }} }
+      end
+    end
+
+    # The query parameters for display, with the value of a credential-looking name (`token`, `api_key`, `password`) replaced.
+    def redacted_params : Hash(String, String)?
+      params.try { |all| Azu::Env.redacted(all) }
     end
 
     def to_h
@@ -140,8 +153,8 @@ module Azu
         "referer"     => referer,
         "endpoint"    => endpoint,
         "method"      => method,
-        "params"      => params,
-        "headers"     => headers.try(&.to_h),
+        "params"      => redacted_params,
+        "headers"     => redacted_headers,
         "environment" => environment,
       }
     end

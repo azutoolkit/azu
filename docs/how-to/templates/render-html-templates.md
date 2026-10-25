@@ -74,7 +74,7 @@ public/templates/
 ```
 
 Use the `.jinja`, `.j2` or `.html` extension: those are the files hot reload watches
-(see [Enable Hot Reload](enable-hot-reload.md)). Azu's error pages (`error.html`) are looked up in one more directory, `ERROR_TEMPLATE`, whose default `./src/azu/templates` is also relative to the working directory: outside a checkout of Azu it does not exist, so copy those pages into your own template directory or point `ERROR_TEMPLATE` at them.
+(see [Enable Hot Reload](enable-hot-reload.md)). Azu's error pages (`error.html`, `error_debug.html`) are compiled into the binary, so they are found from any working directory. They are searched last: an `error.html` in your own template directory (or in `ERROR_TEMPLATE`) replaces the built-in page.
 
 A template that cannot be found raises `Crinja::TemplateNotFoundError`.
 
