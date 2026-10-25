@@ -141,8 +141,11 @@ module Azu
         status.value
       end
 
+      # An `error.html` of the app that fails to render must not take the error handler down: the built-in page is used.
       def render(template : String, data)
         templates.load(template).render(data)
+      rescue Crinja::Error | Crinja::TemplateNotFoundError
+        templates.builtin(template).render(data)
       end
 
       def xml
@@ -496,9 +499,6 @@ module Azu
         @source = path
       end
 
-      def render(template : String, data)
-        templates.load("#{template}").render(data)
-      end
     end
   end
 end
