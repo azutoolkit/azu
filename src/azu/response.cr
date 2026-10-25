@@ -163,7 +163,27 @@ module Azu
       XML
       end
 
+      # RFC 7807 problem details (`application/problem+json`), the shape `ValidationError` uses with its
+      # `errors` as a list of messages. `instance` is the request path when the error knows it. The request
+      # context and backtrace are added in development only. `error_format = Legacy` keeps the pre-0.6 body.
       def json
+        return legacy_json if Azu.current_config.error_format.legacy?
+
+        problem = {
+          "type"     => JSON::Any.new("about:blank"),
+          "title"    => JSON::Any.new(title),
+          "status"   => JSON::Any.new(status_code.to_i64),
+          "detail"   => JSON::Any.new(detail),
+          "errors"   => JSON::Any.new(errors.map { |message| JSON::Any.new(message) }),
+          "error_id" => JSON::Any.new(error_id),
+        }
+        problem["instance"] = JSON::Any.new(source) unless source.empty?
+        debug_context.try { |ctx| problem["context"] = JSON.parse(ctx.to_h.to_json) }
+        debug_backtrace.try { |trace| problem["backtrace"] = JSON::Any.new(trace) }
+        problem.to_json
+      end
+
+      private def legacy_json : String
         {
           Status:      status,
           Link:        link,
@@ -201,7 +221,7 @@ module Azu
       end
 
       def json_content_type : String
-        "application/json"
+        Azu.current_config.error_format.legacy? ? "application/json" : "application/problem+json"
       end
 
       def to_s(context : HTTP::Server::Context)
@@ -328,10 +348,6 @@ module Azu
         return legacy_json if Azu.current_config.error_format.legacy?
 
         {type: "about:blank", title: title, status: status_code, detail: detail, errors: field_errors}.to_json
-      end
-
-      def json_content_type : String
-        Azu.current_config.error_format.legacy? ? super : "application/problem+json"
       end
 
       private def legacy_json : String

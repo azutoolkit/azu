@@ -268,7 +268,7 @@ Its output (the log lines `Rescuer` writes for the two errors are left out):
 A in > B in > endpoint call > render > B out (200) > A out (200)
 422 {"type":"about:blank","title":"Validatio
 A in > B in > A out (422)
-400 {"Status":"bad_request","Link":"https://
+400 {"type":"about:blank","title":"Bad Reque
 A in > B in > A out (400)
 ```
 

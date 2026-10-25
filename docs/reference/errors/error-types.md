@@ -217,27 +217,29 @@ raise InsufficientFundsError.new(100.0, 25.0)
 
 ## Error Response Format
 
-`Rescuer` writes an error in the format the `Accept` header asks for: HTML (an error page), JSON, XML or plain
-text. The JSON body is:
+`Rescuer` (and the router, for an unrouted path) writes an error in the format the `Accept` header asks for: HTML (an
+error page), JSON, XML or plain text. The JSON body is RFC 7807 `application/problem+json`, the same shape the `422`
+of a broken request contract uses:
 
 ```json
 {
-  "Status": "unprocessable_entity",
-  "Link": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422",
-  "Title": "Insufficient Funds",
-  "Detail": "Insufficient funds: need $100.0, have $25.0",
-  "Source": "",
-  "Errors": [],
-  "ErrorId": "4f2a...",
-  "Fingerprint": "9c1b...",
-  "Context": null,
-  "Backtrace": null,
-  "Timestamp": "2026-10-22T09:15:30Z"
+  "type": "about:blank",
+  "title": "Insufficient Funds",
+  "status": 422,
+  "detail": "Insufficient funds: need $100.0, have $25.0",
+  "errors": [],
+  "error_id": "4f2a..."
 }
 ```
 
-In development, `Context` and `Backtrace` are filled in. Validation failures use the problem+json body shown above
-unless `error_format` is `Legacy`.
+- `instance` is the request path, present when the error knows it (a `404` does).
+- `errors` is a list of messages here; a `ValidationError` (and the contract `422`) puts an object of field name to
+  messages there.
+- `error_id` is the value of the `X-Error-ID` response header.
+- In development `context` and `backtrace` are added. Production bodies never carry them.
+- `error_format = Legacy` keeps the pre-0.6 PascalCase body (`Status`, `Link`, `Title`, `Detail`, `Source`, `Errors`,
+  `ErrorId`, `Fingerprint`, `Context`, `Backtrace`, `Timestamp`) as `application/json`, for validation failures and for
+  every other error.
 
 ## HTTP Status Codes Summary
 
