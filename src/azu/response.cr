@@ -498,7 +498,6 @@ module Azu
         @detail = "The server can't find the requested resource."
         @source = path
       end
-
     end
   end
 end
