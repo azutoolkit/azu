@@ -29,6 +29,7 @@ module Azu
       end
 
       def hex(bytes : Int32) : String
+        raise ArgumentError.new("random bytes must be between 1 and #{CHUNK}, got #{bytes}") unless 1 <= bytes <= CHUNK
         @mutex.synchronize do
           if @offset + bytes > CHUNK
             Random::Secure.random_bytes(@buffer)
@@ -45,7 +46,9 @@ module Azu
     @@contexts = {} of Fiber => Info
     @@entropy = IdEntropy.new
 
-    # A new request id: `req_<unix ms>_<2 * random_bytes hex digits>`.
+    # :nodoc:
+    #
+    # A new request id: `req_<unix ms>_<2 * random_bytes hex digits>`; 1 to 512 random bytes.
     def self.generate_id(random_bytes : Int32 = 8) : String
       "req_#{Time.utc.to_unix_ms}_#{@@entropy.hex(random_bytes)}"
     end

@@ -196,7 +196,8 @@ module Azu
       route = result.payload
 
       # Store endpoint information in context for logging
-      context.request.headers["X-Azu-Endpoint"] = route.endpoint.class.name unless route.endpoint.labels_request?
+      endpoint_class_name = route.endpoint.class.name
+      context.request.headers["X-Azu-Endpoint"] = endpoint_class_name
 
       route.endpoint.call(context).to_s
     end

@@ -47,6 +47,29 @@ describe "Azu Error Handling" do
       Azu::ErrorContext.from_http_context(http_context, load_environment: true).environment.should_not be_nil
     end
 
+    it "never puts secret environment values, URL passwords or credential headers in the debug context" do
+      ENV["AZU_SPEC_SESSION_SECRET"] = "hunter2-secret"
+      ENV["AZU_SPEC_DATABASE_URL"] = "postgres://app:hunter2-password@db.internal/app"
+      ENV["AZU_SPEC_PLAIN"] = "visible"
+      begin
+        Azu::CachedEnvironment.refresh
+        headers = HTTP::Headers{"Authorization" => "Bearer hunter2-bearer", "Cookie" => "session=hunter2-cookie", "X-CSRF-Token" => "hunter2-csrf", "Accept" => "text/html"}
+        context = Azu::ErrorContext.new(headers: headers, params: {"api_key" => "hunter2-query", "page" => "2"}, _load_environment: true)
+
+        [context.to_json, context.to_h.to_s].each do |dump|
+          dump.should_not contain("hunter2")
+          dump.should contain("[FILTERED]")
+        end
+        context.to_h["environment"].as(Hash(String, String))["AZU_SPEC_PLAIN"].should eq "visible"
+        context.to_h["headers"].as(Hash(String, Array(String)))["Accept"].should eq ["text/html"]
+        context.to_h["params"].as(Hash(String, String))["page"].should eq "2"
+        context.headers.should eq headers # the request itself is untouched
+      ensure
+        %w[AZU_SPEC_SESSION_SECRET AZU_SPEC_DATABASE_URL AZU_SPEC_PLAIN].each { |name| ENV.delete(name) }
+        Azu::CachedEnvironment.refresh
+      end
+    end
+
     it "converts to JSON" do
       context = Azu::ErrorContext.new(
         request_id: "req-123",

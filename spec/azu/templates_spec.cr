@@ -176,8 +176,10 @@ describe Azu::Templates do
       error_path = "/test/errors"
       templates = Azu::Templates.new(path, error_path)
 
-      # The loader should be configured with the paths
-      templates.crinja.loader.should be_a(Crinja::Loader::FileSystemLoader)
+      # The app's paths come first, then the built-in error pages
+      loader = templates.crinja.loader.as(Crinja::Loader::ChoiceLoader)
+      loader.choices.first.should be_a(Crinja::Loader::FileSystemLoader)
+      loader.choices.last.should be_a(Crinja::Loader::HashLoader)
     end
 
     it "includes error path in loader paths" do
@@ -185,8 +187,9 @@ describe Azu::Templates do
       error_path = "/test/errors"
       templates = Azu::Templates.new(path, error_path)
 
-      # The loader should include both template paths and error path
-      templates.crinja.loader.should be_a(Crinja::Loader::FileSystemLoader)
+      # The loader should search the template paths, then the error path
+      loader = templates.crinja.loader.as(Crinja::Loader::ChoiceLoader)
+      loader.choices.first.as(Crinja::Loader::FileSystemLoader).searchpaths.should eq ["/test/templates", "/test/errors"]
     end
   end
 
