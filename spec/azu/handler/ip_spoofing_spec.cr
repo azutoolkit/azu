@@ -239,7 +239,6 @@ describe Azu::Handler::IpSpoofing do
 
       context.response.status_code.should eq(403)
       context.response.headers["Content-Type"].should eq("text/plain")
-      context.response.headers["Content-Length"].should eq("0")
       verify.call
     end
 

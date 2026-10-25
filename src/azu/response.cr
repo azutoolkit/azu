@@ -62,6 +62,8 @@ module Azu
       property context : ErrorContext?
       property error_id : String = Random::Secure.hex(16)
       property fingerprint : String
+      # The request path, set when the error is written for a request; the problem `instance`.
+      property instance : String?
 
       private def templates : Templates
         Azu.current_config.templates
@@ -149,15 +151,15 @@ module Azu
       end
 
       def xml
-        messages = errors.map { |e| "<message>#{e}</message>" }.join("")
+        messages = errors.map { |e| "<message>#{HTML.escape(e)}</message>" }.join("")
         context_xml = debug_context.try { |ctx| build_context_xml(ctx) } || ""
-        backtrace_xml = debug_backtrace.try { |trace| "<backtrace>#{trace}</backtrace>" } || ""
+        backtrace_xml = debug_backtrace.try { |trace| "<backtrace>#{HTML.escape(trace)}</backtrace>" } || ""
 
         <<-XML
       <?xml version="1.0" encoding="UTF-8"?>
-      <error title="#{title}" status="#{status_code}" link="#{link}" id="#{error_id}">
-        <detail>#{detail}</detail>
-        <source>#{source}</source>
+      <error title="#{HTML.escape(title)}" status="#{status_code}" link="#{HTML.escape(link)}" id="#{HTML.escape(error_id)}">
+        <detail>#{HTML.escape(detail)}</detail>
+        <source>#{HTML.escape(source)}</source>
         <fingerprint>#{fingerprint}</fingerprint>
         <errors>#{messages}</errors>
         #{context_xml}
@@ -166,9 +168,10 @@ module Azu
       XML
       end
 
-      # RFC 7807 problem details (`application/problem+json`), the shape `ValidationError` uses with its
-      # `errors` as a list of messages. `instance` is the request path when the error knows it. The request
-      # context and backtrace are added in development only. `error_format = Legacy` keeps the pre-0.6 body.
+      # RFC 7807 problem details, the shape `ValidationError` uses with its `errors` as a list of messages.
+      # `title` is the error's own title (not always the status phrase: `type` is `about:blank`, so read the
+      # status), `instance` is the request path once the error is written for a request. The request context and
+      # backtrace are added in development only. `error_format = Legacy` keeps the pre-0.6 body.
       def json
         return legacy_json if Azu.current_config.error_format.legacy?
 
@@ -180,7 +183,7 @@ module Azu
           "errors"   => JSON::Any.new(errors.map { |message| JSON::Any.new(message) }),
           "error_id" => JSON::Any.new(error_id),
         }
-        problem["instance"] = JSON::Any.new(source) unless source.empty?
+        instance.try { |path| problem["instance"] = JSON::Any.new(path) }
         debug_context.try { |ctx| problem["context"] = JSON.parse(ctx.to_h.to_json) }
         debug_backtrace.try { |trace| problem["backtrace"] = JSON::Any.new(trace) }
         problem.to_json
@@ -223,14 +226,22 @@ module Azu
       def render
       end
 
-      def json_content_type : String
-        Azu.current_config.error_format.legacy? ? "application/json" : "application/problem+json"
+      # `application/problem+json` only for a client whose Accept header names it; any other JSON client gets the
+      # same body as `application/json`. `error_format = Legacy` never sends problem+json.
+      def json_content_type(problem : Bool = false) : String
+        problem && !Azu.current_config.error_format.legacy? ? "application/problem+json" : "application/json"
+      end
+
+      # True when the request's Accept header names `problem+json`.
+      def self.accepts_problem?(context : HTTP::Server::Context) : Bool
+        context.request.headers["Accept"]?.try(&.downcase.includes?("problem+json")) || false
       end
 
       def to_s(context : HTTP::Server::Context)
         context.response.status_code = status_code
         context.response.headers["X-Error-ID"] = error_id
         context.response.headers["X-Error-Fingerprint"] = fingerprint
+        @instance ||= context.request.path
 
         content = if accept = context.request.accept
                     accept.first?.try do |accept_type|
@@ -240,7 +251,7 @@ module Azu
                           context.response.content_type = "text/html"
                           html(context)
                         when .includes?("json")
-                          context.response.content_type = json_content_type
+                          context.response.content_type = json_content_type(Error.accepts_problem?(context))
                           json
                         when .includes?("xml")
                           context.response.content_type = "application/xml"
@@ -285,11 +296,11 @@ module Azu
       private def build_context_xml(ctx : ErrorContext) : String
         String.build do |xml|
           xml << "<context>"
-          xml << "<request_id>#{ctx.request_id}</request_id>" if ctx.request_id
-          xml << "<endpoint>#{ctx.endpoint}</endpoint>" if ctx.endpoint
-          xml << "<method>#{ctx.method}</method>" if ctx.method
-          xml << "<ip_address>#{ctx.ip_address}</ip_address>" if ctx.ip_address
-          xml << "<user_agent>#{ctx.user_agent}</user_agent>" if ctx.user_agent
+          xml << "<request_id>#{HTML.escape(ctx.request_id.to_s)}</request_id>" if ctx.request_id
+          xml << "<endpoint>#{HTML.escape(ctx.endpoint.to_s)}</endpoint>" if ctx.endpoint
+          xml << "<method>#{HTML.escape(ctx.method.to_s)}</method>" if ctx.method
+          xml << "<ip_address>#{HTML.escape(ctx.ip_address.to_s)}</ip_address>" if ctx.ip_address
+          xml << "<user_agent>#{HTML.escape(ctx.user_agent.to_s)}</user_agent>" if ctx.user_agent
           xml << "<timestamp>#{ctx.timestamp.to_rfc3339}</timestamp>"
           xml << "</context>"
         end
@@ -350,7 +361,8 @@ module Azu
       def json
         return legacy_json if Azu.current_config.error_format.legacy?
 
-        {type: "about:blank", title: title, status: status_code, detail: detail, errors: field_errors}.to_json
+        problem = {type: "about:blank", title: title, status: status_code, detail: detail, errors: field_errors}
+        (path = instance) ? problem.merge(instance: path).to_json : problem.to_json
       end
 
       private def legacy_json : String

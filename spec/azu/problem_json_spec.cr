@@ -12,6 +12,18 @@ module ProblemJsonSpec
     end
   end
 
+  struct Leaky
+    include Azu::Endpoint(TestRequest, Azu::Response::Empty)
+
+    get "/leaky"
+
+    def call : Azu::Response::Empty
+      error = Azu::Response::Error.new("Teapot", HTTP::Status::IM_A_TEAPOT, [] of String)
+      error.source = "db.internal:5432"
+      raise error
+    end
+  end
+
   struct Exploding
     include Azu::Endpoint(TestRequest, Azu::Response::Empty)
 
@@ -28,6 +40,7 @@ module ProblemJsonSpec
     app.routes do
       get "/guarded", Guarded
       get "/boom", Exploding
+      get "/leaky", Leaky
     end
     app
   end
@@ -38,11 +51,11 @@ module ProblemJsonSpec
 end
 
 describe "error responses for JSON clients" do
-  it "answers an unrouted path with application/problem+json" do
+  it "answers an unrouted path with a problem document" do
     response = ProblemJsonSpec.get("/missing", "application/json")
 
     response.status_code.should eq 404
-    response.content_type.should eq "application/problem+json"
+    response.content_type.should eq "application/json"
     body = JSON.parse(response.body)
     body["type"].should eq "about:blank"
     body["title"].should eq "Not Found"
@@ -61,7 +74,7 @@ describe "error responses for JSON clients" do
     response = ProblemJsonSpec.get("/guarded", "application/json")
 
     response.status_code.should eq 401
-    response.content_type.should eq "application/problem+json"
+    response.content_type.should eq "application/json"
     body = JSON.parse(response.body)
     body["title"].should eq "Authentication Required"
     body["status"].should eq 401
@@ -72,13 +85,37 @@ describe "error responses for JSON clients" do
     response = ProblemJsonSpec.get("/boom", "application/json")
 
     response.status_code.should eq 500
-    response.content_type.should eq "application/problem+json"
+    response.content_type.should eq "application/json"
     response.body.should_not contain("password authentication")
     JSON.parse(response.body)["status"].should eq 500
   end
 
-  it "also answers Accept: application/problem+json" do
-    ProblemJsonSpec.get("/missing", "application/problem+json").content_type.should eq "application/problem+json"
+  it "labels the body application/problem+json only for a client that names it" do
+    named = ProblemJsonSpec.get("/missing", "application/problem+json")
+    named.content_type.should eq "application/problem+json"
+    JSON.parse(named.body)["title"].should eq "Not Found"
+
+    ProblemJsonSpec.get("/missing", "application/vnd.api+json").content_type.should eq "application/json"
+  end
+
+  it "sets instance to the request path and never to the error's own source" do
+    response = ProblemJsonSpec.get("/leaky", "application/json")
+    response.status_code.should eq 418
+    body = JSON.parse(response.body)
+    body["instance"].should eq "/leaky"
+    response.body.should_not contain "db.internal"
+  end
+
+  it "escapes the error's text in the XML body" do
+    error = Azu::Response::Error.new("<b>&\"", HTTP::Status::BAD_REQUEST, ["<i>"])
+    error.detail = "</detail><x/>"
+    error.source = "</source>"
+    xml = error.xml
+    xml.should contain "title=\"&lt;b&gt;&amp;&quot;\""
+    xml.should contain "<detail>&lt;/detail&gt;&lt;x/&gt;</detail>"
+    xml.should contain "<source>&lt;/source&gt;</source>"
+    xml.should contain "<message>&lt;i&gt;</message>"
+    XML.parse(xml).root.should_not be_nil
   end
 
   it "carries the error id in the body as it does in the X-Error-ID header" do
@@ -97,10 +134,10 @@ describe "error responses for JSON clients" do
     body["backtrace"].as_s.should contain("password authentication")
   end
 
-  it "keeps the pre-0.6 body behind error_format = Legacy" do
+  it "keeps the pre-0.6 body behind error_format = Legacy, even for a client that names problem+json" do
     app = ProblemJsonSpec.app
     app.config.error_format = Azu::ErrorFormat::Legacy
-    response = ProblemJsonSpec.get("/missing", "application/json", app)
+    response = ProblemJsonSpec.get("/missing", "application/problem+json", app)
 
     response.content_type.should eq "application/json"
     JSON.parse(response.body)["Title"].should eq "Not Found"

@@ -232,7 +232,9 @@ of a broken request contract uses:
 }
 ```
 
-- `instance` is the request path, present when the error knows it (a `404` does).
+- `instance` is the request path (set when the error is written for a request) and never the error's own `source`.
+- `title` is the error's own title, not always the status phrase; `status` and `detail` tell the rest.
+- `Content-Type` is `application/problem+json` for a client whose `Accept` names it, `application/json` for any other JSON client (the body is the same).
 - `errors` is a list of messages here; a `ValidationError` (and the contract `422`) puts an object of field name to
   messages there.
 - `error_id` is the value of the `X-Error-ID` response header.

@@ -362,7 +362,7 @@ curl -X POST http://localhost:4000/users \
   -d '{"name": "A", "email": "bad"}'
 ```
 
-Response (`422`, `application/problem+json`):
+Response (`422`, a problem document):
 
 ```json
 {

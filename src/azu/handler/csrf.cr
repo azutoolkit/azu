@@ -295,8 +295,7 @@ module Azu
           Log.warn { "CSRF token validation failed for #{context.request.method} #{context.request.path}" }
           Log.debug { "Request headers: #{context.request.headers.inspect}" }
 
-          context.response.status = HTTP::Status::FORBIDDEN
-          context.response.print "CSRF token validation failed"
+          Response::AuthorizationError.new("CSRF token validation failed").to_s(context)
         end
       end
 

@@ -190,7 +190,7 @@ raise Azu::Response::ValidationError.new({
 raise Azu::Response::ValidationError.new("email", "is invalid")
 ```
 
-By default the body is RFC 7807 `application/problem+json`:
+By default the body is an RFC 7807 problem document (`Content-Type: application/problem+json` for a client that names it in `Accept`, `application/json` otherwise):
 
 ```json
 {"type": "about:blank", "title": "Validation Error", "status": 422,
@@ -199,8 +199,8 @@ By default the body is RFC 7807 `application/problem+json`:
 ```
 
 Every other `Response::Error` (a `404` from the router, `BadRequest`, `AuthenticationError`, an unhandled exception
-turned into a `500`, ...) answers JSON clients with the same envelope, `application/problem+json`, `errors` being a list
-of messages: see [Error Types](../errors/error-types.md#error-response-format).
+turned into a `500`, ...) answers JSON clients with the same envelope, `errors` being a list of messages (the
+`Content-Type` is `application/problem+json` for a client that names it in `Accept`, `application/json` otherwise): see [Error Types](../errors/error-types.md#error-response-format).
 
 Set `config.error_format = Azu::ErrorFormat::Legacy` to keep the pre-0.6 bodies (`FieldErrors`, `ErrorId`, ... and the
 PascalCase body of the other errors) as `application/json` for one more minor release.

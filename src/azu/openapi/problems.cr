@@ -4,7 +4,8 @@ module Azu::OpenAPI
   # The error bodies Azu answers with, described once as shared components:
   #
   # * `Azu.ValidationProblem`: the RFC 7807 `application/problem+json` body of a 422, as
-  #   `Response::ValidationError#json` writes it;
+  #   `Response::ValidationError#json` writes it (also sent as `application/json` to a client that does not
+  #   name problem+json in Accept);
   # * `Azu.Error`: the `application/problem+json` body every other `Response::Error` (400, 404 and the
   #   rest) writes when the client accepts JSON;
   # * `Azu.LegacyValidationError` and `Azu.LegacyError`: the `application/json` bodies of an app with
@@ -14,6 +15,10 @@ module Azu::OpenAPI
     ERROR        = "Azu.Error"
     LEGACY       = "Azu.LegacyValidationError"
     LEGACY_ERROR = "Azu.LegacyError"
+
+    # The same body is sent as `application/problem+json` to a client that names it in Accept and as
+    # `application/json` to any other.
+    PROBLEM_MEDIA_TYPES = ["application/problem+json", "application/json"]
 
     BAD_REQUEST       = "BadRequest"
     NOT_FOUND         = "NotFound"
@@ -50,11 +55,12 @@ module Azu::OpenAPI
         VALIDATION => Map{
           "type"       => "object",
           "properties" => Map{
-            "type"   => Map{"type" => "string"},
-            "title"  => Map{"type" => "string"},
-            "status" => Map{"type" => "integer"},
-            "detail" => Map{"type" => "string"},
-            "errors" => Map{
+            "type"     => Map{"type" => "string"},
+            "title"    => Map{"type" => "string"},
+            "status"   => Map{"type" => "integer"},
+            "detail"   => Map{"type" => "string"},
+            "instance" => Map{"type" => "string", "description" => "The request path."},
+            "errors"   => Map{
               "type"                 => "object",
               "additionalProperties" => Map{"type" => "array", "items" => Map{"type" => "string"}},
             },
@@ -68,7 +74,7 @@ module Azu::OpenAPI
             "title"     => Map{"type" => "string"},
             "status"    => Map{"type" => "integer"},
             "detail"    => Map{"type" => "string"},
-            "instance"  => Map{"type" => "string", "description" => "The request path, when the error knows it."},
+            "instance"  => Map{"type" => "string", "description" => "The request path."},
             "errors"    => Map{"type" => "array", "items" => Map{"type" => "string"}},
             "error_id"  => Map{"type" => "string"},
             "context"   => Map{"type" => "object", "description" => "Development only."},
@@ -99,7 +105,7 @@ module Azu::OpenAPI
       Map{
         BAD_REQUEST       => error_response("The request could not be parsed.", legacy),
         NOT_FOUND         => error_response("Nothing is routed there, or the endpoint found nothing.", legacy),
-        VALIDATION_FAILED => legacy ? response("The request broke its contract.", "application/json", LEGACY) : response("The request broke its contract.", "application/problem+json", VALIDATION),
+        VALIDATION_FAILED => legacy ? response("The request broke its contract.", ["application/json"], LEGACY) : response("The request broke its contract.", PROBLEM_MEDIA_TYPES, VALIDATION),
       }
     end
 
@@ -113,14 +119,13 @@ module Azu::OpenAPI
     end
 
     private def self.error_response(description : String, legacy : Bool) : Map
-      response(description, legacy ? "application/json" : "application/problem+json", error_schema(legacy))
+      response(description, legacy ? ["application/json"] : PROBLEM_MEDIA_TYPES, error_schema(legacy))
     end
 
-    private def self.response(description : String, media_type : String, schema : String) : Map
-      Map{
-        "description" => description,
-        "content"     => Map{media_type => Map{"schema" => Map{"$ref" => "#/components/schemas/#{schema}"}}},
-      }
+    private def self.response(description : String, media_types : Array(String), schema : String) : Map
+      content = Map.new
+      media_types.each { |media_type| content[media_type] = Map{"schema" => Map{"$ref" => "#/components/schemas/#{schema}"}} }
+      Map{"description" => description, "content" => content}
     end
   end
 end

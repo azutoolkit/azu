@@ -21,6 +21,20 @@ module AppStartSpec
     end
   end
 
+  ENTERED = ::Channel(Nil).new(4)
+  GATE    = ::Channel(Nil).new
+
+  struct Slow
+    include Azu::Routable
+
+    def call(context : HTTP::Server::Context)
+      ENTERED.send(nil)
+      GATE.receive
+      context.response << "finished"
+      context
+    end
+  end
+
   # An app on an ephemeral loopback port.
   def self.app(path : String, routable : Azu::Routable) : Azu::App
     app = Azu::App.new
@@ -42,6 +56,11 @@ module AppStartSpec
     finished
   end
 
+  # Waits until the process-wide signal trap of `start` is in place.
+  def self.trapped : Bool
+    wait_until { Azu::App.signals_trapped? }
+  end
+
   def self.client(app : Azu::App) : HTTP::Client
     address = bound(app)
     HTTP::Client.new(address.address, address.port)
@@ -53,6 +72,18 @@ module AppStartSpec
 end
 
 describe "Azu::App#start" do
+  # `Azu.shutdown` (teardown) stops the process-wide PubSub, presence and Redis; put them back for the other specs.
+  around_each do |example|
+    pub_sub = Azu::PubSub.backend
+    presence = Azu::Presence.default
+    begin
+      example.run
+    ensure
+      Azu::PubSub.backend = pub_sub
+      Azu::Presence.default = presence
+    end
+  end
+
   it "serves an app built as a value, without the global CONFIG" do
     app = AppStartSpec.app("/hello", AppStartSpec::Hello.new)
     finished = AppStartSpec.boot(app, teardown: false, signals: false)
@@ -145,6 +176,7 @@ describe "Azu::App#start" do
   it "stops on SIGTERM when it traps signals, and lets go of the signal afterwards" do
     app = AppStartSpec.app("/ping", AppStartSpec::Ping.new)
     finished = AppStartSpec.boot(app, teardown: false)
+    AppStartSpec.trapped.should be_true
 
     Process.signal(Signal::TERM, Process.pid)
     select
@@ -153,6 +185,7 @@ describe "Azu::App#start" do
       fail "the app did not stop on SIGTERM"
     end
     app.draining?.should be_true
+    Azu::App.signals_trapped?.should be_false
   end
 
   it "stops every running app on SIGTERM" do
@@ -160,6 +193,7 @@ describe "Azu::App#start" do
     second = AppStartSpec.app("/ping", AppStartSpec::Ping.new)
     done_first = AppStartSpec.boot(first, teardown: false)
     done_second = AppStartSpec.boot(second, teardown: false)
+    AppStartSpec.trapped.should be_true
 
     Process.signal(Signal::TERM, Process.pid)
     [done_first, done_second].each do |finished|
@@ -171,6 +205,81 @@ describe "Azu::App#start" do
     end
   end
 
+  it "starts once: an app that has stopped raises AlreadyStopped" do
+    app = AppStartSpec.app("/ping", AppStartSpec::Ping.new)
+    finished = AppStartSpec.boot(app, teardown: false, signals: false)
+    app.stop(2.seconds)
+    finished.receive
+
+    expect_raises(Azu::App::AlreadyStopped, /build a new Azu::App/) { app.start(teardown: false, signals: false) }
+    app.running?.should be_false
+  end
+
+  it "refuses to start an app that began shutting down before it ran" do
+    app = AppStartSpec.app("/ping", AppStartSpec::Ping.new)
+    app.begin_shutdown
+    expect_raises(Azu::App::AlreadyStopped) { app.start(teardown: false, signals: false) }
+  end
+
+  it "leaves nothing behind when the port is taken, and can be started again with the same handlers" do
+    prepared = 0
+    Azu::Instrumentation.on_prepare { |_config| prepared += 1 }
+    taken = TCPServer.new("127.0.0.1", 0)
+    begin
+      app = AppStartSpec.app("/ping", AppStartSpec::Ping.new)
+      app.config.port_reuse = false
+      app.config.port = taken.local_address.port
+      handlers = [Azu::Handler::RequestId.new] of HTTP::Handler
+
+      expect_raises(Socket::BindError) { app.start(handlers, teardown: false, signals: false) }
+
+      app.running?.should be_false
+      app.address.should be_nil
+      handlers.first.next.should be_nil
+      prepared.should eq 0
+
+      app.config.port = 0
+      finished = AppStartSpec.boot(app, handlers, teardown: false, signals: false)
+      AppStartSpec.client(app).get("/ping").body.should eq "pong"
+      prepared.should eq 1
+      app.stop(2.seconds)
+      finished.receive
+    ensure
+      taken.close
+    end
+  end
+
+  it "has no address once the server has closed" do
+    app = AppStartSpec.app("/ping", AppStartSpec::Ping.new)
+    finished = AppStartSpec.boot(app, teardown: false, signals: false)
+    app.stop(2.seconds)
+    finished.receive
+    app.address.should be_nil
+  end
+
+  it "gives an app started while another drains its own signal trap" do
+    first = AppStartSpec.app("/slow", AppStartSpec::Slow.new)
+    done_first = AppStartSpec.boot(first, teardown: false)
+    AppStartSpec.trapped.should be_true
+    spawn { AppStartSpec.client(first).get("/slow") rescue nil }
+    AppStartSpec::ENTERED.receive
+
+    Process.signal(Signal::TERM, Process.pid)
+    wait_until { first.draining? }.should be_true
+    Azu::App.signals_trapped?.should be_false # the signal put the default handlers back
+
+    second = AppStartSpec.app("/ping", AppStartSpec::Ping.new)
+    done_second = AppStartSpec.boot(second, teardown: false)
+    AppStartSpec.trapped.should be_true
+
+    AppStartSpec::GATE.send(nil)
+    done_first.receive
+    Azu::App.signals_trapped?.should be_true # the second app still owns its trap
+    second.stop(2.seconds)
+    done_second.receive
+    Azu::App.signals_trapped?.should be_false
+  end
+
   it "logs one INFO line when the environment is the default" do
     saved = ENV["CRYSTAL_ENV"]?
     saved_host = ENV["HOST"]?
@@ -179,6 +288,7 @@ describe "Azu::App#start" do
     begin
       app = Azu::App.new
       app.config.port = 0
+      app.config.container = false
       app.config.log = ::Log.for("spec.app_start")
       logs = ::Log.capture("spec.app_start") do
         finished = AppStartSpec.boot(app, teardown: false, signals: false)
@@ -199,28 +309,42 @@ module AppStartSpec::Facade
 end
 
 describe "the include Azu facade" do
-  it "starts App.default through App#start" do
+  # App.default cannot start again once it has stopped, and Azu.shutdown stops the process-wide parts: give the example
+  # its own default app and put everything back.
+  around_each do |example|
+    original = Azu::App.default
     config = Azu::CONFIG
     saved = {config.host, config.port}
+    pub_sub = Azu::PubSub.backend
+    presence = Azu::Presence.default
+    Azu::App.default = Azu::App.new(config)
+    begin
+      example.run
+    ensure
+      Azu::App.default = original
+      config.host, config.port = saved
+      Azu::PubSub.backend = pub_sub
+      Azu::Presence.default = presence
+    end
+  end
+
+  it "starts App.default through App#start" do
+    config = Azu::CONFIG
     config.host = "127.0.0.1"
     config.port = 0
     app = Azu::App.default
-    app.router.get "/facade-ping", AppStartSpec::Ping.new
     finished = ::Channel(Nil).new
     spawn(name: "facade-start-spec") do
       AppStartSpec::Facade.start([] of HTTP::Handler)
     ensure
       finished.send(nil)
     end
-    begin
-      wait_until { app.address }.should be_true
-      AppStartSpec.client(app).get("/facade-ping").body.should eq "pong"
-      config.handlers.should be_empty
-      app.stop(2.seconds)
-      finished.receive
-    ensure
-      config.host, config.port = saved
-    end
+    wait_until { app.address }.should be_true
+    AppStartSpec.client(app).get("/nothing-routed").status_code.should eq 404 # answered by App.default's router
+    app.running?.should be_true
+    config.handlers.should be_empty
+    app.stop(2.seconds)
+    finished.receive
   end
 
   it "does not log a deprecation warning" do

@@ -98,7 +98,7 @@ routing support.
 ## 406 Not Acceptable
 
 When no format matches, the answer is `406` with `Vary: Accept` and a body that lists what can be
-rendered, in `application/problem+json` (RFC 7807), in the style of the 422 of a failed contract:
+rendered, as an RFC 7807 problem document (`application/problem+json` when the client names it in `Accept`, `application/json` otherwise), in the style of the 422 of a failed contract:
 
 ```json
 {
@@ -110,7 +110,8 @@ rendered, in `application/problem+json` (RFC 7807), in the style of the 422 of a
 }
 ```
 
-With `error_format = Azu::ErrorFormat::Legacy` the same body is sent as `application/json`. It is JSON
+It is sent as `application/problem+json` only when the Accept header names it, otherwise as `application/json` (always so with
+`error_format = Azu::ErrorFormat::Legacy`). It is JSON
 whatever the client accepts, since it just said it accepts nothing the response renders.
 
 An endpoint declared with a `Negotiable` response type (`Endpoint(Request, UserPage)`) refuses the
