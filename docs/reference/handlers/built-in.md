@@ -135,7 +135,8 @@ Azu::Handler::SecurityHeaders.new(
 Sets `X-Content-Type-Options: nosniff`, `X-Frame-Options`, `Referrer-Policy`, and, only when asked,
 `Content-Security-Policy` (the string you pass) and `Strict-Transport-Security: max-age=31536000; includeSubDomains`
 (`hsts: true`). A header the application already set is left alone, so one endpoint can loosen a policy. Enable
-HSTS only for sites served over HTTPS; browsers remember it.
+HSTS only for sites served over HTTPS; browsers remember it. A value a header cannot carry (a line break, for one)
+raises `ArgumentError` when the handler is built, not on each request.
 
 ## Handler::Static
 
