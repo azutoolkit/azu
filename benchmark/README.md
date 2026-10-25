@@ -210,3 +210,17 @@ requires `../../common/bench` and serves the routes of the contract on `HOST` an
 `BENCH_DB` for the database. Add it to `manifest.json`. A scenario needs a contract entry in
 `benchmark/driver/contract.mjs`, an entry in `manifest.json` (and a wrk Lua script if it must vary the request), and the
 route in every app; `scripts/bench.sh conformance` tells you which app is missing it.
+
+## In-process hot path (no network)
+
+```sh
+crystal build --release --no-debug benchmark/micro/hot_path.cr -o bin/hot_path && bin/hot_path
+```
+
+prints one row per stack (`baseline`, `azu-min`, `azu`) and scenario (`/plaintext`, one parameterised URL, and
+`routing (cycling)`, the URLs of `routing.lua`): bytes and nanoseconds per request through the same
+`HTTP::Server::RequestProcessor` that serves a connection, without a socket or `wrk`. What `azu` and `azu-min` add
+over `baseline` is the framework's cost per request. **Bytes/request is exact and repeatable**, and
+`spec/azu/allocation_budget_spec.cr` guards it in CI (its budgets are calibrated on the whole-suite build, which
+measures a little more than a single-file one). **ns/request is for same-session before/after comparisons only**: it
+is wall time including setup and warmup, and moves with the machine.

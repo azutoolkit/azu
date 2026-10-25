@@ -1,14 +1,22 @@
 require "../../src/azu"
 
-# Bytes allocated per request by Azu's default stack and by a hand-written handler, both driven through the
-# RequestProcessor HTTP::Server builds per connection: the difference is Azu's cost. Types mirror benchmark/apps/azu.
+# Bytes allocated per request by three stacks, each driven through the RequestProcessor HTTP::Server builds per
+# connection: the default Azu stack, azu-min (router, endpoint and Rescuer) and a hand-written baseline handler. The
+# difference over the baseline is the framework's cost. `bytes_per_call` measures a block the same way, for component
+# checks. The routes mirror benchmark/apps/azu, except that one resource endpoint serves all 100 routes with a
+# simplified body (`{"route":"resource","id":...}`, the bench app has a struct per route); that does not change the
+# difference over the baseline.
 module HotPath
   WARMUP_REQUESTS =  200
   WINDOW_REQUESTS = 2000
   WINDOWS         =    3
-  BODY            = "Hello, World!"
-  RESOURCE_PATH   = "/api/v1/resource57/123"
-  RESOURCE_BODY   = %({"route":"resource","id":"123"})
+  # More than the router's path cache holds (1000 entries), so the measured routing requests mostly miss it.
+  ROUTING_WARMUP_REQUESTS = 1200
+  REQUESTS_DRIVEN         = WARMUP_REQUESTS + WINDOWS * WINDOW_REQUESTS
+  ROUTING_REQUESTS_DRIVEN = ROUTING_WARMUP_REQUESTS + WINDOWS * WINDOW_REQUESTS
+  BODY                    = "Hello, World!"
+  RESOURCE_PATH           = "/api/v1/resource57/123"
+  RESOURCE_BODY           = %({"route":"resource","id":"123"})
   # Static builds paths under its dir per request: a cwd-relative dir would make bytes grow with the cwd's length.
   STATIC_DIR = "/azu-hot-path/public"
 
@@ -60,18 +68,36 @@ module HotPath
     end
   end
 
-  # Allocated bytes per request on `path`: see `smallest_per_request`.
+  # The URL routing.lua requests as its `n`th.
+  def self.routing_path(n : Int32) : String
+    "/api/v1/resource#{n % 100}/#{n % 997}"
+  end
+
+  # Allocated bytes per request on `path`: see `smallest_per_iteration`.
   def self.bytes_per_request(stack : Stack, path : String) : Float64
     processor = HTTP::Server::RequestProcessor.new(handler(stack))
-    allocated_bytes(processor, path, WARMUP_REQUESTS)
-    smallest_per_request { allocated_bytes(processor, path, WINDOW_REQUESTS) }
+    allocated_bytes(processor, requests(path, WARMUP_REQUESTS))
+    smallest_per_iteration { allocated_bytes(processor, requests(path, WINDOW_REQUESTS)) }
+  end
+
+  # The same for the routing scenario: request n is `routing_path(n)` and n never restarts, so a measured path is new
+  # to the router, which by then holds a full path cache, as under wrk.
+  def self.bytes_per_routing_request(stack : Stack) : Float64
+    processor = HTTP::Server::RequestProcessor.new(handler(stack))
+    allocated_bytes(processor, routing_requests(1, ROUTING_WARMUP_REQUESTS))
+    next_n = 1 + ROUTING_WARMUP_REQUESTS
+    smallest_per_iteration do
+      window = routing_requests(next_n, WINDOW_REQUESTS)
+      next_n += WINDOW_REQUESTS
+      allocated_bytes(processor, window)
+    end
   end
 
   # Allocated bytes per call of the block. It is yielded, never captured: a block or proc argument would allocate its
-  # closure inside the window.
+  # closure inside the window. It runs on the caller's fiber, so a block that yields lets other fibers' garbage in.
   def self.bytes_per_call(& : ->) : Float64
     WARMUP_REQUESTS.times { yield }
-    smallest_per_request { allocated_during { WINDOW_REQUESTS.times { yield } } }
+    smallest_per_iteration { allocated_during { WINDOW_REQUESTS.times { yield } } }
   end
 
   # The raw response to `count` requests on one connection, so a stack that fails or 404s is caught instead of
@@ -82,7 +108,7 @@ module HotPath
 
   # The smallest of several windows, because stray allocations (a timer, the scheduler) can only add to a window,
   # never remove from it.
-  private def self.smallest_per_request(& : -> UInt64) : Float64
+  private def self.smallest_per_iteration(& : -> UInt64) : Float64
     (1..WINDOWS).min_of { yield }.to_f / WINDOW_REQUESTS
   end
 
@@ -94,8 +120,7 @@ module HotPath
 
   # One keep-alive connection, as wrk's. The processor never yields (memory in, NullIO out), so nothing else runs in the
   # window; the fresh fiber starts, like a connection fiber, with no fiber-local state (RequestContext, Log context).
-  private def self.allocated_bytes(processor : HTTP::Server::RequestProcessor, path : String, count : Int32) : UInt64
-    input = requests(path, count)
+  private def self.allocated_bytes(processor : HTTP::Server::RequestProcessor, input : IO::Memory) : UInt64
     output = NullIO.new
     allocated = Channel(UInt64).new
     spawn { allocated.send allocated_during { processor.process(input, output) } }
@@ -103,7 +128,15 @@ module HotPath
   end
 
   private def self.requests(path : String, count : Int32) : IO::Memory
-    IO::Memory.new("GET #{path} HTTP/1.1\r\nHost: 127.0.0.1:3000\r\n\r\n" * count)
+    IO::Memory.new(request(path) * count)
+  end
+
+  private def self.routing_requests(first : Int32, count : Int32) : IO::Memory
+    IO::Memory.new((first...first + count).join { |n| request(routing_path(n)) })
+  end
+
+  private def self.request(path : String) : String
+    "GET #{path} HTTP/1.1\r\nHost: 127.0.0.1:3000\r\n\r\n"
   end
 
   private def self.handler(stack : Stack) : HTTP::Handler | HTTP::Handler::HandlerProc
