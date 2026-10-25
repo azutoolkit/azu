@@ -246,6 +246,11 @@ Behaviour seen by running it:
   picked up within a second (the handler looks for a missing one again at most once a second); once found it is not
   checked again. With no public directory and `fallthrough: true`, a plain path (no `%`, NUL, backslash, `//`, `/.` or trailing
   slash) falls through before any path work and allocates nothing; any other path takes the full route (decode, refuse or redirect).
+- With a public directory and `fallthrough: true`, a plain path whose first segment names no top-level entry of it (compared
+  ignoring ASCII case; a non-ASCII segment always takes the full route) also falls through, with no file system call and no
+  allocation per request. The handler
+  reads the entry names again when the directory's modification time changes, checked at most once a second, so a top-level
+  file or directory added after boot is served within a second; files added below an existing entry are served at once.
 - A file in `public/` shadows a route with the same path, so keep only public files there.
 
 ## Handler::Compression

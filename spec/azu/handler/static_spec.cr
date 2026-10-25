@@ -765,6 +765,55 @@ describe Azu::Handler::Static do
     {% end %}
   end
 
+  describe "a public directory that exists" do
+    {% if flag?(:preview_mt) %}
+      # GC.stats.total_bytes counts every thread, so a window would include the other workers' garbage
+      pending "passes a path whose first segment names no entry on without allocating"
+    {% else %}
+      it "passes a path whose first segment names no entry on without allocating" do
+        with_temp_dir({"robots.txt" => "robots", "assets/app.css" => "body {}"}) do |dir|
+          static_bytes(dir, "/plaintext").should be < 1
+          static_bytes(dir, "/api/v1/resource57/123").should be < 1
+        end
+      end
+
+      it "looks up a path whose first segment names an entry, or might on a case-insensitive file system" do
+        with_temp_dir({"robots.txt" => "robots", "assets/app.css" => "body {}"}) do |dir|
+          # The full lookup allocates; on this file system each then falls through as before
+          ["/assets/missing.css", "/ROBOTS.TXT", "/Assets/app.css", "/röbots.txt"].each do |path|
+            static_bytes(dir, path).should be > 0
+          end
+        end
+      end
+    {% end %}
+
+    it "serves a top-level file added after boot once the directory is looked at again, not before" do
+      with_temp_dir({"robots.txt" => "robots"}) do |dir|
+        with_fake_clock do |clock|
+          handler = Azu::Handler::Static.new(dir, fallthrough: true)
+          next_handler, verify = create_next_handler(2)
+          handler.next = next_handler
+
+          context, io = create_context("GET", "/late.txt")
+          handler.call(context)
+          get_response_body(context, io).should eq("OK")
+
+          File.write(File.join(dir, "late.txt"), "created after boot")
+          # Within the recheck interval the handler still knows the entries it read
+          context, io = create_context("GET", "/late.txt")
+          handler.call(context)
+          get_response_body(context, io).should eq("OK")
+
+          clock.advance(Azu::Handler::Static::MISSING_DIRECTORY_RECHECK + 1.millisecond)
+          context, io = create_context("GET", "/late.txt")
+          handler.call(context)
+          get_response_body(context, io).should eq("created after boot")
+          verify.call
+        end
+      end
+    end
+  end
+
   describe "a request for a directory" do
     it "redirects to the path with a single trailing slash" do
       with_temp_dir({"subdir/file.txt" => "content"}) do |dir|

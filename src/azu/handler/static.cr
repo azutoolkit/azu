@@ -13,10 +13,19 @@ module Azu
       # The hash has at least one letter, so a date (`report-20240101.pdf`) is not one.
       FINGERPRINTED = /[-.](?=[0-9]*[a-f])[0-9a-f]{8,}(?:\.[a-z0-9]+)+\z/i
 
-      # How long a public directory that does not exist is believed to stay missing. An application with no
-      # `public/` pays no file system calls per request, and one created after boot is served from the next
-      # check on.
+      # How long a public directory that does not exist is believed to stay missing, and how long the entry names
+      # of one that does are believed unchanged. An application with no `public/` pays no file system calls per
+      # request, and a request whose first path segment names no entry of `public/` pays none either. A directory
+      # created after boot, or a top-level entry added to it, is served from the next check on.
       MISSING_DIRECTORY_RECHECK = 1.second
+
+      # A directory modified less than this before its entries were read is read again at the next check: on a file
+      # system with coarse timestamps an entry added in the same tick would leave the modification time unchanged.
+      private COARSE_MTIME = 2.seconds
+
+      # FNV-1a, 64-bit
+      private FINGERPRINT_BASIS = 0xcbf29ce484222325_u64
+      private FINGERPRINT_PRIME =      0x100000001b3_u64
 
       HTML_TYPE = "text/html; charset=utf-8"
 
@@ -110,11 +119,16 @@ module Azu
         @clock_origin = Clock.instant
         @public_dir_found = Atomic(Bool).new(false)
         @next_directory_check = Atomic(Int64).new(0_i64)
+        @next_entries_check = Atomic(Int64).new(0_i64)
         public_dir?
       end
 
       @excluded : Array(Array(String))
       @mime_types : Hash(String, String)
+      # Fingerprints of the public directory's entry names, nil when they could not be read
+      @entries : Set(UInt64)? = nil
+      # The modification time `@entries` were read at, nil when it is not trusted
+      @entries_mtime : Time? = nil
 
       def call(context : HTTP::Server::Context)
         return allow_get_or_head(context) unless method_get_or_head?(context.request.method)
@@ -149,7 +163,7 @@ module Azu
 
       private def public_dir? : Bool
         return true if @public_dir_found.get
-        now = (Clock.instant - @clock_origin).total_nanoseconds.to_i64
+        now = clock_nanoseconds
         return false if now < @next_directory_check.get
 
         if Dir.exists?(@public_dir)
@@ -160,9 +174,53 @@ module Azu
         end
       end
 
-      # With no public directory a plain path can only fall through; decoding and expanding it would allocate.
+      private def clock_nanoseconds : Int64
+        (Clock.instant - @clock_origin).total_nanoseconds.to_i64
+      end
+
+      # A plain path that cannot name anything under the public directory can only fall through; decoding,
+      # expanding and looking it up would allocate and ask the file system.
       private def falls_through_early?(path : String) : Bool
-        @fallthrough && !public_dir? && plain_path?(path)
+        return false unless @fallthrough && plain_path?(path)
+        !public_dir? || !maybe_entry?(path)
+      end
+
+      # Whether the first segment of a plain path may name an entry of the public directory: its fingerprint is
+      # one of the entries'. The root may (`index.html`), and so may a segment with a non-ASCII byte, which a
+      # case-insensitive or normalizing file system can resolve to a name spelled otherwise.
+      private def maybe_entry?(path : String) : Bool
+        segment = path.to_slice[1, (path.byte_index('/'.ord, 1) || path.bytesize) - 1]
+        return true if segment.empty? || segment.any? { |byte| byte >= 0x80 }
+        refresh_entries
+        entries = @entries
+        entries.nil? || entries.includes?(fingerprint(segment))
+      end
+
+      # Reads the entry names again when the directory's modification time changed, at most once per
+      # MISSING_DIRECTORY_RECHECK; one fiber reads, the others keep the names they have meanwhile.
+      private def refresh_entries : Nil
+        now = clock_nanoseconds
+        due = @next_entries_check.get
+        return if now < due
+        return unless @next_entries_check.compare_and_set(due, now + MISSING_DIRECTORY_RECHECK.total_nanoseconds.to_i64)[1]
+
+        mtime = File.info?(@public_dir).try(&.modification_time)
+        return if mtime && mtime == @entries_mtime
+        @entries = mtime ? Dir.children(@public_dir).to_set { |name| fingerprint(name.downcase(:fold).to_slice) } : Set(UInt64).new
+        trusted = mtime && Clock.now - mtime >= COARSE_MTIME
+        @entries_mtime = trusted ? mtime : nil
+      rescue IO::Error
+        @entries = nil
+        @entries_mtime = nil
+      end
+
+      # Two names that differ only in ASCII case share a fingerprint, as a case-insensitive file system would
+      # resolve one to the other. A name that shares one by chance only takes its request down the full lookup.
+      private def fingerprint(name : Bytes) : UInt64
+        name.reduce(FINGERPRINT_BASIS) do |hash, byte|
+          byte += 32 if 'A'.ord <= byte <= 'Z'.ord
+          (hash ^ byte) &* FINGERPRINT_PRIME
+        end
       end
 
       # A path `call` would neither decode, refuse nor redirect: it has no escape, NUL or backslash (a separator

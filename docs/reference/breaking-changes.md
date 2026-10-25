@@ -180,7 +180,9 @@ read. `Router#process` returns `""` for a routed request instead of the renderin
 
 **A request id is cut from a buffered chunk of secure random bytes.** The format `req_<ms>_<16 hex>` is unchanged.
 
-**A `Static` public directory created after boot is picked up within a second**, not at once.
+**A `Static` public directory created after boot is picked up within a second**, not at once, **and so is a top-level
+file or directory added to an existing one** (`Handler::Static` reads the top-level names again when the directory's
+modification time changes, at most once a second).
 
 **A Redis cache needs an explicit URL, and `clear` only removes the cache's own keys.**
 
