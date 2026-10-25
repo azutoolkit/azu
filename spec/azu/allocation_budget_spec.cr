@@ -16,6 +16,14 @@ private def bytes_over_baseline(stack : HotPath::Stack, path : String) : Float64
   HotPath.measure(stack, path).bytes - HotPath.measure(HotPath::Stack::Baseline, path).bytes
 end
 
+# What Static falls through to; it answers nothing, so the measured bytes are Static's own.
+private class NoopHandler
+  include HTTP::Handler
+
+  def call(context : HTTP::Server::Context)
+  end
+end
+
 describe "allocation budget" do
   it "answers /plaintext with the body on every stack it measures" do
     HotPath::Stack.each do |stack|
@@ -93,6 +101,7 @@ describe "allocation budget" do
     pending "measures the cycling routing scenario"
     pending "measures nothing for a block that allocates nothing"
     pending "measures what a block allocates"
+    pending "Static allocates nothing on a routed path when the public directory does not exist"
   {% else %}
     it "keeps the default stack on /plaintext within its budget over the baseline" do
       bytes_over_baseline(HotPath::Stack::Azu, "/plaintext").should be <= PLAINTEXT_AZU_BUDGET
@@ -134,6 +143,16 @@ describe "allocation budget" do
     it "measures what a block allocates" do
       # The positive control: without it the helper could report 0 for everything and still pass the check above
       HotPath.bytes_per_call { "x" * 200 }.should be >= 200
+    end
+
+    it "Static allocates nothing on a routed path when the public directory does not exist" do
+      static = Azu::Handler::Static.new("/azu-hot-path/no-such-public", fallthrough: true)
+      static.next = NoopHandler.new
+      context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/plaintext"), HTTP::Server::Response.new(IO::Memory.new))
+      # The first call memoizes request.path, which a connection's request has parsed already
+      static.call(context)
+
+      HotPath.bytes_per_call { static.call(context) }.should be < 1
     end
   {% end %}
 end
