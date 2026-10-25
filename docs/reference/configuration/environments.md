@@ -27,6 +27,21 @@ The name is case-insensitive (`production` and `Production` both work) and `Deve
 is unset. An unknown name raises `ArgumentError: Unknown enum Azu::Environment value: bogus` when the configuration
 is built, at `require "azu"`. The variable is `CRYSTAL_ENV`; `AZU_ENV` is not read.
 
+### The default environment
+
+An unset (or blank) `CRYSTAL_ENV` means `Development`, as in Rails. Because development switches debugging aids on (the
+exception page with the request context, the dev dashboard where an app mounts it), the default bind address in
+development is `127.0.0.1`, not `0.0.0.0`: a process that forgot its `CRYSTAL_ENV` is reachable from the machine only.
+
+- An explicit address is always kept: `HOST=0.0.0.0` or `config.host = "0.0.0.0"` listens on every interface in any
+  environment, development included.
+- Every other environment keeps `0.0.0.0` unless you set one.
+- The address follows `config.env` when `host` is read, so `config.env = Production` in `configure` also moves the default.
+- When the environment came from the default (neither `CRYSTAL_ENV` nor `config.env=` chose it), `start` logs one INFO line:
+  `CRYSTAL_ENV not set, running in development, listening on 127.0.0.1`. `Configuration#env_from_default?` answers it.
+- A container that must be reached from outside sets `CRYSTAL_ENV` and `HOST` itself, as the Dockerfile in
+  [Deploying to production](../../tutorials/deploying-to-production.md) does.
+
 ### Via Configuration
 
 ```crystal
@@ -72,6 +87,7 @@ Inside a request, `Azu.current_config.env` is the environment of the app serving
 | Spark error frames carry the real message | yes | yes | no | no | no |
 | Profiler and memory monitor (`azu/dev`) default | on | off | off | off | off |
 | Database SQL playground of the dashboard | allowed | no | no | no | no |
+| Default bind host (when neither `HOST` nor `config.host` is set) | `127.0.0.1` | `0.0.0.0` | `0.0.0.0` | `0.0.0.0` | `0.0.0.0` |
 
 Notes on the rows:
 

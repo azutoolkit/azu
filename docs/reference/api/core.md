@@ -35,7 +35,7 @@ end
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `port` | `Int32` | `PORT` or `4000` | HTTP server port |
-| `host` | `String` | `HOST` or `"0.0.0.0"` | Bind address |
+| `host` | `String` | `HOST`, else `"127.0.0.1"` in development and `"0.0.0.0"` elsewhere | Bind address |
 | `env` | `Azu::Environment` | `CRYSTAL_ENV` or `Development` | Environment mode |
 | `template_hot_reload` | `Bool` | `true` in development, test and pipeline | Reload templates on change |
 | `log` | `Log` | `Log.for("Azu")` | Logger used by the framework |

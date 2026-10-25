@@ -254,6 +254,7 @@ module Azu
     def self.start(handlers : Array(HTTP::Handler))
       Azu.warn_global_shim
       Azu.prepare
+      config.announce_default_environment
       config.handlers = handlers.map(&.as(HTTP::Handler))
       server = Azu::App.default.server(handlers)
 

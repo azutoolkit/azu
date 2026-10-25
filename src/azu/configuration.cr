@@ -48,8 +48,42 @@ module Azu
     # How long a stopping server waits for requests in flight before giving up on them.
     property shutdown_timeout : Time::Span = Math.max(ENV["SHUTDOWN_TIMEOUT"]?.try(&.to_i?) || 30, 0).seconds
     property? port_reuse : Bool = ENV.fetch("PORT_REUSE", "true") == "true"
-    property host : String = Env.fetch("HOST", "0.0.0.0")
-    property env : Environment = Environment.parse(Env.environment)
+    # The address the server binds. Unless `HOST` or `host=` set one, it is `127.0.0.1` in development, so a
+    # forgotten `CRYSTAL_ENV` (unset means development) does not put the debug pages on every interface, and
+    # `0.0.0.0` in every other environment. An explicit value is always kept, `0.0.0.0` included.
+    @host : String? = Env.fetch?("HOST")
+
+    def host : String
+      @host || (env.development? ? LOOPBACK_HOST : ANY_HOST)
+    end
+
+    def host=(@host : String?) : String?
+    end
+
+    LOOPBACK_HOST = "127.0.0.1"
+    ANY_HOST      = "0.0.0.0"
+
+    @env : Environment = Environment.parse(Env.environment)
+    @env_from_default : Bool = Env.fetch?("CRYSTAL_ENV").nil?
+
+    getter env : Environment
+
+    def env=(@env : Environment) : Environment
+      @env_from_default = false
+      @env
+    end
+
+    # True while the environment is the one Azu falls back to (development) because `CRYSTAL_ENV` is not set and
+    # the app did not choose one.
+    def env_from_default? : Bool
+      @env_from_default
+    end
+
+    # Logs, when the environment is the default, that it is, and where the server will listen. `Azu.start` calls it.
+    def announce_default_environment : Nil
+      return unless env_from_default?
+      log.info { "CRYSTAL_ENV not set, running in #{env.to_s.downcase}, listening on #{host}" }
+    end
 
     def self.hot_reload_default
       env = Env.environment
