@@ -50,4 +50,30 @@ describe "built-in error templates" do
 
     templates.load("error.html").render({"status" => 500, "title" => "Boom"}).should contain("Boom")
   end
+
+  it "escapes what the built-in pages print, as the file based pages did" do
+    templates = Azu::Templates.new(["x"], "/does/not/exist")
+    data = {"status" => 404, "title" => "Not Found", "detail" => "<script>alert(1)</script>", "source" => "/<img src=x onerror=alert(2)>", "errors" => ["<b>e</b>"]}
+
+    page = templates.load("error.html").render(data)
+    page.should contain "&lt;script&gt;alert(1)&lt;/script&gt;"
+    page.should_not contain "<script>alert(1)"
+    page.should_not contain "<img src=x"
+    page.should_not contain "<b>e</b>"
+  end
+
+  it "falls back to the built-in page when the app's error.html is broken" do
+    in_empty_directory do |dir|
+      File.write(File.join(dir, "error.html"), "{{ status | no_such_filter }} {% if %}")
+      with_azu_env(Azu::Environment::Production) do
+        templates = Azu::CONFIG.templates
+        templates.path = dir
+        begin
+          Azu::Response::NotFound.new("/nope").html.should contain "Not Found"
+        ensure
+          templates.path.delete(dir)
+        end
+      end
+    end
+  end
 end

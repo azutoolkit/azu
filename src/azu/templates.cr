@@ -26,6 +26,7 @@ module Azu
     @check_interval : Time::Span = 1.second
     @hot_reload_enabled : Bool = false
     @helpers_revision : UInt64? = nil
+    @builtin_crinja : Crinja?
 
     # Azu's own error pages, compiled into the binary. They are the last place the loader looks, so an app that
     # runs from any working directory (or from a container that holds only the binary) always finds them, and a
@@ -34,6 +35,15 @@ module Azu
       "error.html"       => {{ read_file("#{__DIR__}/templates/error.html") }},
       "error_debug.html" => {{ read_file("#{__DIR__}/templates/error_debug.html") }},
     }
+
+    # Serves `BUILTIN` with the template name as the file name: Crinja chooses autoescape from the file name, and a
+    # source without one would render unescaped (the error pages print the request path).
+    class BuiltinLoader < Crinja::Loader::HashLoader
+      def get_source(env : Crinja, template : String) : {String, String?}
+        source, _ = super
+        {source, template}
+      end
+    end
 
     getter crinja = Crinja.new
     getter path : Array(String)
@@ -112,6 +122,11 @@ module Azu
       reload_loader
     end
 
+    # Azu's own error page `name`, ignoring every directory: what is rendered when an app's `error.html` is broken.
+    def builtin(name : String) : Crinja::Template
+      (@builtin_crinja ||= Crinja.new.tap { |env| env.loader = BuiltinLoader.new(BUILTIN) }).get_template(name)
+    end
+
     def load(template : String)
       check_for_changes if should_check_for_changes?
       apply_helpers
@@ -131,16 +146,24 @@ module Azu
     private def initialize_loader
       loader = Crinja::Loader::ChoiceLoader.new([
         Crinja::Loader::FileSystemLoader.new((path + [error_path]).uniq).as(Crinja::Loader),
-        Crinja::Loader::HashLoader.new(BUILTIN).as(Crinja::Loader),
+        BuiltinLoader.new(BUILTIN).as(Crinja::Loader),
       ])
       @loader = loader
       crinja.loader = loader
+      log_shadowed_error_pages
 
       # Register all built-in helpers and apply to Crinja environment
       Helpers::Builtin.register_all
       apply_helpers
 
       update_template_mtimes if @hot_reload_enabled
+    end
+
+    private def log_shadowed_error_pages
+      BUILTIN.each_key do |name|
+        shadow = path.find { |dir| File.file?(File.join(dir, name)) }
+        Log.for("azu.templates").debug { "#{File.join(shadow, name)} replaces the built-in #{name}" } if shadow
+      end
     end
 
     # The loader searches the paths it was built with, so adding one has to rebuild it, whether
@@ -164,7 +187,7 @@ module Azu
 
     private def has_template_changes? : Bool
       @template_mtimes_mutex.synchronize do
-        all_paths = ([error_path] + path).uniq
+        all_paths = (path + [error_path]).uniq
 
         all_paths.any? do |template_path|
           next false unless Dir.exists?(template_path)
@@ -193,7 +216,7 @@ module Azu
     private def update_template_mtimes
       @template_mtimes_mutex.synchronize do
         @template_mtimes.clear
-        all_paths = ([error_path] + path).uniq
+        all_paths = (path + [error_path]).uniq
 
         all_paths.each do |template_path|
           next unless Dir.exists?(template_path)
