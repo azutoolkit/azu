@@ -36,10 +36,7 @@ module Azu
         if ex.status_code >= 500
           @log.error(exception: ex) { "Error Processing Request #{ex.status_code}".colorize(:red) }
         else
-          request = context.request
-          LogText.log_client_error(@log, ex.status_code) do
-            LogText.client_error_line(request.method, request.path, ex.status_code, ex.title, ex.detail)
-          end
+          LogText.log_refusal(@log, context.request, ex)
         end
       end
 

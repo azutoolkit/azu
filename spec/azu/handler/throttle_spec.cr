@@ -268,6 +268,58 @@ describe Azu::Handler::Throttle do
     end
   end
 
+  describe "the refusal" do
+    refuse = ->(accept : String?, remote : String) do
+      handler = Azu::Handler::Throttle.new(60, 60, 100, [remote], [] of String)
+      handler.next = create_next_handler(0)[0]
+      headers = HTTP::Headers.new
+      headers["Accept"] = accept if accept
+      context, io = create_context_with_remote_addr("GET", "/limited", remote, headers)
+      handler.call(context)
+      {context, get_response_body(context, io)}
+    end
+
+    it "answers a JSON client with the problem body, the Retry-After and the error id of the response" do
+      context, body = refuse.call("application/json", "10.1.0.1")
+
+      context.response.status_code.should eq 429
+      context.response.headers["Content-Type"].should eq "application/json"
+      context.response.headers["Retry-After"].should eq "0"
+      problem = JSON.parse(body)
+      problem["type"].as_s.should eq "about:blank"
+      problem["title"].as_s.should eq "Rate Limit Exceeded"
+      problem["status"].as_i.should eq 429
+      problem["detail"].as_s.should eq "Rate limit exceeded. Retry after 0 seconds."
+      problem["instance"].as_s.should eq "/limited"
+      problem["error_id"].as_s.should eq context.response.headers["X-Error-ID"]
+    end
+
+    it "labels the body problem+json for a client that names it" do
+      context, body = refuse.call("application/problem+json", "10.1.0.2")
+
+      context.response.headers["Content-Type"].should eq "application/problem+json"
+      JSON.parse(body)["status"].as_i.should eq 429
+    end
+
+    it "answers a plain-text and a missing Accept with text" do
+      refuse.call("text/plain", "10.1.0.3")[0].response.headers["Content-Type"].should eq "text/plain"
+      context, body = refuse.call(nil, "10.1.0.4")
+      context.response.headers["Content-Type"].should eq "text/plain"
+      body.should contain "Rate Limit Exceeded"
+    end
+
+    it "renders the HTML page once for refusals that read alike, and its error id is the header's" do
+      first_context, first = refuse.call("text/html", "10.1.0.5")
+      second_context, second = refuse.call("text/html", "10.1.0.6")
+
+      first_context.response.headers["Content-Type"].should eq "text/html"
+      first.should contain "Rate Limit Exceeded"
+      first.should contain first_context.response.headers["X-Error-ID"]
+      second.should eq first
+      second_context.response.headers["X-Error-ID"].should eq first_context.response.headers["X-Error-ID"]
+    end
+  end
+
   describe "statistics" do
     it "tracks number of IPs being monitored" do
       handler = Azu::Handler::Throttle.new(

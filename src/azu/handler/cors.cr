@@ -65,7 +65,9 @@ module Azu
         # A refusal grants nothing: drop whatever Access-Control-* header was already set for the request.
         context.response.headers.map { |name, _| name }.each { |name| context.response.headers.delete(name) if name.downcase.starts_with?("access-control-") }
         context.response.headers.add(Headers::VARY, Headers::ORIGIN) unless context.response.headers.includes_word?(Headers::VARY, Headers::ORIGIN)
-        Response::Forbidden.new.to_s(context)
+        error = Response::Forbidden.new
+        LogText.log_refusal(Log.for("Azu::Handler::CORS"), context.request, error)
+        error.to_s(context)
         context.response.close
       end
 
