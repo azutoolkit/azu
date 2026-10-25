@@ -66,6 +66,13 @@ environment instead, or load the file with `unsafe: true`. Note that `*FLAGS` al
   [Cache reference](api/cache.md).
 - `Cache::Store` has a new abstract method `clear_prefix(prefix : String) : Bool`; a custom store must implement it.
 
+**A 4xx is logged below error level and without an exception.** `Router` logged every unmatched route (404) with `Log.error(exception: ...)` under
+the root source, and `Handler::Rescuer` logged every raised `Response::Error` (4xx included) at `warn` with its exception. A client error is not a
+server fault, so now: a 404 from the router and a 4xx `Response::Error` caught by `Rescuer` produce one `debug` line
+(`GET /missing -> 404 Not Found`, source `azu.router` / `http.server`) without an exception or backtrace; a 5xx `Response::Error` and an unexpected
+exception are still logged at `error` with the exception. The response status and body are unchanged. If you alert on `warn`/`error` lines for
+404s, watch the request log (`Handler::Logger`) instead.
+
 **The global shim is deprecated.** `include Azu`, `configure` and `start` still work, and log one warning per
 process (at the first call, not when requiring azu) that names `Azu::App`.
 
