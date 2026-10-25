@@ -91,6 +91,11 @@ includes `Azu::Request`) are unchanged: they parse before `call`.
   [Cache reference](api/cache.md).
 - `Cache::Store` has a new abstract method `clear_prefix(prefix : String) : Bool`; a custom store must implement it.
 
+**`Handler::Static.new` falls through by default.** `fallthrough` defaulted to `false`, so a `Static` placed before the
+router answered `404` for every path that is not a file and `405` for every `POST`, hiding all the routes; only the default
+stack (`fallthrough: true`) worked. The default is now `true`: a request that is not a `GET`/`HEAD` for an existing file goes to the next
+handler. Code that relied on the old default as the last handler of a chain (to answer 404/405 itself) must pass
+`fallthrough: false`; passing `fallthrough: true` explicitly, as the docs and the default stack do, changes nothing.
 **CSRF has a production guard.** `Handler::CSRF.new` without `secret_key:` generated a random key for each instance, silently, so after a restart
 or on a second server every token it had issued was rejected. It now uses `Azu::Env.secret("CSRF_SECRET")`: the `CSRF_SECRET` variable when set, a
 random per-process key outside production with one warning in the log, and `Azu::Env::MissingError` ("CSRF_SECRET is not set") when the environment
