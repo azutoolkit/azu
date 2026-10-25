@@ -86,6 +86,7 @@ Inside a request, `Azu.current_config.env` is the environment of the app serving
 | Spark live views need `SPARK_SECRET` | no | no | no | **yes** | no |
 | Spark error frames carry the real message | yes | yes | no | no | no |
 | Profiler and memory monitor (`azu/dev`) default | on | off | off | off | off |
+| `Handler::DevDashboard` (`azu/dev`) serves | yes | no, passes through | no, passes through | no, passes through | no, passes through |
 | Database SQL playground of the dashboard | allowed | no | no | no | no |
 | Default bind host (when neither `HOST` nor `config.host` is set) | `127.0.0.1` | `0.0.0.0` | `0.0.0.0` | `0.0.0.0` | `0.0.0.0` |
 
@@ -99,6 +100,11 @@ Notes on the rows:
 - Spark signs its page tokens with `SPARK_SECRET` (or `Azu::Spark.configure { |c| c.secret = ... }`). Without one,
   development and the other environments generate a random secret per process; in `Staging` and `Production`
   the first use raises `Azu::Spark::ConfigurationError`.
+- `Handler::DevDashboard` checks `Azu.current_config.env.development?` on every request, so the environment of the app serving
+  the request decides, whatever the handler list contains. Outside development it calls the next handler (the router
+  answers `404` for an unrouted `/dev-dashboard`) and never renders the dashboard or the SQL playground; building it
+  there logs one `WARN`. There is no option to allow it in production. `Handler::PerformanceMonitor` answers no
+  request of its own (it only records metrics), so it has nothing to gate.
 - The profiler and memory monitor exist after `require "azu/dev"`; `PERFORMANCE_PROFILING` and
   `PERFORMANCE_MEMORY_MONITORING` set them explicitly.
 - The dashboard's SQL playground is further limited to loopback clients and `config.database.playground?`.
@@ -124,7 +130,8 @@ Azu.setup_logging # Azu's log format at Debug
 ```
 
 Add `require "azu/dev"` and `Azu::Handler::DevDashboard.new` to the handlers to get the dashboard (see the
-[database dashboard](../database-dashboard.md)).
+[database dashboard](../database-dashboard.md)). The dashboard serves in development only: in any other environment it
+passes every request to the next handler and building one logs a warning (see below).
 
 ## Test
 

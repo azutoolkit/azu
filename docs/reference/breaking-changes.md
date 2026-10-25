@@ -256,6 +256,15 @@ end
 - `Router#routes { }` now yields `Router::Builder`, which declares verbs, `ws`, `scope` and `mount`; it no
   longer forwards other calls (`root`, `add`) to the router.
 
+**`Handler::DevDashboard` serves in development only.** It used to serve in whatever environment it was added to the handler
+list in (the generated apps guard it with `if Azu::CONFIG.env.development?`, but an unguarded `DevDashboard.new` exposed
+request data, SQL and configuration in production). It now checks `Azu.current_config.env.development?` on every request
+and otherwise calls the next handler, so `/dev-dashboard` (and `{path}/sql`) answer whatever the app routes there, a `404`
+when nothing; building one outside development logs one `WARN`. The SQL playground's CSRF exemption is registered only
+when the handler is built in development. There is no `allow_in_production` option. `Handler::PerformanceMonitor` has no
+HTTP endpoint and is unchanged. Migration: an app that relied on the dashboard in `staging` or `test` runs it in
+development (`CRYSTAL_ENV=development`); specs that call the handler set the environment (`with_azu_env(Azu::Environment::Development)`).
+
 **The default bind host is `127.0.0.1` in development.** `Azu::Configuration#host` used to default to `0.0.0.0` in every
 environment, and an unset `CRYSTAL_ENV` means development, so a forgotten variable exposed the development pages on every
 interface. Unset still means development; the default host now depends on it:

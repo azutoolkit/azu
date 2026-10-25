@@ -24,11 +24,7 @@ private class StubAdapter < Azu::DatabaseAdapter
 end
 
 private def dashboard_page : String
-  context, io = create_context("GET", "/dev-dashboard")
-  Azu::Handler::DevDashboard.new.call(context)
-  context.response.close
-  io.rewind
-  HTTP::Client::Response.from_io(io).body
+  Azu::Components::DevDashboardComponent.new(Azu::PerformanceMetrics.new).render
 end
 
 private def post_sql(handler, body : String, remote = "127.0.0.1", headers = HTTP::Headers{"X-Requested-With" => "azu-dashboard"})
@@ -110,6 +106,7 @@ describe "Dev dashboard Database tab backed by the query store" do
 
   describe "SQL playground" do
     handler = Azu::Handler::DevDashboard.new
+    around_each { |example| with_azu_env(Azu::Environment::Development) { example.run } }
 
     it "is offered only in development with a database attached" do
       store.enabled = true
@@ -159,7 +156,7 @@ describe "Dev dashboard Database tab backed by the query store" do
     store.enabled = true
     add_query(store, "SELECT 1")
     context, _io = create_context("GET", "/dev-dashboard?clear=true")
-    Azu::Handler::DevDashboard.new.call(context)
+    with_azu_env(Azu::Environment::Development) { Azu::Handler::DevDashboard.new.call(context) }
     store.queries.should be_empty
   end
 end

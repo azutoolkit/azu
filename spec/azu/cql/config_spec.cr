@@ -24,7 +24,7 @@ end
 
 private def dashboard : String
   context, io = create_context("GET", "/dev-dashboard")
-  Azu::Handler::DevDashboard.new.call(context)
+  with_azu_env(Azu::Environment::Development) { Azu::Handler::DevDashboard.new.call(context) }
   context.response.close
   io.rewind
   HTTP::Client::Response.from_io(io).body
@@ -33,7 +33,7 @@ end
 private def playground(body : String) : {HTTP::Server::Context, String}
   context, io = create_context_with_remote_addr("POST", "/dev-dashboard/sql", "127.0.0.1", HTTP::Headers{"X-Requested-With" => "azu-dashboard"})
   context.request.body = IO::Memory.new(body)
-  Azu::Handler::DevDashboard.new.call(context)
+  with_azu_env(Azu::Environment::Development) { Azu::Handler::DevDashboard.new.call(context) }
   {context, get_response_body(context, io)}
 end
 

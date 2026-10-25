@@ -11,6 +11,10 @@ module Azu
     # Development Dashboard HTTP handler for displaying live runtime insights
     # Provides comprehensive metrics for developers during development phase
     #
+    # It serves only in the development environment: in any other environment (judged on every request, by the
+    # configuration of the app serving it) it hands the request to the next handler as if it were not in the chain, and
+    # building one logs a warning. There is no opt-in for production.
+    #
     # Usage:
     # ```
     # Azu.start [
@@ -33,10 +37,16 @@ module Azu
       def initialize(@path = DEFAULT_PATH, metrics : PerformanceMetrics? = nil, @log : ::Log = Azu::CONFIG.log, @queries : QueryStore = QueryStore.instance)
         @metrics = metrics || Azu::CONFIG.performance_monitor.try(&.metrics) || PerformanceMetrics.new
         @start_time = Time.utc
-        CSRF.exempt("#{@path}/sql") # guarded by `run_playground` itself, and sent without a token by dashboard.js
+        if serving?
+          CSRF.exempt("#{@path}/sql") # guarded by `run_playground` itself, and sent without a token by dashboard.js
+        else
+          @log.warn { "Handler::DevDashboard was built in the #{Azu.current_config.env.to_s.downcase} environment: it only serves in development and passes every request on" }
+        end
       end
 
       def call(context : HTTP::Server::Context)
+        return call_next(context) unless serving?
+
         case context.request.path
         when @path          then render_dashboard(context)
         when "#{@path}/sql" then run_playground(context)
@@ -48,6 +58,11 @@ module Azu
         context.response.status_code = 500
         context.response.content_type = "text/plain"
         context.response.print("Dashboard Error: #{ex.message}")
+      end
+
+      # The dashboard shows request data, SQL and configuration: development only, whatever the handler list says.
+      private def serving? : Bool
+        Azu.current_config.env.development?
       end
 
       private def render_dashboard(context : HTTP::Server::Context)
@@ -108,7 +123,7 @@ module Azu
       end
 
       private def playground_allowed?(context : HTTP::Server::Context) : Bool
-        return false unless Azu::CONFIG.database.playground? && Azu::CONFIG.env.development?
+        return false unless Azu::CONFIG.database.playground? && serving?
         address = context.request.remote_address
         address.is_a?(Socket::IPAddress) && address.loopback?
       end
