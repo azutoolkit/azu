@@ -166,7 +166,7 @@ Behaviour seen by running it:
 - `.html .css .js .json .txt .svg .xml` and font files larger than 860 bytes are gzip or deflate compressed when the
   client accepts it.
 - Methods other than `GET` and `HEAD` answer `405` with `Allow` (or fall through).
-- A `public_dir` that does not exist costs no file system calls per request. A public dir created after boot is
+- A `public_dir` that does not exist costs no file system calls per request (one monotonic clock read). A public dir created after boot is
   picked up within a second (the handler looks for a missing one again at most once a second); once found it is not
   checked again.
 - A file in `public/` shadows a route with the same path, so keep only public files there.
