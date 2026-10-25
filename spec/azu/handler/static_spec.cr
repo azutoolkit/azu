@@ -822,4 +822,137 @@ describe Azu::Handler::Static do
       end
     end
   end
+
+  describe "except" do
+    files = {
+      "templates/layout.jinja"     => "SECRET-LAYOUT",
+      "templates/a/b.jinja"        => "SECRET-B",
+      "templates/note.txt"         => "SECRET-NOTE",
+      "templates/sub/index.html"   => "SECRET-INDEX",
+      "templates-x/a.txt"          => "PUBLIC-X",
+      "templates.txt"              => "PUBLIC-DOT",
+      "app.css"                    => "PUBLIC-CSS",
+      "other/templates/shared.txt" => "PUBLIC-NESTED",
+      "index.html"                 => "PUBLIC-HOME",
+    }
+
+    # What a request answers: the status, the body, and whether the next handler (the router) was reached.
+    serve = ->(handler : Azu::Handler::Static, method : String, path : String) do
+      reached = false
+      handler.next = ->(ctx : HTTP::Server::Context) { reached = true; ctx.response.print "NEXT" }
+      context, io = create_context(method, path)
+      handler.call(context)
+      body = get_response_body(context, io)
+      {context.response.status_code, body, reached, context.response.headers["Location"]?}
+    end
+
+    blocked = [
+      "/templates/layout.jinja", "/templates/a/b.jinja", "/Templates/a/b.jinja", "/TEMPLATES/A/B.JINJA",
+      "/%74emplates/a/b.jinja", "/templates%2Fa/b.jinja", "/templates/a%2Fb.jinja", "/%54EMPLATES/layout.jinja",
+      "//templates/a/b.jinja", "/a/../templates/a/b.jinja", "/./templates/a/b.jinja", "/templates/./a/b.jinja",
+      "/templates/../templates/a/b.jinja", "/other/../templates/layout.jinja", "/templates/a/../layout.jinja",
+      "/templates\\a\\b.jinja", "/a\\..\\templates/a/b.jinja", "/templates./a/b.jinja", "/templates%20/a/b.jinja",
+      "/templates", "/templates/", "/templates%2F", "/templates/sub", "/templates/sub/", "/templates/sub/index.html",
+      "/templates/nothing", "/%2e%2e/templates/layout.jinja",
+    ]
+
+    blocked.each do |path|
+      it "does not serve #{path} (falls through)" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir, except: ["/templates"])
+          status, body, reached, location = serve.call(handler, "GET", path)
+
+          body.should_not contain("SECRET")
+          reached.should be_true
+          body.should eq("NEXT")
+          location.should be_nil
+        end
+      end
+    end
+
+    it "does not serve a path that has a NUL byte" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, except: ["/templates"])
+        _, body, reached, _ = serve.call(handler, "GET", "/templates%00/a/b.jinja")
+
+        body.should_not contain("SECRET")
+        reached.should be_false
+      end
+    end
+
+    it "does not serve a HEAD request, nor redirect a directory" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, except: ["/templates"])
+
+        ["/templates/a/b.jinja", "/templates/sub", "/templates"].each do |path|
+          status, _, reached, location = serve.call(handler, "HEAD", path)
+          reached.should be_true
+          status.should_not eq(301)
+          location.should be_nil
+        end
+      end
+    end
+
+    it "serves the same file when it is not excluded (the specs can fail)" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir)
+        _, body, reached, _ = serve.call(handler, "GET", "/templates/note.txt")
+
+        body.should eq("SECRET-NOTE")
+        reached.should be_false
+      end
+    end
+
+    it "answers 404 itself with fallthrough: false, for GET, HEAD and a directory" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, fallthrough: false, except: ["/templates"])
+
+        {"GET" => "/templates/a/b.jinja", "HEAD" => "/templates/a/b.jinja", "GET " => "/templates/sub",
+         "GET  " => "/%74emplates/sub/"}.each do |method, path|
+          status, body, reached, location = serve.call(handler, method.strip, path)
+          status.should eq(404)
+          body.should_not contain("SECRET")
+          reached.should be_false
+          location.should be_nil
+        end
+      end
+    end
+
+    it "keeps serving files outside the excluded directory" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, except: ["/templates"])
+
+        {"/app.css" => "PUBLIC-CSS", "/templates-x/a.txt" => "PUBLIC-X", "/templates.txt" => "PUBLIC-DOT",
+         "/other/templates/shared.txt" => "PUBLIC-NESTED", "/" => "PUBLIC-HOME"}.each do |path, content|
+          _, body, reached, _ = serve.call(handler, "GET", path)
+          body.should eq(content)
+          reached.should be_false
+        end
+      end
+    end
+
+    it "normalises the entries: leading slash added, trailing slash, case and backslashes ignored" do
+      ["templates", "/templates/", "templates/", "/TEMPLATES", "\\templates", "/templates./", "/x/../templates"].each do |entry|
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir, except: [entry])
+          _, body, reached, _ = serve.call(handler, "GET", "/templates/a/b.jinja")
+
+          body.should eq("NEXT")
+          reached.should be_true
+        end
+      end
+    end
+
+    it "excludes several entries and nested ones, but only below the entry" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, except: ["/templates/a", "/app.css"])
+
+        serve.call(handler, "GET", "/templates/a/b.jinja")[1].should eq("NEXT")
+        serve.call(handler, "GET", "/app.css")[1].should eq("NEXT")
+        serve.call(handler, "GET", "/templates/note.txt")[1].should eq("SECRET-NOTE")
+        serve.call(handler, "GET", "/templates/ab")[1].should eq("NEXT")
+        serve.call(handler, "GET", "/app.css.map")[2].should be_true
+      end
+    end
+  end
 end

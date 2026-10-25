@@ -37,14 +37,18 @@ module Azu
         directory_listing = false,
         @cache_control : String = "public, no-cache",
         cache_max_age : Int32 = CONFIG.assets.cache_max_age,
+        except excluded : Array(String) = [] of String,
       )
         super(public_dir, fallthrough, directory_listing)
+        @excluded = excluded.map { |entry| path_segments(entry) }
         @fingerprinted_cache_control = "public, max-age=#{cache_max_age}, immutable"
         @clock_origin = Clock.instant
         @public_dir_found = Atomic(Bool).new(false)
         @next_directory_check = Atomic(Int64).new(0_i64)
         public_dir?
       end
+
+      @excluded : Array(Array(String))
 
       def call(context : HTTP::Server::Context)
         return allow_get_or_head(context) unless method_get_or_head?(context.request.method)
@@ -55,6 +59,7 @@ module Azu
         return handle_invalid_path(context) unless valid_path?(original_path, request_path)
 
         path_info = resolve_path_info(original_path, request_path)
+        return refuse(context) if excluded?(path_info.normalized_path)
         return handle_directory_request(context, path_info) if path_info.is_dir_path? && info(path_info.root_file)
 
         file_info = info(path_info.file_path)
@@ -90,6 +95,33 @@ module Azu
       private def valid_path?(original_path : String, request_path : String) : Bool
         return false if original_path.includes?('\0') || request_path.includes?('\0')
         true
+      end
+
+      # The segments of a path in its comparable form: backslashes are separators, dot segments are resolved
+      # against the root, case and trailing dots or spaces (which some file systems ignore) are dropped.
+      private def path_segments(path : String) : Array(String)
+        File.expand_path(path.tr("\\", "/"), "/").split('/').compact_map do |segment|
+          segment = segment.downcase.rstrip(". ")
+          segment unless segment.empty?
+        end
+      end
+
+      # Whether the resolved path is an `except` entry or lies below one. Whole segments are compared, so
+      # `/templates` does not cover `/templates-x`.
+      private def excluded?(normalized_path : String) : Bool
+        return false if @excluded.empty?
+        segments = path_segments(normalized_path)
+        @excluded.any? { |entry| segments.size >= entry.size && segments.first(entry.size) == entry }
+      end
+
+      # An excluded path is answered as if there were no such file.
+      private def refuse(context : HTTP::Server::Context)
+        if @fallthrough
+          call_next(context)
+        else
+          context.response.status_code = 404
+        end
+        nil
       end
 
       private def handle_invalid_path(context : HTTP::Server::Context)

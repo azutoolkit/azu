@@ -146,6 +146,7 @@ Azu::Handler::Static.new(
   directory_listing: false,
   cache_control: "public, no-cache",
   cache_max_age: 31_536_000,
+  except: ["/templates"],
 )
 ```
 
@@ -156,6 +157,12 @@ Azu::Handler::Static.new(
 - `directory_listing : Bool` - list directories without an `index.html`.
 - `cache_control : String` - `Cache-Control` of files without a fingerprint.
 - `cache_max_age : Int32` - seconds for fingerprinted files (default `config.assets.cache_max_age`, one year).
+- `except : Array(String)` - paths that are never served (default none): an entry and everything below it, for example
+  template sources kept in `public/templates`. A request for one falls through to the next handler (so the router
+  answers its 404), or answers `404` with `fallthrough: false`; `GET`, `HEAD` and the redirect of a directory are all covered.
+  Entries match whole directory names (`"/templates"` covers `/templates`, `/templates/` and `/templates/a/b.jinja`, not
+  `/templates-x`); a leading slash is added and a trailing one ignored. The check runs on the decoded, normalised path
+  (`/%74emplates/x`, `//templates/x`, `/a/../templates/x`, backslashes, trailing dots and letter case included).
 
 Behaviour seen by running it:
 
