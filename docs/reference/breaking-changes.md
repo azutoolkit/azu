@@ -250,6 +250,18 @@ end
 - `Router#routes { }` now yields `Router::Builder`, which declares verbs, `ws`, `scope` and `mount`; it no
   longer forwards other calls (`root`, `add`) to the router.
 
+**The default bind host is `127.0.0.1` in development.** `Azu::Configuration#host` used to default to `0.0.0.0` in every
+environment, and an unset `CRYSTAL_ENV` means development, so a forgotten variable exposed the development pages on every
+interface. Unset still means development; the default host now depends on it:
+
+- Development, with neither `HOST` nor `config.host=` set: `127.0.0.1` (was `0.0.0.0`).
+- Every other environment: `0.0.0.0`, as before. An explicit `HOST` or `config.host` is always kept.
+- `start` logs one INFO line when the environment came from the default:
+  `CRYSTAL_ENV not set, running in development, listening on 127.0.0.1`.
+- Migration: an app run in development that must be reached from another machine, a container or a VM port-forward sets
+  `HOST=0.0.0.0` (or `config.host = "0.0.0.0"`). Deployments that set `CRYSTAL_ENV` (production, staging, ...) are unchanged.
+- `Configuration#host` is no longer a plain `property`: `host=` accepts `nil` to go back to the default.
+
 **Every JSON error is RFC 7807 `application/problem+json`.** The router's `404` and every other
 `Response::Error` (`BadRequest`, `AuthenticationError`, `Forbidden`, `RateLimitError`, a `500` from an unhandled
 exception, ...) predated problem+json and answered JSON clients with a PascalCase body as `application/json`. They now

@@ -39,9 +39,12 @@ Code running inside a request sees the configuration of the app that serves it t
 | Option | Type | Default | Environment |
 |---|---|---|---|
 | `port` | `Int32` | `4000` | `PORT` |
-| `host` | `String` | `"0.0.0.0"` | `HOST` |
+| `host` | `String` | `"127.0.0.1"` in development, `"0.0.0.0"` in every other environment | `HOST` |
 | `port_reuse?` | `Bool` | `true` | `PORT_REUSE` (`"true"` enables) |
 | `shutdown_timeout` | `Time::Span` | `30.seconds` | `SHUTDOWN_TIMEOUT` (seconds, never below 0) |
+
+`host` is read when the server starts: `HOST` or `config.host=` wins, `0.0.0.0` included; without one the address depends on
+the environment (loopback in development, see [Environments](environments.md#the-default-environment)).
 
 `port_reuse` sets `SO_REUSEPORT` on the listener, which lets several processes share one port. On SIGTERM or SIGINT
 `start` stops accepting connections and waits up to `shutdown_timeout` for requests in flight; new requests on open
