@@ -30,6 +30,7 @@ module Azu
     @compiled : CompiledLoader?
     @compile_lock : Mutex = Mutex.new
     @compile_count : Int32 = 0
+    @compiled_strict : Bool = false
 
     # Azu's own error pages, compiled into the binary. They are the last place the loader looks, so an app that
     # runs from any working directory (or from a container that holds only the binary) always finds them, and a
@@ -229,14 +230,18 @@ module Azu
     # parse is left to the built-in fallback in both cases.
     private def compile(strict : Bool) : CompiledLoader
       @compile_lock.synchronize do
-        @compiled || publish_compiled(parse_all(strict))
+        current = @compiled
+        # a strict compile after a lenient one (first render before `prepare`) validates again
+        return current if current && (@compiled_strict || !strict)
+        publish_compiled(parse_all(strict), strict)
       end
     end
 
-    private def publish_compiled(templates : Hash(String, Crinja::Template)) : CompiledLoader
+    private def publish_compiled(templates : Hash(String, Crinja::Template), strict : Bool) : CompiledLoader
       compiled = CompiledLoader.new(templates, @loader.not_nil!)
       crinja.loader = compiled
       @compile_count += 1
+      @compiled_strict = strict
       @compiled = compiled
     end
 
@@ -244,13 +249,15 @@ module Azu
       apply_helpers
       started = Time.instant
       templates = Hash(String, Crinja::Template).new
+      broken = Set(String).new
       (path + [error_path]).uniq.each do |dir|
         next unless Dir.exists?(dir)
-        template_names(dir).sort!.each do |name|
-          next if templates.has_key?(name) || ignored?(name)
+        template_names(dir, strict).sort!.each do |name|
+          # a name that is broken in an earlier directory stays with the file loader, which serves that one
+          next if templates.has_key?(name) || broken.includes?(name) || ignored?(name)
           file = File.join(dir, name)
           next unless File.file?(file)
-          parse_into(templates, name, file, strict)
+          broken << name unless parse_into(templates, name, file, strict)
         end
       end
       BUILTIN.each { |name, source| templates[name] ||= Crinja::Template.new(source, crinja, name, name) }
@@ -258,28 +265,41 @@ module Azu
       templates
     end
 
-    # Names relative to `dir` of the `*.html`, `*.jinja` and `*.j2` files below it, dot directories skipped. Walks
-    # the tree instead of globbing, so a directory with `[`, `{` or `*` in its name works, and so does a trailing slash.
-    private def template_names(dir : String, prefix : String = "", names : Array(String) = [] of String) : Array(String)
-      Dir.each_child(dir) do |entry|
+    # Names relative to `dir` of the `*.html`, `*.jinja` and `*.j2` files below it, dot directories and symlinked
+    # directories skipped (the file loader still serves what is in them). Walks the tree instead of globbing, so a
+    # directory with `[`, `{` or `*` in its name works, and so does a trailing slash. A directory that cannot be read
+    # raises `CompileError` when strict; otherwise it is logged and skipped, and the file loader serves from it.
+    private def template_names(dir : String, strict : Bool, prefix : String = "", names : Array(String) = [] of String) : Array(String)
+      each_entry(dir) do |entry|
         next if entry.starts_with?('.')
         relative = prefix.empty? ? entry : "#{prefix}/#{entry}"
         full = File.join(dir, entry)
         if File.info?(full, follow_symlinks: false).try(&.directory?)
-          template_names(full, relative, names)
+          template_names(full, strict, relative, names)
         elsif TEMPLATE_EXTENSIONS.includes?(File.extname(entry))
           names << relative
         end
       end
       names
+    rescue ex : File::Error
+      raise CompileError.new("template directory #{dir}: #{ex.message}", ex) if strict
+      Log.for("azu.templates").warn(exception: ex) { "template directory #{dir} was not compiled: #{ex.message}. Templates in it may be shadowed by later directories; requests for them fall back to the file loader" }
+      names
+    end
+
+    # The one place the walk reads a directory; specs override it to fail without needing a non-root user.
+    private def each_entry(dir : String, & : String ->) : Nil
+      Dir.each_child(dir) { |entry| yield entry }
     end
 
     private def ignored?(name : String) : Bool
       @compile_ignore.any? { |pattern| File.match?(pattern, name) }
     end
 
-    private def parse_into(templates, name : String, file : String, strict : Bool) : Nil
+    # False when the file was not compiled.
+    private def parse_into(templates, name : String, file : String, strict : Bool) : Bool
       templates[name] = Crinja::Template.new(File.read(file), crinja, name, file)
+      true
     rescue ex : Exception
       if BUILTIN.has_key?(name)
         Log.for("azu.templates").warn(exception: ex) { "#{file} does not parse, the built-in #{name} is used instead" }
@@ -288,6 +308,7 @@ module Azu
       else
         Log.for("azu.templates").warn(exception: ex) { "template #{name} (#{file}) was not compiled: #{ex.message}" }
       end
+      false
     end
 
     # One rule for the default, shared with `Configuration#template_hot_reload?`.

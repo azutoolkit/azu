@@ -151,7 +151,9 @@ compiled templates stay in memory, and a template mounted from a volume or Confi
 **Files that are not templates.** Every `*.html`, `*.jinja` and `*.j2` file below the template directories is parsed
 at boot, so a vendored page (a Swagger UI `index.html`) or a templates directory that is really `public/` can stop the
 boot, with the file name, path and line in the message. Name what to skip with globs on the path relative to a
-template directory; the files are still found when asked for:
+template directory (`*` does not cross `/`, `**` does; `TEMPLATE_COMPILE_IGNORE` splits on commas, so brace
+alternation such as `{a,b}` cannot be written there, use the Crystal setter); the files are still found when asked for.
+Dot directories and symlinked directories are not walked either, the file loader serves what is in them:
 
 ```crystal
 require "azu"
@@ -159,6 +161,10 @@ require "azu"
 Azu::CONFIG.template_compile_ignore = ["vendor/**", "swagger/*.html"] # or TEMPLATE_COMPILE_IGNORE=vendor/**,swagger/*.html
 ```
 
+A directory that cannot be read stops the boot with its name (`Azu.prepare`); a first render without `prepare` logs a
+warning once and skips it, and because the names inside are unknown, a valid copy of one of them in a later directory
+is served instead of falling back to the file loader's precedence. A name that does not parse in one directory is not
+replaced by a copy in a later directory; `Azu.prepare` validates again even when a first render compiled earlier.
 A directory that does not exist is skipped (an API-only app costs nothing); a very broad one such as `.` is scanned
 whole at boot, with the count and time logged at debug level.
 
