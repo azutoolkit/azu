@@ -16,31 +16,68 @@ module Azu
       end
     end
 
+    # Random bytes for request ids, taken from the system's secure generator a chunk at a time: one
+    # `getrandom` call serves many requests instead of one each. A request id is not a secret, but it
+    # stays unguessable, which a counter or a generator seeded from the clock would not.
+    private class IdEntropy
+      CHUNK = 512
+
+      def initialize
+        @buffer = Bytes.new(CHUNK)
+        @offset = CHUNK
+        @mutex = Mutex.new
+      end
+
+      def hex(bytes : Int32) : String
+        @mutex.synchronize do
+          if @offset + bytes > CHUNK
+            Random::Secure.random_bytes(@buffer)
+            @offset = 0
+          end
+          hex = @buffer[@offset, bytes].hexstring
+          @offset += bytes
+          hex
+        end
+      end
+    end
+
     @@mutex = Mutex.new
     @@contexts = {} of Fiber => Info
+    @@entropy = IdEntropy.new
+
+    # A new request id: `req_<unix ms>_<2 * random_bytes hex digits>`.
+    def self.generate_id(random_bytes : Int32 = 8) : String
+      "req_#{Time.utc.to_unix_ms}_#{@@entropy.hex(random_bytes)}"
+    end
 
     def self.current? : Info?
       @@mutex.synchronize { @@contexts[Fiber.current]? }
     end
 
-    # Runs the block with `context` registered for the current fiber. A scope
-    # that is already open (e.g. from the RequestId handler) is reused.
+    # Runs the block with `context` registered for the current fiber. A scope that is already open
+    # (e.g. from the RequestId handler) is reused. Looking for one and opening a new one is a single
+    # critical section.
     def self.scope(context : HTTP::Server::Context, & : Info ->)
       fiber = Fiber.current
-      existing = @@mutex.synchronize { @@contexts[fiber]? }
-      return yield existing if existing
-
       request = context.request
-      info = Info.new(
-        request.headers["X-Request-ID"]? || "req_#{Time.utc.to_unix_ms}_#{Random::Secure.hex(4)}",
-        request.method, request.path, fiber.object_id
-      )
-      @@mutex.synchronize { @@contexts[fiber] = info }
+      created = false
+      info = @@mutex.synchronize do
+        @@contexts[fiber]? || begin
+          created = true
+          @@contexts[fiber] = new_info(request, fiber)
+        end
+      end
+      return yield info unless created
+
       begin
         yield info
       ensure
         @@mutex.synchronize { @@contexts.delete(fiber) }
       end
+    end
+
+    private def self.new_info(request : HTTP::Request, fiber : Fiber) : Info
+      Info.new(request.headers["X-Request-ID"]? || generate_id(4), request.method, request.path, fiber.object_id)
     end
 
     # Runs the block with an explicit context (for jobs and specs).

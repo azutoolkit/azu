@@ -21,7 +21,7 @@ module Azu
       end
 
       private def generate_request_id : String
-        "req_#{Time.utc.to_unix_ms}_#{Random::Secure.hex(8)}"
+        RequestContext.generate_id
       end
     end
   end
