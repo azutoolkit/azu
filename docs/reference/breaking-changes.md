@@ -23,8 +23,11 @@ and answer `500` (`.jinja`, `.ico`, `.webmanifest`, `.md`, `.mp4`, an extensionl
 It is now refused as if there were no such file: the request goes to the next handler (the router answers its 404), or answers
 `404` with `fallthrough: false`. There is deliberately no default type, so a template is never sent as a download. Azu now
 serves `.ico .webmanifest .avif .mp4 .webm .mp3 .ogg .wav .m4a .csv .vtt .mjs .eot .rss .atom` and an extensionless file
-directly below `/.well-known/` (as `text/plain`). If you serve a type that is neither, add it with
-`Static.new(mime_types: {".ics" => "text/calendar"})`. Check any route that shares a path with a file of an unknown type: the
+`/.well-known/<file>` and `/.well-known/<dir>/<file>` (as `text/plain`), plus archives (`.zip .gz .tgz .tar .bz2 .xz .7z`),
+`.ics .jsonld .xhtml .bmp .tif .tiff`. The table of types belongs to `Static` and is the same on every host: the operating
+system's `/etc/mime.types` is no longer consulted (a host that had it served `.yml` or `.md`; none does now). If you serve a type
+that is not in it, add it with `Static.new(mime_types: {".heic" => "image/heic"})`. Azu no longer registers `.woff`, `.ttf` and
+the others in the process-wide `MIME` registry; code that called `MIME.from_filename` for them must register them itself. Check any route that shares a path with a file of an unknown type: the
 router now answers it. See [Handler::Static](handlers/built-in.md#which-files-are-served).
 
 **Templates are compiled outside development.** With `template_hot_reload` off (the default for `staging`,

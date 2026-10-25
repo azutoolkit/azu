@@ -588,6 +588,28 @@ describe Azu::Handler::Static do
       end
     end
 
+    it "compresses the other text types the handler serves, in either case of the extension" do
+      %w(app.mjs data.CSV subs.vtt site.webmanifest feed.rss feed.atom app.js.map data.jsonld page.xhtml font.eot).each do |name|
+        with_temp_file("x" * 2000, name) do |dir, _|
+          context, _ = create_context("GET", "/#{name}", HTTP::Headers{"Accept-Encoding" => "gzip"})
+          Azu::Handler::Static.new(dir).call(context)
+
+          {name, context.response.headers["Content-Encoding"]?}.should eq({name, "gzip"})
+        end
+      end
+    end
+
+    it "does not compress archives or images" do
+      %w(a.zip a.png a.mp4 a.gz).each do |name|
+        with_temp_file("x" * 2000, name) do |dir, _|
+          context, _ = create_context("GET", "/#{name}", HTTP::Headers{"Accept-Encoding" => "gzip"})
+          Azu::Handler::Static.new(dir).call(context)
+
+          context.response.headers.has_key?("Content-Encoding").should be_false
+        end
+      end
+    end
+
     it "does not compress small files" do
       small_content = "small"
       with_temp_file(small_content, "small.html") do |dir, _|
@@ -1038,6 +1060,20 @@ describe Azu::Handler::Static do
       "data.db"                                          => "SECRET-DB",
       "data.sqlite"                                      => "SECRET-SQLITE",
       "README.md"                                        => "DOC-MD",
+      "server.pem"                                       => "SECRET-PEM",
+      "id.key"                                           => "SECRET-KEY",
+      "backup.bak"                                       => "SECRET-BAK",
+      "run.sh"                                           => "SECRET-SH",
+      "tool.py"                                          => "SECRET-PY",
+      "app.rb"                                           => "SECRET-RB",
+      "setup.exe"                                        => "SECRET-EXE",
+      "notes.markdown"                                   => "SECRET-MARKDOWN",
+      ".well-known/.git/config"                          => "SECRET-GIT",
+      ".well-known/.d/token"                             => "SECRET-DOTDIR",
+      ".well-known/a/b/c"                                => "SECRET-DEEP",
+      ".well-known/.secrets.json"                        => "SECRET-DOTJSON",
+      ".well-known/token."                               => "SECRET-TRAILING-DOT",
+      ".well-known/openid-configuration"                 => "{}",
       "LICENSE"                                          => "SECRET-EXTENSIONLESS",
       "page.jinja.html"                                  => "<p>HTML</p>",
       "page.html.jinja"                                  => "SECRET-HTML-JINJA",
@@ -1069,6 +1105,9 @@ describe Azu::Handler::Static do
       "/app.cr", "/.env", "/config.yml", "/dump.sql", "/data.db", "/data.sqlite", "/README.md",
       "/LICENSE", "/page.html.jinja", "/templates/layout.jinja.", "/templates/layout.jinja%20",
       "/.well-known/.env", "/.well-known/notes.md", "/other/.well-known/token",
+      "/server.pem", "/id.key", "/backup.bak", "/run.sh", "/tool.py", "/app.rb", "/setup.exe", "/notes.markdown",
+      "/.well-known/.git/config", "/.well-known/.d/token", "/.well-known/a/b/c", "/.well-known/.secrets.json",
+      "/.well-known/token.",
     ]
 
     describe "an unknown type" do
@@ -1265,6 +1304,19 @@ describe Azu::Handler::Static do
       ".eot"         => "application/vnd.ms-fontobject",
       ".rss"         => "application/rss+xml",
       ".atom"        => "application/atom+xml",
+      ".zip"         => "application/zip",
+      ".gz"          => "application/gzip",
+      ".tgz"         => "application/gzip",
+      ".tar"         => "application/x-tar",
+      ".bz2"         => "application/x-bzip2",
+      ".xz"          => "application/x-xz",
+      ".7z"          => "application/x-7z-compressed",
+      ".jsonld"      => "application/ld+json",
+      ".xhtml"       => "application/xhtml+xml",
+      ".ics"         => "text/calendar; charset=utf-8",
+      ".bmp"         => "image/bmp",
+      ".tif"         => "image/tiff",
+      ".tiff"        => "image/tiff",
       ".woff"        => "font/woff",
       ".woff2"       => "font/woff2",
       ".ttf"         => "font/ttf",
@@ -1292,10 +1344,25 @@ describe Azu::Handler::Static do
         end
       end
 
-      %w(.jinja .j2 .cr .ecr .yml .yaml .env .sql .db .sqlite .md).each do |extension|
-        it "does not register #{extension}" do
-          MIME.from_extension?(extension).should be_nil
+      # The table is the handler's own: it never asks the operating system (/etc/mime.types would add .sql, .yml,
+      # .md, .pem, .key, .sh, .py, .rb, .bak ... on some hosts), so these are refused on every host.
+      %w(.jinja .j2 .cr .ecr .yml .yaml .env .sql .db .sqlite .sqlite3 .md .markdown .pem .key .crt .asc .bak .sh .py .rb .exe .dmg .apk .bin .svgz).each do |extension|
+        it "does not have #{extension}" do
+          Azu::Handler::Static::MIME_TYPES.has_key?(extension).should be_false
         end
+      end
+
+      it "does not consult the operating system" do
+        Azu::Handler::Static::MIME_TYPES.keys.each { |extension| extension.should match(/\A\.[a-z0-9]+\z/) }
+        Azu::Handler::Static::MIME_TYPES[".sql"]?.should be_nil
+        Azu::Handler::Static::MIME_TYPES[".js"].should eq("text/javascript")
+      end
+
+      it "holds exactly Crystal's built-in defaults (the same on every toolchain) and Azu's additions" do
+        MIME::DEFAULT_TYPES.each do |extension, type|
+          Azu::Handler::Static::MIME_TYPES.has_key?(extension).should be_true
+        end
+        MIME::DEFAULT_TYPES.keys.sort.should eq(%w(.css .gif .htm .html .jpeg .jpg .js .json .pdf .png .svg .txt .wasm .webp .xml))
       end
     end
 
@@ -1332,6 +1399,18 @@ describe Azu::Handler::Static do
         end
       end
 
+      it "serves /.well-known/<file> and /.well-known/<dir>/<file> only, with plain names" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir)
+          get.call(handler, "/.well-known/acme-challenge/Xy_z-0123456789abcdef")[1].should eq("token.thumbprint")
+          get.call(handler, "/.well-known/openid-configuration")[1].should eq("{}")
+          ["/.well-known/.git/config", "/.well-known/.d/token", "/.well-known/a/b/c", "/.well-known/.secrets.json", "/.well-known/token."].each do |path|
+            body = get.call(handler, path)[1]
+            body.should eq("NEXT")
+          end
+        end
+      end
+
       it "refuses an extensionless file anywhere else, and a dotfile of /.well-known/" do
         with_temp_dir(files) do |dir|
           ["/LICENSE", "/other/.well-known/token", "/.well-known/.env"].each do |path|
@@ -1343,12 +1422,12 @@ describe Azu::Handler::Static do
 
     describe "mime_types" do
       it "serves an extension the application adds, with the type it gave" do
-        with_temp_dir({"report.ics" => "BEGIN:VCALENDAR", "Photo.HEIC" => "HEIC"}) do |dir|
-          handler = Azu::Handler::Static.new(dir, mime_types: {".ics" => "text/calendar", "heic" => "image/heic"})
+        with_temp_dir({"report.foo" => "FOOBYTES", "Photo.HEIC" => "HEIC"}) do |dir|
+          handler = Azu::Handler::Static.new(dir, mime_types: {".foo" => "text/x-foo", "heic" => "image/heic"})
 
-          _, body, _, headers = get.call(handler, "/report.ics")
-          body.should eq("BEGIN:VCALENDAR")
-          headers["Content-Type"].should eq("text/calendar")
+          _, body, _, headers = get.call(handler, "/report.foo")
+          body.should eq("FOOBYTES")
+          headers["Content-Type"].should eq("text/x-foo")
           headers["X-Content-Type-Options"].should eq("nosniff")
 
           get.call(handler, "/Photo.HEIC")[3]["Content-Type"].should eq("image/heic")
@@ -1356,20 +1435,20 @@ describe Azu::Handler::Static do
       end
 
       it "normalises the extension: lower case, leading dot" do
-        with_temp_dir({"a.ics" => "X"}) do |dir|
-          ["ICS", ".ICS", ".ics", "ics"].each do |extension|
-            handler = Azu::Handler::Static.new(dir, mime_types: {extension => "text/calendar"})
-            get.call(handler, "/a.ics")[3]["Content-Type"].should eq("text/calendar")
+        with_temp_dir({"a.foo" => "X"}) do |dir|
+          ["FOO", ".FOO", ".foo", "foo"].each do |extension|
+            handler = Azu::Handler::Static.new(dir, mime_types: {extension => "text/x-foo"})
+            get.call(handler, "/a.foo")[3]["Content-Type"].should eq("text/x-foo")
           end
         end
       end
 
       it "does not change the table for another handler or for Crystal" do
-        with_temp_dir({"a.ics" => "X"}) do |dir|
-          Azu::Handler::Static.new(dir, mime_types: {".ics" => "text/calendar"})
+        with_temp_dir({"a.foo" => "X"}) do |dir|
+          Azu::Handler::Static.new(dir, mime_types: {".foo" => "text/x-foo"})
 
-          get.call(Azu::Handler::Static.new(dir), "/a.ics")[1].should eq("NEXT")
-          MIME.from_extension?(".ics").should be_nil
+          get.call(Azu::Handler::Static.new(dir), "/a.foo")[1].should eq("NEXT")
+          MIME.from_extension?(".foo").should be_nil # the handler registers nothing globally
         end
       end
 
@@ -1381,16 +1460,16 @@ describe Azu::Handler::Static do
       end
 
       it "still refuses what it does not list" do
-        with_temp_dir({"a.ics" => "X", "t.jinja" => "SECRET"}) do |dir|
-          handler = Azu::Handler::Static.new(dir, mime_types: {".ics" => "text/calendar"})
+        with_temp_dir({"a.foo" => "X", "t.jinja" => "SECRET"}) do |dir|
+          handler = Azu::Handler::Static.new(dir, mime_types: {".foo" => "text/x-foo"})
           get.call(handler, "/t.jinja")[1].should eq("NEXT")
         end
       end
 
-      ["", ".", "*", ".*", "*.ics", "a/b", ".a.b", " ", ".ics ", "a b"].each do |extension|
+      ["", ".", "*", ".*", "*.foo", "a/b", ".a.b", " ", ".foo ", "a b"].each do |extension|
         it "rejects the extension #{extension.inspect}" do
           expect_raises(ArgumentError) do
-            Azu::Handler::Static.new("public", mime_types: {extension => "text/calendar"})
+            Azu::Handler::Static.new("public", mime_types: {extension => "text/x-foo"})
           end
         end
       end
@@ -1398,7 +1477,7 @@ describe Azu::Handler::Static do
       ["", "text", "text/", "/plain", "text/plain\r\nSet-Cookie: a=b", "*/*", "text/*", "text/a b"].each do |type|
         it "rejects the type #{type.inspect}" do
           expect_raises(ArgumentError) do
-            Azu::Handler::Static.new("public", mime_types: {".ics" => type})
+            Azu::Handler::Static.new("public", mime_types: {".foo" => type})
           end
         end
       end

@@ -3,7 +3,7 @@ require "mime"
 module Azu
   module Handler
     class Static < HTTP::StaticFileHandler
-      ZIPPED_FILE_EXTENSIONS = %w(.htm .html .txt .css .js .svg .json .xml .otf .ttf .woff .woff2)
+      ZIPPED_FILE_EXTENSIONS = %w(.htm .html .txt .css .js .mjs .svg .json .jsonld .xml .xhtml .csv .vtt .ics .webmanifest .rss .atom .map .eot .otf .ttf .woff .woff2)
 
       # A single byte range: `bytes=first-last`, `bytes=first-` or `bytes=-suffix`
       RANGE_HEADER = /\Abytes=(\d*)-(\d*)\z/
@@ -20,24 +20,47 @@ module Azu
 
       HTML_TYPE = "text/html; charset=utf-8"
 
-      MIME.register(".collection", "font/collection")
-      MIME.register(".otf", "font/otf")
-      MIME.register(".sfnt", "font/sfnt")
-      MIME.register(".ttf", "font/ttf")
-      MIME.register(".woff", "font/woff")
-      MIME.register(".woff2", "font/woff2")
-      MIME.register(".js", "text/javascript")
-      MIME.register(".png", "image/png")
-      MIME.register(".map", "application/json")
-
-      # What a web application serves that Crystal's own table (css gif htm html jpg jpeg js json pdf png svg
-      # txt xml wasm webp) lacks: icons, manifests, modern images, media, captions, feeds, fonts, CSV. Only
-      # assets a browser fetches; never anything that is source or data of the application itself (templates,
-      # `.cr`, `.yml`, `.env`, `.sql`, databases, Markdown), whose extension stays unknown and so refused.
-      ADDITIONAL_MIME_TYPES = {
+      # The content types the handler serves, by lower-case extension. The table is the handler's own and is
+      # the same on every host: it never consults the operating system's MIME database (`/etc/mime.types`
+      # would add `.sql`, `.yml`, `.md`, `.pem`, `.sh`, `.py`, ... on some hosts) nor the process-wide `MIME`
+      # registry. A file whose extension is not here is refused; there is no default type, so a template is
+      # never sent as a download. An application adds its own types with `mime_types:`.
+      #
+      # Crystal's built-in defaults, with Azu's `.js`/`.png` types, fonts and source maps ...
+      MIME_TYPES = {
+        ".css"        => "text/css; charset=utf-8",
+        ".gif"        => "image/gif",
+        ".htm"        => "text/html; charset=utf-8",
+        ".html"       => "text/html; charset=utf-8",
+        ".jpg"        => "image/jpeg",
+        ".jpeg"       => "image/jpeg",
+        ".js"         => "text/javascript",
+        ".json"       => "application/json",
+        ".pdf"        => "application/pdf",
+        ".png"        => "image/png",
+        ".svg"        => "image/svg+xml",
+        ".txt"        => "text/plain; charset=utf-8",
+        ".xml"        => "text/xml; charset=utf-8",
+        ".wasm"       => "application/wasm",
+        ".webp"       => "image/webp",
+        ".collection" => "font/collection",
+        ".otf"        => "font/otf",
+        ".sfnt"       => "font/sfnt",
+        ".ttf"        => "font/ttf",
+        ".woff"       => "font/woff",
+        ".woff2"      => "font/woff2",
+        ".map"        => "application/json",
+        # ... and what a web application serves that those lack: icons, manifests, images, media, captions,
+        # feeds, structured data, CSV, calendars, and archives (downloads, never code). Never anything that is
+        # source or data of the application itself (templates, `.cr`, `.yml`, `.env`, `.sql`, databases,
+        # Markdown, keys and certificates, scripts, executables) and not `.svgz`, which needs
+        # `Content-Encoding: gzip`: opt in with `mime_types:`.
         ".ico"         => "image/vnd.microsoft.icon",
         ".webmanifest" => "application/manifest+json",
         ".avif"        => "image/avif",
+        ".bmp"         => "image/bmp",
+        ".tif"         => "image/tiff",
+        ".tiff"        => "image/tiff",
         ".mp4"         => "video/mp4",
         ".webm"        => "video/webm",
         ".mp3"         => "audio/mpeg",
@@ -46,13 +69,21 @@ module Azu
         ".m4a"         => "audio/mp4",
         ".csv"         => "text/csv; charset=utf-8",
         ".vtt"         => "text/vtt; charset=utf-8",
+        ".ics"         => "text/calendar; charset=utf-8",
         ".mjs"         => "text/javascript; charset=utf-8",
         ".eot"         => "application/vnd.ms-fontobject",
         ".rss"         => "application/rss+xml",
         ".atom"        => "application/atom+xml",
+        ".jsonld"      => "application/ld+json",
+        ".xhtml"       => "application/xhtml+xml",
+        ".zip"         => "application/zip",
+        ".gz"          => "application/gzip",
+        ".tgz"         => "application/gzip",
+        ".tar"         => "application/x-tar",
+        ".bz2"         => "application/x-bzip2",
+        ".xz"          => "application/x-xz",
+        ".7z"          => "application/x-7z-compressed",
       }
-
-      ADDITIONAL_MIME_TYPES.each { |extension, type| MIME.register(extension, type) }
 
       # The type of an extensionless file below `/.well-known/` (ACME HTTP-01 challenge tokens)
       WELL_KNOWN_TYPE = "text/plain; charset=utf-8"
@@ -73,7 +104,7 @@ module Azu
         mime_types : Hash(String, String) = {} of String => String,
       )
         super(public_dir, fallthrough, directory_listing)
-        @mime_types = normalized_mime_types(mime_types)
+        @mime_types = MIME_TYPES.merge(normalized_mime_types(mime_types))
         @excluded = excluded.map { |entry| excluded_segments(entry) }
         @fingerprinted_cache_control = "public, max-age=#{cache_max_age}, immutable"
         @clock_origin = Clock.instant
@@ -274,19 +305,25 @@ module Azu
         true
       end
 
-      # The type of the file by its last extension, nil when it is not one the handler serves. There is no
-      # default type: serving an unknown file as a download would hand out the source of a template.
+      # The type of the file by its last extension, nil when it is not one the handler serves.
       private def content_type(request_path : String, file_path : String) : String?
+        well_known = well_known_segments(request_path)
+        return if well_known && !plain_well_known?(well_known)
         extension = File.extname(file_path).downcase
-        return @mime_types[extension]? || MIME.from_extension?(extension) unless extension.empty?
-        WELL_KNOWN_TYPE if well_known_file?(request_path, file_path)
+        return @mime_types[extension]? unless extension.empty?
+        WELL_KNOWN_TYPE if well_known && !File.basename(file_path).ends_with?('.')
       end
 
-      # A file with no extension is served only directly below `/.well-known/` (ACME challenge tokens),
-      # and never a dotfile there (`/.well-known/.env`).
-      private def well_known_file?(request_path : String, file_path : String) : Bool
-        return false if File.basename(file_path).starts_with?('.')
-        File.expand_path(request_path, "/").starts_with?("/.well-known/")
+      # The segments below `/.well-known/` of the normalised request path; nil for any other path.
+      private def well_known_segments(request_path : String) : Array(String)?
+        segments = File.expand_path(request_path, "/").split('/', remove_empty: true)
+        segments[1..] if segments.first? == ".well-known"
+      end
+
+      # `/.well-known/<file>` or `/.well-known/<dir>/<file>` (ACME: `acme-challenge/<token>`), no dot name at
+      # any level: nothing hidden (`.git/config`, `.env`, `.secrets.json`) and nothing deeper is served from there.
+      private def plain_well_known?(segments : Array(String)) : Bool
+        (1..2).includes?(segments.size) && segments.none?(&.starts_with?('.'))
       end
 
       private def normalized_mime_types(types : Hash(String, String)) : Hash(String, String)
@@ -323,7 +360,7 @@ module Azu
       end
 
       private def zip_file?(path)
-        ZIPPED_FILE_EXTENSIONS.includes? File.extname(path)
+        ZIPPED_FILE_EXTENSIONS.includes? File.extname(path).downcase
       end
 
       private def range_request?(env)
