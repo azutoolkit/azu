@@ -135,7 +135,7 @@ as well.
 |---|---|---|
 | `error_format` | `Azu::ErrorFormat` | `Problem` |
 
-`Problem` answers a failed contract with RFC 7807 `application/problem+json`; `Legacy` keeps the pre-0.6 body.
+`Problem` answers every error a JSON client receives (a failed contract, a `404` from the router, `BadRequest`, a `500`, ...) with RFC 7807 `application/problem+json`; `Legacy` keeps the pre-0.6 PascalCase bodies as `application/json`.
 There is no `max_request_size` or `request_timeout` option; the size of uploaded files is limited below.
 
 ## Uploads

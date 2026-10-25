@@ -291,26 +291,25 @@ module OpenAPISpec
         },
         "components": {
           "responses": {
-            "BadRequest": {"description": "The request could not be parsed.", "content": {"application/json": {"schema": #{ref("Azu.Error")}}}},
-            "NotFound": {"description": "Nothing is routed there, or the endpoint found nothing.", "content": {"application/json": {"schema": #{ref("Azu.Error")}}}},
+            "BadRequest": {"description": "The request could not be parsed.", "content": {"application/problem+json": {"schema": #{ref("Azu.Error")}}}},
+            "NotFound": {"description": "Nothing is routed there, or the endpoint found nothing.", "content": {"application/problem+json": {"schema": #{ref("Azu.Error")}}}},
             "ValidationFailed": {"description": "The request broke its contract.", "content": {"application/problem+json": {"schema": #{ref("Azu.ValidationProblem")}}}}
           },
           "schemas": {
             "Azu.Error": {
               "type": "object",
               "properties": {
-                "Backtrace": {"type": ["string", "null"]},
-                "Context": {"type": ["object", "null"]},
-                "Detail": {"type": "string"},
-                "ErrorId": {"type": "string"},
-                "Errors": {"type": "array", "items": {"type": "string"}},
-                "Fingerprint": {"type": "string"},
-                "Link": {"type": "string"},
-                "Source": {"type": "string"},
-                "Status": {"type": "string", "description": "The HTTP::Status member name, underscored, such as not_found."},
-                "Timestamp": {"type": "string", "format": "date-time"},
-                "Title": {"type": "string"}
-              }
+                "backtrace": {"type": "string", "description": "Development only."},
+                "context": {"type": "object", "description": "Development only."},
+                "detail": {"type": "string"},
+                "error_id": {"type": "string"},
+                "errors": {"type": "array", "items": {"type": "string"}},
+                "instance": {"type": "string", "description": "The request path, when the error knows it."},
+                "status": {"type": "integer"},
+                "title": {"type": "string"},
+                "type": {"type": "string"}
+              },
+              "required": ["type", "title", "status", "detail", "errors", "error_id"]
             },
             "Azu.ValidationProblem": {
               "type": "object",
@@ -544,7 +543,10 @@ describe Azu::OpenAPI do
 
         missing = client.get("/nowhere", HTTP::Headers{"Accept" => "application/json"})
         missing.status_code.should eq 404
-        (JSON.parse(missing.body).as_h.keys - schemas["Azu.Error"]["properties"].as_h.keys).should be_empty
+        missing.content_type.should eq "application/problem+json"
+        missing_body = JSON.parse(missing.body).as_h
+        (missing_body.keys - schemas["Azu.Error"]["properties"].as_h.keys).should be_empty
+        schemas["Azu.Error"]["required"].as_a.map(&.as_s).each { |key| missing_body.has_key?(key).should be_true }
       end
     end
   end
@@ -688,6 +690,9 @@ describe "types beyond the basics" do
     OpenAPIValidator.problems(parsed).should be_empty
     parsed["components"]["responses"]["ValidationFailed"]["content"].as_h.keys.should eq ["application/json"]
     parsed["components"]["schemas"].as_h.has_key?("Azu.ValidationProblem").should be_false
+    parsed["components"]["responses"]["NotFound"]["content"].as_h.keys.should eq ["application/json"]
+    parsed["components"]["schemas"].as_h.has_key?("Azu.LegacyError").should be_true
+    parsed["components"]["schemas"].as_h.has_key?("Azu.Error").should be_false
 
     serve(app, [Azu::Handler::Rescuer.new] of HTTP::Handler) do |client|
       response = client.post("/api/users", HTTP::Headers{"Content-Type" => "application/json", "Accept" => "application/json"}, %({"name": "", "email": "x", "role": "admin"}))

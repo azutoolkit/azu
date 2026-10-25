@@ -90,10 +90,11 @@ the same bytes and a document can be compared or committed.
   as `application/json`.
 - **Errors.** An operation with request fields adds `400` and `422`; one with a path parameter adds `404`.
   They reference shared `components`: `Azu.ValidationProblem` is the RFC 7807 `application/problem+json`
-  body that `Response::ValidationError` writes, and `Azu.Error` is the body the other `Response::Error`
-  classes write for a client that accepts JSON (`Status` is the underscored `HTTP::Status` member name,
-  such as `not_found`). The document follows the `error_format` the app has when it is built: with
-  `Legacy` the 422 is `application/json` and `Azu.LegacyValidationError` replaces the problem schema.
+  body that `Response::ValidationError` writes, and `Azu.Error` is the `application/problem+json` body the other `Response::Error`
+  classes write for a client that accepts JSON (`type`, `title`, `status`, `detail`, `errors`, `error_id`, and
+  `instance` when the error knows the path). The document follows the `error_format` the app has when it is built: with
+  `Legacy` the 400, 404 and 422 are `application/json`, and `Azu.LegacyValidationError` and `Azu.LegacyError`
+  (the PascalCase bodies, `Status` being the underscored `HTTP::Status` member name) replace the problem schemas.
 - **Components.** Every `JSON::Serializable` type becomes a named schema under `components.schemas`, named
   after its type (`Shop::Address` is `Shop.Address`; a generic `Page(Shop::User)` is `Page.Shop.User`, since
   component names allow only letters, digits, `.`, `-` and `_`) and referenced with `$ref`. Recursive

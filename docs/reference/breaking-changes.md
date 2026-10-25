@@ -250,6 +250,28 @@ end
 - `Router#routes { }` now yields `Router::Builder`, which declares verbs, `ws`, `scope` and `mount`; it no
   longer forwards other calls (`root`, `add`) to the router.
 
+**Every JSON error is RFC 7807 `application/problem+json`.** The router's `404` and every other
+`Response::Error` (`BadRequest`, `AuthenticationError`, `Forbidden`, `RateLimitError`, a `500` from an unhandled
+exception, ...) predated problem+json and answered JSON clients with a PascalCase body as `application/json`. They now
+use the shape the contract `422` already had:
+
+```json
+{"type": "about:blank", "title": "Not Found", "status": 404,
+ "detail": "The server can't find the requested resource.", "instance": "/missing", "errors": [], "error_id": "4f2a..."}
+```
+
+- Before: `{"Status": "not_found", "Link": ..., "Title": "Not Found", "Detail": ..., "Source": "/missing", "Errors": [],
+  "ErrorId": ..., "Fingerprint": ..., "Context": null, "Backtrace": null, "Timestamp": ...}` with `Content-Type: application/json`.
+- `Status` (a string) becomes `status` (an integer); `Source` becomes `instance`; `ErrorId` becomes `error_id`. `Link`,
+  `Fingerprint` and `Timestamp` are gone from the body (`X-Error-ID` and `X-Error-Fingerprint` stay headers). `Context` and
+  `Backtrace` become `context` and `backtrace`, present in development only.
+- A client that matches on `application/json` must also accept `application/problem+json` (`+json` suffix).
+  HTML, XML and text responses are unchanged.
+- Migration: `config.error_format = Azu::ErrorFormat::Legacy` keeps all the old bodies (validation failures and
+  the rest) for one more minor release. The OpenAPI document follows the setting (`Azu.Error` is the problem schema,
+  `Azu.LegacyError` the old one).
+- `Handler::HealthCheck` is not an error response and keeps its `{"status": ...}` body.
+
 **Request contracts are enforced.** An endpoint whose request type has validations no longer runs when the
 request breaks them: the endpoint answers `422` before `call` (by itself, whether or not a `Rescuer` is in the handler stack),
 and the parsed request is built once per call.

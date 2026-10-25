@@ -198,8 +198,12 @@ By default the body is RFC 7807 `application/problem+json`:
  "errors": {"email": ["is invalid"], "name": ["is required"]}}
 ```
 
-Set `config.error_format = Azu::ErrorFormat::Legacy` to keep the pre-0.6 body (`FieldErrors`, `ErrorId`, ...)
-for one more minor release.
+Every other `Response::Error` (a `404` from the router, `BadRequest`, `AuthenticationError`, an unhandled exception
+turned into a `500`, ...) answers JSON clients with the same envelope, `application/problem+json`, `errors` being a list
+of messages: see [Error Types](../errors/error-types.md#error-response-format).
+
+Set `config.error_format = Azu::ErrorFormat::Legacy` to keep the pre-0.6 bodies (`FieldErrors`, `ErrorId`, ... and the
+PascalCase body of the other errors) as `application/json` for one more minor release.
 
 ## Custom Response Example
 

@@ -222,7 +222,7 @@ module Azu::OpenAPI
       schemas = @components.schemas.dup
       all_problems = Problems.schemas
       @problems.each do |name|
-        schema = name == Problems::VALIDATION_FAILED ? Problems.validation_schema(@legacy) : Problems::ERROR
+        schema = name == Problems::VALIDATION_FAILED ? Problems.validation_schema(@legacy) : Problems.error_schema(@legacy)
         schemas[schema] = all_problems[schema]
       end
       components["schemas"] = schemas unless schemas.empty?

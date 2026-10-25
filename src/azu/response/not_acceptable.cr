@@ -26,9 +26,5 @@ module Azu::Response
     def json : String
       {type: "about:blank", title: title, status: status_code, detail: detail, supported: supported}.to_json
     end
-
-    def json_content_type : String
-      Azu.current_config.error_format.legacy? ? super : "application/problem+json"
-    end
   end
 end

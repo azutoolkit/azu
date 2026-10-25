@@ -277,8 +277,23 @@ describe "Azu Error Handling" do
       json = error.json
       parsed = JSON.parse(json)
 
+      parsed["title"].should eq("Test error")
+      parsed["detail"].should eq("Test error")
+      parsed["error_id"].should eq(error.error_id)
+      parsed["type"].should eq("about:blank")
+    end
+
+    it "keeps the pre-0.6 JSON body behind error_format = Legacy" do
+      error = Azu::Response::Error.new("Test error", HTTP::Status::BAD_REQUEST, [] of String)
+      original = Azu::CONFIG.error_format
+      Azu::CONFIG.error_format = Azu::ErrorFormat::Legacy
+      begin
+        parsed = JSON.parse(error.json)
+      ensure
+        Azu::CONFIG.error_format = original
+      end
+
       parsed["Title"].should eq("Test error")
-      parsed["Detail"].should eq("Test error")
       parsed["ErrorId"].should eq(error.error_id)
       parsed["Fingerprint"].should eq(error.fingerprint)
     end

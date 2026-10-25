@@ -84,8 +84,8 @@ describe Azu::Handler::Rescuer do
       with_azu_env(Azu::Environment::Production) { handler.call(context) }
 
       json = json_object.call(get_response_body(context, io))
-      json["Backtrace"].raw.should be_nil
-      json["Context"].raw.should be_nil
+      json.as_h.has_key?("backtrace").should be_false
+      json.as_h.has_key?("context").should be_false
     end
 
     it "gives developers the original message and backtrace in the JSON body" do
@@ -95,7 +95,7 @@ describe Azu::Handler::Rescuer do
       context, io = create_context("GET", "/boom", HTTP::Headers{"Accept" => "application/json"})
       with_azu_env(Azu::Environment::Development) { handler.call(context) }
 
-      backtrace = json_object.call(get_response_body(context, io))["Backtrace"].as_s
+      backtrace = json_object.call(get_response_body(context, io))["backtrace"].as_s
       backtrace.should contain("boom")
       backtrace.should contain("rescuer_spec.cr")
     end
