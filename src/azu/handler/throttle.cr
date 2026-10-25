@@ -65,6 +65,66 @@ module Azu
         end
       end
 
+      # Throttle's own 429, the only error whose HTML page is cached: its text is fixed by `Retry-After`, so what
+      # one client is shown is what another would be. An error a user raises (`RateLimitError`, or a subclass of it)
+      # is never cached, as it carries text of its own.
+      class Refusal < Response::RateLimitError
+        # A refused client keeps asking, so the page is rendered once a second for the same templates, `Retry-After`
+        # and locale. The response carries the `error_id` the page shows, so refusals inside that second share one
+        # id (nothing reports a Throttle refusal to `ERROR_REPORTER`, which would want an id per occurrence).
+        # A custom `error.html` must be request independent: it is rendered for one request and served to others.
+        # Development renders the debug page every time.
+        def html(context : HTTP::Server::Context) : String
+          return super if env.development?
+
+          page = RefusalPages.fetch(templates, retry_after, Helpers::I18n.locale) { {error_id, html} }
+          @error_id = page.error_id
+          context.response.headers["X-Error-ID"] = page.error_id
+          page.html
+        end
+
+        private def generate_fingerprint : String
+          @@refusal_fingerprint ||= super
+        end
+
+        # Named apart from RateLimitError's @@fingerprint: the class name is part of what is hashed.
+        @@refusal_fingerprint : String?
+      end
+
+      module RefusalPages
+        LIFETIME = 1.second
+        MAX      = 128
+
+        record Page, error_id : String, html : String, expires : Time::Instant
+
+        @@pages = {} of {UInt64, Int32?, String} => Page
+        @@lock = Mutex.new
+
+        def self.fetch(templates : Templates, retry_after : Int32?, locale : String, & : -> {String, String}) : Page
+          key = {templates.object_id, retry_after, locale}
+          now = Clock.instant
+          @@lock.synchronize do
+            @@pages[key]?.try { |page| return page if page.expires > now }
+          end
+
+          error_id, html = yield
+          page = Page.new(error_id, html, now + LIFETIME)
+          @@lock.synchronize do
+            @@pages.clear if @@pages.size >= MAX
+            @@pages[key] = page
+          end
+          page
+        end
+
+        def self.size : Int32
+          @@lock.synchronize { @@pages.size }
+        end
+
+        def self.clear : Nil
+          @@lock.synchronize { @@pages.clear }
+        end
+      end
+
       RETRY_AFTER    = "Retry-After"
       CONTENT_TYPE   = "Content-Type"
       CONTENT_LENGTH = "Content-Length"
@@ -129,7 +189,7 @@ module Azu
           end
         end
 
-        error = Response::RateLimitError.new(retry_after.to_i32)
+        error = Refusal.new(retry_after.to_i32)
         LogText.log_refusal(log, context.request, error)
         error.to_s(context)
         context.response.close
