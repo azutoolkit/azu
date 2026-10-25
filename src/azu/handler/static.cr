@@ -165,13 +165,21 @@ module Azu
         @fallthrough && !public_dir? && plain_path?(path)
       end
 
-      # A path `call` would neither decode, refuse nor redirect: it has no escapes or NUL, no empty or dot
-      # segment and no trailing slash (but the root), so it is its own normal form. Checked without allocating.
+      # A path `call` would neither decode, refuse nor redirect: it has no escape, NUL or backslash (a separator
+      # to `except`), no empty or dot segment and no trailing slash, so it is its own normal form. Excluding a
+      # trailing slash is conservative: the full lookup of such a path (an `index.html`) falls through as well when
+      # nothing is there. One pass, no allocation.
       private def plain_path?(path : String) : Bool
+        return path == "/" if dir_path?(path)
         return false unless path.starts_with?('/')
-        return false if path != "/" && dir_path?(path)
 
-        !(path.includes?('%') || path.includes?('\0') || path.includes?("//") || path.includes?("/."))
+        previous = 0_u8
+        path.each_byte do |byte|
+          return false if byte === '%' || byte === '\0' || byte === '\\'
+          return false if previous === '/' && (byte === '/' || byte === '.')
+          previous = byte
+        end
+        true
       end
 
       private def valid_path?(original_path : String, request_path : String) : Bool

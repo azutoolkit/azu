@@ -244,8 +244,8 @@ Behaviour seen by running it:
 - Methods other than `GET` and `HEAD` answer `405` with `Allow` (or fall through).
 - A `public_dir` that does not exist costs no file system calls per request (one monotonic clock read). A public dir created after boot is
   picked up within a second (the handler looks for a missing one again at most once a second); once found it is not
-  checked again. With no public directory and `fallthrough: true`, a plain path (no `%`, NUL, `//`, `/.` or trailing slash) falls
-  through before any path work and allocates nothing; any other path takes the full route (decode, refuse or redirect).
+  checked again. With no public directory and `fallthrough: true`, a plain path (no `%`, NUL, backslash, `//`, `/.` or trailing
+  slash) falls through before any path work and allocates nothing; any other path takes the full route (decode, refuse or redirect).
 - A file in `public/` shadows a route with the same path, so keep only public files there.
 
 ## Handler::Compression

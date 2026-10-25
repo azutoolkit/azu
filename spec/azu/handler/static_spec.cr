@@ -1,6 +1,7 @@
 require "file_utils"
 require "../../spec_helper"
 require "../../support/integration_helpers"
+require "../../../benchmark/micro/harness"
 
 include IntegrationHelpers
 
@@ -8,6 +9,26 @@ include IntegrationHelpers
 class StaticRedirectProbe < Azu::Handler::Static
   def location(path : String, directory : Bool) : String
     redirect_path(path, directory)
+  end
+end
+
+# What a routed path falls through to; it answers nothing, so measured bytes are Static's own.
+private class StaticNoopNext
+  include HTTP::Handler
+
+  def call(context : HTTP::Server::Context)
+  end
+end
+
+# Bytes Static allocates per request for `path` under `dir`, after a first call that memoizes request.path (a
+# connection's request has parsed it already). The clock does not move, so the directory is not looked at again.
+private def static_bytes(dir : String, path : String) : Float64
+  with_fake_clock do
+    handler = Azu::Handler::Static.new(dir, fallthrough: true)
+    handler.next = StaticNoopNext.new
+    context = HTTP::Server::Context.new(HTTP::Request.new("GET", path), HTTP::Server::Response.new(IO::Memory.new))
+    handler.call(context)
+    HotPath.bytes_per_call { handler.call(context) }
   end
 end
 
@@ -722,6 +743,26 @@ describe Azu::Handler::Static do
         FileUtils.rm_rf(missing)
       end
     end
+
+    it "redirects //evil.com to a path on this site, not to another host (regression guard)" do
+      FileUtils.rm_rf(missing)
+      context, _ = create_context("GET", "//evil.com")
+      Azu::Handler::Static.new(missing, fallthrough: true).call(context)
+
+      context.response.status_code.should eq(302)
+      context.response.headers["Location"].should eq("/evil.com")
+    end
+
+    {% if flag?(:preview_mt) %}
+      # GC.stats.total_bytes counts every thread, so a window would include the other workers' garbage
+      pending "takes the full route for a path with a backslash, which except reads as a separator"
+    {% else %}
+      it "takes the full route for a path with a backslash, which except reads as a separator" do
+        FileUtils.rm_rf(missing)
+        # Only the full route allocates; with fallthrough it then passes the path on as well
+        static_bytes(missing, "/templates\\x.txt").should be > 0
+      end
+    {% end %}
   end
 
   describe "a request for a directory" do
