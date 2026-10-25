@@ -212,6 +212,41 @@ describe Azu::Handler::CORS do
       end
     end
 
+    it "adds Origin to a Vary the response already has, instead of replacing it" do
+      handler = Azu::Handler::CORS.new(origins: ["https://example.com"], methods: ["POST"], headers: ["Content-Type"])
+      handler.next = create_next_handler(0)[0]
+      headers = HTTP::Headers{"Origin" => "https://example.com", "Access-Control-Request-Method" => "POST", "Access-Control-Request-Headers" => "Content-Type"}
+      context, _ = create_context("OPTIONS", "/test", headers)
+      context.response.headers["Vary"] = "Accept-Encoding"
+
+      handler.call(context)
+
+      context.response.headers["Vary"].split(',').map(&.strip).should eq ["Accept-Encoding", "Origin"]
+    end
+
+    it "varies by Origin on a request without one when origins are restricted, and still serves it" do
+      handler = Azu::Handler::CORS.new(origins: ["https://example.com"])
+      next_handler, verify = create_next_handler(1)
+      handler.next = next_handler
+      context, _ = create_context("GET", "/test")
+
+      handler.call(context)
+
+      context.response.headers["Vary"].split(',').map(&.strip).should contain("Origin")
+      context.response.headers.has_key?("Access-Control-Allow-Origin").should be_false
+      verify.call
+    end
+
+    it "does not vary by Origin when every origin is allowed" do
+      handler = Azu::Handler::CORS.new(origins: ["*"])
+      handler.next = create_next_handler(1)[0]
+      context, _ = create_context("GET", "/test")
+
+      handler.call(context)
+
+      context.response.headers.has_key?("Vary").should be_false
+    end
+
     it "sends the allow headers of an accepted preflight on the wire" do
       handler = Azu::Handler::CORS.new(origins: ["https://example.com"], methods: ["POST"], headers: ["Content-Type"], credentials: true)
       handler.next = create_next_handler(0)[0]

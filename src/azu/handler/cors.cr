@@ -46,7 +46,11 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context)
-        return call_next(context) unless request_origin = @origin.of(context.request)
+        unless request_origin = @origin.of(context.request)
+          # The answer depends on the Origin header even when it is absent: a cache must not hand this one to a request with one.
+          add_vary(context.response.headers, [Headers::ORIGIN]) unless @origin.any?
+          return call_next(context)
+        end
 
         if @origin.match?(request_origin)
           is_preflight_request = preflight?(context)
@@ -64,9 +68,9 @@ module Azu
       def forbidden(context)
         # A refusal grants nothing: drop whatever Access-Control-* header was already set for the request.
         context.response.headers.map { |name, _| name }.each { |name| context.response.headers.delete(name) if name.downcase.starts_with?("access-control-") }
-        context.response.headers.add(Headers::VARY, Headers::ORIGIN) unless context.response.headers.includes_word?(Headers::VARY, Headers::ORIGIN)
+        add_vary(context.response.headers, [Headers::ORIGIN])
         error = Response::Forbidden.new
-        LogText.log_refusal(Log.for("Azu::Handler::CORS"), context.request, error)
+        LogText.log_refusal(Log.for("Azu::Handler::CORS"), context.request, error, client: true)
         error.to_s(context)
         context.response.close
       end
@@ -78,13 +82,19 @@ module Azu
       private def put_response_headers(response, request_origin : String)
         response.headers[Headers::ALLOW_CREDENTIALS] = @credentials.to_s if @credentials
         response.headers[Headers::ALLOW_ORIGIN] = request_origin
-        response.headers[Headers::VARY] = vary unless @origin.origins.includes?("*")
+        add_vary(response.headers, vary) unless @origin.any?
       end
 
-      private def vary
-        String.build do |str|
-          str << Headers::ORIGIN
-          str << "," << @vary if @vary
+      private def vary : Array(String)
+        @vary ? [Headers::ORIGIN, @vary.as(String)] : [Headers::ORIGIN]
+      end
+
+      # Joins the fields to a `Vary` the response already has; written as the one value `Origin,Field` when it has none.
+      private def add_vary(headers : HTTP::Headers, fields : Array(String)) : Nil
+        if headers.has_key?(Headers::VARY)
+          fields.each { |field| headers.add(Headers::VARY, field) unless headers.includes_word?(Headers::VARY, field) }
+        else
+          headers[Headers::VARY] = fields.join(",")
         end
       end
 
