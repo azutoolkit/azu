@@ -50,8 +50,7 @@ module Azu
         return allow_get_or_head(context) unless method_get_or_head?(context.request.method)
 
         original_path = context.request.path || ""
-        # With no public directory a plain path can only fall through; decoding and expanding it would allocate
-        return call_next(context) if @fallthrough && !public_dir? && plain_path?(original_path)
+        return call_next(context) if falls_through_early?(original_path)
 
         request_path = original_path.includes?('%') ? URI.decode(original_path) : original_path
 
@@ -90,11 +89,16 @@ module Azu
         end
       end
 
+      # With no public directory a plain path can only fall through; decoding and expanding it would allocate.
+      private def falls_through_early?(path : String) : Bool
+        @fallthrough && !public_dir? && plain_path?(path)
+      end
+
       # A path `call` would neither decode, refuse nor redirect: it has no escapes or NUL, no empty or dot
-      # segment and no trailing slash, so it is its own normal form. Checked without allocating.
+      # segment and no trailing slash (but the root), so it is its own normal form. Checked without allocating.
       private def plain_path?(path : String) : Bool
         return false unless path.starts_with?('/')
-        return false if path.size > 1 && path.ends_with?('/')
+        return false if path != "/" && dir_path?(path)
 
         !(path.includes?('%') || path.includes?('\0') || path.includes?("//") || path.includes?("/."))
       end
