@@ -62,8 +62,7 @@ module Azu
       @context = context
       @params = nil
       check_contract = check_contract?(context.request)
-      # A contract is checked before `call`, so its body is read now and a body that cannot be read is
-      # refused at the same point as ever.
+      # Read the body now, as the check needs it: one that cannot be read is refused before `call`.
       @params = Params(Request).new(context.request) if check_contract
       @request_object = nil
 
@@ -89,13 +88,16 @@ module Azu
     # and no rules has nothing to check, so only a body that names its format is still read (a malformed one is
     # a 400). A contract that inherits its rules defines no constants of its own and is always checked.
     private def check_contract?(request : HTTP::Request) : Bool
-      {% if Request.stringify == "Azu::Request" %}
-        false
-      {% elsif Request.resolve.instance_vars.empty? && Request.resolve.has_constant?("SCHEMA_VALIDATORS") && Request.resolve.has_constant?("SCHEMA_VALIDATIONS") &&
-                 Request.resolve.constant("SCHEMA_VALIDATORS").empty? && Request.resolve.constant("SCHEMA_VALIDATIONS").empty? %}
-        Params::Body.format?(request)
-      {% else %}
-        true
+      {% begin %}
+        {% contract = Request.resolve %}
+        {% if Request.stringify == "Azu::Request" %}
+          false
+        {% elsif contract.instance_vars.empty? &&
+                   %w(SCHEMA_VALIDATORS SCHEMA_VALIDATIONS).all? { |rules| contract.has_constant?(rules) && contract.constant(rules).empty? } %}
+          Params::Body.format?(request)
+        {% else %}
+          true
+        {% end %}
       {% end %}
     end
 
