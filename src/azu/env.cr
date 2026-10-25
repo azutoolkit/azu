@@ -66,7 +66,7 @@ module Azu
       end
     end
 
-    REDACTED      = "[FILTERED]"
+    REDACTED = "[FILTERED]"
     # Names (environment variables, header names, query parameter names; `-` counts like `_`) that hold a credential.
     SENSITIVE = /SECRET|PASSWORD|PASSWD|TOKEN|PRIVATE|CREDENTIAL|KEY\z|[_-]KEY[_-]|\AKEY[_-]|COOKIE|AUTH|DSN|SALT|SIGNING|SIGNATURE|JWT|SESSION|CONNECTION[_-]?STRING|(\A|[_-])(PASS|PWD|SID|OTP|PIN|CVV|CVC|SSN|CARD)([_-]|\z)/i
     # `scheme://user:password@host` anywhere in a value.
