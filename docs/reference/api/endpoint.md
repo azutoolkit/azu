@@ -136,7 +136,7 @@ end
 
 ### params
 
-Access route, query and form parameters. Looks in the form body first, then route parameters, then the query string.
+Access route, query and form parameters. Looks in the route parameters first, then the query string, then the body.
 
 ```crystal
 struct SearchEndpoint
@@ -157,6 +157,13 @@ struct SearchEndpoint
   end
 end
 ```
+
+A name is looked up in the path, then the query string, then the body. What the URL addresses cannot be changed by a body
+field of the same name: `POST /users/5` with `id=1` in the body gives `params["id"] == "5"`, and the typed request
+(`id`) is 5. For a JSON body the typed request applies the same rule to the keys the body already has: a path or query
+value replaces that key and keeps the JSON type the body used (a number stays a number); keys the body does not
+have are not added.
+
 
 **Returns:** `Azu::Params`
 
