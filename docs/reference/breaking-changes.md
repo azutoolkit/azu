@@ -8,6 +8,16 @@ This document lists breaking changes between Azu versions and migration guides.
 
 Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
 
+**`Azu::Env` skips many more names from a `.env` file.** The denylist is now the one the `azu` CLI uses
+(`AzuCLI::DotEnv`), where it used to cover only `LD_*`, `DYLD_*`, `SHARDS_*`, `GIT_*`, `PATH`, `SHELL`, `IFS`,
+`BASH_ENV`, `ENV`, `CRYSTAL_PATH`, `CRYSTAL_OPTS`, `CRYSTAL_LIBRARY_PATH`, `DOCKER_HOST` and `HOME`. It now also skips
+every other `CRYSTAL_*` (but not `CRYSTAL_ENV` or `CRYSTAL_LOG_*`), `DOCKER_*`, `COMPOSE_*`, `SSH_*`, compiler and linker
+variables (`CC`, `CXX`, `*FLAGS`, ...), proxy and certificate variables (`HTTP_PROXY`, `SSL_CERT_FILE`, ...), other
+runtimes' variables (`PYTHON*`, `RUBY*`, `NODE_OPTIONS`, `GEM_*`, `CARGO_*`, ...), `USER`, `TMPDIR`, `XDG_*` and the
+locale and time zone names `LANG`, `LC_*` and `TZ`. Matching is case-insensitive. A skipped name logs a warning naming
+it (never the value) and is not set. If your `.env` sets one of them (typically `TZ` or `LANG`), set it in the real
+environment instead, or load the file with `unsafe: true`. Note that `*FLAGS` also matches application names such as `FEATURE_FLAGS`, `LOG_FLAGS` and `MY_CFLAGS`: rename them (for example `FEATURES`). See [Environment](configuration/env.md#trust).
+
 **A Redis cache needs an explicit URL, and `clear` only removes the cache's own keys.**
 
 - `cache_config.redis_url` is now `String?` and has no default (it used to be `redis://localhost:6379/0`).

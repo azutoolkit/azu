@@ -58,11 +58,35 @@ line fails the whole file**: it sets nothing. A file larger than 1 MB is refused
 ### Trust
 
 An application loads its own `.env`, so the file is trusted for its own settings, but a copied or cloned file must not
-be able to change how processes start. `load` and `load_all` therefore **skip, with a warning naming the variable
-(never the value)**, these names (case-insensitive): `LD_*`, `DYLD_*`, `PATH`, `SHELL`, `IFS`, `BASH_ENV`, `ENV`,
-`SHARDS_*`, `CRYSTAL_PATH`, `CRYSTAL_OPTS`, `CRYSTAL_LIBRARY_PATH`, `GIT_*`, `DOCKER_HOST` and `HOME`. Pass
-`unsafe: true` to load them anyway; set them in the real environment otherwise. The `azu` CLI applies the same list
-to the `.env` of whatever project you run it in, and never lets a file override the real environment.
+be able to change how processes start or how the toolchain, TLS and proxies behave. `load` and `load_all` therefore
+**skip, with a warning naming the variable (never the value)**, these names (case-insensitive; the same set as the
+`azu` CLI's `AzuCLI::DotEnv`, except the CLI's own `AZU_OUTPUT_PATH` and `AZU_TEMPLATES_PATH`):
+
+| Family | Names |
+| --- | --- |
+| Loader and process start | `LD_*`, `DYLD_*`, `PATH`, `SHELL`, `SHELLOPTS`, `IFS`, `BASH_ENV`, `ENV`, `PS4`, `PROMPT_COMMAND`, `CDPATH`, `GLOBIGNORE`, `GLIBC_TUNABLES`, `GCONV_PATH`, `LOCPATH`, `NLSPATH`, `MALLOC_*`, `ARGV0`, `_` |
+| Identity and directories | `HOME`, `USER`, `LOGNAME`, `PWD`, `OLDPWD`, `USERPROFILE`, `TMPDIR`, `XDG_*` |
+| Crystal and its tools | `CRYSTAL_*` (except `CRYSTAL_ENV` and `CRYSTAL_LOG_*`), `SHARDS_*`, `GIT_*`, `DOCKER_*`, `COMPOSE_*`, `SSH_*`, `PKG_CONFIG*` |
+| Compilers and linkers | `CC`, `CXX`, `CPP`, `AR`, `AS`, `LD`, `LIBS`, `LDLIBS`, any name ending in `FLAGS` (`CFLAGS`, `LDFLAGS`, `GOFLAGS`, ...), `MAKEFLAGS`, `COMPILER_PATH`, `GCC_EXEC_PREFIX`, `CPATH`, `C_INCLUDE_PATH`, `CPLUS_INCLUDE_PATH`, `OBJC_INCLUDE_PATH`, `LIBRARY_PATH`, `SDKROOT`, `DEVELOPER_DIR` |
+| TLS, proxies, resolver | `SSL_CERT_FILE`, `SSL_CERT_DIR`, `OPENSSL_CONF`, `OPENSSL_MODULES`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`, `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, `FTP_PROXY`, `CURL_HOME`, `WGETRC`, `HOSTALIASES`, `LOCALDOMAIN`, `RES_OPTIONS` |
+| Other runtimes and package managers | `PYTHON*`, `PERL5*`, `PERLLIB`, `PERLIO`, `RUBY*`, `RUBYOPT`, `LUA_PATH`, `LUA_CPATH`, `NODE_OPTIONS`, `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`, `CLASSPATH`, `GEM_HOME`, `GEM_PATH`, `BUNDLE_*`, `NPM_CONFIG_*`, `HOMEBREW_*`, `GOPROXY`, `CARGO_*`, `RUSTC_WRAPPER`, `EDITOR`, `VISUAL`, `PAGER`, `BROWSER` |
+| Terminal, locale, time zone | `TERMINFO`, `TERMINFO_DIRS`, `TERMCAP`, `MANPATH`, `LANG`, `LANGUAGE`, `LC_*`, `LOCALE_ARCHIVE`, `TZ`, `TZDIR` |
+
+Pass `unsafe: true` to load them anyway; set them in the real environment otherwise. The `azu` CLI applies the same
+list to the `.env` of whatever project you run it in, and never lets a file override the real environment.
+
+**Watch the pattern names.** `*FLAGS` matches every name that ends in `FLAGS`, so application settings called
+`FEATURE_FLAGS`, `LOG_FLAGS` or `MY_CFLAGS` are skipped too; rename them (for example `FEATURES`). The same goes for
+`PYTHON*`, `RUBY*`, `XDG_*`, `BUNDLE_*`, `CARGO_*` and the other starred families.
+
+The warning is logged by `Log.for("azu.env")` at `warn` level, so it only shows once logging is configured. It is not
+written when the real environment already has the name (the file could not override it anyway).
+
+`LANG`, `LC_*` and `TZ` are on the list although an application may well want them in its own `.env`: they change how
+every library in the process (and every child process) formats and parses text and times, and the CLI and the app
+agreeing on one list matters more than the convenience. Set them in the real environment (the container, systemd, the
+shell), or load the file with `unsafe: true` when you know the file is yours. Per-request time zones and locales belong
+in the application (`Azu::Helpers::I18n`, `Time::Location`), not in the process environment.
 
 ## Reading values
 
