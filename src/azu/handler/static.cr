@@ -93,8 +93,7 @@ module Azu
       end
 
       private def handle_invalid_path(context : HTTP::Server::Context)
-        context.response.status_code = 400
-        context.response.print "Bad Request: Invalid path"
+        Response::BadRequest.new("Invalid path").to_s(context)
         context.response.close
       end
 
@@ -145,8 +144,8 @@ module Azu
         if @fallthrough
           call_next(context)
         else
-          context.response.status_code = 405
           context.response.headers.add("Allow", "GET, HEAD")
+          Response::Error.new("Method Not Allowed", HTTP::Status::METHOD_NOT_ALLOWED, [] of String).to_s(context)
         end
 
         nil

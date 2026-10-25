@@ -89,6 +89,7 @@ describe "an environment taken from the default" do
     with_process_env({"HOST" => nil, "CRYSTAL_ENV" => nil}) do
       config = Azu::Configuration.new
       config.log = ::Log.for("spec.default_host")
+      config.container = false
       logs = ::Log.capture("spec.default_host") do
         config.announce_default_environment
       end
@@ -104,5 +105,61 @@ describe "an environment taken from the default" do
       logs = ::Log.capture("spec.default_host") { config.announce_default_environment }
       logs.empty
     end
+  end
+end
+
+# Yields what `warn_about_bind_host` logged for a configuration built under the given process environment.
+private def logged(env : String?, host : String?, container : Bool, &)
+  with_process_env({"HOST" => host, "CRYSTAL_ENV" => env}) do
+    config = Azu::Configuration.new
+    config.container = container
+    config.log = ::Log.for("spec.bind_host")
+    logs = ::Log.capture("spec.bind_host") { config.warn_about_bind_host }
+    yield logs
+  end
+end
+
+describe "the bind host warnings" do
+  it "treats an empty host like no host" do
+    with_process_env({"HOST" => nil, "CRYSTAL_ENV" => "development"}) do
+      config = Azu::Configuration.new
+      config.host = ""
+      config.host.should eq "127.0.0.1"
+      config.host = "0.0.0.0"
+      config.host = ""
+      config.host.should eq "127.0.0.1"
+    end
+  end
+
+  it "warns, naming HOST=0.0.0.0, when the development default is loopback inside a container" do
+    logged(nil, nil, true) do |logs|
+      logs.check(:warn, /listening on 127\.0\.0\.1 \(the development default\) inside a container.*Set HOST=0\.0\.0\.0/)
+      logs.empty
+    end
+    logged("development", nil, true) do |logs|
+      logs.check(:warn, /the development default.*HOST=0\.0\.0\.0/)
+      logs.empty
+    end
+  end
+
+  it "warns for an explicit loopback host in a container too" do
+    logged("production", "127.0.0.1", true) do |logs|
+      logs.check(:warn, /the configured host.*HOST=0\.0\.0\.0/)
+      logs.empty
+    end
+  end
+
+  it "is quiet outside a container, or when the container host is open" do
+    logged("development", nil, false, &.empty)
+    logged("development", "0.0.0.0", true, &.empty)
+    logged("production", nil, true, &.empty)
+  end
+
+  it "warns that debug pages are on every interface when CRYSTAL_ENV was never set and the host is not loopback" do
+    logged(nil, "0.0.0.0", false) do |logs|
+      logs.check(:warn, /CRYSTAL_ENV is not set.*every interface/)
+      logs.empty
+    end
+    logged("development", "0.0.0.0", false, &.empty)
   end
 end

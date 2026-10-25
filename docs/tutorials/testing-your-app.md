@@ -222,7 +222,7 @@ built as values.
 ## Step 3: Testing Request Validation
 
 A request contract is enforced before the endpoint runs: a body that fails validation is answered with
-`422` and a `application/problem+json` document listing the broken fields. You can test the contract with
+`422` and a problem document listing the broken fields. You can test the contract with
 or without HTTP.
 
 ```crystal

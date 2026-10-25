@@ -121,8 +121,9 @@ are the single-app facade (global configuration, one app per process); they are 
 `Azu.warn_global_shim` and `Azu.reset_shim_warning` are gone (nothing calls them). `Azu::App#start` serves an app built as
 a value with the lifecycle the facade used (prepare, bind, SIGINT/SIGTERM, drain, `Azu.shutdown`), and `MyApp.start` is now
 `Azu::App.default.start`, one code path. New: `App#start(handlers, signals:, teardown:)`, `#running?`, `#address`,
-`#prepare`, `App::AlreadyRunning`. Differences for facade users: `start` raises `AlreadyRunning` when called twice on a
-running app; a SIGINT/SIGTERM now stops every app started with `start`; `Azu.shutdown` runs when the last of them stops.
+`#prepare`, `App::AlreadyRunning`. An app starts **once**: `start` on a running app raises `AlreadyRunning`, on one that has stopped (or begun to shut down)
+`AlreadyStopped`; build a new `Azu::App` to serve again (a `start` that failed to bind can be repeated, the same handlers
+included). Differences for facade users: `start` on a stopped `App.default` raises; a SIGINT/SIGTERM now stops every app started with `start`; `Azu.shutdown` runs when the last of them stops.
 Reference: [App](api/app.md).
 
 **Per-app leftovers.** Building a configuration no longer applies its `i18n` settings to the process-wide
@@ -263,8 +264,8 @@ end
 list in (the generated apps guard it with `if Azu::CONFIG.env.development?`, but an unguarded `DevDashboard.new` exposed
 request data, SQL and configuration in production). It now checks `Azu.current_config.env.development?` on every request
 and otherwise calls the next handler, so `/dev-dashboard` (and `{path}/sql`) answer whatever the app routes there, a `404`
-when nothing; building one outside development logs one `WARN`. The SQL playground's CSRF exemption is registered only
-when the handler is built in development. There is no `allow_in_production` option. `Handler::PerformanceMonitor` has no
+when nothing; building one outside development logs one `WARN`. The SQL playground's CSRF exemption is registered whatever the
+environment (it only matters while the dashboard serves). There is no `allow_in_production` option. `Handler::PerformanceMonitor` has no
 HTTP endpoint and is unchanged. Migration: an app that relied on the dashboard in `staging` or `test` runs it in
 development (`CRYSTAL_ENV=development`); specs that call the handler set the environment (`with_azu_env(Azu::Environment::Development)`).
 
@@ -278,29 +279,46 @@ interface. Unset still means development; the default host now depends on it:
   `CRYSTAL_ENV not set, running in development, listening on 127.0.0.1`.
 - Migration: an app run in development that must be reached from another machine, a container or a VM port-forward sets
   `HOST=0.0.0.0` (or `config.host = "0.0.0.0"`). Deployments that set `CRYSTAL_ENV` (production, staging, ...) are unchanged.
-- `Configuration#host` is no longer a plain `property`: `host=` accepts `nil` to go back to the default.
+- `Configuration#host` is no longer a plain `property`: `host=` accepts `nil` or `""` to go back to the default.
+- `start` logs a WARN when the server listens on a loopback address inside a container (`/.dockerenv` exists or
+  `KUBERNETES_SERVICE_HOST` is set), naming the fix `HOST=0.0.0.0` (the usual cause: development, the default, a container);
+  and a WARN when `CRYSTAL_ENV` was never set and the host is not loopback (the development pages are served on every
+  interface). `Configuration#container=` overrides the detection.
+- Test, Pipeline, Build, Integration and Acceptance are not development: they keep binding `0.0.0.0` unless told otherwise.
 
-**Every JSON error is RFC 7807 `application/problem+json`.** The router's `404` and every other
+**Every JSON error is a RFC 7807 problem document.** The router's `404` and every other
 `Response::Error` (`BadRequest`, `AuthenticationError`, `Forbidden`, `RateLimitError`, a `500` from an unhandled
-exception, ...) predated problem+json and answered JSON clients with a PascalCase body as `application/json`. They now
-use the shape the contract `422` already had:
+exception, ...) predated problem+json and answered JSON clients with a PascalCase body. They now use the shape the contract
+`422` already had:
 
 ```json
 {"type": "about:blank", "title": "Not Found", "status": 404,
- "detail": "The server can't find the requested resource.", "instance": "/missing", "errors": [], "error_id": "4f2a..."}
+ "detail": "The server can't find the requested resource.", "errors": [], "error_id": "4f2a...", "instance": "/missing"}
 ```
 
 - Before: `{"Status": "not_found", "Link": ..., "Title": "Not Found", "Detail": ..., "Source": "/missing", "Errors": [],
   "ErrorId": ..., "Fingerprint": ..., "Context": null, "Backtrace": null, "Timestamp": ...}` with `Content-Type: application/json`.
-- `Status` (a string) becomes `status` (an integer); `Source` becomes `instance`; `ErrorId` becomes `error_id`. `Link`,
-  `Fingerprint` and `Timestamp` are gone from the body (`X-Error-ID` and `X-Error-Fingerprint` stay headers). `Context` and
-  `Backtrace` become `context` and `backtrace`, present in development only.
-- A client that matches on `application/json` must also accept `application/problem+json` (`+json` suffix).
-  HTML, XML and text responses are unchanged.
-- Migration: `config.error_format = Azu::ErrorFormat::Legacy` keeps all the old bodies (validation failures and
-  the rest) for one more minor release. The OpenAPI document follows the setting (`Azu.Error` is the problem schema,
-  `Azu.LegacyError` the old one).
-- `Handler::HealthCheck` is not an error response and keeps its `{"status": ...}` body.
+- `Status` (a string) becomes `status` (an integer); `ErrorId` becomes `error_id`. `Source`, `Link`, `Fingerprint` and
+  `Timestamp` are gone from the body (`X-Error-ID` and `X-Error-Fingerprint` stay headers). `instance` is the request path
+  and nothing else: an error's own `source` text is never sent. `Context` and `Backtrace` become `context` and `backtrace`,
+  present in development only.
+- **Content-Type.** The body is the same for every JSON client, but `Content-Type: application/problem+json` is sent only to a
+  client whose `Accept` header names `problem+json`; `application/json` and other `+json` types get the same body as
+  `application/json`. (This includes the contract `422` and the `406`.) The OpenAPI document lists both media types.
+- `title` is the error's own title (`Insufficient Funds`), not always the status phrase RFC 7807 suggests for `about:blank`; read
+  `status` for the class of error and `detail` for the explanation.
+- Handlers that wrote their own refusals now write a negotiated `Response::Error`, so a JSON client gets the same document
+  and others get the text/HTML/XML body: `CSRF` (403), `Throttle` (429, `Retry-After` kept), `Static` (400 invalid path, 405,
+  `Allow` kept), `CORS` (403, any `Access-Control-*` header already set is removed) and `IpSpoofing` (403). Bodies that were
+  empty or a fixed sentence are now the error document.
+- Still not problem+json, by design: the Spark protocol frames (`azu/spark`), the WebSocket upgrader's refusals, the
+  development dashboard's own JSON (`{path}/sql`), and `Handler::HealthCheck`'s `{"status": ...}`.
+- `Response::Error#xml` escapes the title, detail, source, messages and request context (they went into the XML
+  unescaped).
+- Migration: accept the `+json` suffix and read the new members, or set `config.error_format = Azu::ErrorFormat::Legacy`
+  (keeps all old bodies, as `application/json`, for one more minor release). The OpenAPI document follows the setting
+  (`Azu.Error` is the problem schema, `Azu.LegacyError` the old one). `Testing::Response#problem?` is true for the
+  `application/problem+json` content type only.
 
 **Request contracts are enforced.** An endpoint whose request type has validations no longer runs when the
 request breaks them: the endpoint answers `422` before `call` (by itself, whether or not a `Rescuer` is in the handler stack),

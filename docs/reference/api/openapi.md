@@ -89,8 +89,8 @@ the same bytes and a document can be compared or committed.
 - **Response.** If the response type includes `JSON::Serializable` the `200` response carries its schema
   as `application/json`.
 - **Errors.** An operation with request fields adds `400` and `422`; one with a path parameter adds `404`.
-  They reference shared `components`: `Azu.ValidationProblem` is the RFC 7807 `application/problem+json`
-  body that `Response::ValidationError` writes, and `Azu.Error` is the `application/problem+json` body the other `Response::Error`
+  They reference shared `components`: `Azu.ValidationProblem` is the RFC 7807 problem body (listed as
+  `application/problem+json` and `application/json`) that `Response::ValidationError` writes, and `Azu.Error` is the problem body (listed as `application/problem+json` and `application/json`) the other `Response::Error`
   classes write for a client that accepts JSON (`type`, `title`, `status`, `detail`, `errors`, `error_id`, and
   `instance` when the error knows the path). The document follows the `error_format` the app has when it is built: with
   `Legacy` the 400, 404 and 422 are `application/json`, and `Azu.LegacyValidationError` and `Azu.LegacyError`

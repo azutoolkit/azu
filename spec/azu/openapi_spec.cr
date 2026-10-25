@@ -291,9 +291,9 @@ module OpenAPISpec
         },
         "components": {
           "responses": {
-            "BadRequest": {"description": "The request could not be parsed.", "content": {"application/problem+json": {"schema": #{ref("Azu.Error")}}}},
-            "NotFound": {"description": "Nothing is routed there, or the endpoint found nothing.", "content": {"application/problem+json": {"schema": #{ref("Azu.Error")}}}},
-            "ValidationFailed": {"description": "The request broke its contract.", "content": {"application/problem+json": {"schema": #{ref("Azu.ValidationProblem")}}}}
+            "BadRequest": {"description": "The request could not be parsed.", "content": {"application/problem+json": {"schema": #{ref("Azu.Error")}}, "application/json": {"schema": #{ref("Azu.Error")}}}},
+            "NotFound": {"description": "Nothing is routed there, or the endpoint found nothing.", "content": {"application/problem+json": {"schema": #{ref("Azu.Error")}}, "application/json": {"schema": #{ref("Azu.Error")}}}},
+            "ValidationFailed": {"description": "The request broke its contract.", "content": {"application/problem+json": {"schema": #{ref("Azu.ValidationProblem")}}, "application/json": {"schema": #{ref("Azu.ValidationProblem")}}}}
           },
           "schemas": {
             "Azu.Error": {
@@ -304,7 +304,7 @@ module OpenAPISpec
                 "detail": {"type": "string"},
                 "error_id": {"type": "string"},
                 "errors": {"type": "array", "items": {"type": "string"}},
-                "instance": {"type": "string", "description": "The request path, when the error knows it."},
+                "instance": {"type": "string", "description": "The request path."},
                 "status": {"type": "integer"},
                 "title": {"type": "string"},
                 "type": {"type": "string"}
@@ -316,6 +316,7 @@ module OpenAPISpec
               "properties": {
                 "detail": {"type": "string"},
                 "errors": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
+                "instance": {"type": "string", "description": "The request path."},
                 "status": {"type": "integer"},
                 "title": {"type": "string"},
                 "type": {"type": "string"}
@@ -536,14 +537,14 @@ describe Azu::OpenAPI do
       serve(app, [Azu::Handler::Rescuer.new] of HTTP::Handler) do |client|
         invalid = client.post("/api/users", HTTP::Headers{"Content-Type" => "application/json", "Accept" => "application/json"}, %({"name": "", "email": "x", "role": "admin"}))
         invalid.status_code.should eq 422
-        invalid.content_type.should eq "application/problem+json"
+        invalid.content_type.should eq "application/json"
         body = JSON.parse(invalid.body).as_h
         (body.keys - schemas["Azu.ValidationProblem"]["properties"].as_h.keys).should be_empty
         schemas["Azu.ValidationProblem"]["required"].as_a.map(&.as_s).each { |key| body.has_key?(key).should be_true }
 
         missing = client.get("/nowhere", HTTP::Headers{"Accept" => "application/json"})
         missing.status_code.should eq 404
-        missing.content_type.should eq "application/problem+json"
+        missing.content_type.should eq "application/json"
         missing_body = JSON.parse(missing.body).as_h
         (missing_body.keys - schemas["Azu.Error"]["properties"].as_h.keys).should be_empty
         schemas["Azu.Error"]["required"].as_a.map(&.as_s).each { |key| missing_body.has_key?(key).should be_true }

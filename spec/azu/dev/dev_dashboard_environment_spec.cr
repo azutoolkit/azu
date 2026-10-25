@@ -64,12 +64,25 @@ describe Azu::Handler::DevDashboard do
       end
     end
 
-    it "keeps the SQL playground's CSRF exemption for development only" do
-      Azu::Handler::CSRF.exempt?("/gate-dev/sql").should be_false
-      with_azu_env(Azu::Environment::Production) { Azu::Handler::DevDashboard.new("/gate-dev") }
-      Azu::Handler::CSRF.exempt?("/gate-dev/sql").should be_false
-      with_azu_env(Azu::Environment::Development) { Azu::Handler::DevDashboard.new("/gate-dev") }
-      Azu::Handler::CSRF.exempt?("/gate-dev/sql").should be_true
+    it "serves when the serving app is in development although the global configuration is not" do
+      development = Azu::Configuration.new
+      development.env = Azu::Environment::Development
+      with_azu_env(Azu::Environment::Production) do
+        handler = Azu::Handler::DevDashboard.new
+        Azu.with_config(development) do
+          body, passed = request_through(handler, "/dev-dashboard")
+          passed.should be_false
+          body.should contain "<!DOCTYPE html>"
+        end
+      end
+    end
+
+    it "registers the playground's CSRF exemption whatever the environment, inert while it passes requests on" do
+      with_azu_env(Azu::Environment::Production) do
+        handler = Azu::Handler::DevDashboard.new("/gate-prod")
+        Azu::Handler::CSRF.exempt?("/gate-prod/sql").should be_true
+        request_through(handler, "/gate-prod/sql", "POST")[1].should be_true
+      end
     end
   end
 

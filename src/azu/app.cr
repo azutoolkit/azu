@@ -40,6 +40,13 @@ module Azu
       end
     end
 
+    # `start` was called on an app that has stopped, or has begun shutting down: an app starts once.
+    class AlreadyStopped < Exception
+      def initialize
+        super("the app has stopped and cannot be started again: build a new Azu::App")
+      end
+    end
+
     getter config : Configuration
 
     @@default : App?
@@ -49,6 +56,11 @@ module Azu
       @@default ||= new(CONFIG)
     end
 
+    # Replaces the default app, which cannot start again once it has stopped. For specs that start it.
+    def self.default=(app : App) : App
+      @@default = app
+    end
+
     @server : HTTP::Server?
     @lock = Mutex.new
     @in_flight = 0
@@ -56,6 +68,7 @@ module Azu
     @idle_waiters = [] of ::Channel(Nil)
     @sockets = Set(Channel).new
     @shutdown_signal = ::Channel(Nil).new
+    @started_once = false
 
     @@running = [] of App
     @@running_lock = Mutex.new
@@ -177,27 +190,33 @@ module Azu
       @@running_lock.synchronize { @@running.includes?(self) }
     end
 
-    # Where the server listens, once `start` has bound it; nil before. With `config.port = 0` it is the port the
-    # system chose.
+    # Where the server listens, once `start` has bound it; nil before, and after the server has closed. With
+    # `config.port = 0` it is the port the system chose.
     def address : Socket::IPAddress?
-      @server.try(&.addresses.first?).as?(Socket::IPAddress)
+      http = @server
+      return if http.nil? || http.closed?
+      http.addresses.first?.as?(Socket::IPAddress)
     end
 
     # Serves the app until `stop`, SIGINT or SIGTERM, then returns. The lifecycle behind `include Azu`'s `start`:
     #
-    # 1. `prepare`, and one INFO line when the environment came from the default (`CRYSTAL_ENV` not set);
-    # 2. the server for *handlers* (`default_handlers` when none are given: an array is used exactly as given),
-    #    bound to `config.host` and `config.port`, over TLS when `config.tls?`;
+    # 1. the server for *handlers* (`default_handlers` when none are given: an array is used exactly as given),
+    #    bound to `config.host` and `config.port`, over TLS when `config.tls?`. A bind error is raised to the caller
+    #    with nothing left behind: the handlers are unchained (the same array can be used again), nothing was prepared;
+    # 2. `prepare`, then the log lines about the environment and the address (`Configuration#announce_default_environment`
+    #    and `#warn_about_bind_host`);
     # 3. with *signals*, SIGINT and SIGTERM stop every app started this way (`begin_shutdown`, then the server
-    #    closes); a second signal finds the default handler again. The traps are process-wide: pass `signals: false`
-    #    to leave them alone;
+    #    closes); a second signal finds the default handler again. The traps are process-wide and replace any trap
+    #    the program installed (there is no chaining): pass `signals: false` to leave them alone and stop the app
+    #    yourself with `stop`;
     # 4. `listen`, which blocks; afterwards the requests in flight get `config.shutdown_timeout` to finish;
     # 5. with *teardown*, `Azu.shutdown` (Spark, presence, PubSub, `Azu.on_shutdown` hooks such as the database
     #    pools, Redis) once the last started app has stopped. Those parts are shared by every app in the process, so
     #    `teardown: false` is for an app embedded in a program that stops them itself, and for specs.
     #
-    # Raises `AlreadyRunning` when the app is running. A bind error (the port is taken) is raised before anything is
-    # left behind.
+    # An app starts **once**: `start` on a running app raises `AlreadyRunning`, and on an app that has stopped (or
+    # begun shutting down) raises `AlreadyStopped`; build a new `Azu::App` to serve again. A `start` that failed to bind
+    # does not count: it can be called again.
     def start(handlers : Array(HTTP::Handler) = default_handlers, *, signals : Bool = true, teardown : Bool = true) : Nil
       register
       begin
@@ -210,21 +229,33 @@ module Azu
 
     private def serve(handlers : Array(HTTP::Handler), signals : Bool) : Nil
       started = Time.instant
-      prepare
-      @config.announce_default_environment
-      @config.handlers = handlers.map(&.as(HTTP::Handler))
       http = server(handlers)
-      bind(http)
+      bring_up(http, handlers)
+      @started_once = true
+      @config.announce_default_environment
+      @config.warn_about_bind_host
+      @config.handlers = handlers.map(&.as(HTTP::Handler))
       App.trap_signals if signals
 
       begin
         @config.log.info { startup_banner(started) }
         http.listen
       rescue e
-        @config.log.error(exception: e) { "Server failed to start!" }
+        @config.log.error(exception: e) { "Server failed to start!" } unless draining?
       end
 
       @config.log.warn { "Shutdown timeout: requests still in flight were dropped" } unless drain
+    end
+
+    # Binds, then prepares; if either raises, undoes what was done so the call can be repeated with the same handlers.
+    private def bring_up(http : HTTP::Server, handlers : Array(HTTP::Handler)) : Nil
+      bind(http)
+      prepare
+    rescue e
+      http.close unless http.closed?
+      @server = nil
+      handlers.each(&.next=(nil))
+      raise e
     end
 
     private def bind(http : HTTP::Server) : Nil
@@ -238,6 +269,7 @@ module Azu
     private def register : Nil
       @@running_lock.synchronize do
         raise AlreadyRunning.new if @@running.includes?(self)
+        raise AlreadyStopped.new if @started_once || draining?
         @@running << self
       end
     end
@@ -250,7 +282,13 @@ module Azu
       App.release_signals if last
     end
 
-    # SIGINT and SIGTERM stop every running app. Installed once; a signal puts the default handler back first.
+    # True while the process-wide SIGINT/SIGTERM trap installed by `start` is in place. It is false again as soon as a
+    # signal has fired (the default handler is back), so an app started while another drains gets its own trap.
+    def self.signals_trapped? : Bool
+      @@running_lock.synchronize { @@signals_trapped }
+    end
+
+    # SIGINT and SIGTERM stop every running app. Installed once; a signal puts the default handlers back first.
     protected def self.trap_signals : Nil
       @@running_lock.synchronize do
         return if @@signals_trapped
@@ -258,10 +296,17 @@ module Azu
       end
       {% for signal in [:INT, :TERM] %}
         Signal::{{ signal.id }}.trap do
-          Signal::{{ signal.id }}.reset
+          App.signal_received
           App.interrupt_running
         end
       {% end %}
+    end
+
+    # The trap fired: the process owns no trap any more.
+    protected def self.signal_received : Nil
+      @@running_lock.synchronize { @@signals_trapped = false }
+      Signal::INT.reset
+      Signal::TERM.reset
     end
 
     protected def self.interrupt_running : Nil
@@ -273,9 +318,10 @@ module Azu
       end
     end
 
+    # Puts the default handlers back when the last app stops, but only while the trap is still ours.
     protected def self.release_signals : Nil
-      trapped = @@running_lock.synchronize { @@signals_trapped.tap { @@signals_trapped = false } }
-      return unless trapped
+      owned = @@running_lock.synchronize { @@signals_trapped.tap { @@signals_trapped = false } }
+      return unless owned
       Signal::INT.reset
       Signal::TERM.reset
     end

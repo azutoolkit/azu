@@ -261,7 +261,6 @@ describe Azu::Handler::Throttle do
 
       context.response.status_code.should eq(429)
       context.response.headers["Content-Type"].should eq("text/plain")
-      context.response.headers["Content-Length"].should eq("0")
       context.response.headers.has_key?("Retry-After").should be_true
 
       verify.call

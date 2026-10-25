@@ -142,13 +142,14 @@ describe Azu::Testing::Client do
 
     missing = client.get "/nope"
     missing.status_code.should eq 404
-    missing.content_type.should eq "application/problem+json"
-    missing.problem?.should be_true
+    missing.content_type.should eq "application/json" # problem+json only for a client that names it
+    missing.problem?.should be_false
     JSON.parse(missing.body)["title"].should eq "Not Found"
 
     invalid = client.post "/notes/1", json: {title: ""}
     invalid.status_code.should eq 422
-    invalid.problem?.should be_true
+    invalid.problem?.should be_false
+    JSON.parse(invalid.body)["status"].should eq 422
   end
 
   it "keeps cookies between requests, per client, and expires them with the fake clock" do

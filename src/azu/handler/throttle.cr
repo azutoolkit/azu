@@ -129,10 +129,7 @@ module Azu
           end
         end
 
-        context.response.headers[CONTENT_TYPE] = "text/plain"
-        context.response.headers[CONTENT_LENGTH] = "0"
-        context.response.headers[RETRY_AFTER] = "#{retry_after}"
-        context.response.status_code = HTTP::Status::TOO_MANY_REQUESTS.value
+        Response::RateLimitError.new(retry_after.to_i32).to_s(context)
         context.response.close
       end
 

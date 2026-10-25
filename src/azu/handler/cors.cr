@@ -60,8 +60,10 @@ module Azu
       end
 
       def forbidden(context)
-        context.response.headers["Content-Type"] = "text/plain"
-        context.response.respond_with_status 403
+        # A refusal grants nothing: drop whatever Access-Control-* header was already set for the request.
+        context.response.headers.map { |name, _| name }.each { |name| context.response.headers.delete(name) if name.downcase.starts_with?("access-control-") }
+        Response::Forbidden.new.to_s(context)
+        context.response.close
       end
 
       private def put_expose_header(response)

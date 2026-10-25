@@ -49,7 +49,7 @@ answered with `400` instead.
 
 ## Default Error Response
 
-When validation fails, Azu returns `application/problem+json` with HTTP status `422 Unprocessable Entity`:
+When validation fails, Azu returns a problem document (`application/problem+json` to a client that names it in `Accept`, `application/json` otherwise) with HTTP status `422 Unprocessable Entity`:
 
 ```json
 {
