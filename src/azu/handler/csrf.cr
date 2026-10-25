@@ -299,7 +299,7 @@ module Azu
       # The refusal is written here, never raised to the `Rescuer`: this is where it is logged (the request headers are
       # not: they carry the cookies and credentials).
       private def refuse(context : HTTP::Server::Context, error : Response::Error) : Nil
-        LogText.log_refusal(Log.for("Azu::Handler::CSRF"), context.request, error)
+        LogText.log_refusal(Log.for("Azu::Handler::CSRF"), context.request, error, client: true)
         error.to_s(context)
       end
 

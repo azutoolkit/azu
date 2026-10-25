@@ -464,6 +464,45 @@ describe Azu::Handler::Throttle do
     end
   end
 
+  describe "the refusal log line" do
+    around_each do |example|
+      Azu::Handler::Throttle::RefusalPages.clear
+      example.run
+    end
+
+    refuse = ->(handler : Azu::Handler::Throttle, remote : String) do
+      context, _ = create_context_with_remote_addr("GET", "/limited", remote)
+      handler.call(context)
+    end
+
+    it "names the client address" do
+      handler = Azu::Handler::Throttle.new(5, 900, 100, ["10.3.0.1"], [] of String, ::Log.for("throttle_line_spec"))
+      handler.next = create_next_handler(0)[0]
+      Log.capture("*") do |logs|
+        refuse.call(handler, "10.3.0.1")
+        logs.next(:warn, /GET \/limited -> 429 .*10\.3\.0\.1/)
+      end
+    end
+
+    it "writes at most a few lines a second and then one summary of what it left out" do
+      with_fake_clock do |clock|
+        handler = Azu::Handler::Throttle.new(5, 900, 100, ["10.3.0.2"], [] of String, ::Log.for("throttle_line_spec"))
+        handler.next = create_next_handler(0)[0]
+        Log.capture("*") do |logs|
+          30.times { refuse.call(handler, "10.3.0.2") }
+          Azu::Handler::Throttle::LOG_PER_SECOND.times { logs.next(:warn, /-> 429/) }
+          logs.empty
+
+          clock.advance(1.1.seconds)
+          refuse.call(handler, "10.3.0.2")
+          logs.next(:warn, /suppressed #{30 - Azu::Handler::Throttle::LOG_PER_SECOND} similar/)
+          logs.next(:warn, /-> 429/)
+          logs.empty
+        end
+      end
+    end
+  end
+
   describe "statistics" do
     it "tracks number of IPs being monitored" do
       handler = Azu::Handler::Throttle.new(

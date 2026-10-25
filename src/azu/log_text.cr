@@ -44,10 +44,20 @@ module Azu
     end
 
     # The line for a refusal a handler wrote itself (CSRF, CORS, Throttle, IpSpoofing), as the `Rescuer` writes a 4xx.
-    def self.log_refusal(log : ::Log, request : HTTP::Request, error : Azu::Response::Error) : Nil
+    # With *client*, the line also names the peer address and the Origin header (cut and cleaned like the path).
+    def self.log_refusal(log : ::Log, request : HTTP::Request, error : Azu::Response::Error, *, client : Bool = false) : Nil
       log_client_error(log, error.status_code) do
-        client_error_line(request.method, request.path, error.status_code, error.title, error.detail)
+        line = client_error_line(request.method, request.path, error.status_code, error.title, error.detail)
+        client ? "#{line} (#{client_note(request)})" : line
       end
+    end
+
+    # `client 203.0.113.9, origin https://app.example`: the address of the connection, which a header cannot forge.
+    def self.client_note(request : HTTP::Request) : String
+      address = request.remote_address
+      note = "client #{safe(address.is_a?(Socket::IPAddress) ? address.address : (address.try(&.to_s) || "unknown"), REASON_LENGTH)}"
+      request.headers["Origin"]?.try { |origin| note += ", origin #{safe(origin, REASON_LENGTH)}" }
+      note
     end
 
     def self.client_error_line(method : String, path : String, status : Int32, title : String, detail : String? = nil) : String

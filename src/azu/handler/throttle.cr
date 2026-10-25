@@ -125,6 +125,9 @@ module Azu
         end
       end
 
+      # At most this many refusals are logged a second; the rest are counted and summarised.
+      LOG_PER_SECOND = 10
+
       RETRY_AFTER    = "Retry-After"
       CONTENT_TYPE   = "Content-Type"
       CONTENT_LENGTH = "Content-Length"
@@ -137,6 +140,10 @@ module Azu
         whitelist : Array(String) = [] of String
 
       @log : ::Log?
+      @log_mutex = Mutex.new
+      @log_window = Clock.instant
+      @logged = 0
+      @suppressed = 0
       @tracker : Hash(String, RequestTracker)
       @mutex : Mutex
 
@@ -190,9 +197,33 @@ module Azu
         end
 
         error = Refusal.new(retry_after.to_i32)
-        LogText.log_refusal(log, context.request, error)
+        log_refusal(context.request, error)
         error.to_s(context)
         context.response.close
+      end
+
+      # A flood of refusals must not become a flood of log lines: LOG_PER_SECOND a second are written, and the next
+      # window starts with one line saying how many were left out.
+      private def log_refusal(request : HTTP::Request, error : Refusal) : Nil
+        now = Clock.instant
+        summary = 0
+        write = @log_mutex.synchronize do
+          if now - @log_window >= 1.second
+            summary = @suppressed
+            @log_window = now
+            @logged = 0
+            @suppressed = 0
+          end
+          if @logged < LOG_PER_SECOND
+            @logged += 1
+            true
+          else
+            @suppressed += 1
+            false
+          end
+        end
+        log.warn { "suppressed #{summary} similar refusals in the last second" } if summary > 0
+        LogText.log_refusal(log, request, error, client: true) if write
       end
 
       # All methods below must be called within @mutex.synchronize block
