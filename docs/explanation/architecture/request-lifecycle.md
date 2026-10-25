@@ -96,7 +96,8 @@ end
 - A body that cannot become the request type (malformed JSON, `"abc"` for an `Int32`, in JSON or in a form) raises
   `Azu::Response::BadRequest`: `400`.
 - A request that breaks a validation raises `Azu::Response::ValidationError`: `422` with an
-  `application/problem+json` body listing the failing fields.
+  RFC 7807 problem body listing the failing fields (`Content-Type: application/problem+json` when the client's `Accept` names it,
+  `application/json` otherwise).
 - Otherwise the parsed request is available in `call` as `create_user_request`, parsed once per call.
 
 Both errors are raised before `call`, so an endpoint never sees an invalid request. They are answered by `Rescuer`.

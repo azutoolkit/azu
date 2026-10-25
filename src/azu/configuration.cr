@@ -137,7 +137,7 @@ module Azu
     # How template helpers and the session CSRF token store reach the session library (see `SessionAdapter`).
     property session_adapter : SessionAdapter? = nil
 
-    # The shape of validation failures: RFC 7807 `application/problem+json`, or the pre-0.6 body.
+    # The shape of validation failures: an RFC 7807 problem body (labelled `application/problem+json` only for a client that names it in `Accept`), or the pre-0.6 body.
     property error_format : ErrorFormat = ErrorFormat::Problem
 
     # The query parameter that picks the format of a `Response::Negotiable` (`?format=json`), or nil

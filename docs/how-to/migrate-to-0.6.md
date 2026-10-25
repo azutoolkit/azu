@@ -169,7 +169,7 @@ server = app.server(handlers)
 ## Contracts answer 422
 
 An endpoint whose request type has validations no longer runs when the request breaks them: the router
-answers `422` with an RFC 7807 `application/problem+json` body before `call`. To keep the pre-0.6 body
+answers `422` with an RFC 7807 problem body before `call` (`Content-Type: application/problem+json` only when the client's `Accept` names it, `application/json` otherwise). To keep the pre-0.6 body
 for one more minor release:
 
 ```crystal

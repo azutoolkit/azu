@@ -109,7 +109,7 @@ raise Azu::Response::ValidationError.new("email", "is invalid")
 - `field_errors : Hash(String, Array(String))`
 - `add_field_error(field, message)` adds one more
 
-**JSON Response** (`application/problem+json`):
+**JSON Response** (an RFC 7807 problem document, sent as `application/problem+json` when the request's `Accept` names it and as `application/json` otherwise):
 
 ```json
 {
@@ -218,8 +218,8 @@ raise InsufficientFundsError.new(100.0, 25.0)
 ## Error Response Format
 
 `Rescuer` (and the router, for an unrouted path) writes an error in the format the `Accept` header asks for: HTML (an
-error page), JSON, XML or plain text. The JSON body is RFC 7807 `application/problem+json`, the same shape the `422`
-of a broken request contract uses:
+error page), JSON, XML or plain text. The JSON body is an RFC 7807 problem document, the same shape the `422`
+of a broken request contract uses, and it is the same for every JSON client (see the `Content-Type` note below):
 
 ```json
 {
