@@ -44,7 +44,7 @@ Check these before upgrading:
 **`Handler::Static` redirects to the right path.** The redirect for a directory requested without its trailing slash answered
 `Location: /subdir//` (two slashes), and one for a path that was not in its normal form (`/a/../b.txt`) answered `/b.txt/` (a slash added to a
 file). Now `/subdir` redirects to `/subdir/`, `/a/../b.txt` to `/b.txt`, and the query string is kept. A
-`Location` always starts with exactly one `/`, so `//evil.com` can never become a protocol-relative redirect.
+path-only `Location` starts with exactly one `/`, so `//evil.com` is redirected to `/evil.com`, never to a protocol-relative URL.
 **Azu's error pages no longer depend on the working directory.** `error.html` and `error_debug.html` are compiled into
 the binary (`Azu::Templates::BUILTIN`), and `ERROR_TEMPLATE` defaults to the directory they live in inside the azu source
 (resolved at compile time) instead of `./src/azu/templates`. Before, an app that installed azu as a shard found no
@@ -104,17 +104,14 @@ wins. The key is resolved when the handler is built (`CSRF.default` and `CSRF.co
 misconfigured production app fails at boot. Instances built without a key in one process now share the one fallback key (they signed with
 different keys before). Apps made with `azu new` already set `CSRF_SECRET` and refuse to start without it, so they are unaffected.
 **A 4xx is logged below error level and without an exception.** `Router` logged every unmatched route (404) with `Log.error(exception: ...)` under
-the root source, and `Handler::Rescuer` logged every raised `Response::Error` (4xx included) at `warn` with its exception. A client error is not a
-server fault, so now: a 404 from the router and a 4xx `Response::Error` caught by `Rescuer` produce one `debug` line
-(`GET /missing -> 404 Not Found`, source `azu.router` / `http.server`) without an exception or backtrace; a 5xx `Response::Error` and an unexpected
-exception are still logged at `error` with the exception. The response status and body are unchanged. If you alert on `warn`/`error` lines for
-404s, watch the request log (`Handler::Logger`) instead.
-**Path and query parameters win over the request body.** `Params#[]`, `#[]?`, `#fetch_all` and `#to_h` looked the form
-body up first, then the path, then the query string, so `POST /users/5` with `id=1` in the body handed the endpoint
-`id=1` (and the typed request of a form got the body's value too). The order is now path, query string, body. A JSON
-body is applied the same way when the typed request is built: a path or query value replaces a key the body already
-has (keeping the JSON type of the body's value); keys the body lacks are not added. Migration: an endpoint that read a
-value the client was meant to override from the body must stop naming that field like a path parameter or a query key.
+the root source, and `Handler::Rescuer` logged every raised `Response::Error` (4xx and 5xx) at `warn` with its exception. A client error is not a
+server fault, so now: a 404 from the router and a 4xx `Response::Error` caught by `Rescuer` produce one line with the reason
+(`GET /signup -> 400 Bad Request: email is invalid`) and no exception or backtrace, at `debug` (the request log has the access line), except `401`
+and `413` at `info` and `403` and `429` at `warn`, so the default log level still shows them. The path and detail in the line are cut to 200 characters and
+stripped of control characters (`Azu::LogText.safe`, also used by `Handler::Logger` and `SimpleLogger`). The log sources are `Azu::Router` and
+`Azu::Rescuer` (the Rescuer's was `http.server`, the Router's was the unnamed root source; bind `Azu::*` instead). The access lines of `Handler::Logger` and `SimpleLogger` keep targets up to 2048 characters, escape C0/C1 controls, line separators and bidi overrides in them (also in the user agent, request id and endpoint), and replace credential-looking query parameters (`?token=...`) in the logged target, so `Log.setup("Azu::*")` selects them. A raised 5xx `Response::Error` moves from `warn` to `error`
+(with its exception and backtrace): that includes deliberate `503`/`504`s you raise yourself. An unexpected exception is `error` as before. The
+response status and body are unchanged. If you alert on `warn`/`error` lines for 404s, watch the request log (`Handler::Logger`) instead.
 
 **The global shim is deprecated.** `include Azu`, `configure` and `start` still work, and log one warning per
 process (at the first call, not when requiring azu) that names `Azu::App`.
@@ -182,7 +179,7 @@ environment is now `Azu::Env.redacted(ENV.to_h)` (values of names such as `*_SEC
 `[FILTERED]`, and the password of a `scheme://user:password@host` URL is hidden), the header values of `Authorization`, `Cookie`, `Set-Cookie`,
 `X-CSRF-Token`, `X-API-Key` and the like are `[FILTERED]` in `to_h`/`to_json` (`ErrorContext#headers` is still the real request headers; use
 `#redacted_headers` for display), and query parameters with such names are redacted in `#redacted_params`. If you read a secret value out of an
-error JSON in development, read it from the environment instead.
+error JSON in development, read it from the environment instead. `Azu::Env.redact` also filters names with `PASS`, `PWD`, `JWT`, `SESSION`, `SID`, `SIGNATURE`, `CONNECTION_STRING`, `OTP`, `PIN`, `CVV`, `CARD`, `SSN` (hyphenated header names count like underscored ones), and the new `Azu::Env.redact_url` hides URL passwords and credential query parameters (`?token=...`) anywhere in a value (referer, endpoint). The development exception page (the `exception_page` shard) is built from redacted query parameters, response headers and response cookies.
 
 **Template helpers no longer read `_session` and `_flash` cookies.** `Helpers::TemplateContext#session` and
 `#flash` decoded an unsigned Base64 JSON cookie that no session library writes, so any client could forge

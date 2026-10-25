@@ -11,6 +11,19 @@ module Azu
         accent: "red",
       )
     end
+
+    # The page for `exception` with the query parameters, response headers and response cookies the page prints
+    # passed through `Azu::Env.redact`, so a credential in them does not reach the browser.
+    def self.redacted(context : HTTP::Server::Context, exception : Exception)
+      params = URI::Params.new
+      context.request.query_params.each { |name, value| params.add(name, Azu::Env.redact(name, value)) }
+      headers = HTTP::Headers.new
+      context.response.headers.each { |name, values| values.each { |value| headers.add(name, Azu::Env.redact(name, value)) } }
+      cookies = HTTP::Cookies.new
+      context.response.cookies.each { |cookie| cookies << HTTP::Cookie.new(cookie.name, Azu::Env.redact(cookie.name, cookie.value)) }
+
+      new(exception, context.request.method, Azu::Env.redact_url(context.request.path), context.response.status, nil, params, headers, cookies, exception.message.try { |text| Azu::Env.redact_url(text) })
+    end
   end
 
   # Cached environment data singleton for performance
@@ -120,8 +133,8 @@ module Azu
         json.field "session_id", session_id
         json.field "ip_address", ip_address
         json.field "user_agent", user_agent
-        json.field "referer", referer
-        json.field "endpoint", endpoint
+        json.field "referer", redacted_referer
+        json.field "endpoint", redacted_endpoint
         json.field "method", method
         json.field "params", redacted_params
         json.field "headers", redacted_headers
@@ -137,6 +150,15 @@ module Azu
       end
     end
 
+    # The referer and the endpoint with credential-looking query parameters and URL passwords replaced.
+    def redacted_referer : String?
+      referer.try { |value| Azu::Env.redact_url(value) }
+    end
+
+    def redacted_endpoint : String?
+      endpoint.try { |value| Azu::Env.redact_url(value) }
+    end
+
     # The query parameters for display, with the value of a credential-looking name (`token`, `api_key`, `password`) replaced.
     def redacted_params : Hash(String, String)?
       params.try { |all| Azu::Env.redacted(all) }
@@ -150,8 +172,8 @@ module Azu
         "session_id"  => session_id,
         "ip_address"  => ip_address,
         "user_agent"  => user_agent,
-        "referer"     => referer,
-        "endpoint"    => endpoint,
+        "referer"     => redacted_referer,
+        "endpoint"    => redacted_endpoint,
         "method"      => method,
         "params"      => redacted_params,
         "headers"     => redacted_headers,

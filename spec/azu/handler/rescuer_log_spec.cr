@@ -51,7 +51,7 @@ describe "request error logging" do
       context = run_chain { |_| raise Azu::Response::DatabaseError.new("boom") }
       context.response.status_code.should eq 500
 
-      logs.next(:error, /500/)
+      logs.next(:error, /\AError Processing Request 500/)
       logs.entry.exception.should be_a Azu::Response::DatabaseError
       logs.empty
     end
@@ -62,9 +62,53 @@ describe "request error logging" do
       context = run_chain { |_| raise "unexpected" }
       context.response.status_code.should eq 500
 
-      logs.next(:error, /./)
+      logs.next(:error, /\AError Processing Request/)
       logs.entry.exception.try(&.message).should eq "unexpected"
       logs.empty
     end
+  end
+
+  it "names the source of each line so Log.setup(\"Azu::*\") selects them" do
+    router = Azu::Router.new
+    Log.capture("*") do |logs|
+      run_chain("/missing") { |c| router.process(c); nil }
+      logs.next(:debug, /404/)
+      logs.entry.source.should eq "Azu::Router"
+
+      run_chain { |_| raise Azu::Response::BadRequest.new("bad") }
+      logs.next(:debug, /400/)
+      logs.entry.source.should eq "Azu::Rescuer"
+    end
+  end
+
+  it "keeps the reason of a 4xx in its single line, without the exception" do
+    Log.capture("*") do |logs|
+      run_chain("/signup") { |_| raise Azu::Response::BadRequest.new("email is invalid") }
+      logs.next(:debug, /GET \/signup -> 400 .*: email is invalid/)
+      logs.entry.exception.should be_nil
+    end
+  end
+
+  {401 => {Log::Severity::Info, -> { Azu::Response::AuthenticationError.new.as(Azu::Response::Error) }}, 403 => {Log::Severity::Warn, -> { Azu::Response::AuthorizationError.new.as(Azu::Response::Error) }}, 429 => {Log::Severity::Warn, -> { Azu::Response::RateLimitError.new.as(Azu::Response::Error) }}, 413 => {Log::Severity::Info, -> { Azu::Response::PayloadTooLarge.new("too big").as(Azu::Response::Error) }}}.each do |status, (severity, build)|
+    it "logs a #{status} at #{severity}, without an exception" do
+      Log.capture("*") do |logs|
+        context = run_chain { |_| raise build.call }
+        context.response.status_code.should eq status
+
+        logs.next(severity, /-> #{status}/)
+        logs.entry.exception.should be_nil
+        logs.empty
+      end
+    end
+  end
+
+  it "cuts a long path to a length (and LogText strips control characters)" do
+    router = Azu::Router.new
+    Log.capture("*") do |logs|
+      run_chain("/" + "x" * 400) { |c| router.process(c); nil }
+      logs.next(:debug, /x\.\.\. -> 404/)
+      logs.entry.message.size.should be < 260
+    end
+    Azu::LogText.safe("a\nb\r\e[31m").should eq "a\\x0ab\\x0d\\x1b[31m"
   end
 end

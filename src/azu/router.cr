@@ -2,6 +2,7 @@ require "http/web_socket"
 require "radix"
 require "./method"
 require "./routable"
+require "./log_text"
 
 module Azu
   # Defines an Azu Router
@@ -37,7 +38,7 @@ module Azu
   # options '/hello', to: endpoint
   # ```
   class Router
-    private LOG = Log.for("azu.router")
+    private LOG = Log.for("Azu::Router")
 
     alias Path = String
     RESOURCES           = %w(connect delete get head options patch post put trace)
@@ -204,7 +205,7 @@ module Azu
 
     private def not_found(context)
       ex = Response::NotFound.new(context.request.path)
-      LOG.debug { "#{context.request.method} #{context.request.path} -> #{ex.status_code} #{ex.title}" }
+      LogText.log_client_error(LOG, ex.status_code) { LogText.client_error_line(context.request.method, context.request.path, ex.status_code, ex.title) }
       ex
     end
 

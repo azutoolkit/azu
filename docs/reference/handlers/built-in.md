@@ -91,7 +91,7 @@ status, latency, remote address, user agent and content length as fields. It als
 ## Handler::Rescuer
 
 ```crystal
-Azu::Handler::Rescuer.new(log: Log.for("http.server"))
+Azu::Handler::Rescuer.new(log: Log.for("Azu::Rescuer"))
 ```
 
 Catches what the handlers after it, the router and the endpoint raise and answers with an error response.

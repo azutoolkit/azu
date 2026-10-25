@@ -4,6 +4,13 @@ require "../../support/integration_helpers"
 
 include IntegrationHelpers
 
+# Exposes the private redirect_path, so the leading slashes are pinned by a unit spec too.
+class StaticRedirectProbe < Azu::Handler::Static
+  def location(path : String, directory : Bool) : String
+    redirect_path(path, directory)
+  end
+end
+
 describe Azu::Handler::Static do
   describe "initialization" do
     it "initializes with default public directory" do
@@ -720,22 +727,25 @@ describe Azu::Handler::Static do
       end
     end
 
-    it "never redirects to a protocol-relative location" do
-      with_temp_dir({"subdir/file.txt" => "content", "evil.com/x.txt" => "x"}) do |dir|
+    it "redirects a path with leading slashes to the same path with one" do
+      with_temp_dir({"subdir/file.txt" => "content"}) do |dir|
         handler = Azu::Handler::Static.new(dir, fallthrough: true)
-        [
-          "//evil.com", "//evil.com/", "///evil.com", "//evil.com/../evil.com", "/%2Fevil.com", "/%2F%2Fevil.com/",
-          "//subdir", "/./\\evil.com", "/..//evil.com", "//evil.com//..", "/a/..//evil.com",
-        ].each do |path|
+        {"//evil.com" => "/evil.com", "///evil.com/x" => "/evil.com/x", "//subdir" => "/subdir/", "/..//evil.com" => "/evil.com", "/%2Fevil.com" => "/evil.com", "/%2F%2Fevil.com/" => "/evil.com/", "/./%5Cevil.com" => "/evil.com"}.each do |path, location|
           context, _ = create_context("GET", path)
           handler.call(context)
-          if location = context.response.headers["Location"]?
-            location.should start_with("/")
-            location.should_not start_with("//")
-            location.should_not start_with("/\\")
-          end
+          context.response.headers["Location"]?.should eq location
         end
       end
+    end
+
+    it "never builds a protocol-relative Location, whatever path it is given" do
+      probe = StaticRedirectProbe.new
+      probe.location("//evil.com", false).should eq "/evil.com"
+      probe.location("///evil.com", true).should eq "/evil.com/"
+      probe.location("/ok/", true).should eq "/ok/"
+      probe.location("/ok", false).should eq "/ok"
+      probe.location("/\\evil.com", false).should eq "/evil.com"
+      probe.location("/\\/evil.com", true).should eq "/evil.com/"
     end
   end
 

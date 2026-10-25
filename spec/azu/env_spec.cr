@@ -583,6 +583,35 @@ describe Azu::Env do
       Azu::Env.redact("REDIS_URL", "redis://localhost:6379/0").should eq "redis://localhost:6379/0"
     end
 
+    it "filters passwords, sessions, signatures, one-time codes and hyphenated header names" do
+      %w[MYSQL_PWD DB_PASS APP_JWT SESSION_ID SID X-Session-Id X-Api-Key-Id X-Auth-Token OTP_CODE CARD_NUMBER CVV SSN X-Signature CONNECTION_STRING AZURE_STORAGE_CONNECTION_STRING PIN].each do |name|
+        Azu::Env.redact(name, "abc").should eq "[FILTERED]"
+      end
+      %w[PORT HOST PINNED SPINNER PASSENGER BYPASS CARDINAL CRYSTAL_ENV Accept User-Agent SESSIONS_DIR XDG_SESSION_TYPE PWD].each do |name|
+        Azu::Env.redact(name, "abc").should eq "abc"
+      end
+    end
+
+    it "hides URL passwords and credential query parameters anywhere in a value" do
+      Azu::Env.redact_url("https://shop.example/cb?token=hunter2&page=2").should eq "https://shop.example/cb?token=[FILTERED]&page=2"
+      Azu::Env.redact_url("see postgres://app:hunter2@db/app and redis://:pw@cache/0").should eq "see postgres://app:[FILTERED]@db/app and redis://:[FILTERED]@cache/0"
+      Azu::Env.redact("Referer", "https://a.example/x?next=/home&password=hunter2").should eq "https://a.example/x?next=/home&password=[FILTERED]"
+      Azu::Env.redact_url("/search?q=azu&page=2").should eq "/search?q=azu&page=2"
+    end
+
+    it "keeps URLs whose path or query merely contains an @ or a port" do
+      ["http://localhost:3000/users/@alice", "https://x.example/y?email=a@b.c", "http://h:8080/a?e=a@b.c", "see http://localhost:3000/@me"].each do |text|
+        Azu::Env.redact_url(text).should eq text
+      end
+      Azu::Env.redact_url("http://user:8080@h/x").should eq "http://user:[FILTERED]@h/x"
+    end
+
+    it "redacts MYSQL_PWD and SESSION_ID but not the working directory" do
+      Azu::Env.redact("MYSQL_PWD", "abc").should eq "[FILTERED]"
+      Azu::Env.redact("SESSION_ID", "abc").should eq "[FILTERED]"
+      Azu::Env.redact("PWD", "/home/app").should eq "/home/app"
+    end
+
     it "redacts a whole hash" do
       Azu::Env.redacted({"A" => "1", "SESSION_SECRET" => "x"}).should eq({"A" => "1", "SESSION_SECRET" => "[FILTERED]"})
     end

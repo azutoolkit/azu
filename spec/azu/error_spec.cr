@@ -70,6 +70,45 @@ describe "Azu Error Handling" do
       end
     end
 
+    it "redacts credentials in the referer, the endpoint and an old-style URL password" do
+      context = Azu::ErrorContext.new(referer: "https://a.example/x?token=hunter2&page=2", endpoint: "/cb?password=hunter2&next=/")
+
+      [context.to_json, context.to_h.to_s].each do |dump|
+        dump.should_not contain("hunter2")
+        dump.should contain("page=2")
+      end
+      context.referer.should eq "https://a.example/x?token=hunter2&page=2"
+    end
+
+    it "redacts MYSQL_PWD and SESSION variables of the environment it carries" do
+      ENV["MYSQL_PWD"] = "hunter2-mysql"
+      ENV["SESSION_STORE_URL"] = "redis://u:hunter2-redis@cache/0"
+      begin
+        Azu::CachedEnvironment.refresh
+        Azu::ErrorContext.new(_load_environment: true).to_json.should_not contain("hunter2")
+      ensure
+        ENV.delete("MYSQL_PWD")
+        ENV.delete("SESSION_STORE_URL")
+        Azu::CachedEnvironment.refresh
+      end
+    end
+
+    it "gives the development exception page redacted query parameters, headers and cookies" do
+      with_azu_env(Azu::Environment::Development) do
+        request = HTTP::Request.new("GET", "/boom?token=hunter2&page=2")
+        response = HTTP::Server::Response.new(IO::Memory.new)
+        response.cookies << HTTP::Cookie.new("session", "hunter2-cookie")
+        response.headers["X-Api-Key-Id"] = "hunter2-header"
+        html = Azu::Response::NotFound.new("/boom").html(HTTP::Server::Context.new(request, response))
+        html.should contain("token")
+
+        html.should_not contain("hunter2")
+        html.should contain("page")
+        html.should contain("[FILTERED]")
+        html.should contain("2")
+      end
+    end
+
     it "converts to JSON" do
       context = Azu::ErrorContext.new(
         request_id: "req-123",
