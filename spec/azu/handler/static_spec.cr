@@ -730,7 +730,7 @@ describe Azu::Handler::Static do
     it "redirects a path with leading slashes to the same path with one" do
       with_temp_dir({"subdir/file.txt" => "content"}) do |dir|
         handler = Azu::Handler::Static.new(dir, fallthrough: true)
-        {"//evil.com" => "/evil.com", "///evil.com/x" => "/evil.com/x", "//subdir" => "/subdir/", "/..//evil.com" => "/evil.com"}.each do |path, location|
+        {"//evil.com" => "/evil.com", "///evil.com/x" => "/evil.com/x", "//subdir" => "/subdir/", "/..//evil.com" => "/evil.com", "/%2Fevil.com" => "/evil.com", "/%2F%2Fevil.com/" => "/evil.com/", "/./%5Cevil.com" => "/evil.com"}.each do |path, location|
           context, _ = create_context("GET", path)
           handler.call(context)
           context.response.headers["Location"]?.should eq location
@@ -744,6 +744,8 @@ describe Azu::Handler::Static do
       probe.location("///evil.com", true).should eq "/evil.com/"
       probe.location("/ok/", true).should eq "/ok/"
       probe.location("/ok", false).should eq "/ok"
+      probe.location("/\\evil.com", false).should eq "/evil.com"
+      probe.location("/\\/evil.com", true).should eq "/evil.com/"
     end
   end
 

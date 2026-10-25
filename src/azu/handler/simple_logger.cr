@@ -73,18 +73,18 @@ module Azu
       private def build_request_context(context : HTTP::Server::Context, elapsed : Time::Span) : Hash(String, String)
         {
           "method"         => context.request.method,
-          "path"           => LogText.safe(context.request.resource),
+          "path"           => LogText.target(context.request.resource),
           "endpoint"       => get_endpoint_class_name(context),
           "status"         => context.response.status_code.to_s,
           "latency"        => format_latency(elapsed),
           "remote_addr"    => get_remote_address(context),
-          "user_agent"     => context.request.headers["User-Agent"]? || "unknown",
+          "user_agent"     => LogText.safe(context.request.headers["User-Agent"]? || "unknown"),
           "content_length" => context.response.headers["Content-Length"]? || "0",
         }
       end
 
       private def get_endpoint_class_name(context : HTTP::Server::Context) : String
-        context.request.headers["X-Azu-Endpoint"]? || "unknown"
+        LogText.safe(context.request.headers["X-Azu-Endpoint"]? || "unknown", LogText::REASON_LENGTH)
       end
 
       private def get_remote_address(context : HTTP::Server::Context) : String
@@ -107,7 +107,7 @@ module Azu
       private def generate_request_id(context : HTTP::Server::Context) : String
         # Use existing request ID if present
         if existing_id = context.request.headers["X-Request-ID"]?
-          return existing_id
+          return LogText.safe(existing_id, LogText::REASON_LENGTH)
         end
 
         # Generate new request ID
@@ -120,7 +120,7 @@ module Azu
         String.build do |str|
           str << "HTTP Request".colorize(:green).underline
           str << entry(:Method, context.request.method, :green)
-          str << entry(:Path, LogText.safe(context.request.resource), :light_blue)
+          str << entry(:Path, LogText.target(context.request.resource), :light_blue)
           str << status_entry(:Status, http_status(context.response.status_code))
           str << entry(:Latency, elapsed(Time.instant - time), :green)
         end

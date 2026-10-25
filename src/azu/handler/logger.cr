@@ -46,7 +46,7 @@ module Azu
           str << addr.colorize(:green).underline
           str << " ⤑ "
           str << req.method.colorize(:yellow)
-          str << entry(:Path, LogText.safe(req.resource), :light_blue)
+          str << entry(:Path, LogText.target(req.resource), :light_blue)
           str << entry(:Endpoint, get_endpoint_class_name(req), :magenta)
           str << status(:Status, res.status_code)
           str << entry(:Latency, elapsed_text, :green)
@@ -54,7 +54,7 @@ module Azu
       end
 
       private def get_endpoint_class_name(req : HTTP::Request) : String
-        endpoint_name = req.headers["X-Azu-Endpoint"]? || "unknown"
+        endpoint_name = LogText.safe(req.headers["X-Azu-Endpoint"]? || "unknown", LogText::REASON_LENGTH)
         # Simplify the class name by removing module prefixes for readability
         endpoint_name.split("::").last
       end

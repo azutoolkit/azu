@@ -100,9 +100,12 @@ describe "Azu Error Handling" do
         response.cookies << HTTP::Cookie.new("session", "hunter2-cookie")
         response.headers["X-Api-Key-Id"] = "hunter2-header"
         html = Azu::Response::NotFound.new("/boom").html(HTTP::Server::Context.new(request, response))
+        html.should contain("token")
 
         html.should_not contain("hunter2")
         html.should contain("page")
+        html.should contain("[FILTERED]")
+        html.should contain("2")
       end
     end
 

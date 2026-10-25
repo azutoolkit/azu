@@ -155,7 +155,7 @@ module Azu
       # The normal form of the path, ending in one slash for a directory. It starts with exactly one slash: a
       # Location of `//host/...` would be read by a browser as another site.
       private def redirect_path(normalized_path : String, directory : Bool) : String
-        path = "/#{normalized_path.lstrip('/')}"
+        path = "/#{normalized_path.lstrip("/\\")}"
         directory && !dir_path?(path) ? "#{path}/" : path
       end
 

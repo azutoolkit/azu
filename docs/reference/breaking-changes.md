@@ -109,7 +109,7 @@ server fault, so now: a 404 from the router and a 4xx `Response::Error` caught b
 (`GET /signup -> 400 Bad Request: email is invalid`) and no exception or backtrace, at `debug` (the request log has the access line), except `401`
 and `413` at `info` and `403` and `429` at `warn`, so the default log level still shows them. The path and detail in the line are cut to 200 characters and
 stripped of control characters (`Azu::LogText.safe`, also used by `Handler::Logger` and `SimpleLogger`). The log sources are `Azu::Router` and
-`Azu::Rescuer` (the Rescuer's was `http.server`), so `Log.setup("Azu::*")` selects them. A raised 5xx `Response::Error` moves from `warn` to `error`
+`Azu::Rescuer` (the Rescuer's was `http.server`, the Router's was the unnamed root source; bind `Azu::*` instead). The access lines of `Handler::Logger` and `SimpleLogger` keep targets up to 2048 characters, escape C0/C1 controls, line separators and bidi overrides in them (also in the user agent, request id and endpoint), and replace credential-looking query parameters (`?token=...`) in the logged target, so `Log.setup("Azu::*")` selects them. A raised 5xx `Response::Error` moves from `warn` to `error`
 (with its exception and backtrace): that includes deliberate `503`/`504`s you raise yourself. An unexpected exception is `error` as before. The
 response status and body are unchanged. If you alert on `warn`/`error` lines for 404s, watch the request log (`Handler::Logger`) instead.
 

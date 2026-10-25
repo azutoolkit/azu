@@ -4,11 +4,24 @@ module Azu
   # What the framework writes into a log line about a request: text a client chose (the path, an error detail) is
   # cut to a length and stripped of control characters, so one request cannot forge or flood log lines.
   module LogText
-    MAX_LENGTH = 200
+    # An access line keeps long targets (OAuth callbacks, searches); the reason text of a 4xx is cut shorter.
+    MAX_LENGTH    = 2048
+    REASON_LENGTH =  200
+
+    # C0 and C1 controls, line/paragraph separators and bidi overrides/isolates: they forge or reorder log lines.
+    UNSAFE = /[\x00-\x1f\x7f-\x9f\x{2028}\x{2029}\x{202a}-\x{202e}\x{2066}-\x{2069}]/
 
     def self.safe(value : String, limit : Int32 = MAX_LENGTH) : String
       text = value.size > limit ? "#{value[0, limit]}..." : value
-      text.gsub(/[\x00-\x1f\x7f]/) { |char| "\\x%02x" % char.bytes.first }
+      text.gsub(UNSAFE) do |char|
+        code = char[0].ord
+        code < 0x100 ? "\\x%02x" % code : "\\u%04x" % code
+      end
+    end
+
+    # A request target for the access line: credential-looking query parameters are replaced (`?token=...`).
+    def self.target(resource : String) : String
+      safe(Azu::Env.redact_url(resource))
     end
 
     # How loud a 4xx is: the router's 404 and most client mistakes are debug (the request log has the access line),
@@ -31,8 +44,8 @@ module Azu
     end
 
     def self.client_error_line(method : String, path : String, status : Int32, title : String, detail : String? = nil) : String
-      line = "#{method} #{safe(path)} -> #{status} #{title}"
-      detail && !detail.empty? && detail != title ? "#{line}: #{safe(detail)}" : line
+      line = "#{method} #{safe(path, REASON_LENGTH)} -> #{status} #{title}"
+      detail && !detail.empty? && detail != title ? "#{line}: #{safe(detail, REASON_LENGTH)}" : line
     end
   end
 end

@@ -59,8 +59,8 @@ Log.setup do |config|
 end
 ```
 
-Azu's own messages come from the sources `Azu` (request lines), `http.server` (errors answered by `Rescuer`),
-`Router` (unrouted paths) and `Azu::Cache::MemoryStore` / `Azu::Cache::RedisStore`, so you can bind those names to
+Azu's own messages come from the sources `Azu` (request lines), `Azu::Rescuer` (errors answered by `Rescuer`),
+`Azu::Router` (unrouted paths) and `Azu::Cache::MemoryStore` / `Azu::Cache::RedisStore`, so you can bind those names to
 different levels or backends.
 
 ## Logging in Endpoints

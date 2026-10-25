@@ -22,7 +22,7 @@ module Azu
       cookies = HTTP::Cookies.new
       context.response.cookies.each { |cookie| cookies << HTTP::Cookie.new(cookie.name, Azu::Env.redact(cookie.name, cookie.value)) }
 
-      new(exception, context.request.method, Azu::Env.redact_url(context.request.path), context.response.status, nil, params, headers, cookies, exception.message)
+      new(exception, context.request.method, Azu::Env.redact_url(context.request.path), context.response.status, nil, params, headers, cookies, exception.message.try { |text| Azu::Env.redact_url(text) })
     end
   end
 
