@@ -214,13 +214,17 @@ route in every app; `scripts/bench.sh conformance` tells you which app is missin
 ## In-process hot path (no network)
 
 ```sh
-crystal build --release --no-debug benchmark/micro/hot_path.cr -o bin/hot_path && bin/hot_path
+mkdir -p bin && crystal build --release --no-debug benchmark/micro/hot_path.cr -o bin/hot_path && bin/hot_path
 ```
 
-prints one row per stack (`baseline`, `azu-min`, `azu`) and scenario (`/plaintext`, one parameterised URL, and
-`routing (cycling)`, the URLs of `routing.lua`): bytes and nanoseconds per request through the same
-`HTTP::Server::RequestProcessor` that serves a connection, without a socket or `wrk`. What `azu` and `azu-min` add
-over `baseline` is the framework's cost per request. **Bytes/request is exact and repeatable**, and
-`spec/azu/allocation_budget_spec.cr` guards it in CI (its budgets are calibrated on the whole-suite build, which
-measures a little more than a single-file one). **ns/request is for same-session before/after comparisons only**: it
-is wall time including setup and warmup, and moves with the machine.
+prints one row per stack and scenario (`/plaintext`, one parameterised URL, and `routing (cycling)`, the URLs of
+`routing.lua`, warmed past the router's 1000-entry path cache so every measured path misses it): bytes and nanoseconds
+per request through the same `HTTP::Server::RequestProcessor` that serves a connection, without a socket or `wrk`.
+`baseline` is a hand-written handler, `azu-min` the router, endpoint and Rescuer, and `azu` the default stack without
+the Logger handler, with Static pointed at a fixed non-existent directory; what they add over `baseline` is the
+framework's cost per request. **Bytes/request is repeatable to about 0.3%** (GC byte counting granularity), and
+`spec/azu/allocation_budget_spec.cr` guards the `/plaintext` and parameterised rows in CI (budgets calibrated on the
+whole-suite build, which measures a little more than a single-file one); the routing row has no CI budget.
+**ns/request** is the fastest measured window, timed around request processing only, and moves with the machine.
+Inputs differ by scenario, so rows of different scenarios are not comparable in ns: compare a row with the same row of
+another commit, or with the baseline row.

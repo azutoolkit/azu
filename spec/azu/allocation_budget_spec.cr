@@ -13,7 +13,7 @@ RESOURCE_AZU_BUDGET      = 3768
 RESOURCE_AZU_MIN_BUDGET  = 2952
 
 private def bytes_over_baseline(stack : HotPath::Stack, path : String) : Float64
-  HotPath.bytes_per_request(stack, path) - HotPath.bytes_per_request(HotPath::Stack::Baseline, path)
+  HotPath.measure(stack, path).bytes - HotPath.measure(HotPath::Stack::Baseline, path).bytes
 end
 
 describe "allocation budget" do
@@ -45,9 +45,32 @@ describe "allocation budget" do
   end
 
   it "mirrors routing.lua's URLs" do
+    lua = File.read(Path[__DIR__, "../../benchmark/driver/routing.lua"])
+    {"n % 100", "n % 997", "n = n + 1"}.each { |formula| lua.should contain formula }
+
     HotPath.routing_path(1).should eq "/api/v1/resource1/1"
     HotPath.routing_path(1234).should eq "/api/v1/resource34/237"
     HotPath.routing_path(997).should eq "/api/v1/resource97/0"
+  end
+
+  it "warms the routing scenario past the path cache, then measures only paths new to the router" do
+    warmup, *measured = HotPath.routing_windows
+
+    warmup.begin.should eq 1 # routing.lua increments n before its first request
+    # More paths than the router's path cache holds (Router::PathCache::DEFAULT_MAX_SIZE, 1000), so it is full
+    warmup.map { |n| HotPath.routing_path(n) }.uniq.size.should be > 1000
+    measured.size.should eq HotPath::WINDOWS
+    HotPath.routing_windows.each_cons_pair { |earlier, later| later.begin.should be > earlier.end }
+    # Disjoint numbers give new paths only within one cycle of the URL formula
+    paths = HotPath.routing_windows.flat_map(&.to_a).map { |n| HotPath.routing_path(n) }
+    paths.uniq.size.should eq paths.size
+  end
+
+  it "measures bytes and nanoseconds per request" do
+    measurement = HotPath.measure(HotPath::Stack::Baseline, "/plaintext")
+
+    measurement.bytes.should be > 0
+    measurement.ns.should be > 0
   end
 
   it "answers cycling routing URLs on every stack" do
@@ -89,7 +112,7 @@ describe "allocation budget" do
 
     it "measures a baseline that parses a request and writes a response" do
       # A harness that processes nothing reports ~16 B, which would let every budget pass
-      HotPath.bytes_per_request(HotPath::Stack::Baseline, "/plaintext").should be >= 300
+      HotPath.measure(HotPath::Stack::Baseline, "/plaintext").bytes.should be >= 300
     end
 
     it "measures a framework cost above the baseline" do
@@ -97,12 +120,11 @@ describe "allocation budget" do
     end
 
     it "measures the cycling routing scenario" do
-      HotPath::Stack.each do |stack|
-        HotPath.bytes_per_routing_request(stack).should be > 0
-      end
+      bytes = HotPath::Stack.values.to_h { |stack| {stack, HotPath.measure_routing(stack).bytes} }
 
+      bytes.each_value { |per_request| per_request.should be > 0 }
       # A framework costs more than a hand-written dispatch, also while the router's path cache is full
-      HotPath.bytes_per_routing_request(HotPath::Stack::Azu).should be > HotPath.bytes_per_routing_request(HotPath::Stack::Baseline)
+      bytes[HotPath::Stack::Azu].should be > bytes[HotPath::Stack::Baseline]
     end
 
     it "measures nothing for a block that allocates nothing" do
