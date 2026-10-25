@@ -224,7 +224,8 @@ module Azu
       endpoint_class_name = route.endpoint.class.name
       context.request.headers["X-Azu-Endpoint"] = endpoint_class_name
 
-      route.endpoint.call(context).to_s
+      route.endpoint.call(context)
+      ""
     end
 
     private def not_found(context)

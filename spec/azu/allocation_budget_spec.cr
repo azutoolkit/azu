@@ -131,6 +131,7 @@ describe "allocation budget" do
     pending "measures nothing for a block that allocates nothing"
     pending "measures what a block allocates"
     pending "a fieldless contract on a request without a body costs no more than no contract"
+    pending "the router adds nothing beyond its lookup to an endpoint call"
     pending "Static allocates nothing on a routed path when the public directory does not exist"
   {% else %}
     it "keeps the default stack on /plaintext within its budget over the baseline" do
@@ -181,6 +182,28 @@ describe "allocation budget" do
 
       # Nothing is declared to read or check, and a request without a body has nothing else to parse
       (fieldless - bare).should be <= 16
+    end
+
+    it "the router adds nothing beyond its lookup to an endpoint call" do
+      endpoint = AllocationBudgetSpec::BareEndpoint.new
+      router = Azu::Router.new
+      router.get "/plaintext", endpoint
+      context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/plaintext"), HTTP::Server::Response.new(HotPath::NullIO.new))
+      # The first call fills the path cache, so the measured ones build no path
+      router.process(context)
+
+      through_router = HotPath.bytes_per_call do
+        context.response.reset
+        router.process(context)
+      end
+      endpoint_alone = HotPath.bytes_per_call do
+        context.response.reset
+        endpoint.call(context)
+      end
+      lookup = HotPath.bytes_per_call { router.radix.find("/get/plaintext") }
+
+      # What process returns is never read, so it must not be formatted on every request
+      (through_router - endpoint_alone - lookup).should be <= 16
     end
 
     it "Static allocates nothing on a routed path when the public directory does not exist" do
