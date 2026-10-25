@@ -8,6 +8,13 @@ This document lists breaking changes between Azu versions and migration guides.
 
 Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
 
+**Templates are compiled outside development.** With `template_hot_reload` off (the default for `staging`,
+`production` and any environment other than `development`, `test` and `pipeline`), `Azu.prepare` reads and parses
+every template once and requests no longer read template files: an edit to a template file needs a restart, where
+before it showed on the next request, and a template with a syntax error now stops the boot (with its name and
+line) instead of failing its first request. Set `template_hot_reload = true` (or `TEMPLATE_HOT_RELOAD=true`) to keep
+reloading in an environment. See [Configuration](configuration/options.md#templates).
+
 **`Router#path_cache` is internal.** It is `:nodoc:` and its `get`/`set` now take the method and the path
 (`get("GET", "/x")`) instead of one `"GET:/x"` key; `path_cache.stats` and `clear_path_cache` are unchanged. Nothing
 outside the router should call `get` or `set`.
@@ -404,7 +411,7 @@ See [Shut Down Gracefully](../how-to/deployment/graceful-shutdown.md).
   name a database host or user); the message stays in the log and in development bodies.
 - `Cache::RedisStore#increment` / `#decrement` set the TTL in one atomic Lua script, only when the key has
   none; `decrement` used to renew it on every call.
-- Not changed: Azu does not cache templates (`Templates#load` asks Crinja each time).
+- Not changed in this release: templates were not cached (`Templates#load` asked Crinja each time); see "Templates are compiled outside development" under Unreleased.
 
 **Content negotiation.** New: [`Response::Negotiable`](api/content-negotiation.md). Endpoints now write their
 response with `Response#write_to(context)`, which prints `render` unless the type overrides it, so existing

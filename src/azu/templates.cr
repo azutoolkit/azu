@@ -27,6 +27,8 @@ module Azu
     @hot_reload_enabled : Bool = false
     @helpers_revision : UInt64? = nil
     @builtin_crinja : Crinja?
+    @compiled : CompiledLoader?
+    @compile_lock : Mutex = Mutex.new
 
     # Azu's own error pages, compiled into the binary. They are the last place the loader looks, so an app that
     # runs from any working directory (or from a container that holds only the binary) always finds them, and a
@@ -42,6 +44,35 @@ module Azu
       def get_source(env : Crinja, template : String) : {String, String?}
         source, _ = super
         {source, template}
+      end
+    end
+
+    # :nodoc:
+    # A template that does not parse. The message names the template and carries Crinja's line.
+    class CompileError < Exception
+    end
+
+    # :nodoc:
+    # Every template found below the template directories, read and parsed once, as an immutable name => template
+    # map. `Templates` publishes it with a single assignment, so a request only ever sees a complete map. Includes
+    # and extends resolve through it too, because it is the Crinja environment's loader. A name that is not in the
+    # map (a file added after boot, a path like `./a//b`, another extension) goes to the loader it wraps.
+    class CompiledLoader < Crinja::Loader
+      getter templates : Hash(String, Crinja::Template)
+
+      def initialize(@templates : Hash(String, Crinja::Template), @fallback : Crinja::Loader)
+      end
+
+      def get_source(env : Crinja, template : String) : {String, String?}
+        @fallback.get_source(env, template)
+      end
+
+      def load(env, name)
+        @templates[name]? || @fallback.load(env, name)
+      end
+
+      def list_templates : Iterable(String)
+        @fallback.list_templates
       end
     end
 
@@ -128,15 +159,78 @@ module Azu
       env.get_template(name)
     end
 
+    # With reload on (development) every call may re-read changed files, see `check_for_changes`. Without it the
+    # templates are compiled: each one was read and parsed once (`compile`), and this is a hash lookup.
     def load(template : String)
+      unless @hot_reload_enabled
+        loader = @compiled || compile
+        apply_helpers
+        return loader.templates[template]? || crinja.get_template(template)
+      end
+
       check_for_changes if should_check_for_changes?
       apply_helpers
       crinja.get_template template
     end
 
+    # True when templates are read and parsed once instead of reloaded: every environment but development (and
+    # `test` / `pipeline`, see `Configuration.hot_reload_default`), unless `template_hot_reload` says otherwise.
+    def compiled? : Bool
+      !@hot_reload_enabled
+    end
+
+    # :nodoc:
+    # Compiles at boot (`App#prepare`) so a template with a syntax error stops the start instead of failing its
+    # first request. A no-op with reload on.
+    def prepare : Nil
+      compile unless @hot_reload_enabled
+    end
+
     # Enable or disable hot reloading manually
     def hot_reload=(enabled : Bool)
-      @hot_reload_enabled = enabled
+      @compile_lock.synchronize do
+        @hot_reload_enabled = enabled
+        @compiled = nil
+        crinja.loader = @loader.not_nil!
+        update_template_mtimes if enabled
+      end
+    end
+
+    # Reads and parses every template below the template directories and the error directory once, and makes the
+    # result the environment's loader. Searched in order like the file system loader, the first directory that has
+    # a name wins. Raises `CompileError` naming the template that does not parse; an error page of the app
+    # (`error.html`) that does not parse is left to the built-in fallback instead.
+    private def compile : CompiledLoader
+      @compile_lock.synchronize do
+        @compiled || publish_compiled(parse_all)
+      end
+    end
+
+    private def publish_compiled(templates : Hash(String, Crinja::Template)) : CompiledLoader
+      compiled = CompiledLoader.new(templates, @loader.not_nil!)
+      crinja.loader = compiled
+      @compiled = compiled
+    end
+
+    private def parse_all : Hash(String, Crinja::Template)
+      apply_helpers
+      templates = Hash(String, Crinja::Template).new
+      (path + [error_path]).uniq.each do |dir|
+        Dir.glob(File.join(dir, "**", "*.{html,jinja,j2}")).sort!.each do |file|
+          name = file[(dir.size + 1)..]
+          next if templates.has_key?(name) || !File.file?(file)
+          parse_into(templates, name, File.read(file), file)
+        end
+      end
+      BUILTIN.each { |name, source| parse_into(templates, name, source, name) unless templates.has_key?(name) }
+      templates
+    end
+
+    private def parse_into(templates, name : String, source : String, filename : String) : Nil
+      templates[name] = Crinja::Template.new(source, crinja, name, filename)
+    rescue ex : Crinja::Error
+      raise CompileError.new("template #{name} (#{filename}): #{ex.message}", ex) unless BUILTIN.has_key?(name)
+      Log.for("azu.templates").warn(exception: ex) { "#{filename} does not parse, the built-in #{name} is used instead" }
     end
 
     private def development_environment?
@@ -150,6 +244,7 @@ module Azu
         BuiltinLoader.new(BUILTIN).as(Crinja::Loader),
       ])
       @loader = loader
+      @compiled = nil
       crinja.loader = loader
       log_shadowed_error_pages
 

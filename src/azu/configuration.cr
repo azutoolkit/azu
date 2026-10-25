@@ -191,6 +191,7 @@ module Azu
       cache_config.validate!
       Instrumentation.prepare(self)
       upload.prepare
+      templates.prepare
     end
 
     def tls

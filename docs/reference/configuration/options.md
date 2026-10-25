@@ -128,9 +128,20 @@ Azu::CONFIG.templates.path = "./public/templates"
 Azu::CONFIG.template_hot_reload = false
 ```
 
-With hot reload on, `templates` re-reads template files that changed (it checks at most once a second). Hot reload
-off does not mean templates are cached: a template whose file was rewritten rendered the new content with it off
-as well.
+With hot reload on, `templates` re-reads template files that changed (it checks at most once a second). With it off
+the templates are **compiled**: `Azu.prepare` (which `App#start` calls) finds every `*.html`, `*.jinja` and `*.j2`
+file below the template directories, reads and parses each once, and a request only looks the parsed template up
+by name. Nothing is read from disk per request, so an edit to a template file needs a restart. A template with a
+syntax error stops the start, with its name and line, instead of failing its first request (an app `error.html`
+that does not parse is the exception: the built-in page is used, as before). A file added after the compile is still
+found, by the file loader. Without `Azu.prepare` the compile happens on the first render.
+
+| Environment | Templates |
+|---|---|
+| `development` | reload (modification time checked at most once a second) |
+| `test`, `pipeline` | reload, as before, so specs can write templates while running |
+| `staging`, `production`, any other | compiled |
+| `template_hot_reload` / `TEMPLATE_HOT_RELOAD` set | wins over the environment, e.g. reload in staging |
 
 ## Request Contracts
 
