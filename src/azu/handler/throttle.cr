@@ -67,7 +67,7 @@ module Azu
 
       # Throttle's own 429, the only error whose HTML page is cached: its text is fixed by `Retry-After`, so what
       # one client is shown is what another would be. An error a user raises (`RateLimitError`, or a subclass of it)
-      # is never cached, as it carries text of its own.
+      # is never cached, as it carries text of its own; a subclass of Refusal is such an error too.
       class Refusal < Response::RateLimitError
         # A refused client keeps asking, so the page is rendered once a second for the same templates, `Retry-After`
         # and locale. The response carries the `error_id` the page shows, so refusals inside that second share one
@@ -75,7 +75,7 @@ module Azu
         # A custom `error.html` must be request independent: it is rendered for one request and served to others.
         # Development renders the debug page every time.
         def html(context : HTTP::Server::Context) : String
-          return super if env.development?
+          return super if env.development? || self.class != Refusal
 
           page = RefusalPages.fetch(templates, retry_after, Helpers::I18n.locale) { {error_id, html} }
           @error_id = page.error_id
@@ -84,6 +84,8 @@ module Azu
         end
 
         private def generate_fingerprint : String
+          return super unless self.class == Refusal
+
           @@refusal_fingerprint ||= super
         end
 

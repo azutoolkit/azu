@@ -48,7 +48,7 @@ module Azu
       def call(context : HTTP::Server::Context)
         unless request_origin = @origin.of(context.request)
           # The answer depends on the Origin header even when it is absent: a cache must not hand this one to a request with one.
-          add_vary(context.response.headers, [Headers::ORIGIN]) unless @origin.any?
+          Vary.add(context.response.headers, Headers::ORIGIN)
           return call_next(context)
         end
 
@@ -68,7 +68,7 @@ module Azu
       def forbidden(context)
         # A refusal grants nothing: drop whatever Access-Control-* header was already set for the request.
         context.response.headers.map { |name, _| name }.each { |name| context.response.headers.delete(name) if name.downcase.starts_with?("access-control-") }
-        add_vary(context.response.headers, [Headers::ORIGIN])
+        Vary.add(context.response.headers, Headers::ORIGIN)
         error = Response::Forbidden.new
         LogText.log_refusal(Log.for("Azu::Handler::CORS"), context.request, error, client: true)
         error.to_s(context)
@@ -82,22 +82,11 @@ module Azu
       private def put_response_headers(response, request_origin : String)
         response.headers[Headers::ALLOW_CREDENTIALS] = @credentials.to_s if @credentials
         response.headers[Headers::ALLOW_ORIGIN] = request_origin
-        add_vary(response.headers, vary) unless @origin.any?
+        Vary.add(response.headers, [Headers::ORIGIN] + vary)
       end
 
       private def vary : Array(String)
-        [Headers::ORIGIN] + (@vary || "").split(',').map(&.strip).reject(&.empty?)
-      end
-
-      # Joins the fields to a `Vary` the response already has; written as the one value `Origin,Field` when it has none.
-      private def add_vary(headers : HTTP::Headers, fields : Array(String)) : Nil
-        return if headers[Headers::VARY]? == "*"
-
-        if headers.has_key?(Headers::VARY)
-          fields.each { |field| headers.add(Headers::VARY, field) unless headers.includes_word?(Headers::VARY, field) }
-        else
-          headers[Headers::VARY] = fields.join(",")
-        end
+        (@vary || "").split(',').map(&.strip).reject(&.empty?)
       end
 
       private def preflight?(context)

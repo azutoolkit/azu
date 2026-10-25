@@ -497,6 +497,21 @@ describe Azu::Handler::Static do
         end
       end
 
+      it "adds Accept-Encoding to a Vary that holds only a longer field, and not twice to one that has it" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir)
+          context, _ = create_context("GET", "/app.css")
+          context.response.headers["Vary"] = "X-Accept-Encoding"
+          handler.call(context)
+          context.response.headers["Vary"].split(',').map(&.strip).should eq ["X-Accept-Encoding", "Accept-Encoding"]
+
+          again, _ = create_context("GET", "/app.css")
+          again.response.headers["Vary"] = "origin, accept-encoding"
+          handler.call(again)
+          again.response.headers["Vary"].should eq "origin, accept-encoding"
+        end
+      end
+
       it "adds Accept-Encoding to a Vary that is already set, such as CORS's Origin" do
         with_temp_dir(files) do |dir|
           handler = Azu::Handler::Static.new(dir)

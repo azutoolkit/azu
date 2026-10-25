@@ -250,14 +250,42 @@ describe Azu::Handler::CORS do
       star.response.headers["Vary"].should eq "*"
     end
 
-    it "does not vary by Origin when every origin is allowed" do
+    it "varies by Origin when every origin is allowed, since the request's Origin is reflected" do
       handler = Azu::Handler::CORS.new(origins: ["*"])
       handler.next = create_next_handler(1)[0]
-      context, _ = create_context("GET", "/test")
+      context, _ = create_context("GET", "/test", HTTP::Headers{"Origin" => "https://example.com"})
 
       handler.call(context)
 
-      context.response.headers.has_key?("Vary").should be_false
+      context.response.headers["Access-Control-Allow-Origin"].should eq "https://example.com"
+      context.response.headers["Vary"].should eq "Origin"
+    end
+
+    it "adds a configured Accept to a Vary holding Accept-Encoding, and Origin to one holding X-Origin" do
+      handler = Azu::Handler::CORS.new(origins: ["https://example.com"], vary: "Accept")
+      handler.next = create_next_handler(2)[0]
+
+      context, _ = create_context("GET", "/test", HTTP::Headers{"Origin" => "https://example.com"})
+      context.response.headers["Vary"] = "Accept-Encoding"
+      handler.call(context)
+      context.response.headers["Vary"].split(',').map(&.strip).should eq ["Accept-Encoding", "Origin", "Accept"]
+
+      other, _ = create_context("GET", "/test", HTTP::Headers{"Origin" => "https://example.com"})
+      other.response.headers["Vary"] = "X-Origin"
+      handler.call(other)
+      other.response.headers["Vary"].split(',').map(&.strip).should eq ["X-Origin", "Origin", "Accept"]
+    end
+
+    it "does not repeat a field the response already varies by, whatever its case" do
+      handler = Azu::Handler::CORS.new(origins: ["https://example.com"], vary: "accept")
+      handler.next = create_next_handler(1)[0]
+      context, _ = create_context("GET", "/test", HTTP::Headers{"Origin" => "https://example.com"})
+      context.response.headers.add("Vary", "ORIGIN")
+      context.response.headers.add("Vary", "Accept")
+
+      handler.call(context)
+
+      context.response.headers.get("Vary").should eq ["ORIGIN", "Accept"]
     end
 
     it "sends the allow headers of an accepted preflight on the wire" do
@@ -372,7 +400,7 @@ describe Azu::Handler::CORS do
       verify.call
     end
 
-    it "does not set Vary header for wildcard origin" do
+    it "sets Vary: Origin for wildcard origin, since the request's Origin is reflected" do
       handler = Azu::Handler::CORS.new(origins: ["*"])
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
@@ -383,7 +411,8 @@ describe Azu::Handler::CORS do
 
       handler.call(context)
 
-      context.response.headers.has_key?("Vary").should be_false
+      context.response.headers["Access-Control-Allow-Origin"].should eq("https://example.com")
+      context.response.headers["Vary"].should eq("Origin")
       verify.call
     end
 
