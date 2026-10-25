@@ -167,6 +167,9 @@ Behaviour seen by running it:
 - `.html .css .js .json .txt .svg .xml` and font files larger than 860 bytes are gzip or deflate compressed when the
   client accepts it.
 - Methods other than `GET` and `HEAD` answer `405` with `Allow` (or fall through).
+- A `public_dir` that does not exist costs no file system calls per request (one monotonic clock read). A public dir created after boot is
+  picked up within a second (the handler looks for a missing one again at most once a second); once found it is not
+  checked again.
 - A file in `public/` shadows a route with the same path, so keep only public files there.
 
 ## Handler::Compression
@@ -218,7 +221,7 @@ handlers: a preflight carries no credentials, and an authentication handler in f
 Azu::Handler::CSRF.new(
   skip_routes: ["/webhooks"],
   strategy: Azu::Handler::CSRF::Strategy::SignedDoubleSubmit,
-  secret_key: ENV["CSRF_SECRET"]?,
+  secret_key: nil, # default: the CSRF_SECRET variable (see below)
   cookie_name: "csrf_token",
   header_name: "X-CSRF-TOKEN",
   param_name: "_csrf",
@@ -292,9 +295,14 @@ struct FormEndpoint
 end
 ```
 
+Without `secret_key:` the handler signs with the `CSRF_SECRET` variable (`Azu::Env.secret("CSRF_SECRET")`). When it is
+not set, the handler uses a random key that only this process knows (one warning in the log) outside production, and
+**raises `Azu::Env::MissingError` when it is built in production** (or any `Azu::Env.strict_environments`): tokens signed
+with a per-process key are rejected after a restart and by every other server.
+
 `Azu::Handler::CSRF.token(context)` uses `Azu::Handler::CSRF.default`. A second instance validates those tokens
-only if it has the same secret: set `Azu::Handler::CSRF.secret_key = ENV["CSRF_SECRET"]` before building it (a
-`CSRF.new` without one picks the shared key), or put `Azu::Handler::CSRF.default` in the chain. Checked by running
+only if it has the same secret: set `CSRF_SECRET` (or `Azu::Handler::CSRF.secret_key = ...` before building it), or put
+`Azu::Handler::CSRF.default` in the chain. Checked by running
 all four combinations: an instance with a different random key answered `403` to a valid token; the same key,
 `200`. The `Secure` flag of the cookie is only set when `X-Forwarded-Proto` is `https`.
 

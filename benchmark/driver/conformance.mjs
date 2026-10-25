@@ -113,19 +113,27 @@ export async function check(base, { ws = false, output = null } = {}) {
     const [a, b] = await rawGetMany(port, ["/plaintext", "/plaintext"]);
     if (a.status !== 200 || b.status !== 200 || a.body !== b.body) fail("keepalive", "/plaintext", "two requests on one socket were not both answered identically");
   } catch (e) { fail("keepalive", "/plaintext", `two requests on one socket: ${e.message}`); }
-  for (const [scenario, path, status] of missing) {
-    try { const res = await rawGet(port, path); if (res.status !== status) fail(scenario, path, `status ${res.status}, want ${status}`); }
-    catch (e) { fail(scenario, path, `request failed: ${e.message}`); }
-  }
   if (ws) failures.push(...(await checkWebSocket(base)));
-  // after ALL of it (200s, 404s, WebSocket) the app must not have written to stdout or stderr: logging would be part
-  // of the cost
+  // Silence check, BEFORE the 404 probes: after the 200 requests, the keep-alive pair and the WebSocket handshake the
+  // app must not have written to stdout or stderr, because logging would be part of the cost of the measured routes.
   if (output) {
     await new Promise((r) => setTimeout(r, 200));
     const grown = output();
     if (grown) fail("logging", "-", `the app wrote to stdout/stderr while serving: ${JSON.stringify(grown.slice(0, 120))}`);
   }
-  return { failures, headers: [...extra].sort(), contentTypes, bytes };
+  const quiet = output ? output().length : 0;
+  for (const [scenario, path, status] of missing) {
+    try { const res = await rawGet(port, path); if (res.status !== status) fail(scenario, path, `status ${res.status}, want ${status}`); }
+    catch (e) { fail(scenario, path, `request failed: ${e.message}`); }
+  }
+  // 404s are not measured, and several frameworks log a missing route at ERROR by design: allowed, but reported.
+  let notFoundLogging = null;
+  if (output) {
+    await new Promise((r) => setTimeout(r, 200));
+    const text = output();
+    notFoundLogging = { logs: text.length > quiet, bytes: Math.max(0, text.length - quiet) };
+  }
+  return { failures, headers: [...extra].sort(), contentTypes, bytes, notFoundLogging };
 }
 
 // Three clients; every message one sends must reach all three, sender included, unchanged.
@@ -161,7 +169,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2);
   const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
   const base = opt("--url", "http://127.0.0.1:3000");
-  const { failures, headers, contentTypes, bytes } = await check(base, { ws: args.includes("--ws") });
+  const { failures, headers, contentTypes, bytes, notFoundLogging } = await check(base, { ws: args.includes("--ws") });
   if (args.includes("--json")) console.log(JSON.stringify({ failures, headers, contentTypes, bytes }));
   else {
     console.log(`response headers seen: ${headers.join(", ")}`);

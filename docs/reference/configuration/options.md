@@ -111,10 +111,12 @@ Azu::CONFIG.log = Log.for("my_app")
 |---|---|---|---|
 | `template_hot_reload?` | `Bool` | `true` for `development`, `test` and `pipeline`, else `false` | `TEMPLATE_HOT_RELOAD` |
 | `templates.path` | `Array(String)` | the working directory's `../../templates` | `TEMPLATES_PATH` (comma separated) |
-| `templates.error_path` | `String` | Azu's own error templates | `ERROR_TEMPLATE` |
+| `templates.error_path` | `String` | the error templates inside the azu source (compile-time path) | `ERROR_TEMPLATE` |
 
 The default template path is a leftover that resolves relative to the working directory, so set `TEMPLATES_PATH`
-or add your directory. `templates.path = "..."` **adds** a directory to the list:
+or add your directory (relative entries are resolved against the working directory, so run the app from its root).
+Azu's own `error.html` and `error_debug.html` are compiled into the binary and found from any working directory;
+an `error.html` in your template directories overrides them. `templates.path = "..."` **adds** a directory to the list:
 
 ```crystal
 require "azu"
