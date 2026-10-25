@@ -37,6 +37,8 @@ module Azu
   # options '/hello', to: endpoint
   # ```
   class Router
+    private LOG = Log.for("azu.router")
+
     alias Path = String
     RESOURCES           = %w(connect delete get head options patch post put trace)
     METHOD_OVERRIDE     = "_method"
@@ -222,7 +224,7 @@ module Azu
 
     private def not_found(context)
       ex = Response::NotFound.new(context.request.path)
-      Log.error(exception: ex) { "Router: Error Processing Request ".colorize(:yellow) }
+      LOG.debug { "#{context.request.method} #{context.request.path} -> #{ex.status_code} #{ex.title}" }
       ex
     end
 

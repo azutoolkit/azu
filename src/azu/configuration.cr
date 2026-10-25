@@ -37,7 +37,9 @@ module Azu
   # ```
   class Configuration
     private TEMPLATES_PATH = "../../templates"
-    private ERROR_TEMPLATE = "./src/azu/templates"
+    # Where Azu's own error pages live in the source tree. Resolved at compile time, so it does not depend on the
+    # working directory; it may not exist at run time (a deployed binary), where `Templates::BUILTIN` serves them.
+    private ERROR_TEMPLATE = {{ "#{__DIR__}/templates" }}
 
     property log : Log = Log.for("Azu")
 

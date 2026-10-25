@@ -15,6 +15,9 @@
 require "../src/azu"
 require "../src/azu/cql"
 
+# Results go to stdout as TSV: keep log lines (CQL INFO "NOTICE" from DROP TABLE IF EXISTS) out of it
+Log.setup(:warn, Log::IOBackend.new(io: STDERR))
+
 BASE_URL    = ENV["DATABASE_URL"]? || abort("set DATABASE_URL")
 OPS         = (ENV["BENCH_OPS"]? || "5000").to_i
 CONCURRENCY = (ENV["BENCH_CONCURRENCY"]? || "8").to_i

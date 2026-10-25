@@ -83,7 +83,7 @@ module Azu
 
       # Instance-level configuration properties
       property strategy : Strategy
-      property secret_key : String
+      @secret_key : String?
       property cookie_name : String
       property header_name : String
       property param_name : String
@@ -133,23 +133,33 @@ module Azu
         @cookie_same_site : HTTP::Cookie::SameSite = COOKIE_SAME_SITE,
         @secure_cookies : Bool = true,
         @token_store : TokenStore? = nil,
+        defer_secret : Bool = false,
       )
-        # Use provided secret_key, or shared secret key if available and not empty,
-        # otherwise generate a new one
         key = secret_key
         key = @@shared_secret_key if key.nil? && @@shared_secret_key && !@@shared_secret_key.try(&.empty?)
-        key = Random::Secure.urlsafe_base64(HMAC_SECRET_LENGTH) if key.nil? || key.empty?
-        @secret_key = key
+        @secret_key = key.presence
+        self.secret_key unless defer_secret
+      end
+
+      # The key tokens are signed with: the one given, else `CSRF_SECRET`. A key only this process knows breaks
+      # every token after a restart and across instances, so without either it is a random per-process key (with
+      # one warning) outside production, and `Azu::Env::MissingError` in production (see `Azu::Env.secret`).
+      def secret_key : String
+        @secret_key ||= Azu::Env.secret("CSRF_SECRET")
+      end
+
+      def secret_key=(value : String) : String
+        @secret_key = value
       end
 
       # Get default instance (backward compatibility)
       # Uses double-checked locking to avoid mutex contention
-      def self.default : CSRF
+      def self.default(defer_secret : Bool = false) : CSRF
         instance = @@default_instance
         return instance if instance
 
         @@instance_mutex.synchronize do
-          @@default_instance ||= new
+          @@default_instance ||= new(defer_secret: defer_secret)
         end
       end
 
@@ -201,7 +211,10 @@ module Azu
 
       # Configuration block
       def self.configure(&)
-        yield default
+        instance = default(defer_secret: true)
+        result = yield instance
+        instance.secret_key # the block may have set it; if not, a production app fails here, at boot
+        result
       end
 
       # Class-level property accessors that delegate to default instance
@@ -213,13 +226,8 @@ module Azu
         default.strategy = value
       end
 
-      def self.secret_key
-        key = default.secret_key
-        if key.empty?
-          key = get_or_generate_shared_secret_key
-          default.secret_key = key
-        end
-        key
+      def self.secret_key : String
+        default.secret_key
       end
 
       def self.secret_key=(value : String)
@@ -497,7 +505,7 @@ module Azu
 
       # Create HMAC signature for token
       private def create_hmac_signature(data : String) : String
-        digest = OpenSSL::HMAC.digest(:sha256, @secret_key, data)
+        digest = OpenSSL::HMAC.digest(:sha256, secret_key, data)
         Base64.urlsafe_encode(digest)
       end
 

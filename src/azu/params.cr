@@ -20,18 +20,20 @@ module Azu
       @form, @files, @json = Body.parse(request)
     end
 
+    # A parameter is looked up in the path, then the query string, then the body: what the URL addresses cannot be
+    # changed by a body field of the same name (`POST /users/5` with `id=1` is user 5).
     def [](key)
-      form[key]? || path[key]? || query[key]? || raise KeyError.new("Missing parameter: #{key}")
+      self[key]? || raise KeyError.new("Missing parameter: #{key}")
     end
 
     def []?(key)
-      form[key]? || path[key]? || query[key]?
+      path[key]? || query[key]? || form[key]?
     end
 
     def fetch_all(key)
-      return form.fetch_all(key) if form.has_key? key
       return [path[key]] if path.has_key? key
-      query.fetch_all(key)
+      return query.fetch_all(key) if query.has_key? key
+      form.fetch_all(key)
     end
 
     def each(&)
@@ -42,9 +44,9 @@ module Azu
 
     def to_h
       hash = Hash(String, String).new
+      hash.merge! form.to_h
       hash.merge! query.to_h
       hash.merge! path
-      hash.merge! form.to_h
       hash
     end
 
@@ -58,12 +60,39 @@ module Azu
     # is the client's mistake, so it is answered with 400 rather than a server error.
     def typed_request : Request
       if body = json
-        Request.from_json body
+        Request.from_json json_with_url_overrides(body)
       else
         Request.from_www_form to_query
       end
     rescue ex : JSON::ParseException | URI::SerializableError | Time::Format::Error | ArgumentError
       raise Response::BadRequest.new(ex.message.to_s)
+    end
+
+    # The path and the query string win over the body, as for forms. A JSON body is the contract's input, so a key
+    # the URL also names is replaced there, keeping the JSON type the body gave it (a number stays a number when the
+    # URL value is one). Keys the body does not have are not added: a JSON contract declares what it takes from the body.
+    private def json_with_url_overrides(body : String) : String
+      return body if path.empty? && query.empty?
+      overrides = query.to_h.merge(path)
+      return body unless overrides.keys.any? { |key| body.includes?(key) }
+
+      object = JSON.parse(body).as_h? || return body
+      replaced = false
+      overrides.each do |key, value|
+        next unless current = object[key]?
+        object[key] = JSON::Any.new(same_json_type(value, current))
+        replaced = true
+      end
+      replaced ? object.to_json : body
+    end
+
+    private def same_json_type(value : String, like : JSON::Any) : JSON::Any::Type
+      case like.raw
+      when Int64   then value.to_i64? || value
+      when Float64 then value.to_f64? || value
+      when Bool    then value == "true" ? true : (value == "false" ? false : value)
+      else              value
+      end
     end
 
     # Custom exception for file upload errors
