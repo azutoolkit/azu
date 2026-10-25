@@ -87,6 +87,12 @@ includes `Azu::Request`) are unchanged: they parse before `call`.
   [Cache reference](api/cache.md).
 - `Cache::Store` has a new abstract method `clear_prefix(prefix : String) : Bool`; a custom store must implement it.
 
+**A 4xx is logged below error level and without an exception.** `Router` logged every unmatched route (404) with `Log.error(exception: ...)` under
+the root source, and `Handler::Rescuer` logged every raised `Response::Error` (4xx included) at `warn` with its exception. A client error is not a
+server fault, so now: a 404 from the router and a 4xx `Response::Error` caught by `Rescuer` produce one `debug` line
+(`GET /missing -> 404 Not Found`, source `azu.router` / `http.server`) without an exception or backtrace; a 5xx `Response::Error` and an unexpected
+exception are still logged at `error` with the exception. The response status and body are unchanged. If you alert on `warn`/`error` lines for
+404s, watch the request log (`Handler::Logger`) instead.
 **Path and query parameters win over the request body.** `Params#[]`, `#[]?`, `#fetch_all` and `#to_h` looked the form
 body up first, then the path, then the query string, so `POST /users/5` with `id=1` in the body handed the endpoint
 `id=1` (and the typed request of a form got the body's value too). The order is now path, query string, body. A JSON
