@@ -497,6 +497,17 @@ describe Azu::Handler::Static do
         end
       end
 
+      it "adds Accept-Encoding to a Vary that is already set, such as CORS's Origin" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir)
+          context, _ = create_context("GET", "/app.css")
+          context.response.headers["Vary"] = "Origin"
+          handler.call(context)
+
+          context.response.headers["Vary"].split(',').map(&.strip).should eq ["Origin", "Accept-Encoding"]
+        end
+      end
+
       it "also sends the policy with a 304 so caches keep refreshing it" do
         with_temp_dir(files) do |dir|
           handler = Azu::Handler::Static.new(dir)

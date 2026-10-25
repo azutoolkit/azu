@@ -184,7 +184,10 @@ module Azu
       private def not_modified?(context, file_path : String) : Bool
         headers = context.response.headers
         headers["Cache-Control"] = FINGERPRINTED.matches?(file_path) ? @fingerprinted_cache_control : @cache_control
-        headers["Vary"] = "Accept-Encoding"
+        # Joined to a Vary another handler set (CORS's Origin), never replacing it.
+        unless headers["Vary"]? == "*" || headers.includes_word?("Vary", "Accept-Encoding")
+          headers.add("Vary", "Accept-Encoding")
+        end
         etag(context, file_path)
       end
 
