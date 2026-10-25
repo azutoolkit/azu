@@ -834,6 +834,20 @@ describe Azu::Handler::Static do
       "app.css"                    => "PUBLIC-CSS",
       "other/templates/shared.txt" => "PUBLIC-NESTED",
       "index.html"                 => "PUBLIC-HOME",
+      # Directories and files whose odd names exist on disk, so a request for them is served unless refused.
+      "templates /a/b.txt"       => "SECRET-SPACE",
+      "templates./a/b.txt"       => "SECRET-DOT",
+      "templates\\a\\b.txt"      => "SECRET-BACKSLASH",
+      "a\\..\\templates/a/b.txt" => "SECRET-DOTDOT-BACKSLASH",
+    }
+
+    on_disk = {
+      "/templates%20/a/b.txt"     => "SECRET-SPACE",
+      "/templates./a/b.txt"       => "SECRET-DOT",
+      "/templates\\a\\b.txt"      => "SECRET-BACKSLASH",
+      "/a\\..\\templates/a/b.txt" => "SECRET-DOTDOT-BACKSLASH",
+      "/templates/note.txt"       => "SECRET-NOTE",
+      "/%74emplates/note.txt"     => "SECRET-NOTE",
     }
 
     # What a request answers: the status, the body, and whether the next handler (the router) was reached.
@@ -852,8 +866,9 @@ describe Azu::Handler::Static do
       "//templates/a/b.jinja", "/a/../templates/a/b.jinja", "/./templates/a/b.jinja", "/templates/./a/b.jinja",
       "/templates/../templates/a/b.jinja", "/other/../templates/layout.jinja", "/templates/a/../layout.jinja",
       "/templates\\a\\b.jinja", "/a\\..\\templates/a/b.jinja", "/templates./a/b.jinja", "/templates%20/a/b.jinja",
+      "/templates\\a\\b.txt", "/a\\..\\templates/a/b.txt", "/templates./a/b.txt", "/templates%20/a/b.txt",
       "/templates", "/templates/", "/templates%2F", "/templates/sub", "/templates/sub/", "/templates/sub/index.html",
-      "/templates/nothing", "/%2e%2e/templates/layout.jinja",
+      "/%2e%2e/templates/layout.jinja",
     ]
 
     blocked.each do |path|
@@ -893,23 +908,77 @@ describe Azu::Handler::Static do
       end
     end
 
-    it "serves the same file when it is not excluded (the specs can fail)" do
-      with_temp_dir(files) do |dir|
-        handler = Azu::Handler::Static.new(dir)
-        _, body, reached, _ = serve.call(handler, "GET", "/templates/note.txt")
+    on_disk.each do |path, secret|
+      it "serves #{path} without except and refuses it with except (the specs can fail)" do
+        with_temp_dir(files) do |dir|
+          _, body, reached, _ = serve.call(Azu::Handler::Static.new(dir), "GET", path)
+          body.should eq(secret)
+          reached.should be_false
 
-        body.should eq("SECRET-NOTE")
-        reached.should be_false
+          _, body, reached, _ = serve.call(Azu::Handler::Static.new(dir, except: ["/templates"]), "GET", path)
+          body.should eq("NEXT")
+          reached.should be_true
+        end
       end
     end
+
+    ["", "/", ".", "..", "/x/..", "./", " ", "...", "\\", "/./."].each do |entry|
+      it "rejects the entry #{entry.inspect}, which would exclude every path" do
+        expect_raises(ArgumentError, /would exclude every path/) do
+          Azu::Handler::Static.new("public", except: [entry])
+        end
+      end
+    end
+
+    it "refuses a single file given with a trailing slash" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, except: ["/app.css/"])
+        serve.call(handler, "GET", "/app.css")[1].should eq("NEXT")
+      end
+    end
+
+    it "answers 405 for a POST under an excluded path with fallthrough: false" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, fallthrough: false, except: ["/templates"])
+        serve.call(handler, "POST", "/templates/a/b.jinja")[0].should eq(405)
+      end
+    end
+
+    it "does not raise on invalid UTF-8 after percent-decoding" do
+      with_temp_dir(files) do |dir|
+        [true, false].each do |fallthrough|
+          handler = Azu::Handler::Static.new(dir, fallthrough: fallthrough, except: ["/templates"])
+          ["/%ff", "/templates/%ff", "/%ff/templates/note.txt"].each do |path|
+            status, body, _, _ = serve.call(handler, "GET", path)
+            body.should_not contain("SECRET")
+            [200, 302, 400, 404].should contain(status)
+          end
+        end
+      end
+    end
+
+    it "refuses an excluded directory when directory_listing is on" do
+      with_temp_dir(files) do |dir|
+        handler = Azu::Handler::Static.new(dir, directory_listing: true, except: ["/templates"])
+        serve.call(handler, "GET", "/templates/")[1].should eq("NEXT")
+        serve.call(handler, "GET", "/templates/a/")[1].should eq("NEXT")
+      end
+    end
+
+    # Known limit: the listing of the parent still names the excluded entry (the names, never the content).
+    pending "hides the excluded name from the listing of its parent"
+
+    # Known limit: the check is lexical. A symlink inside public/ that points into an excluded directory is a
+    # different path, so it is served; do not symlink into an excluded directory.
+    pending "refuses a symlink that points into an excluded directory"
 
     it "answers 404 itself with fallthrough: false, for GET, HEAD and a directory" do
       with_temp_dir(files) do |dir|
         handler = Azu::Handler::Static.new(dir, fallthrough: false, except: ["/templates"])
 
-        {"GET" => "/templates/a/b.jinja", "HEAD" => "/templates/a/b.jinja", "GET " => "/templates/sub",
-         "GET  " => "/%74emplates/sub/"}.each do |method, path|
-          status, body, reached, location = serve.call(handler, method.strip, path)
+        [{"GET", "/templates/a/b.jinja"}, {"HEAD", "/templates/a/b.jinja"}, {"GET", "/templates/sub"},
+         {"GET", "/%74emplates/sub/"}].each do |(method, path)|
+          status, body, reached, location = serve.call(handler, method, path)
           status.should eq(404)
           body.should_not contain("SECRET")
           reached.should be_false

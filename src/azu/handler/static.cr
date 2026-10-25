@@ -40,7 +40,7 @@ module Azu
         except excluded : Array(String) = [] of String,
       )
         super(public_dir, fallthrough, directory_listing)
-        @excluded = excluded.map { |entry| path_segments(entry) }
+        @excluded = excluded.map { |entry| excluded_segments(entry) }
         @fingerprinted_cache_control = "public, max-age=#{cache_max_age}, immutable"
         @clock_origin = Clock.instant
         @public_dir_found = Atomic(Bool).new(false)
@@ -104,6 +104,13 @@ module Azu
           segment = segment.downcase.rstrip(". ")
           segment unless segment.empty?
         end
+      end
+
+      # An entry that resolves to the root (`""`, `"/"`, `"."`, `"/x/.."`) would exclude every path.
+      private def excluded_segments(entry : String) : Array(String)
+        segments = path_segments(entry)
+        raise ArgumentError.new("except entry #{entry.inspect} would exclude every path") if segments.empty?
+        segments
       end
 
       # Whether the resolved path is an `except` entry or lies below one. Whole segments are compared, so

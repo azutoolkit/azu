@@ -146,8 +146,14 @@ Azu::Handler::Static.new(
   directory_listing: false,
   cache_control: "public, no-cache",
   cache_max_age: 31_536_000,
-  except: ["/templates"],
+  except: [] of String,
 )
+```
+
+To keep template sources under `public/` from being downloaded:
+
+```crystal
+Azu::Handler::Static.new("public", except: ["/templates"])
 ```
 
 - `public_dir : String` - directory to serve (default `"public"`, relative to the working directory).
@@ -161,8 +167,16 @@ Azu::Handler::Static.new(
   template sources kept in `public/templates`. A request for one falls through to the next handler (so the router
   answers its 404), or answers `404` with `fallthrough: false`; `GET`, `HEAD` and the redirect of a directory are all covered.
   Entries match whole directory names (`"/templates"` covers `/templates`, `/templates/` and `/templates/a/b.jinja`, not
-  `/templates-x`); a leading slash is added and a trailing one ignored. The check runs on the decoded, normalised path
-  (`/%74emplates/x`, `//templates/x`, `/a/../templates/x`, backslashes, trailing dots and letter case included).
+  `/templates-x`); a leading slash is added and a trailing one ignored. The check runs on the decoded, normalised request
+  path (`/%74emplates/x`, `//templates/x`, `/a/../templates/x`, backslashes, trailing dots and letter case included).
+  Limits to know:
+  - An entry is a literal path, not a URL: it is not percent-decoded.
+  - Matching ignores letter case, and trailing dots and spaces, so on a case-sensitive file system `/Templates` is
+    refused too (it can over-block).
+  - The check is lexical and does not resolve symlinks: a symlink in `public/` that points into an excluded directory is
+    served. Do not symlink into an excluded directory.
+  - With `directory_listing: true` the listing of the parent still names the excluded entry (never its content).
+  - An entry that resolves to the root (`""`, `"/"`, `"."`, `"/x/.."`) would exclude every path, so `new` raises `ArgumentError`.
 
 Behaviour seen by running it:
 

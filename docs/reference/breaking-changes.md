@@ -16,7 +16,7 @@ Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/mig
 Azu::Handler::Static.new("public", except: ["/templates"])
 ```
 
-See [Handler::Static](handlers/built-in.md#handlerstatic).
+`except` is the supported way to keep paths under `public/` from being served. See [Handler::Static](handlers/built-in.md#handlerstatic).
 
 **Templates are compiled outside development.** With `template_hot_reload` off (the default for `staging`,
 `production` and any environment other than `development`, `test` and `pipeline`), `Azu.prepare` reads and parses
