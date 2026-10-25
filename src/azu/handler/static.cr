@@ -18,6 +18,8 @@ module Azu
       # check on.
       MISSING_DIRECTORY_RECHECK = 1.second
 
+      HTML_TYPE = "text/html; charset=utf-8"
+
       MIME.register(".collection", "font/collection")
       MIME.register(".otf", "font/otf")
       MIME.register(".sfnt", "font/sfnt")
@@ -27,6 +29,36 @@ module Azu
       MIME.register(".js", "text/javascript")
       MIME.register(".png", "image/png")
       MIME.register(".map", "application/json")
+
+      # What a web application serves that Crystal's own table (css gif htm html jpg jpeg js json pdf png svg
+      # txt xml wasm webp) lacks: icons, manifests, modern images, media, captions, feeds, fonts, CSV. Only
+      # assets a browser fetches; never anything that is source or data of the application itself (templates,
+      # `.cr`, `.yml`, `.env`, `.sql`, databases, Markdown), whose extension stays unknown and so refused.
+      ADDITIONAL_MIME_TYPES = {
+        ".ico"         => "image/vnd.microsoft.icon",
+        ".webmanifest" => "application/manifest+json",
+        ".avif"        => "image/avif",
+        ".mp4"         => "video/mp4",
+        ".webm"        => "video/webm",
+        ".mp3"         => "audio/mpeg",
+        ".ogg"         => "audio/ogg",
+        ".wav"         => "audio/wav",
+        ".m4a"         => "audio/mp4",
+        ".csv"         => "text/csv; charset=utf-8",
+        ".vtt"         => "text/vtt; charset=utf-8",
+        ".mjs"         => "text/javascript; charset=utf-8",
+        ".eot"         => "application/vnd.ms-fontobject",
+        ".rss"         => "application/rss+xml",
+        ".atom"        => "application/atom+xml",
+      }
+
+      ADDITIONAL_MIME_TYPES.each { |extension, type| MIME.register(extension, type) }
+
+      # The type of an extensionless file below `/.well-known/` (ACME HTTP-01 challenge tokens)
+      WELL_KNOWN_TYPE = "text/plain; charset=utf-8"
+
+      private EXTENSION    = /\A\.[a-z0-9][a-z0-9_+-]*\z/
+      private CONTENT_TYPE = %r{\A[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*(?:; ?[a-z0-9-]+=[a-z0-9"._-]+)*\z}i
 
       # Files with a fingerprint are cached for `cache_max_age` seconds and never revalidated;
       # every other file is sent with `cache_control`, which by default makes caches revalidate
@@ -38,8 +70,10 @@ module Azu
         @cache_control : String = "public, no-cache",
         cache_max_age : Int32 = CONFIG.assets.cache_max_age,
         except excluded : Array(String) = [] of String,
+        mime_types : Hash(String, String) = {} of String => String,
       )
         super(public_dir, fallthrough, directory_listing)
+        @mime_types = normalized_mime_types(mime_types)
         @excluded = excluded.map { |entry| excluded_segments(entry) }
         @fingerprinted_cache_control = "public, max-age=#{cache_max_age}, immutable"
         @clock_origin = Clock.instant
@@ -49,6 +83,7 @@ module Azu
       end
 
       @excluded : Array(Array(String))
+      @mime_types : Hash(String, String)
 
       def call(context : HTTP::Server::Context)
         return allow_get_or_head(context) unless method_get_or_head?(context.request.method)
@@ -159,7 +194,7 @@ module Azu
 
       private def handle_directory_request(context : HTTP::Server::Context, path_info : PathInfo)
         return if not_modified?(context, path_info.root_file)
-        serve_file(context, path_info.root_file)
+        serve_file(context, path_info.root_file, HTML_TYPE)
       end
 
       # Where to send a request whose path is not in its normal form, or names a directory without the
@@ -208,8 +243,9 @@ module Azu
             context.response.status_code = 404
           end
         elsif file_info
+          return refuse(context) unless type = content_type(request_path, file_path)
           return if not_modified?(context, file_path)
-          serve_file(context, file_path)
+          serve_file(context, file_path, type)
         elsif @fallthrough
           call_next(context)
         else
@@ -238,13 +274,33 @@ module Azu
         true
       end
 
-      private def mime_type(path)
-        MIME.from_filename path
+      # The type of the file by its last extension, nil when it is not one the handler serves. There is no
+      # default type: serving an unknown file as a download would hand out the source of a template.
+      private def content_type(request_path : String, file_path : String) : String?
+        extension = File.extname(file_path).downcase
+        return @mime_types[extension]? || MIME.from_extension?(extension) unless extension.empty?
+        WELL_KNOWN_TYPE if well_known_file?(request_path, file_path)
       end
 
-      private def serve_file(env, path : String, mime_type : String? = nil)
+      # A file with no extension is served only directly below `/.well-known/` (ACME challenge tokens),
+      # and never a dotfile there (`/.well-known/.env`).
+      private def well_known_file?(request_path : String, file_path : String) : Bool
+        return false if File.basename(file_path).starts_with?('.')
+        File.expand_path(request_path, "/").starts_with?("/.well-known/")
+      end
+
+      private def normalized_mime_types(types : Hash(String, String)) : Hash(String, String)
+        types.to_h do |extension, type|
+          normalized = extension.downcase
+          normalized = ".#{normalized}" unless normalized.starts_with?('.')
+          raise ArgumentError.new("mime_types extension #{extension.inspect} is not a plain extension") unless EXTENSION.matches?(normalized)
+          raise ArgumentError.new("mime_types type #{type.inspect} is not a content type") unless CONTENT_TYPE.matches?(type)
+          {normalized, type}
+        end
+      end
+
+      private def serve_file(env, path : String, mime_type : String)
         file_path = File.expand_path(path, Dir.current)
-        mime_type ||= mime_type(file_path)
         env.response.content_type = mime_type
         env.response.headers["Accept-Ranges"] = "bytes"
         env.response.headers["X-Content-Type-Options"] = "nosniff"
