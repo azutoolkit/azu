@@ -51,7 +51,9 @@ module Azu
         if @origin.match?(request_origin)
           is_preflight_request = preflight?(context)
           put_expose_header(context.response)
-          Preflight.process(context, self) if is_preflight_request
+          # A refused preflight is already answered and closed: nothing more is granted on it.
+          return if is_preflight_request && !Preflight.process(context, self)
+
           put_response_headers(context.response, request_origin)
           call_next(context) unless is_preflight_request
         else
@@ -62,6 +64,7 @@ module Azu
       def forbidden(context)
         # A refusal grants nothing: drop whatever Access-Control-* header was already set for the request.
         context.response.headers.map { |name, _| name }.each { |name| context.response.headers.delete(name) if name.downcase.starts_with?("access-control-") }
+        context.response.headers.add(Headers::VARY, Headers::ORIGIN) unless context.response.headers.includes_word?(Headers::VARY, Headers::ORIGIN)
         Response::Forbidden.new.to_s(context)
         context.response.close
       end
@@ -91,9 +94,15 @@ module Azu
     module Preflight
       extend self
 
-      def process(context, cors)
-        return cors.forbidden(context) unless valid?(context, cors)
+      # Answers the preflight: false when it was refused (a closed 403), true when its allow headers were written.
+      def process(context, cors) : Bool
+        unless valid?(context, cors)
+          cors.forbidden(context)
+          return false
+        end
+
         put_preflight_headers(context.request, context.response, cors.max_age)
+        true
       end
 
       def valid?(context, cors)
