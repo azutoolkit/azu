@@ -66,7 +66,8 @@ module Azu
       @params = Params(Request).new(context.request) if check_contract
       @request_object = nil
 
-      # Set endpoint name header for performance monitoring
+      # Set endpoint name header for performance monitoring. A literal on purpose: the macro expands per
+      # receiver type, so a subclass names itself and nothing is split or allocated per request.
       endpoint_name = {{ @type.name.stringify.split("::").last }}
       context.request.headers["X-Azu-Endpoint"] = endpoint_name
 
