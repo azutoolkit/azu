@@ -215,14 +215,17 @@ A file with no extension is refused, with one exception for ACME HTTP-01 challen
 `/.well-known/<dir>/<file>` (such as `/.well-known/acme-challenge/<token>`) are served as `text/plain; charset=utf-8` when no
 segment after `/.well-known` starts with a dot and the name does not end in a dot. Deeper paths (`/.well-known/a/b/c`) and
 dot names at any level (`/.well-known/.git/config`, `/.well-known/.env`, `/.well-known/.secrets.json`, even with a
-known extension) are refused, as is an extensionless file anywhere else. Only the root `/.well-known/` counts.
+known extension) are refused, as is an extensionless file anywhere else; `/.well-known/a/b/c.json` and `/.well-known/.x.json`
+are refused too (an earlier release served them), deliberately. Only the root `/.well-known/` counts, whatever the case it
+is written in. An extensionless file there (`apple-app-site-association`, `openid-configuration`) is sent as `text/plain`:
+an app that needs JSON names the file `.json` or answers from a route.
 
 Files that are compressed on the fly (when the client accepts it and the file is over 860 bytes) are the text types:
 `.htm .html .txt .css .js .mjs .svg .json .jsonld .xml .xhtml .csv .vtt .ics .webmanifest .rss .atom .map .eot .otf .ttf .woff .woff2`,
 matched without regard to the case of the extension.
 
 To serve a type of your own, list it. The extension is lower-cased and gets its leading dot; it is exact (no wildcard), and
-the type must be a plain `type/subtype`. It applies to this handler only and overrides a type the handler knows:
+the type must be a plain `type/subtype`, and two keys that are the same after that (`".Foo"` and `"foo"`) raise `ArgumentError`. It applies to this handler only and overrides a type the handler knows:
 
 ```crystal
 Azu::Handler::Static.new("public", mime_types: {".heic" => "image/heic", "avifs" => "image/avif-sequence"})
@@ -235,8 +238,8 @@ Behaviour seen by running it:
 - Responses carry a weak `ETag` and `Vary: Accept-Encoding`; a matching `If-None-Match` answers `304`.
 - `Range: bytes=0-4` answers `206` with `Content-Range`; a range past the end answers `416`.
 - `GET /` serves `index.html` of the directory.
-- `.html .css .js .json .txt .svg .xml` and font files larger than 860 bytes are gzip or deflate compressed when the
-  client accepts it.
+- Text files (the extensions listed under "Which files are served") larger than 860 bytes are gzip or deflate compressed
+  when the client accepts it.
 - Methods other than `GET` and `HEAD` answer `405` with `Allow` (or fall through).
 - A `public_dir` that does not exist costs no file system calls per request (one monotonic clock read). A public dir created after boot is
   picked up within a second (the handler looks for a missing one again at most once a second); once found it is not

@@ -314,10 +314,11 @@ module Azu
         WELL_KNOWN_TYPE if well_known && !File.basename(file_path).ends_with?('.')
       end
 
-      # The segments below `/.well-known/` of the normalised request path; nil for any other path.
+      # The segments below `/.well-known/` of the normalised request path; nil for any other path. The name is
+      # compared without regard to case, since a case-insensitive file system resolves `/.Well-Known/` to it.
       private def well_known_segments(request_path : String) : Array(String)?
         segments = File.expand_path(request_path, "/").split('/', remove_empty: true)
-        segments[1..] if segments.first? == ".well-known"
+        segments[1..] if segments.first?.try(&.downcase) == ".well-known"
       end
 
       # `/.well-known/<file>` or `/.well-known/<dir>/<file>` (ACME: `acme-challenge/<token>`), no dot name at
@@ -327,13 +328,16 @@ module Azu
       end
 
       private def normalized_mime_types(types : Hash(String, String)) : Hash(String, String)
-        types.to_h do |extension, type|
+        normalized_types = {} of String => String
+        types.each do |extension, type|
           normalized = extension.downcase
           normalized = ".#{normalized}" unless normalized.starts_with?('.')
           raise ArgumentError.new("mime_types extension #{extension.inspect} is not a plain extension") unless EXTENSION.matches?(normalized)
           raise ArgumentError.new("mime_types type #{type.inspect} is not a content type") unless CONTENT_TYPE.matches?(type)
-          {normalized, type}
+          raise ArgumentError.new("mime_types extension #{extension.inspect} is given twice (as #{normalized.inspect})") if normalized_types.has_key?(normalized)
+          normalized_types[normalized] = type
         end
+        normalized_types
       end
 
       private def serve_file(env, path : String, mime_type : String)

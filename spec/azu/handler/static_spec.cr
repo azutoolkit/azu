@@ -1073,6 +1073,8 @@ describe Azu::Handler::Static do
       ".well-known/a/b/c"                                => "SECRET-DEEP",
       ".well-known/.secrets.json"                        => "SECRET-DOTJSON",
       ".well-known/token."                               => "SECRET-TRAILING-DOT",
+      ".Well-Known/.secrets.json"                        => "SECRET-CASE-DOTJSON",
+      ".Well-Known/a/b/c.json"                           => "SECRET-CASE-DEEP",
       ".well-known/openid-configuration"                 => "{}",
       "LICENSE"                                          => "SECRET-EXTENSIONLESS",
       "page.jinja.html"                                  => "<p>HTML</p>",
@@ -1358,11 +1360,11 @@ describe Azu::Handler::Static do
         Azu::Handler::Static::MIME_TYPES[".js"].should eq("text/javascript")
       end
 
-      it "holds exactly Crystal's built-in defaults (the same on every toolchain) and Azu's additions" do
+      it "has every one of Crystal's built-in defaults with its type (Azu's .js has no charset), and nothing the OS adds" do
         MIME::DEFAULT_TYPES.each do |extension, type|
-          Azu::Handler::Static::MIME_TYPES.has_key?(extension).should be_true
+          expected = extension == ".js" ? "text/javascript" : type
+          Azu::Handler::Static::MIME_TYPES[extension]?.should eq(expected)
         end
-        MIME::DEFAULT_TYPES.keys.sort.should eq(%w(.css .gif .htm .html .jpeg .jpg .js .json .pdf .png .svg .txt .wasm .webp .xml))
       end
     end
 
@@ -1407,6 +1409,15 @@ describe Azu::Handler::Static do
           ["/.well-known/.git/config", "/.well-known/.d/token", "/.well-known/a/b/c", "/.well-known/.secrets.json", "/.well-known/token."].each do |path|
             body = get.call(handler, path)[1]
             body.should eq("NEXT")
+          end
+        end
+      end
+
+      it "applies the depth and dot rule whatever the case of .well-known" do
+        with_temp_dir(files) do |dir|
+          handler = Azu::Handler::Static.new(dir)
+          ["/.Well-Known/.secrets.json", "/.Well-Known/a/b/c.json"].each do |path|
+            get.call(handler, path)[1].should_not contain("SECRET")
           end
         end
       end
@@ -1463,6 +1474,12 @@ describe Azu::Handler::Static do
         with_temp_dir({"a.foo" => "X", "t.jinja" => "SECRET"}) do |dir|
           handler = Azu::Handler::Static.new(dir, mime_types: {".foo" => "text/x-foo"})
           get.call(handler, "/t.jinja")[1].should eq("NEXT")
+        end
+      end
+
+      it "rejects two extensions that are the same after normalisation" do
+        expect_raises(ArgumentError) do
+          Azu::Handler::Static.new("public", mime_types: {".Foo" => "text/x-foo", "foo" => "text/x-bar"})
         end
       end
 
