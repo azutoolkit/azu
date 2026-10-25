@@ -165,8 +165,7 @@ field of the same name: `POST /users/5` with `id=1` in the body gives `params["i
 For a JSON body the typed request applies the same rule to the keys the body already has: a path or query
 value replaces that key (compared decoded, so `"\u0069d"` is `id`; a field renamed with `@[JSON::Field(key:)]` is
 replaced by the URL parameter named like the field) and keeps the JSON type the body used (a number stays a number; a
-URL value that cannot take that type, such as `?price=nan`, makes the request a `400`). Every other value of the body is
-passed on unchanged. Keys the body does not have are **not added**: a JSON contract does not receive a path parameter its
+URL value that cannot take that type, such as `?price=nan`, makes the request a `400`). Numbers keep their raw text (integers beyond Int64, float notation); strings and nested values are re-serialized as equivalent JSON, and a body in which no top-level key matches is passed on untouched. Only top-level keys are replaced. When `?user_name=` and `?name=` both target a field renamed to `user_name`, the real field name wins. Keys the body does not have are **not added**: a JSON contract does not receive a path parameter its
 body lacks. So **authorize on `params["id"]` (the route), not on a field of the contract** that a body may also carry.
 The CSRF handler reads its token on its own (header, form body, then query) and is not affected by this order.
 

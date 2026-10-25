@@ -71,34 +71,60 @@ module Azu
     # The path and the query string win over the body, as for forms. A JSON body is the contract's input, so a key
     # the URL also names is replaced there, keeping the JSON type the body gave it (a number stays a number when the
     # URL value is one). Keys the body does not have are not added: a JSON contract declares what it takes from the
-    # body. The body is read with a pull parser, so keys are compared decoded (`"\u0069d"` is `id`), every other value
-    # is copied byte for byte (integers beyond Int64, float notation), and a key renamed with `@[JSON::Field(key:)]`
-    # is matched by the URL parameter named like the field.
+    # body, and only top-level keys are replaced (`{"x":{"id":2}}` keeps `x.id`). Keys are compared decoded
+    # (`"\u0069d"` is `id`), a key renamed with `@[JSON::Field(key:)]` is matched by the URL parameter named like the
+    # field, and a body in which no key matches is returned as it came (one scan, nothing built). Otherwise the body is
+    # rewritten with the same values: numbers keep their raw text (integers beyond Int64, float notation), strings and
+    # nested values are re-serialized as equivalent JSON.
     private def json_with_url_overrides(body : String) : String
       return body if path.empty? && query.empty?
-      overrides = Hash(String, String).new
-      query.to_h.each { |name, value| overrides[json_key(name)] = value }
-      path.each { |name, value| overrides[json_key(name)] = value }
+      overrides = url_overrides
+      return body unless json_object_names_any?(body, overrides)
 
       pull = JSON::PullParser.new(body)
-      return body unless pull.kind.begin_object?
-
-      replaced = false
-      result = JSON.build do |json|
+      JSON.build do |json|
         json.object do
           pull.read_object do |key|
             if value = overrides[key]?
               kind = pull.kind
               pull.skip
               json.field(key) { write_same_type(json, value, kind) }
-              replaced = true
             else
-              json.field(key) { json.raw(pull.read_raw) }
+              json.field(key) { pull.read_raw(json) }
             end
           end
         end
       end
-      replaced ? result : body
+    end
+
+    # :nodoc: for specs
+    def json_with_url_overrides_for_spec(body : String) : String
+      json_with_url_overrides(body)
+    end
+
+    # URL parameters by the JSON key they replace. When `?user_name=` and `?name=` both target a field renamed to
+    # `user_name`, the real field name (`name`) wins; within a name the path wins over the query.
+    private def url_overrides : Hash(String, String)
+      overrides = Hash(String, String).new
+      {false, true}.each do |renamed|
+        {query.to_h, path}.each do |source|
+          source.each do |name, value|
+            key = json_key(name)
+            overrides[key] = value if (key != name) == renamed
+          end
+        end
+      end
+      overrides
+    end
+
+    private def json_object_names_any?(body : String, names : Hash(String, String)) : Bool
+      pull = JSON::PullParser.new(body)
+      return false unless pull.kind.begin_object?
+      pull.read_object do |key|
+        return true if names.has_key?(key)
+        pull.skip
+      end
+      false
     end
 
     # The JSON key of the contract field named `name` (its `@[JSON::Field(key:)]`, else the name itself).

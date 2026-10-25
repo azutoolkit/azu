@@ -124,7 +124,8 @@ module Azu
 
     # Azu's own error page `name`, ignoring every directory: what is rendered when an app's `error.html` is broken.
     def builtin(name : String) : Crinja::Template
-      (@builtin_crinja ||= Crinja.new.tap { |env| env.loader = BuiltinLoader.new(BUILTIN) }).get_template(name)
+      env = @@builtin_lock.synchronize { @builtin_crinja ||= Crinja.new.tap { |crinja| crinja.loader = BuiltinLoader.new(BUILTIN) } }
+      env.get_template(name)
     end
 
     def load(template : String)
@@ -159,11 +160,35 @@ module Azu
       update_template_mtimes if @hot_reload_enabled
     end
 
+    @@logged = Set(String).new
+    @@logged_lock = Mutex.new
+    @@builtin_lock = Mutex.new
+    SOURCE_DIRECTORY = File.join(__DIR__, "templates")
+
+    # Says once per process (not on every loader rebuild) that a page of the app replaces a built-in one.
     private def log_shadowed_error_pages
-      BUILTIN.each_key do |name|
-        shadow = path.find { |dir| File.file?(File.join(dir, name)) }
-        Log.for("azu.templates").debug { "#{File.join(shadow, name)} replaces the built-in #{name}" } if shadow
+      (path + [error_path]).uniq.each do |dir|
+        next if dir == SOURCE_DIRECTORY
+        BUILTIN.each_key do |name|
+          file = File.join(dir, name)
+          next unless File.file?(file)
+          next unless @@logged_lock.synchronize { @@logged.add?(file) }
+          Log.for("azu.templates").debug { "#{file} replaces the built-in #{name}" }
+        end
       end
+    end
+
+    # Forgets what was logged once; for specs.
+    def self.reset_logged! : Nil
+      @@logged_lock.synchronize { @@logged.clear }
+    end
+
+    # Says once per template that the app's page failed and the built-in one was used.
+    def builtin_fallback(name : String, error : Exception) : Crinja::Template
+      if @@logged_lock.synchronize { @@logged.add?("fallback:#{name}") }
+        Log.for("azu.templates").warn(exception: error) { "#{name} failed to load or render, the built-in page is used instead" }
+      end
+      builtin(name)
     end
 
     # The loader searches the paths it was built with, so adding one has to rebuild it, whether
