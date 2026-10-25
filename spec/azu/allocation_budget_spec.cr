@@ -2,15 +2,15 @@ require "../spec_helper"
 require "../../benchmark/micro/harness"
 
 # Bytes per request over the baseline handler. Each budget is the whole-suite `crystal spec` measurement plus ~10%,
-# rounded up to a multiple of 8 (measured 2643 / 1918 / 3420 / 2677, in the order below; a single-file run measures
+# rounded up to a multiple of 8 (measured 784 / 575 / 1328 / 1119, in the order below; a single-file run measures
 # ~100 B less). Re-measure and lower them when a slice saves bytes or a new Crystal shifts stdlib allocations.
 # A single-file run measures less because per-request bytes depend on the compiled program (`Azu::Router::Route`
 # inlines a union of every compiled Routable, so its size grows with the endpoint types in the build): the budgets
 # are calibrated on the whole-suite file list.
-PLAINTEXT_AZU_BUDGET     = 2912
-PLAINTEXT_AZU_MIN_BUDGET = 2112
-RESOURCE_AZU_BUDGET      = 3768
-RESOURCE_AZU_MIN_BUDGET  = 2952
+PLAINTEXT_AZU_BUDGET     =  864
+PLAINTEXT_AZU_MIN_BUDGET =  640
+RESOURCE_AZU_BUDGET      = 1464
+RESOURCE_AZU_MIN_BUDGET  = 1232
 
 private def bytes_over_baseline(stack : HotPath::Stack, path : String) : Float64
   HotPath.measure(stack, path).bytes - HotPath.measure(HotPath::Stack::Baseline, path).bytes
