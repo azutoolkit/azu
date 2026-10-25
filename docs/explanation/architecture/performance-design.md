@@ -54,10 +54,13 @@ standard library's gzip.
 
 ## Templates
 
-`Azu::Templates` loads a template through Crinja on each render. Template files are **not** compiled once and kept:
-with `template_hot_reload` off, a template file that was rewritten rendered its new content on the next load.
-Hot reload only adds a check (at most once a second) that rebuilds the loader. If rendering is a hot spot, cache the
-rendered fragment:
+With `template_hot_reload` off (every environment but development, test and pipeline), `Azu::Templates` compiles:
+`Azu.prepare` reads and parses every template file once and keeps the result in an immutable map, so a render does
+a lookup by name and no file is read or parsed per request. All templates stay resident in memory, an edited file
+needs a restart (also a template mounted into a container from a volume or a Kubernetes ConfigMap), and a template
+that does not parse stops the boot. With reload on, Crinja asks the file loader on each render and a check (at most
+once a second) rebuilds the loader. The rendering itself, the largest part of a request, still happens in Crinja on
+every request; if it is a hot spot, cache the rendered fragment:
 
 ```crystal
 require "azu"

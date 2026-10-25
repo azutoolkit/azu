@@ -131,7 +131,26 @@ module Azu
       env == "development" || env == "test" || env == "pipeline"
     end
 
-    property? template_hot_reload : Bool = ENV.fetch("TEMPLATE_HOT_RELOAD", Configuration.hot_reload_default.to_s) == "true"
+    @template_hot_reload : Bool = ENV.fetch("TEMPLATE_HOT_RELOAD", Configuration.hot_reload_default.to_s) == "true"
+    # Template names not compiled at boot (see `Templates#compile_ignore`); `TEMPLATE_COMPILE_IGNORE` takes a comma separated list.
+    @template_compile_ignore : Array(String) = ENV.fetch("TEMPLATE_COMPILE_IGNORE", "").split(',').map(&.strip).reject(&.empty?)
+
+    def template_hot_reload? : Bool
+      @template_hot_reload
+    end
+
+    # Also applies to the templates of this configuration when they were built already.
+    def template_hot_reload=(enabled : Bool)
+      @template_hot_reload = enabled
+      @templates.try(&.hot_reload = enabled)
+    end
+
+    getter template_compile_ignore : Array(String)
+
+    def template_compile_ignore=(patterns : Array(String))
+      @template_compile_ignore = patterns
+      @templates.try(&.compile_ignore = patterns)
+    end
 
     property ssl_cert : String = ENV.fetch("SSL_CERT", "")
     property ssl_key : String = ENV.fetch("SSL_KEY", "")
@@ -166,7 +185,8 @@ module Azu
       Templates.new(
         ENV.fetch("TEMPLATES_PATH", Path[TEMPLATES_PATH].expand.to_s).split(","),
         ENV.fetch("ERROR_TEMPLATE", Path[ERROR_TEMPLATE].expand.to_s),
-        template_hot_reload?
+        template_hot_reload?,
+        template_compile_ignore
       )
     end
 
@@ -201,6 +221,7 @@ module Azu
     # `Instrumentation.on_prepare` hooks add (`azu/dev` starts the profiler and memory monitor).
     # `Azu.start` calls this; building a configuration, and so requiring azu, starts nothing.
     def prepare : Nil
+      templates.prepare
       cache_config.validate!
       Instrumentation.prepare(self)
       upload.prepare
