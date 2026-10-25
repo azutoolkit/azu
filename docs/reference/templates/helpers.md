@@ -2,6 +2,8 @@
 
 Azu provides built-in template helpers for common web development tasks like building forms, generating links, formatting dates, and handling internationalization.
 
+Renders take turns (each request's variables live on the one Crinja environment every request shares), so a helper you write that does IO, such as a query or an HTTP call, holds up every other render until it returns: load the data in the endpoint and pass it to `view` instead.
+
 ## Quick Reference
 
 ```jinja

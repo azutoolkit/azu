@@ -31,6 +31,7 @@ module Azu
     @compile_lock : Mutex = Mutex.new
     @compile_count : Int32 = 0
     @compiled_strict : Bool = false
+    @render_lock : Mutex = Mutex.new(:reentrant)
 
     # Azu's own error pages, compiled into the binary. They are the last place the loader looks, so an app that
     # runs from any working directory (or from a container that holds only the binary) always finds them, and a
@@ -125,7 +126,7 @@ module Azu
           end
         {% end %}
 
-        Azu.current_config.templates.load(template).render(template_data)
+        Azu.current_config.templates.render(template, template_data)
       end
 
       # Renders a template with explicit context injection.
@@ -149,7 +150,7 @@ module Azu
           template_data[key] = value unless template_data.has_key?(key)
         end
 
-        Azu.current_config.templates.load(template).render(template_data)
+        Azu.current_config.templates.render(template, template_data)
       end
 
       def page_path
@@ -176,6 +177,19 @@ module Azu
     def builtin(name : String) : Crinja::Template
       env = @@builtin_lock.synchronize { @builtin_crinja ||= Crinja.new.tap { |crinja| crinja.loader = BuiltinLoader.new(BUILTIN) } }
       env.get_template(name)
+    end
+
+    # Renders `template` with `data` (nil, a Hash or a NamedTuple). Renders take turns: Crinja keeps the variables
+    # of a render on the environment that every request shares, so two renders that overlap (a helper that yields
+    # the fiber, or threads under preview_mt) would read each other's. The lock is reentrant: a helper may render.
+    def render(template : String, data = nil) : String
+      exclusively { load(template).render(data) }
+    end
+
+    # :nodoc:
+    # Holds the render lock around a Crinja render that does not go through `render` (the built-in fallback page).
+    def exclusively(&)
+      @render_lock.synchronize { yield }
     end
 
     # With reload on (development) every call may re-read changed files, see `check_for_changes`. Without it the
