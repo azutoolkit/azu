@@ -39,6 +39,42 @@ module Azu::EndpointSpec
     end
   end
 
+  def self.bare_context(body : IO, query = "")
+    headers = HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"}
+    request = HTTP::Request.new("POST", "/params#{query}", headers, body)
+    io = IO::Memory.new
+    {HTTP::Server::Context.new(request, HTTP::Server::Response.new(io)), io}
+  end
+
+  # Fails the example if anything reads the request body
+  class UnreadableBody < IO
+    getter reads = 0
+
+    def read(slice : Bytes) : Int32
+      @reads += 1
+      raise IO::Error.new("the body was read")
+    end
+
+    def write(slice : Bytes) : Nil
+    end
+  end
+
+  class IgnoresParamsEndpoint
+    include Azu::Endpoint(Azu::Request, TestResponse)
+
+    def call : TestResponse
+      TestResponse.new("ignored")
+    end
+  end
+
+  class ReadsParamsEndpoint
+    include Azu::Endpoint(Azu::Request, TestResponse)
+
+    def call : TestResponse
+      TestResponse.new(params["name"])
+    end
+  end
+
   class JsonEndpoint
     include Azu::Endpoint(TestRequest, JsonResponse)
 
@@ -160,6 +196,30 @@ describe Azu::Endpoint do
       endpoint.call(context)
 
       context.request.headers["X-Azu-Endpoint"].should eq "BasicEndpoint"
+    end
+  end
+
+  describe "parameters" do
+    it "does not read the body of an endpoint that never asks for parameters" do
+      body = Azu::EndpointSpec::UnreadableBody.new
+      context, _ = Azu::EndpointSpec.bare_context(body)
+      Azu::EndpointSpec::IgnoresParamsEndpoint.new.call(context)
+      context.response.status_code.should eq 200
+      body.reads.should eq 0
+    end
+
+    it "parses them on first use for an endpoint that asks" do
+      context, io = Azu::EndpointSpec.bare_context(IO::Memory.new("name=ada"), "?other=1")
+      Azu::EndpointSpec::ReadsParamsEndpoint.new.call(context)
+      context.response.close
+      io.to_s.should contain("ada")
+    end
+
+    it "reads the body where the endpoint asks for it" do
+      body = Azu::EndpointSpec::UnreadableBody.new
+      context, _ = Azu::EndpointSpec.bare_context(body)
+      expect_raises(IO::Error, "the body was read") { Azu::EndpointSpec::ReadsParamsEndpoint.new.call(context) }
+      body.reads.should eq 1
     end
   end
 

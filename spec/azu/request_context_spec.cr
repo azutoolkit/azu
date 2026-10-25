@@ -26,6 +26,38 @@ describe Azu::RequestContext do
     end
   end
 
+  describe ".generate_id" do
+    it "has the form req_<unix ms>_<16 hex digits>" do
+      before = Time.utc.to_unix_ms
+      id = Azu::RequestContext.generate_id
+      id.should match(/\Areq_(\d+)_[0-9a-f]{16}\z/)
+      id.split('_')[1].to_i64.should be >= before
+    end
+
+    it "takes the number of random bytes asked for" do
+      Azu::RequestContext.generate_id(4).should match(/\Areq_\d+_[0-9a-f]{8}\z/)
+    end
+
+    it "does not repeat across refills of the random chunk, and is not sequential" do
+      ids = Array.new(5000) { Azu::RequestContext.generate_id }
+      ids.uniq.size.should eq 5000
+      suffixes = ids.map { |id| id.split('_').last.to_u64(16) }
+      suffixes.each_cons(2).count { |pair| pair[1] == pair[0] + 1 }.should eq 0
+    end
+
+    it "gives every fiber its own ids when requests run at once" do
+      done = Channel(Array(String)).new
+      8.times { spawn { done.send(Array.new(500) { Azu::RequestContext.generate_id }) } }
+      all = Array.new(8) { done.receive }.flatten
+      all.uniq.size.should eq 4000
+    end
+  end
+
+  it "names a request without an id from the same generator" do
+    context, _io = create_context("GET", "/users")
+    Azu::RequestContext.scope(context) { |info| info.request_id.should match(/\Areq_\d+_[0-9a-f]{8}\z/) }
+  end
+
   it "is isolated per fiber" do
     seen = Channel(String?).new
     Azu::RequestContext.with("main") do

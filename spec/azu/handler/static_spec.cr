@@ -1,3 +1,4 @@
+require "file_utils"
 require "../../spec_helper"
 require "../../support/integration_helpers"
 
@@ -543,6 +544,81 @@ describe Azu::Handler::Static do
 
         # Should redirect or handle gracefully
         [200, 301, 302, 404].should contain(context.response.status_code)
+      end
+    end
+  end
+
+  describe "a public directory that does not exist" do
+    missing = File.join(Dir.tempdir, "azu-static-missing-#{Process.pid}")
+
+    it "passes every request on without asking the file system" do
+      FileUtils.rm_rf(missing)
+      handler = Azu::Handler::Static.new(missing, fallthrough: true)
+      next_handler, verify = create_next_handler(1)
+      handler.next = next_handler
+
+      context, io = create_context("GET", "/anything.txt")
+      handler.call(context)
+
+      get_response_body(context, io).should eq("OK")
+      verify.call
+    end
+
+    it "answers 404 without fallthrough" do
+      FileUtils.rm_rf(missing)
+      handler = Azu::Handler::Static.new(missing)
+      context, _ = create_context("GET", "/anything.txt")
+      handler.call(context)
+      context.response.status_code.should eq(404)
+    end
+
+    it "still redirects a path that is not in its normal form, and still refuses a null byte" do
+      FileUtils.rm_rf(missing)
+      handler = Azu::Handler::Static.new(missing, fallthrough: true)
+
+      context, _ = create_context("GET", "/a/../b.txt")
+      handler.call(context)
+      context.response.status_code.should eq(302)
+      context.response.headers["Location"].should eq("/b.txt/")
+
+      context, _ = create_context("GET", "/b%00.txt")
+      handler.call(context)
+      context.response.status_code.should eq(400)
+    end
+
+    it "serves a directory created after boot once the missing directory is looked for again" do
+      with_fake_clock do |clock|
+        FileUtils.rm_rf(missing)
+        handler = Azu::Handler::Static.new(missing, fallthrough: true)
+        next_handler, _ = create_next_handler(2)
+        handler.next = next_handler
+
+        Dir.mkdir_p(missing)
+        File.write(File.join(missing, "late.txt"), "created after boot")
+
+        # Within the recheck interval the handler still believes the directory is missing
+        context, io = create_context("GET", "/late.txt")
+        handler.call(context)
+        get_response_body(context, io).should eq("OK")
+
+        clock.advance(Azu::Handler::Static::MISSING_DIRECTORY_RECHECK + 1.millisecond)
+        context, io = create_context("GET", "/late.txt")
+        handler.call(context)
+        get_response_body(context, io).should eq("created after boot")
+      ensure
+        FileUtils.rm_rf(missing)
+      end
+    end
+  end
+
+  describe "a request for a directory" do
+    it "redirects to the path with a trailing slash" do
+      with_temp_dir({"subdir/file.txt" => "content"}) do |dir|
+        handler = Azu::Handler::Static.new(dir, fallthrough: true)
+        context, _ = create_context("GET", "/subdir")
+        handler.call(context)
+        context.response.status_code.should eq(302)
+        context.response.headers["Location"].should eq("/subdir//")
       end
     end
   end

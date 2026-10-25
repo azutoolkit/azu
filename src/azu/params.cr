@@ -87,7 +87,9 @@ module Azu
       def self.parse(request : HTTP::Request) : {HTTP::Params, Hash(String, Multipart::File), String?}
         no_files = Hash(String, Multipart::File).new
 
-        case request.content_type.sub_type
+        # Without a Content-Type there is no body format to parse; this skips building the "text/plain" default
+        sub_type = request.content_type.sub_type if request.headers.has_key?("Content-Type")
+        case sub_type
         when "json"
           {HTTP::Params.new, no_files, request.body.try { |body| read(body) }}
         when "x-www-form-urlencoded"

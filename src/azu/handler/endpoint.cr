@@ -45,6 +45,11 @@ module Azu
       OpenAPI::Operation.of(self.class, Request, Response)
     end
 
+    # An endpoint writes the `X-Azu-Endpoint` header in `serve`, so the router leaves it alone.
+    def labels_request? : Bool
+      true
+    end
+
     # :nodoc:
     #
     # The router holds one instance per route. A struct is copied on dispatch; a class is copied here, so
@@ -60,11 +65,16 @@ module Azu
     # :nodoc:
     protected def serve(context : HTTP::Server::Context)
       @context = context
-      @params = Params(Request).new(context.request)
+      @params = nil
+      {% unless Request.stringify == "Azu::Request" %}
+        # A contract is checked before `call`, so its body is read now and a body that cannot be read is
+        # refused at the same point as ever.
+        @params = Params(Request).new(context.request)
+      {% end %}
       @request_object = nil
 
       # Set endpoint name header for performance monitoring
-      endpoint_name = self.class.name.split("::").last
+      endpoint_name = {{ @type.name.stringify.split("::").last }}
       context.request.headers["X-Azu-Endpoint"] = endpoint_name
 
       RequestContext.scope(context) do |info|
@@ -334,14 +344,11 @@ module Azu
       @request_object ||= params.typed_request
     end
 
-    # Gets requests parameters
+    # Gets requests parameters, parsed on first use: an endpoint declared with the bare `Azu::Request`
+    # that never reads them does not pay for parsing the query string and the body.
     # Raises if called before the endpoint is invoked via call(context)
     private def params : Params
-      if p = @params
-        p
-      else
-        raise "Endpoint params accessed before initialization. Ensure call(context) was invoked."
-      end
+      @params ||= Params(Request).new(context.request)
     end
 
     # Gets the request `raw` context

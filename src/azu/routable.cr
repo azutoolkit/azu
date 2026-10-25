@@ -8,6 +8,13 @@ module Azu
   module Routable
     abstract def call(context : HTTP::Server::Context)
 
+    # Whether the routable writes the `X-Azu-Endpoint` request header (the name logs and the performance
+    # monitor use) itself. The router writes the class name for any that does not; an endpoint does, with
+    # its short name, so the header is set once per request.
+    def labels_request? : Bool
+      false
+    end
+
     # What the OpenAPI document says about this route, read from the contract. Nil for a routable
     # that has none, which is then left out of the document. `Endpoint` overrides this.
     def openapi_operation : OpenAPI::Operation?

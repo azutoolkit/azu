@@ -69,6 +69,18 @@ private struct RoutableStruct
   end
 end
 
+private struct SelfLabelingRoutable
+  include Azu::Routable
+
+  def labels_request? : Bool
+    true
+  end
+
+  def call(context : HTTP::Server::Context)
+    context.response << "labels itself"
+  end
+end
+
 private def dispatch(router : Azu::Router, path : String) : String
   io = IO::Memory.new
   context = HTTP::Server::Context.new(HTTP::Request.new("GET", path), HTTP::Server::Response.new(io))
@@ -87,6 +99,32 @@ describe Azu::Router do
 
       dispatch(router, "/plain").should contain "plain"
       dispatch(router, "/struct").should contain "routable"
+    end
+  end
+
+  describe "the X-Azu-Endpoint header" do
+    it "names the class of a routable that does not label the request itself" do
+      router = Azu::Router.new
+      router.get "/plain", PlainHandler.new
+      context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/plain"), HTTP::Server::Response.new(IO::Memory.new))
+      router.process(context)
+      context.request.headers["X-Azu-Endpoint"].should eq "PlainHandler"
+    end
+
+    it "is left to a routable that labels the request itself, so it is written once" do
+      router = Azu::Router.new
+      router.add "/self", SelfLabelingRoutable.new, Azu::Method::Get
+      context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/self"), HTTP::Server::Response.new(IO::Memory.new))
+      router.process(context)
+      context.request.headers["X-Azu-Endpoint"]?.should be_nil
+    end
+
+    it "is the short name of an endpoint, set by the endpoint" do
+      router = Azu::Router.new
+      router.add "/ex", ExampleEndpoint.new, Azu::Method::Get
+      context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/ex"), HTTP::Server::Response.new(IO::Memory.new))
+      router.process(context)
+      context.request.headers["X-Azu-Endpoint"].should eq "ExampleEndpoint"
     end
   end
 
