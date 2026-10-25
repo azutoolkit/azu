@@ -125,10 +125,10 @@ module Azu
     end
 
     def self.ping(schema : ::CQL::Schema, timeout : Time::Span = 2.seconds) : Bool
-      answered = Channel(Bool).new(1)
+      answered = ::Channel(Bool).new(1)
       spawn(name: "azu-cql-ping") do
         answered.send(begin
-          schema.with_connection { |connection| connection.scalar("SELECT 1") }
+          schema.with_connection(&.scalar("SELECT 1"))
           true
         rescue
           false
@@ -182,7 +182,7 @@ module Azu
       params = HTTP::Params.parse(query)
       rename_param(params, "max_pool_size", "pool_size")
       rename_param(params, "initial_pool_size", "pool_min_size")
-      ENGINE_DROPPED_PARAMS.each { |key| params.delete(key) }
+      ENGINE_DROPPED_PARAMS.each { |key| params.delete(key) if params.has_key?(key) }
       wanted = engine_defaults(config, params, lazy, pool)
       wanted.each { |key, value| params[key] = value unless params.has_key?(key) }
       params.empty? ? "#{location}#{hash}#{fragment}" : "#{location}?#{params}#{hash}#{fragment}"

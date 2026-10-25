@@ -166,9 +166,10 @@ describe "Azu::CQL schema choice and lifecycle" do
     Azu.on_shutdown { order << "hook" }
     schema = Azu::CQL.schema(:shutdown_spec, "sqlite3://#{File.join(Dir.tempdir, "azu_cql_shutdown_spec.db")}") { }
     schema.with_connection { |connection| connection.scalar("SELECT 1") }
+    schema.pool_stats.open.should eq 1
     Azu.shutdown
     order.should eq ["hook"]
-    expect_raises(Exception) { schema.with_connection { |connection| connection.scalar("SELECT 1") } }
+    schema.pool_stats.open.should eq 0
     Azu.shutdown # safe to call again
     order.should eq ["hook", "hook"]
   end
