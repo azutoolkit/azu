@@ -84,19 +84,23 @@ module Azu
       context
     end
 
-    # Whether the request is parsed and checked against its contract before `call`. A contract with no fields
-    # and no rules has nothing to check, so only a body that names its format is still read (a malformed one is
-    # a 400). A contract that inherits its rules defines no constants of its own and is always checked, and so is
-    # one with its own `errors`: only the `errors` Schema generates is known to find nothing here. This fails
-    # closed: if Schema ever changes that body, every contract is checked again.
+    # Whether the request is parsed and checked against its contract before `call`. A contract that defines
+    # nothing beyond a bare `include Azu::Request` (no fields, no rules, no methods of its own) has nothing to
+    # check, so only a body that names its format is still read (a malformed one is a 400). Any method of its own
+    # may refuse a request (`errors`, a constructor such as `from_www_form` or `initialize`), so it is checked, and
+    # so is a contract that inherits its rules: it defines no constants of its own. Rules add constants, not
+    # methods. Methods are compared as source: the generated ones name no type, so a bare contract matches
+    # `BareRequest`, and one that did would only turn the skip off.
     private def check_contract?(request : HTTP::Request) : Bool
       {% begin %}
         {% contract = Request.resolve %}
+        {% bare = ::Azu::BareRequest %}
         {% if Request.stringify == "Azu::Request" %}
           false
         {% elsif contract.instance_vars.empty? &&
                    %w(SCHEMA_VALIDATORS SCHEMA_VALIDATIONS).all? { |rules| contract.has_constant?(rules) && contract.constant(rules).empty? } &&
-                   contract.methods.select { |method| method.name == "errors" }.all? { |method| method.body.stringify == "Validator.validate(self)" } %}
+                   contract.methods.map(&.stringify).sort == bare.methods.map(&.stringify).sort &&
+                   contract.class.methods.map(&.stringify).sort == bare.class.methods.map(&.stringify).sort %}
           Params::Body.format?(request)
         {% else %}
           true

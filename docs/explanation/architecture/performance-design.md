@@ -34,8 +34,8 @@ parameters are therefore cached per distinct path, not per route.
 - **The request is parsed once per call**, before `call`, because the contract is enforced before the endpoint
   runs. Parsing is not lazy: an endpoint with a request type pays for parsing and validation, even when `call`
   never reads the request. Two exceptions read params on first use: an endpoint declared with the bare
-  `Azu::Request` module, which has no contract, and a contract with no fields and no rules, for a request
-  without a `Content-Type`.
+  `Azu::Request` module, which has no contract, and a contract with no fields, no rules and no methods of its
+  own, for a request without a `Content-Type`.
 - **Endpoints are copied per call.** The router holds one endpoint value per route; a `struct` endpoint is copied for
   every request, so the instance variables `call` sets (the context, the params) belong to that request. A `class`
   endpoint is one object shared by all concurrent requests, and its params and context are overwritten by the next

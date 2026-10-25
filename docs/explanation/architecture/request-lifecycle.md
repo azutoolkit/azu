@@ -76,8 +76,8 @@ from `app.routes { get "/users/:id", UserEndpoint }`, which also offers `scope` 
 ## Stage 5: The Request Contract
 
 Inside the endpoint, before `call`, Azu builds the request object from the JSON body or, otherwise, from the
-form-encoded body and query string, and validates it. For a contract with no fields and no rules there is nothing to
-check: a request without a `Content-Type` skips this step, and its params are read on first use.
+form-encoded body and query string, and validates it. For a contract with no fields, no rules and no methods of its
+own there is nothing to check: a request without a `Content-Type` skips this step, and its params are read on first use.
 
 ```crystal
 struct CreateUserRequest

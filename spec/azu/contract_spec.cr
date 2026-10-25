@@ -121,8 +121,28 @@ module ContractSpec
     end
   end
 
+  # No fields and no rules, but a constructor of its own that refuses a request without the token.
+  struct OwnFromWwwFormRequest
+    include Azu::Request
+
+    def self.from_www_form(params : ::String)
+      form = ::URI::Params.parse(params)
+      raise Azu::Response::Forbidden.new unless form["token"]? == "ok"
+      new_from_www_form form
+    end
+  end
+
+  # The same refusal in the initializer `URI::Params::Serializable` generates.
+  struct OwnInitializeRequest
+    include Azu::Request
+
+    def initialize(*, __uri_params params : ::URI::Params, name : String?)
+      raise Azu::Response::Forbidden.new unless params["token"]? == "ok"
+    end
+  end
+
   # Each reaches `call` only when its contract lets the request through.
-  {% for contract in %w(InheritedRules UnruledField MethodRule OwnErrors) %}
+  {% for contract in %w(InheritedRules UnruledField MethodRule OwnErrors OwnFromWwwForm OwnInitialize) %}
     struct {{ contract.id }}Endpoint
       include Azu::Endpoint({{ contract.id }}Request, SignupResponse)
 
@@ -160,6 +180,8 @@ private def checked_app : Azu::App
     get "/unruled_field", ContractSpec::UnruledFieldEndpoint
     get "/method_rule", ContractSpec::MethodRuleEndpoint
     get "/own_errors", ContractSpec::OwnErrorsEndpoint
+    get "/own_from_www_form", ContractSpec::OwnFromWwwFormEndpoint
+    get "/own_initialize", ContractSpec::OwnInitializeEndpoint
   end
   app
 end
@@ -262,5 +284,19 @@ describe "a request without a Content-Type" do
 
   it "is checked against an errors method the contract defines itself" do
     Azu::Testing::Client.new(checked_app).get("/own_errors").status_code.should eq 422
+  end
+
+  it "is checked against a from_www_form the contract defines itself" do
+    client = Azu::Testing::Client.new(checked_app)
+
+    client.get("/own_from_www_form").status_code.should eq 403
+    client.get("/own_from_www_form?token=ok").status_code.should eq 200
+  end
+
+  it "is checked against an initializer the contract defines itself" do
+    client = Azu::Testing::Client.new(checked_app)
+
+    client.get("/own_initialize").status_code.should eq 403
+    client.get("/own_initialize?token=ok").status_code.should eq 200
   end
 end
