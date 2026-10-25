@@ -23,7 +23,7 @@ expected answers are written down in `benchmark/driver/contract.mjs`, independen
 every route over a raw socket with exactly the bytes `wrk` sends (request line and `Host`, nothing else: no
 `Accept`, `Accept-Encoding` or `User-Agent`) and diffs status, media type and body. It also asserts the framing
 (a `Content-Length`, not chunked; no `Content-Encoding`; no `Connection: close`), and that the app wrote
-nothing to stdout or stderr while serving, because logging would be part of the cost. An app that deviates is
+nothing to stdout or stderr while serving the measured routes (the 200 requests, the keep-alive pair and the WebSocket handshake), because logging would be part of the cost. Logging on a 404 is allowed, because 404s are not measured and several frameworks log a missing route at ERROR by design; it is reported ("logs on 404" in the Apps table). An app that is not built, does not start or is not conformant makes the run fail and names it, unless `--allow-skip` is given: a requested app never drops out of a result silently. An app that deviates is
 excluded from the run, not measured.
 
 | Scenario | Request | What it exercises |
