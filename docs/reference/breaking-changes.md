@@ -154,6 +154,14 @@ Other changes:
   `src/azu/handler/{dev_dashboard,performance_monitor}.cr` and `src/azu/components/dev_dashboard*` are under
   `src/azu/dev/`. Require `azu/dev`, not the files.
 
+**The development error context redacts credentials.** `Azu::ErrorContext` (the request/process data an error carries in development and
+puts in the JSON, text and `error_debug.html` pages) used to hold the whole process environment and the raw request headers. The
+environment is now `Azu::Env.redacted(ENV.to_h)` (values of names such as `*_SECRET`, `*_TOKEN`, `*_KEY`, `*PASSWORD*`, `*COOKIE*`, `*AUTH*` become
+`[FILTERED]`, and the password of a `scheme://user:password@host` URL is hidden), the header values of `Authorization`, `Cookie`, `Set-Cookie`,
+`X-CSRF-Token`, `X-API-Key` and the like are `[FILTERED]` in `to_h`/`to_json` (`ErrorContext#headers` is still the real request headers; use
+`#redacted_headers` for display), and query parameters with such names are redacted in `#redacted_params`. If you read a secret value out of an
+error JSON in development, read it from the environment instead.
+
 **Template helpers no longer read `_session` and `_flash` cookies.** `Helpers::TemplateContext#session` and
 `#flash` decoded an unsigned Base64 JSON cookie that no session library writes, so any client could forge
 its session or flash. They now read through `Azu.session_adapter` (`Azu::SessionAdapter`, additive and opt-in,
