@@ -65,6 +65,68 @@ module Azu
         end
       end
 
+      # Throttle's own 429, the only error whose HTML page is cached: its text is fixed by `Retry-After`, so what
+      # one client is shown is what another would be. An error a user raises (`RateLimitError`, or a subclass of it)
+      # is never cached, as it carries text of its own.
+      class Refusal < Response::RateLimitError
+        # A refused client keeps asking, so the page is rendered once a second for the same templates, `Retry-After`
+        # and locale. The response carries the `error_id` the page shows, so refusals inside that second share one
+        # id (nothing reports a Throttle refusal to `ERROR_REPORTER`, which would want an id per occurrence).
+        # A custom `error.html` must be request independent: it is rendered for one request and served to others.
+        # Development renders the debug page every time.
+        def html(context : HTTP::Server::Context) : String
+          return super if env.development?
+
+          page = RefusalPages.fetch(templates, retry_after, Helpers::I18n.locale) { {error_id, html} }
+          @error_id = page.error_id
+          context.response.headers["X-Error-ID"] = page.error_id
+          page.html
+        end
+
+        private def generate_fingerprint : String
+          @@fingerprint ||= super
+        end
+
+        @@fingerprint : String?
+      end
+
+      module RefusalPages
+        LIFETIME = 1.second
+        MAX      = 128
+
+        record Page, error_id : String, html : String, expires : Time::Instant
+
+        @@pages = {} of {UInt64, Int32?, String} => Page
+        @@lock = Mutex.new
+
+        def self.fetch(templates : Templates, retry_after : Int32?, locale : String, & : -> {String, String}) : Page
+          key = {templates.object_id, retry_after, locale}
+          now = Clock.instant
+          @@lock.synchronize do
+            @@pages[key]?.try { |page| return page if page.expires > now }
+          end
+
+          error_id, html = yield
+          page = Page.new(error_id, html, now + LIFETIME)
+          @@lock.synchronize do
+            @@pages.clear if @@pages.size >= MAX
+            @@pages[key] = page
+          end
+          page
+        end
+
+        def self.size : Int32
+          @@lock.synchronize { @@pages.size }
+        end
+
+        def self.clear : Nil
+          @@lock.synchronize { @@pages.clear }
+        end
+      end
+
+      # At most this many refusals are logged a second; the rest are counted and summarised.
+      LOG_PER_SECOND = 10
+
       RETRY_AFTER    = "Retry-After"
       CONTENT_TYPE   = "Content-Type"
       CONTENT_LENGTH = "Content-Length"
@@ -77,6 +139,10 @@ module Azu
         whitelist : Array(String) = [] of String
 
       @log : ::Log?
+      @log_mutex = Mutex.new
+      @log_window = Clock.instant
+      @logged = 0
+      @suppressed = 0
       @tracker : Hash(String, RequestTracker)
       @mutex : Mutex
 
@@ -129,10 +195,34 @@ module Azu
           end
         end
 
-        error = Response::RateLimitError.new(retry_after.to_i32)
-        LogText.log_refusal(log, context.request, error)
+        error = Refusal.new(retry_after.to_i32)
+        log_refusal(context.request, error)
         error.to_s(context)
         context.response.close
+      end
+
+      # A flood of refusals must not become a flood of log lines: LOG_PER_SECOND a second are written, and the next
+      # window starts with one line saying how many were left out.
+      private def log_refusal(request : HTTP::Request, error : Refusal) : Nil
+        now = Clock.instant
+        summary = 0
+        write = @log_mutex.synchronize do
+          if now - @log_window >= 1.second
+            summary = @suppressed
+            @log_window = now
+            @logged = 0
+            @suppressed = 0
+          end
+          if @logged < LOG_PER_SECOND
+            @logged += 1
+            true
+          else
+            @suppressed += 1
+            false
+          end
+        end
+        log.warn { "suppressed #{summary} similar refusals in the last second" } if summary > 0
+        LogText.log_refusal(log, request, error, client: true) if write
       end
 
       # All methods below must be called within @mutex.synchronize block

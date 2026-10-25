@@ -118,8 +118,18 @@ stripped of control characters (`Azu::LogText.safe`, also used by `Handler::Logg
 response status and body are unchanged. If you alert on `warn`/`error` lines for 404s, watch the request log (`Handler::Logger`) instead.
 The refusals that `CSRF`, `CORS`, `IpSpoofing` and `Throttle` write themselves (they never reach `Rescuer`) are logged the same way, once per refused request, by
 `Azu::LogText.log_refusal` under the sources `Azu::Handler::CSRF`, `Azu::Handler::CORS`, `Azu::Handler::IpSpoofing` and the app's own log (`Throttle`): `403` and `429` at `warn`.
-`CSRF` no longer logs the request headers (cookies and credentials) at `debug`. Under a flood of refused requests that is one `warn` line each: raise the level of
-those sources if that is too much.
+Each line also names the client (the address of the connection) and the `Origin` header, cleaned like the path. `CSRF` no longer logs the request headers
+(cookies and credentials) at `debug`. `Throttle` writes at most `Throttle::LOG_PER_SECOND` (10) refusal lines a second per handler and begins the next second with one
+line saying how many it left out (`suppressed 40 similar refusals in the last second`). The other three log every refusal.
+**Throttle's HTML 429 page is cached for a second.** The page of `Throttle`'s own refusal (not an error you raise: a `RateLimitError` of yours, or a subclass,
+always renders its own text) is rendered once a second per templates, `Retry-After` and locale, and the response carries the `error_id` the page shows, so refusals within
+that second share an id. A custom `error.html` must therefore not depend on the request; development renders the page every time. Nothing reports a Throttle
+refusal to `ERROR_REPORTER`, which would want an id per occurrence.
+**`QueryStore#playground_available?` takes a `Configuration`.** It was `playground_available?(config : DatabaseConfiguration = Azu::CONFIG.database)` and judged the
+environment by the global configuration; it is now `playground_available?(config : Configuration = Azu.current_config)` and reads the database switch and the
+environment from the configuration of the app serving the request. A caller that passed `config.database` passes `config`. The dashboard's N+1 and slow-query thresholds
+follow the serving app the same way, and the `<resource>_path` template filter of an endpoint is registered with `Helpers::Registry` (every app's templates have it).
+`CORS` adds `Origin` to a `Vary` the response already has (it replaced it), and sets `Vary: Origin` on a request without an `Origin` header when the origins are restricted.
 
 **`include Azu` is a supported facade, and `Azu::App` can start itself.** `include Azu`, `configure` and `Azu::CONFIG`
 are the single-app facade (global configuration, one app per process); they are not deprecated and log no warning.
