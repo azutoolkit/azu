@@ -6,7 +6,7 @@ require "log/spec"
 include IntegrationHelpers
 
 private def request_through(handler : Azu::Handler::DevDashboard, path : String, method : String = "GET") : {String, Bool}
-  next_handler, verify = create_next_handler(1)
+  next_handler, _ = create_next_handler(1)
   handler.next = next_handler
   context, io = create_context(method, path)
   handler.call(context)

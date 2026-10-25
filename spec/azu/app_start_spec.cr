@@ -43,8 +43,12 @@ module AppStartSpec
   end
 
   def self.client(app : Azu::App) : HTTP::Client
-    address = app.address.not_nil!
+    address = bound(app)
     HTTP::Client.new(address.address, address.port)
+  end
+
+  def self.bound(app : Azu::App) : Socket::IPAddress
+    app.address || raise "#{app} is not listening"
   end
 end
 
@@ -78,7 +82,7 @@ describe "Azu::App#start" do
     done_first = AppStartSpec.boot(first, teardown: false, signals: false)
     done_second = AppStartSpec.boot(second, teardown: false, signals: false)
 
-    first.address.not_nil!.port.should_not eq second.address.not_nil!.port
+    AppStartSpec.bound(first).port.should_not eq AppStartSpec.bound(second).port
     AppStartSpec.client(first).get("/first").body.should eq "hello from 0"
     AppStartSpec.client(first).get("/second").status_code.should eq 404
     AppStartSpec.client(second).get("/second").body.should eq "pong"

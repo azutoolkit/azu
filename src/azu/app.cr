@@ -285,17 +285,17 @@ module Azu
     end
 
     private def startup_banner(started : Time::Instant) : String
-      String.build do |s|
-        s << "Server started at #{Time.local.to_s("%a %m/%d/%Y %I:%M:%S")}.".colorize(:white).underline
-        s << "\n   ⤑  Environment: ".colorize(:white)
-        s << @config.env.colorize(:light_blue)
-        s << "\n   ⤑  Host: ".colorize(:white)
-        s << @config.host.colorize(:light_blue)
-        s << "\n   ⤑  Port: ".colorize(:white)
-        s << (address.try(&.port) || @config.port).colorize(:light_blue)
-        s << "\n   ⤑  Startup Time: ".colorize(:white)
-        s << (Time.instant - started).total_milliseconds
-        s << " millis".colorize(:white)
+      String.build do |io|
+        io << "Server started at #{Time.local.to_s("%a %m/%d/%Y %I:%M:%S")}.".colorize(:white).underline
+        io << "\n   ⤑  Environment: ".colorize(:white)
+        io << @config.env.colorize(:light_blue)
+        io << "\n   ⤑  Host: ".colorize(:white)
+        io << @config.host.colorize(:light_blue)
+        io << "\n   ⤑  Port: ".colorize(:white)
+        io << (address.try(&.port) || @config.port).colorize(:light_blue)
+        io << "\n   ⤑  Startup Time: ".colorize(:white)
+        io << (Time.instant - started).total_milliseconds
+        io << " millis".colorize(:white)
       end
     end
 
