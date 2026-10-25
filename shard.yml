@@ -1,5 +1,5 @@
 name: azu
-version: 0.5.99
+version: 0.5.108
 authors:
   - Elias J. Perez <eliasjpr@gmail.com>
 crystal: '>= 1.19.1'
@@ -19,7 +19,7 @@ dependencies:
 development_dependencies:
   cql:
     github: azutoolkit/cql
-    version: ">= 0.0.609" # first release with CQL::ConnectionSource / CQL::Postgres::EngineSource
+    version: '>= 0.0.609'
   sqlite3:
     github: crystal-lang/crystal-sqlite3
   pg:
