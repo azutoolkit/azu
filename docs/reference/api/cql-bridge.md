@@ -154,7 +154,7 @@ field); and `{min:, max:}` size options exist in neither, use a Range (`size: 2.
 Because of that, one adapter serves both:
 
 * `model.valid_or_422!` runs the model's validations and returns the model, or raises `Azu::Response::ValidationError`
-  (422, `application/problem+json`, `errors` keyed by field). Raise it from an endpoint, or let the `Rescuer` render it.
+  (422, a problem document, `application/problem+json` when the client's `Accept` names it and `application/json` otherwise, `errors` keyed by field). Raise it from an endpoint, or let the `Rescuer` render it.
 * `Azu::CQL.unprocessable(errors)` builds that error from any enumerable of errors, and from the exceptions CQL raises
   itself (`CQL::RecordInvalid`, `CQL::ValidationError`, and the validation error `save` raises).
 

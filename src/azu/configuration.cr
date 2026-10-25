@@ -61,6 +61,12 @@ module Azu
       @host = host.presence
     end
 
+    # The host as `HOST` or `host=` set it, nil while the environment's default applies (`host` answers that default).
+    # What a spec saves and restores, so restoring `host` itself would not pin the default.
+    def configured_host : String?
+      @host
+    end
+
     # True when `host` was not set by `HOST` or `host=` and is the development default.
     def host_from_default? : Bool
       @host.nil? && env.development?
@@ -69,12 +75,19 @@ module Azu
     # True when the address is only reachable from the machine itself.
     def loopback_host? : Bool
       address = host
-      address == "localhost" || address == "::1" || address.starts_with?("127.")
+      address == "localhost" || address == "::1" || address == "[::1]" || address.starts_with?("127.")
     end
 
-    # Whether the process looks containerised (Docker or Kubernetes). Detected when the configuration is built;
+    # Files a container runtime leaves in the container: Docker's and Podman's.
+    CONTAINER_MARKERS = ["/.dockerenv", "/run/.containerenv"]
+
+    def self.container_detected?(markers : Array(String) = CONTAINER_MARKERS) : Bool
+      markers.any? { |marker| File.exists?(marker) } || !ENV["KUBERNETES_SERVICE_HOST"]?.presence.nil?
+    end
+
+    # Whether the process looks containerised (Docker, Podman or Kubernetes). Detected when the configuration is built;
     # a spec or a container runtime Azu cannot recognise sets it.
-    property? container : Bool = File.exists?("/.dockerenv") || !ENV["KUBERNETES_SERVICE_HOST"]?.presence.nil?
+    property? container : Bool = Configuration.container_detected?
 
     LOOPBACK_HOST = "127.0.0.1"
     ANY_HOST      = "0.0.0.0"
@@ -137,7 +150,7 @@ module Azu
     # How template helpers and the session CSRF token store reach the session library (see `SessionAdapter`).
     property session_adapter : SessionAdapter? = nil
 
-    # The shape of validation failures: RFC 7807 `application/problem+json`, or the pre-0.6 body.
+    # The shape of validation failures: an RFC 7807 problem body (labelled `application/problem+json` only for a client that names it in `Accept`), or the pre-0.6 body.
     property error_format : ErrorFormat = ErrorFormat::Problem
 
     # The query parameter that picks the format of a `Response::Negotiable` (`?format=json`), or nil

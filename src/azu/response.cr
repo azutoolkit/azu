@@ -232,9 +232,10 @@ module Azu
         problem && !Azu.current_config.error_format.legacy? ? "application/problem+json" : "application/json"
       end
 
-      # True when the request's Accept header names `problem+json`.
+      # True when the request's Accept header asks for `problem+json` at least as eagerly as for plain JSON
+      # (`Negotiation.prefers_problem?`).
       def self.accepts_problem?(context : HTTP::Server::Context) : Bool
-        context.request.headers["Accept"]?.try(&.downcase.includes?("problem+json")) || false
+        Negotiation.prefers_problem?(context.request.headers["Accept"]?)
       end
 
       def to_s(context : HTTP::Server::Context)
@@ -435,6 +436,53 @@ module Azu
       def to_s(context : HTTP::Server::Context)
         context.response.headers["Retry-After"] = retry_after.to_s if retry_after
         super
+      end
+
+      # A refused client keeps asking, so the page it gets is rendered at most once a second for the same
+      # templates and `Retry-After`; the response then carries the `error_id` the page shows. Development renders
+      # the debug page every time.
+      def html(context : HTTP::Server::Context) : String
+        return super if env.development?
+
+        page = RenderedPages.fetch(templates, retry_after) { {error_id, html} }
+        @error_id = page.error_id
+        context.response.headers["X-Error-ID"] = page.error_id
+        page.html
+      end
+
+      # Every rate limit error has the title it is built with, so one fingerprint: hashed once, not per refusal.
+      private def generate_fingerprint : String
+        return super unless self.class == RateLimitError
+        @@fingerprint ||= super
+      end
+
+      @@fingerprint : String?
+
+      # The rendered HTML refusals, one per templates and `Retry-After`, each good for `LIFETIME`.
+      private module RenderedPages
+        LIFETIME = 1.second
+        MAX      = 128
+
+        record Page, error_id : String, html : String, expires : Time::Instant
+
+        @@pages = {} of {UInt64, Int32?} => Page
+        @@lock = Mutex.new
+
+        def self.fetch(templates : Templates, retry_after : Int32?, & : -> {String, String}) : Page
+          key = {templates.object_id, retry_after}
+          now = Clock.instant
+          @@lock.synchronize do
+            @@pages[key]?.try { |page| return page if page.expires > now }
+          end
+
+          error_id, html = yield
+          page = Page.new(error_id, html, now + LIFETIME)
+          @@lock.synchronize do
+            @@pages.clear if @@pages.size >= MAX
+            @@pages[key] = page
+          end
+          page
+        end
       end
     end
 

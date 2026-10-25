@@ -116,6 +116,10 @@ stripped of control characters (`Azu::LogText.safe`, also used by `Handler::Logg
 `Azu::Rescuer` (the Rescuer's was `http.server`, the Router's was the unnamed root source; bind `Azu::*` instead). The access lines of `Handler::Logger` and `SimpleLogger` keep targets up to 2048 characters, escape C0/C1 controls, line separators and bidi overrides in them (also in the user agent, request id and endpoint), and replace credential-looking query parameters (`?token=...`) in the logged target, so `Log.setup("Azu::*")` selects them. A raised 5xx `Response::Error` moves from `warn` to `error`
 (with its exception and backtrace): that includes deliberate `503`/`504`s you raise yourself. An unexpected exception is `error` as before. The
 response status and body are unchanged. If you alert on `warn`/`error` lines for 404s, watch the request log (`Handler::Logger`) instead.
+The refusals that `CSRF`, `CORS`, `IpSpoofing` and `Throttle` write themselves (they never reach `Rescuer`) are logged the same way, once per refused request, by
+`Azu::LogText.log_refusal` under the sources `Azu::Handler::CSRF`, `Azu::Handler::CORS`, `Azu::Handler::IpSpoofing` and the app's own log (`Throttle`): `403` and `429` at `warn`.
+`CSRF` no longer logs the request headers (cookies and credentials) at `debug`. Under a flood of refused requests that is one `warn` line each: raise the level of
+those sources if that is too much.
 
 **`include Azu` is a supported facade, and `Azu::App` can start itself.** `include Azu`, `configure` and `Azu::CONFIG`
 are the single-app facade (global configuration, one app per process); they are not deprecated and log no warning.
@@ -281,7 +285,7 @@ interface. Unset still means development; the default host now depends on it:
 - Migration: an app run in development that must be reached from another machine, a container or a VM port-forward sets
   `HOST=0.0.0.0` (or `config.host = "0.0.0.0"`). Deployments that set `CRYSTAL_ENV` (production, staging, ...) are unchanged.
 - `Configuration#host` is no longer a plain `property`: `host=` accepts `nil` or `""` to go back to the default.
-- `start` logs a WARN when the server listens on a loopback address inside a container (`/.dockerenv` exists or
+- `start` logs a WARN when the server listens on a loopback address inside a container (`/.dockerenv` or Podman's `/run/.containerenv` exists, or
   `KUBERNETES_SERVICE_HOST` is set), naming the fix `HOST=0.0.0.0` (the usual cause: development, the default, a container);
   and a WARN when `CRYSTAL_ENV` was never set and the host is not loopback (the development pages are served on every
   interface). `Configuration#container=` overrides the detection.
@@ -319,7 +323,8 @@ exception, ...) predated problem+json and answered JSON clients with a PascalCas
 - Migration: accept the `+json` suffix and read the new members, or set `config.error_format = Azu::ErrorFormat::Legacy`
   (keeps all old bodies, as `application/json`, for one more minor release). The OpenAPI document follows the setting
   (`Azu.Error` is the problem schema, `Azu.LegacyError` the old one). `Testing::Response#problem?` is true for the
-  `application/problem+json` content type only.
+  `application/problem+json` content type and for a JSON body with the `type`, `title` and `status` of a problem document, so it
+  holds whichever `Accept` the test client sent.
 
 **Request contracts are enforced.** An endpoint whose request type has validations no longer runs when the
 request breaks them: the endpoint answers `422` before `call` (by itself, whether or not a `Rescuer` is in the handler stack),

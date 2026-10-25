@@ -292,11 +292,15 @@ module Azu
         if valid_token?(context)
           call_next(context)
         else
-          Log.warn { "CSRF token validation failed for #{context.request.method} #{context.request.path}" }
-          Log.debug { "Request headers: #{context.request.headers.inspect}" }
-
-          Response::AuthorizationError.new("CSRF token validation failed").to_s(context)
+          refuse(context, Response::AuthorizationError.new("CSRF token validation failed"))
         end
+      end
+
+      # The refusal is written here, never raised to the `Rescuer`: this is where it is logged (the request headers are
+      # not: they carry the cookies and credentials).
+      private def refuse(context : HTTP::Server::Context, error : Response::Error) : Nil
+        LogText.log_refusal(Log.for("Azu::Handler::CSRF"), context.request, error)
+        error.to_s(context)
       end
 
       # Check if HTTP method is safe (doesn't require CSRF protection)

@@ -314,7 +314,7 @@ describe "the include Azu facade" do
   around_each do |example|
     original = Azu::App.default
     config = Azu::CONFIG
-    saved = {config.host, config.port}
+    saved = {config.configured_host, config.port, config.handlers}
     pub_sub = Azu::PubSub.backend
     presence = Azu::Presence.default
     Azu::App.default = Azu::App.new(config)
@@ -322,7 +322,7 @@ describe "the include Azu facade" do
       example.run
     ensure
       Azu::App.default = original
-      config.host, config.port = saved
+      config.host, config.port, config.handlers = saved
       Azu::PubSub.backend = pub_sub
       Azu::Presence.default = presence
     end

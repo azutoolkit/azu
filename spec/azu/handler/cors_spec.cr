@@ -182,6 +182,52 @@ describe Azu::Handler::CORS do
       verify.call
     end
 
+    describe "a refused preflight" do
+      it "grants nothing, not even in the closed in-memory response, and varies by Origin" do
+        handler = Azu::Handler::CORS.new(origins: ["https://example.com"], methods: ["POST"], headers: ["Content-Type"], credentials: true)
+        next_handler, verify = create_next_handler(0)
+        handler.next = next_handler
+
+        headers = HTTP::Headers{"Origin" => "https://example.com", "Access-Control-Request-Method" => "DELETE", "Access-Control-Request-Headers" => "Content-Type"}
+        context, io = create_context("OPTIONS", "/test", headers)
+
+        handler.call(context)
+
+        context.response.status_code.should eq(403)
+        context.response.headers.has_key?("Access-Control-Allow-Origin").should be_false
+        context.response.headers.has_key?("Access-Control-Allow-Credentials").should be_false
+        context.response.headers["Vary"].split(',').map(&.strip).should contain("Origin")
+        verify.call
+      end
+
+      it "varies by Origin when the origin itself is refused" do
+        handler = Azu::Handler::CORS.new(origins: ["https://example.com"])
+        context, _ = create_context("GET", "/test", HTTP::Headers{"Origin" => "https://evil.test"})
+        handler.next = create_next_handler(0)[0]
+
+        handler.call(context)
+
+        context.response.status_code.should eq(403)
+        context.response.headers["Vary"].split(',').map(&.strip).should contain("Origin")
+      end
+    end
+
+    it "sends the allow headers of an accepted preflight on the wire" do
+      handler = Azu::Handler::CORS.new(origins: ["https://example.com"], methods: ["POST"], headers: ["Content-Type"], credentials: true)
+      handler.next = create_next_handler(0)[0]
+      headers = HTTP::Headers{"Origin" => "https://example.com", "Access-Control-Request-Method" => "POST", "Access-Control-Request-Headers" => "Content-Type"}
+      context, io = create_context("OPTIONS", "/test", headers)
+
+      handler.call(context)
+      context.response.close
+      io.rewind
+      sent = HTTP::Client::Response.from_io(io)
+
+      sent.headers["Access-Control-Allow-Origin"]?.should eq("https://example.com")
+      sent.headers["Access-Control-Allow-Credentials"]?.should eq("true")
+      sent.headers["Access-Control-Allow-Methods"]?.should eq("POST")
+    end
+
     it "rejects preflight with missing headers" do
       handler = Azu::Handler::CORS.new(
         origins: ["https://example.com"],

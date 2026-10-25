@@ -158,6 +158,18 @@ default arguments, so there is one lifecycle and one code path. Its limits are w
 
 Everything on this page works on `Azu::App.default` too (`Azu::App.default.stop`, `.address`, `.running?`).
 
+## Known limitations
+
+- **A signal while `start` is coming up.** `start` registers the app as running, binds the port and only then installs the
+  SIGINT/SIGTERM trap (when no other app's trap is in place). If another app's trap is in place, a signal that arrives
+  after the registration and before the bind marks this app as shutting down too, so a retry of its `start` raises
+  `AlreadyStopped`: build a new `Azu::App` for the retry. With no trap in place the default handler ends the process, as
+  for any program. The window is the few milliseconds of the bind.
+- **The dashboard's SQL path in the CSRF exemptions.** Building a `Handler::DevDashboard` adds `{path}/sql` to the
+  process-wide `Handler::CSRF.exempt` list in every environment (the handler is built before the app that will serve it
+  is known). The exemption is inert while the dashboard passes requests on, which is everywhere except development, but
+  it stays in the list: a route of your own at the same path is exempt from CSRF checks too.
+
 ## See Also
 
 - [Core API](core.md)

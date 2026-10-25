@@ -26,6 +26,7 @@ module Azu
       @@functions = {} of Symbol => Crinja::Callable
       @@tests = {} of Symbol => Crinja::Callable
       @@globals = {} of Symbol => Crinja::Value
+      @@persistent_filters = {} of Symbol => Crinja::Callable
       @@revision = 0_u64
       @@mutex = Mutex.new
 
@@ -41,9 +42,13 @@ module Azu
       # filter = Crinja.filter(:upcase) { target.to_s.upcase }
       # Registry.register_filter(:upcase, filter)
       # ```
-      def self.register_filter(name : Symbol, filter : Crinja::Callable) : Nil
+      #
+      # A *persistent* filter belongs to the program rather than to a test's registrations (the `<resource>_path`
+      # filter of an endpoint): `reset!` puts it back.
+      def self.register_filter(name : Symbol, filter : Crinja::Callable, *, persistent : Bool = false) : Nil
         @@mutex.synchronize do
           @@filters[name] = filter
+          @@persistent_filters[name] = filter if persistent
           @@revision += 1
         end
       end
@@ -149,7 +154,7 @@ module Azu
 
       # Reset all registered helpers.
       #
-      # Useful for testing to ensure a clean slate.
+      # Useful for testing to ensure a clean slate (persistent filters, such as an endpoint's `<resource>_path`, stay).
       #
       # ```
       # Registry.reset!
@@ -157,6 +162,7 @@ module Azu
       def self.reset! : Nil
         @@mutex.synchronize do
           @@filters.clear
+          @@filters.merge!(@@persistent_filters)
           @@functions.clear
           @@tests.clear
           @@globals.clear

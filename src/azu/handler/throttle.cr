@@ -129,7 +129,9 @@ module Azu
           end
         end
 
-        Response::RateLimitError.new(retry_after.to_i32).to_s(context)
+        error = Response::RateLimitError.new(retry_after.to_i32)
+        LogText.log_refusal(log, context.request, error)
+        error.to_s(context)
         context.response.close
       end
 
