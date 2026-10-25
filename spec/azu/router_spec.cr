@@ -366,6 +366,14 @@ describe Azu::Router do
       end
     end
 
+    it "returns an empty string for a routed request, not a rendering of the context" do
+      router = Azu::Router.new
+      router.get("/test", SimpleEndpoint.new)
+      context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/test"), HTTP::Server::Response.new(IO::Memory.new))
+
+      router.process(context).should eq ""
+    end
+
     it "handles path normalization correctly" do
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new

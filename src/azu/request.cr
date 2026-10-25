@@ -77,4 +77,12 @@ module Azu
       end
     end
   end
+
+  # :nodoc:
+  #
+  # Exactly what a bare `include Request` defines, which `Endpoint` compares a contract with. Not nested in
+  # `Request`: every contract would resolve the name before its own namespace's.
+  struct BareRequest
+    include Request
+  end
 end

@@ -57,6 +57,37 @@ describe "HTTP::Request Extensions" do
 
       request.path_params.should eq({} of String => String)
     end
+
+    it "allocates nothing until read" do
+      request = HTTP::Request.new("GET", "/")
+
+      request.@path_params.should be_nil
+    end
+
+    it "reads as an empty hash without a write, the same one each time" do
+      request = HTTP::Request.new("GET", "/")
+
+      first = request.path_params
+
+      first.should be_empty
+      request.path_params.should be(first)
+    end
+
+    it "keeps a hash written to it" do
+      request = HTTP::Request.new("GET", "/users/5")
+
+      request.path_params = {"id" => "5"}
+
+      request.path_params.should eq({"id" => "5"})
+    end
+
+    it "keeps a change made through the getter" do
+      request = HTTP::Request.new("GET", "/")
+
+      request.path_params["x"] = "1"
+
+      request.path_params["x"].should eq "1"
+    end
   end
 
   describe "accept" do

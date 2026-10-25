@@ -184,7 +184,7 @@ module Azu
         no_files = Hash(String, Multipart::File).new
 
         # Without a Content-Type there is no body format to parse; this skips building the "text/plain" default
-        sub_type = request.content_type.sub_type if request.headers.has_key?("Content-Type")
+        sub_type = request.content_type.sub_type if format?(request)
         case sub_type
         when "json"
           {HTTP::Params.new, no_files, request.body.try { |body| read(body) }}
@@ -200,6 +200,13 @@ module Azu
         raise Response::PayloadTooLarge.new(ex.message.to_s)
       rescue ex : FileUploadError
         raise Response::BadRequest.new(ex.message.to_s)
+      end
+
+      # :nodoc:
+      #
+      # A body is parsed only when a Content-Type names its format.
+      def self.format?(request : HTTP::Request) : Bool
+        request.headers.has_key?("Content-Type")
       end
 
       # An oversized body is refused after at most limit + 1 bytes, instead of buffering all of it first.

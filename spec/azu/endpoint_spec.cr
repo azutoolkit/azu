@@ -145,6 +145,29 @@ module Azu::EndpointSpec
       TestResponse.new("params tested")
     end
   end
+
+  # The label is the last namespace segment, however deep the type sits
+  module Deeply::Nested::Name::Space
+    struct LabelledEndpoint
+      include Azu::Endpoint(Azu::Request, TestResponse)
+
+      def call : TestResponse
+        TestResponse.new("labelled")
+      end
+    end
+  end
+
+  class ParentLabelEndpoint
+    include Azu::Endpoint(Azu::Request, TestResponse)
+
+    def call : TestResponse
+      TestResponse.new("labelled")
+    end
+  end
+
+  # Inherits `serve`, so a label fixed where the module is included would name the parent
+  class ChildLabelEndpoint < ParentLabelEndpoint
+  end
 end
 
 describe Azu::Endpoint do
@@ -196,6 +219,20 @@ describe Azu::Endpoint do
       endpoint.call(context)
 
       context.request.headers["X-Azu-Endpoint"].should eq "BasicEndpoint"
+    end
+
+    it "labels an endpoint nested in a deep namespace with its own name" do
+      context, _ = Azu::EndpointSpec.bare_context(IO::Memory.new)
+      Azu::EndpointSpec::Deeply::Nested::Name::Space::LabelledEndpoint.new.call(context)
+
+      context.request.headers["X-Azu-Endpoint"].should eq "LabelledEndpoint"
+    end
+
+    it "labels the subclass of an endpoint class with its own name" do
+      context, _ = Azu::EndpointSpec.bare_context(IO::Memory.new)
+      Azu::EndpointSpec::ChildLabelEndpoint.new.call(context)
+
+      context.request.headers["X-Azu-Endpoint"].should eq "ChildLabelEndpoint"
     end
   end
 

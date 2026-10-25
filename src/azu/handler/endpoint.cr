@@ -61,21 +61,20 @@ module Azu
     protected def serve(context : HTTP::Server::Context)
       @context = context
       @params = nil
-      {% unless Request.stringify == "Azu::Request" %}
-        # A contract is checked before `call`, so its body is read now and a body that cannot be read is
-        # refused at the same point as ever.
-        @params = Params(Request).new(context.request)
-      {% end %}
+      check_contract = check_contract?(context.request)
+      # Read the body now, as the check needs it: one that cannot be read is refused before `call`.
+      @params = Params(Request).new(context.request) if check_contract
       @request_object = nil
 
-      # Set endpoint name header for performance monitoring
-      endpoint_name = self.class.name.split("::").last
+      # Set endpoint name header for performance monitoring. A literal on purpose: the macro expands per
+      # receiver type, so a subclass names itself and nothing is split or allocated per request.
+      endpoint_name = {{ @type.name.stringify.split("::").last }}
       context.request.headers["X-Azu-Endpoint"] = endpoint_name
 
       RequestContext.scope(context) do |info|
         info.endpoint = endpoint_name
         begin
-          enforce_contract
+          enforce_contract if check_contract
           negotiate_format
         rescue ex : Azu::Response::Error
           ex.to_s(context)
@@ -84,6 +83,30 @@ module Azu
         write_response(call, context)
       end
       context
+    end
+
+    # Whether the request is parsed and checked against its contract before `call`. A contract that defines
+    # nothing beyond a bare `include Azu::Request` (no fields, no rules, no methods of its own) has nothing to
+    # check, so only a body that names its format is still read (a malformed one is a 400). Any method of its own
+    # may refuse a request (`errors`, a constructor such as `from_www_form` or `initialize`), so it is checked, and
+    # so is a contract that inherits its rules: it defines no constants of its own. Rules add constants, not
+    # methods. Methods are compared as source: the generated ones name no type, so a bare contract matches
+    # `BareRequest`, and one that did would only turn the skip off.
+    private def check_contract?(request : HTTP::Request) : Bool
+      {% begin %}
+        {% contract = Request.resolve %}
+        {% bare = ::Azu::BareRequest %}
+        {% if Request.stringify == "Azu::Request" %}
+          false
+        {% elsif contract.instance_vars.empty? &&
+                   %w(SCHEMA_VALIDATORS SCHEMA_VALIDATIONS).all? { |rules| contract.has_constant?(rules) && contract.constant(rules).empty? } &&
+                   contract.methods.map(&.stringify).sort == bare.methods.map(&.stringify).sort &&
+                   contract.class.methods.map(&.stringify).sort == bare.class.methods.map(&.stringify).sort %}
+          Params::Body.format?(request)
+        {% else %}
+          true
+        {% end %}
+      {% end %}
     end
 
     # Refuses a request the response type cannot be rendered for before `call` runs (406), when the
