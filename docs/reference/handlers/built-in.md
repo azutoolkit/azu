@@ -147,6 +147,7 @@ Azu::Handler::Static.new(
   cache_control: "public, no-cache",
   cache_max_age: 31_536_000,
   except: [] of String,
+  mime_types: {} of String => String,
 )
 ```
 
@@ -177,6 +178,46 @@ Azu::Handler::Static.new("public", except: ["/templates"])
     served. Do not symlink into an excluded directory.
   - With `directory_listing: true` the listing of the parent still names the excluded entry (never its content).
   - An entry that resolves to the root (`""`, `"/"`, `"."`, `"/x/.."`) would exclude every path, so `new` raises `ArgumentError`.
+- `mime_types : Hash(String, String)` - extra extensions to serve, for the application's own file types (see below).
+
+### Which files are served
+
+A file is served only when its last extension (compared in lower case) has a content type: there is no default type.
+A file of any other type, or without an extension, is refused exactly like an `except` path: it falls through to the next
+handler (the router answers its negotiated 404), or answers `404` with `fallthrough: false`. `GET`, `HEAD`, `Range` and
+conditional requests are all refused before a header is sent, and the `except` check still runs first. A directory
+listing names the files of a directory, but a request for one of unknown type is refused. `X-Content-Type-Options: nosniff`
+is sent with every file.
+
+The types served are Crystal's own (`.css .gif .htm .html .jpg .jpeg .js .json .pdf .png .svg .txt .xml .wasm .webp`, plus
+what the host's `/etc/mime.types` defines), the fonts and `.map` Azu registers (`.woff .woff2 .ttf .otf .sfnt .collection .map`),
+and these, which Azu adds so common assets keep working in a minimal container:
+
+| Extension | Content-Type |
+| --- | --- |
+| `.ico` | `image/vnd.microsoft.icon` |
+| `.webmanifest` | `application/manifest+json` |
+| `.avif` | `image/avif` |
+| `.mp4` `.webm` | `video/mp4` `video/webm` |
+| `.mp3` `.ogg` `.wav` `.m4a` | `audio/mpeg` `audio/ogg` `audio/wav` `audio/mp4` |
+| `.csv` `.vtt` | `text/csv` `text/vtt` (UTF-8) |
+| `.mjs` | `text/javascript` (UTF-8) |
+| `.eot` | `application/vnd.ms-fontobject` |
+| `.rss` `.atom` | `application/rss+xml` `application/atom+xml` |
+
+Never served, so refused: `.jinja .j2 .ecr .cr .yml .yaml .env .sql .db .sqlite .md` and every other extension nobody
+registered. A double extension is typed by its last one: `page.jinja.html` is HTML, `page.html.jinja` is refused.
+
+An extensionless file is refused, except directly below `/.well-known/` (ACME HTTP-01 challenge tokens at
+`/.well-known/acme-challenge/<token>`), which is served as `text/plain; charset=utf-8`. A dotfile there
+(`/.well-known/.env`) is still refused, as is an extensionless file anywhere else.
+
+To serve a type of your own, list it. The extension is lower-cased and gets its leading dot; it is exact (no wildcard), and
+the type must be a plain `type/subtype`. It applies to this handler only and overrides a type the handler knows:
+
+```crystal
+Azu::Handler::Static.new("public", mime_types: {".ics" => "text/calendar", "heic" => "image/heic"})
+```
 
 Behaviour seen by running it:
 

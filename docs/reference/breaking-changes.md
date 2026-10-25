@@ -18,6 +18,15 @@ Azu::Handler::Static.new("public", except: ["/templates"])
 
 `except` is the supported way to keep paths under `public/` from being served. See [Handler::Static](handlers/built-in.md#handlerstatic).
 
+**`Static` refuses files of an unknown type.** A file whose extension has no content type used to raise `KeyError: Missing MIME type`
+and answer `500` (`.jinja`, `.ico`, `.webmanifest`, `.md`, `.mp4`, an extensionless file, and in a minimal container more).
+It is now refused as if there were no such file: the request goes to the next handler (the router answers its 404), or answers
+`404` with `fallthrough: false`. There is deliberately no default type, so a template is never sent as a download. Azu now
+serves `.ico .webmanifest .avif .mp4 .webm .mp3 .ogg .wav .m4a .csv .vtt .mjs .eot .rss .atom` and an extensionless file
+directly below `/.well-known/` (as `text/plain`). If you serve a type that is neither, add it with
+`Static.new(mime_types: {".ics" => "text/calendar"})`. Check any route that shares a path with a file of an unknown type: the
+router now answers it. See [Handler::Static](handlers/built-in.md#which-files-are-served).
+
 **Templates are compiled outside development.** With `template_hot_reload` off (the default for `staging`,
 `production` and any environment other than `development`, `test` and `pipeline`), `Azu.prepare` reads and parses
 every template once and requests no longer read template files: an edit to a template file needs a restart, where
