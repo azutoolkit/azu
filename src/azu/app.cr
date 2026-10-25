@@ -50,15 +50,17 @@ module Azu
     getter config : Configuration
 
     @@default : App?
+    @@default_lock = Mutex.new
 
-    # The app around the global `Azu::CONFIG`, which `include Azu` and the endpoint macros use.
+    # The app around the global `Azu::CONFIG`, which `include Azu` and the endpoint macros use. Built once, even when
+    # fibers on several threads ask for it at the same time.
     def self.default : App
-      @@default ||= new(CONFIG)
+      @@default_lock.synchronize { @@default ||= new(CONFIG) }
     end
 
     # Replaces the default app, which cannot start again once it has stopped. For specs that start it.
     def self.default=(app : App) : App
-      @@default = app
+      @@default_lock.synchronize { @@default = app }
     end
 
     @server : HTTP::Server?
