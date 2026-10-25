@@ -217,14 +217,16 @@ route in every app; `scripts/bench.sh conformance` tells you which app is missin
 mkdir -p bin && crystal build --release --no-debug benchmark/micro/hot_path.cr -o bin/hot_path && bin/hot_path
 ```
 
-prints one row per stack and scenario (`/plaintext`, one parameterised URL, and `routing (cycling)`, the URLs of
+prints one row per stack and scenario (`/plaintext`, one parameterised URL, `/template`, the bench template rendered
+with `view` and parsed-once Crinja on the Azu stacks and with ECR on `baseline`, and `routing (cycling)`, the URLs of
 `routing.lua`, warmed past the router's 1000-entry path cache so every measured path misses it): bytes and nanoseconds
 per request through the same `HTTP::Server::RequestProcessor` that serves a connection, without a socket or `wrk`.
 `baseline` is a hand-written handler, `azu-min` the router, endpoint and Rescuer, and `azu` the default stack without
 the Logger handler, with Static pointed at a fixed non-existent directory; what they add over `baseline` is the
 framework's cost per request. **Bytes/request is repeatable to about 0.3%** (GC byte counting granularity), and
-`spec/azu/allocation_budget_spec.cr` guards the `/plaintext` and parameterised rows in CI (budgets calibrated on the
-whole-suite build, which measures a little more than a single-file one); the routing row has no CI budget.
+`spec/azu/allocation_budget_spec.cr` guards the `/plaintext` and parameterised rows and the `azu` `/template` row in
+CI (budgets calibrated on the whole-suite build, which measures a little more than a single-file one); the routing row
+has no CI budget.
 **ns/request** is the fastest measured window, timed around request processing only, and moves with the machine:
 a ns difference under about 15% in a single run is noise, so repeat the run and compare the per-row minimums.
 Inputs differ by scenario, so rows of different scenarios are not comparable in ns: compare a row with the same row of

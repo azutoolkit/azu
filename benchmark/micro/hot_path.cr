@@ -15,7 +15,7 @@ puts "inputs differ by scenario: compare ns with the baseline row or the same ro
 puts "%-8s %-24s %10s %10s" % {"stack", "scenario", "bytes/req", "ns/req"}
 
 [HotPath::Stack::Baseline, HotPath::Stack::AzuMin, HotPath::Stack::Azu].each do |stack|
-  {"/plaintext", HotPath::RESOURCE_PATH}.each do |path|
+  {"/plaintext", HotPath::RESOURCE_PATH, HotPath::TEMPLATE_PATH}.each do |path|
     report(stack, path, HotPath.measure(stack, path))
   end
   report(stack, "routing (cycling)", HotPath.measure_routing(stack))
