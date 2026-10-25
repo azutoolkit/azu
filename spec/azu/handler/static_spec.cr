@@ -28,6 +28,64 @@ describe Azu::Handler::Static do
     end
   end
 
+  describe "default fallthrough" do
+    # Placed before the router, a handler that answers 404 for every path that is not a file would hide every route,
+    # so the default hands what is not a file to the next handler.
+    it "hands a path that is not a file to the next handler" do
+      with_temp_file("content", "test.txt") do |dir, _|
+        handler = Azu::Handler::Static.new(dir)
+        next_handler, verify = create_next_handler(1)
+        handler.next = next_handler
+
+        context, io = create_context("GET", "/users/5")
+        handler.call(context)
+
+        get_response_body(context, io).should eq("OK")
+        context.response.status_code.should eq(200)
+        verify.call
+      end
+    end
+
+    it "hands a POST to the next handler instead of answering 405" do
+      with_temp_file("content", "test.txt") do |dir, _|
+        handler = Azu::Handler::Static.new(dir)
+        next_handler, verify = create_next_handler(1)
+        handler.next = next_handler
+
+        context, io = create_context("POST", "/users")
+        handler.call(context)
+
+        get_response_body(context, io).should eq("OK")
+        context.response.headers["Allow"]?.should be_nil
+        verify.call
+      end
+    end
+
+    it "still serves a file that exists" do
+      with_temp_file("content", "test.txt") do |dir, _|
+        handler = Azu::Handler::Static.new(dir)
+        context, io = create_context("GET", "/test.txt")
+        handler.call(context)
+
+        get_response_body(context, io).should eq("content")
+      end
+    end
+
+    it "answers 404 and 405 itself with fallthrough: false" do
+      with_temp_file("content", "test.txt") do |dir, _|
+        handler = Azu::Handler::Static.new(dir, fallthrough: false)
+
+        context, _ = create_context("GET", "/users/5")
+        handler.call(context)
+        context.response.status_code.should eq(404)
+
+        context, _ = create_context("POST", "/users")
+        handler.call(context)
+        context.response.status_code.should eq(405)
+      end
+    end
+  end
+
   describe "basic file serving" do
     it "serves existing files" do
       with_temp_file("Hello, World!", "test.txt") do |dir, _|
@@ -566,7 +624,7 @@ describe Azu::Handler::Static do
 
     it "answers 404 without fallthrough" do
       FileUtils.rm_rf(missing)
-      handler = Azu::Handler::Static.new(missing)
+      handler = Azu::Handler::Static.new(missing, fallthrough: false)
       context, _ = create_context("GET", "/anything.txt")
       handler.call(context)
       context.response.status_code.should eq(404)

@@ -142,7 +142,7 @@ HSTS only for sites served over HTTPS; browsers remember it.
 ```crystal
 Azu::Handler::Static.new(
   public_dir: "public",
-  fallthrough: false,
+  fallthrough: true,
   directory_listing: false,
   cache_control: "public, no-cache",
   cache_max_age: 31_536_000,
@@ -150,8 +150,9 @@ Azu::Handler::Static.new(
 ```
 
 - `public_dir : String` - directory to serve (default `"public"`, relative to the working directory).
-- `fallthrough : Bool` - pass requests that match no file to the next handler. Without it a missing file answers
-  `404` itself and **no route behind `Static` is ever reached**; the default stack sets `fallthrough: true`.
+- `fallthrough : Bool` - pass requests that match no file (and every method but `GET` and `HEAD`) to the next handler;
+  the default is `true`. With `fallthrough: false` a missing file answers `404` and a `POST` answers `405` itself, so **no route
+  behind `Static` is ever reached**: use it only for a `Static` that is the last handler.
 - `directory_listing : Bool` - list directories without an `index.html`.
 - `cache_control : String` - `Cache-Control` of files without a fingerprint.
 - `cache_max_age : Int32` - seconds for fingerprinted files (default `config.assets.cache_max_age`, one year).

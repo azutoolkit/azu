@@ -33,7 +33,7 @@ module Azu
       # it with the ETag on each use, so a deploy is never served stale.
       def initialize(
         public_dir : String = "public",
-        fallthrough = false,
+        fallthrough = true,
         directory_listing = false,
         @cache_control : String = "public, no-cache",
         cache_max_age : Int32 = CONFIG.assets.cache_max_age,
