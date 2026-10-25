@@ -86,14 +86,17 @@ module Azu
 
     # Whether the request is parsed and checked against its contract before `call`. A contract with no fields
     # and no rules has nothing to check, so only a body that names its format is still read (a malformed one is
-    # a 400). A contract that inherits its rules defines no constants of its own and is always checked.
+    # a 400). A contract that inherits its rules defines no constants of its own and is always checked, and so is
+    # one with its own `errors`: only the `errors` Schema generates is known to find nothing here. This fails
+    # closed: if Schema ever changes that body, every contract is checked again.
     private def check_contract?(request : HTTP::Request) : Bool
       {% begin %}
         {% contract = Request.resolve %}
         {% if Request.stringify == "Azu::Request" %}
           false
         {% elsif contract.instance_vars.empty? &&
-                   %w(SCHEMA_VALIDATORS SCHEMA_VALIDATIONS).all? { |rules| contract.has_constant?(rules) && contract.constant(rules).empty? } %}
+                   %w(SCHEMA_VALIDATORS SCHEMA_VALIDATIONS).all? { |rules| contract.has_constant?(rules) && contract.constant(rules).empty? } &&
+                   contract.methods.select { |method| method.name == "errors" }.all? { |method| method.body.stringify == "Validator.validate(self)" } %}
           Params::Body.format?(request)
         {% else %}
           true

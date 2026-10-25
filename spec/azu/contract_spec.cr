@@ -61,7 +61,7 @@ module ContractSpec
   end
 
   class AlwaysInvalid < Schema::Validator
-    def initialize(@record : RuledFieldlessRequest)
+    def initialize(@record : RuledFieldlessRequest | RuledParentRequest)
     end
 
     def valid? : Array(Schema::Error)
@@ -84,6 +84,53 @@ module ContractSpec
       SignupResponse.new "reached"
     end
   end
+
+  # The rule lives on the parent: the subclass declares no rules of its own.
+  class RuledParentRequest
+    include Azu::Request
+
+    use AlwaysInvalid
+  end
+
+  class InheritedRulesRequest < RuledParentRequest
+  end
+
+  # A required field and no rule: a request without the field cannot be built.
+  struct UnruledFieldRequest
+    include Azu::Request
+
+    getter name : String
+  end
+
+  # No fields, but a rule on a method.
+  struct MethodRuleRequest
+    include Azu::Request
+
+    validate page, presence: true
+
+    def page : String?
+    end
+  end
+
+  # No fields and no rules, but its own `errors`.
+  struct OwnErrorsRequest
+    include Azu::Request
+
+    def errors : Array(Schema::Error)
+      [Schema::Error.new(:base, "is never valid")]
+    end
+  end
+
+  # Each reaches `call` only when its contract lets the request through.
+  {% for contract in %w(InheritedRules UnruledField MethodRule OwnErrors) %}
+    struct {{ contract.id }}Endpoint
+      include Azu::Endpoint({{ contract.id }}Request, SignupResponse)
+
+      def call : SignupResponse
+        SignupResponse.new "reached"
+      end
+    end
+  {% end %}
 end
 
 private def post(app : Azu::App, body : String, accept : String = "application/json", handlers : Array(HTTP::Handler) = [Azu::Handler::Rescuer.new] of HTTP::Handler) : Azu::Testing::Response
@@ -105,9 +152,15 @@ private def page_app : Azu::App
   app
 end
 
-private def ruled_app : Azu::App
+private def checked_app : Azu::App
   app = Azu::App.new
-  app.routes { get "/ruled", ContractSpec::RuledEndpoint }
+  app.routes do
+    get "/ruled", ContractSpec::RuledEndpoint
+    get "/inherited_rules", ContractSpec::InheritedRulesEndpoint
+    get "/unruled_field", ContractSpec::UnruledFieldEndpoint
+    get "/method_rule", ContractSpec::MethodRuleEndpoint
+    get "/own_errors", ContractSpec::OwnErrorsEndpoint
+  end
   app
 end
 
@@ -184,9 +237,30 @@ describe "fieldless request contracts" do
   end
 
   it "answers 422 when a Schema validator it uses refuses the request" do
-    response = Azu::Testing::Client.new(ruled_app).get("/ruled", headers: {"Accept" => "application/json"})
+    response = Azu::Testing::Client.new(checked_app).get("/ruled", headers: {"Accept" => "application/json"})
 
     response.status_code.should eq 422
     JSON.parse(response.body)["errors"]["base"].should eq ["is never valid"]
+  end
+end
+
+describe "a request without a Content-Type" do
+  it "is checked against the rules its contract inherits" do
+    Azu::Testing::Client.new(checked_app).get("/inherited_rules").status_code.should eq 422
+  end
+
+  it "is checked against a contract with fields and no rules" do
+    response = Azu::Testing::Client.new(checked_app).get("/unruled_field")
+
+    response.status_code.should eq 400
+    response.body.should_not contain "reached"
+  end
+
+  it "is checked against a rule on a method" do
+    Azu::Testing::Client.new(checked_app).get("/method_rule").status_code.should eq 422
+  end
+
+  it "is checked against an errors method the contract defines itself" do
+    Azu::Testing::Client.new(checked_app).get("/own_errors").status_code.should eq 422
   end
 end
