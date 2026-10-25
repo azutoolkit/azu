@@ -81,7 +81,7 @@ the same bytes and a document can be compared or committed.
   that are not in the path are query parameters. For `POST`, `PUT` and `PATCH` they are a `requestBody`
   offered as `application/json` and as `application/x-www-form-urlencoded`, because Azu parses both.
   The two differ where Azu's parsing does. A JSON body is read alone: the path and the query string are
-  not merged into it, so a field named like a path parameter is also in the JSON schema (and required
+  not added to it (they only replace a key the body already has, see [Params](endpoint.md#params)), so a field named like a path parameter is also in the JSON schema (and required
   there if the request requires it) as well as being declared as a path parameter. A form is read together
   with the path and the query string, so the form schema leaves path-named fields out. The keys follow
   the parser: `@[JSON::Field(key:)]` renames a field in the JSON body only; query parameters and form

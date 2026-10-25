@@ -23,7 +23,8 @@
 #   --max-load X      refuse to run when the 1-minute load average is above X (default 0.5)
 #   --max-busy PCT    refuse to run when the CPU was busier than PCT over 2 s (default 10)
 #   --force           run although the machine is not quiet (the result records the reasons)
-#   --require-all     fail when an app cannot be built, started or is not conformant (default: skip it and say so)
+#   --allow-skip      measure the apps that work although a requested one cannot be built, started or is not conformant
+#                     (default: the run fails and names them; --require-all is accepted and means the default)
 #   --no-build        run: use the binaries that exist
 #   --reseed          recreate the SQLite database
 #   --wait-quiet S    wait up to S seconds (default 300) for the machine to become quiet before refusing; the load
@@ -42,7 +43,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 cmd=run
-case "${1:-}" in env|build|conformance|run) cmd=$1; shift ;; -h|--help) sed -n '2,41p' "$0"; exit 0 ;; esac
+case "${1:-}" in env|build|conformance|run) cmd=$1; shift ;; -h|--help) sed -n '2,42p' "$0"; exit 0 ;; esac
 
 build=1 reseed=0
 passthru=()
@@ -50,7 +51,7 @@ for a in "$@"; do
   case "$a" in
     --no-build) build=0 ;;
     --reseed) reseed=1 ;;
-    -h|--help) sed -n '2,41p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
     *) passthru+=("$a") ;;
   esac
 done

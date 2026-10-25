@@ -41,6 +41,20 @@ Check these before upgrading:
 - **New:** `Azu::CQL.health_check(schema)`, `Azu::CQL.engine(schema)`, `Azu::CQL.shutdown`, `.track`/`.untrack`, `Azu.on_shutdown`. A schema made
   twice under the same name closes the first one.
 
+**`Handler::Static` redirects to the right path.** The redirect for a directory requested without its trailing slash answered
+`Location: /subdir//` (two slashes), and one for a path that was not in its normal form (`/a/../b.txt`) answered `/b.txt/` (a slash added to a
+file). Now `/subdir` redirects to `/subdir/`, `/a/../b.txt` to `/b.txt`, and the query string is kept. A
+`Location` always starts with exactly one `/`, so `//evil.com` can never become a protocol-relative redirect.
+**Azu's error pages no longer depend on the working directory.** `error.html` and `error_debug.html` are compiled into
+the binary (`Azu::Templates::BUILTIN`), and `ERROR_TEMPLATE` defaults to the directory they live in inside the azu source
+(resolved at compile time) instead of `./src/azu/templates`. Before, an app that installed azu as a shard found no
+error template unless it ran from a checkout of azu, so the production HTML error page raised
+`Crinja::TemplateNotFoundError`. The lookup order is now your `templates.path` directories, then `ERROR_TEMPLATE`, then the
+built-in pages (before: `ERROR_TEMPLATE` first), so an `error.html` in your own template directory now overrides the
+built-in one. `TEMPLATES_PATH` is unchanged: it is for your templates and a relative entry is still resolved against the
+working directory, so run the app from its root or set an absolute path.
+`Templates#crinja.loader` is a `Crinja::Loader::ChoiceLoader` now, not a `FileSystemLoader`.
+
 **`Azu::Env` skips many more names from a `.env` file.** The denylist is now the one the `azu` CLI uses
 (`AzuCLI::DotEnv`), where it used to cover only `LD_*`, `DYLD_*`, `SHARDS_*`, `GIT_*`, `PATH`, `SHELL`, `IFS`,
 `BASH_ENV`, `ENV`, `CRYSTAL_PATH`, `CRYSTAL_OPTS`, `CRYSTAL_LIBRARY_PATH`, `DOCKER_HOST` and `HOME`. It now also skips
@@ -50,6 +64,17 @@ runtimes' variables (`PYTHON*`, `RUBY*`, `NODE_OPTIONS`, `GEM_*`, `CARGO_*`, ...
 locale and time zone names `LANG`, `LC_*` and `TZ`. Matching is case-insensitive. A skipped name logs a warning naming
 it (never the value) and is not set. If your `.env` sets one of them (typically `TZ` or `LANG`), set it in the real
 environment instead, or load the file with `unsafe: true`. Note that `*FLAGS` also matches application names such as `FEATURE_FLAGS`, `LOG_FLAGS` and `MY_CFLAGS`: rename them (for example `FEATURES`). See [Environment](configuration/env.md#trust).
+
+**An endpoint declared with the bare `Azu::Request` reads its params on first use.** A JSON, multipart or other
+non-urlencoded body is no longer read before `call`, so a bare-`Azu::Request` endpoint that never touches `params` no
+longer answers `400` or `413` for it; a large unread body is drained by `HTTP::Server` after the handler instead of
+being rejected. One that reads `params` gets the error where it asks. A `POST` with a urlencoded body is still read by
+the router (for `_method`) and still answers `413` before dispatch. Endpoints with a request contract (a struct that
+includes `Azu::Request`) are unchanged: they parse before `call`.
+
+**A request id is cut from a buffered chunk of secure random bytes.** The format `req_<ms>_<16 hex>` is unchanged.
+
+**A `Static` public directory created after boot is picked up within a second**, not at once.
 
 **A Redis cache needs an explicit URL, and `clear` only removes the cache's own keys.**
 
@@ -73,6 +98,18 @@ is in `Azu::Env.strict_environments` (production by default) and neither a key n
 wins. The key is resolved when the handler is built (`CSRF.default` and `CSRF.configure`: after the block, so the block may assign it), so a
 misconfigured production app fails at boot. Instances built without a key in one process now share the one fallback key (they signed with
 different keys before). Apps made with `azu new` already set `CSRF_SECRET` and refuse to start without it, so they are unaffected.
+**A 4xx is logged below error level and without an exception.** `Router` logged every unmatched route (404) with `Log.error(exception: ...)` under
+the root source, and `Handler::Rescuer` logged every raised `Response::Error` (4xx included) at `warn` with its exception. A client error is not a
+server fault, so now: a 404 from the router and a 4xx `Response::Error` caught by `Rescuer` produce one `debug` line
+(`GET /missing -> 404 Not Found`, source `azu.router` / `http.server`) without an exception or backtrace; a 5xx `Response::Error` and an unexpected
+exception are still logged at `error` with the exception. The response status and body are unchanged. If you alert on `warn`/`error` lines for
+404s, watch the request log (`Handler::Logger`) instead.
+**Path and query parameters win over the request body.** `Params#[]`, `#[]?`, `#fetch_all` and `#to_h` looked the form
+body up first, then the path, then the query string, so `POST /users/5` with `id=1` in the body handed the endpoint
+`id=1` (and the typed request of a form got the body's value too). The order is now path, query string, body. A JSON
+body is applied the same way when the typed request is built: a path or query value replaces a key the body already
+has (keeping the JSON type of the body's value); keys the body lacks are not added. Migration: an endpoint that read a
+value the client was meant to override from the body must stop naming that field like a path parameter or a query key.
 
 **The global shim is deprecated.** `include Azu`, `configure` and `start` still work, and log one warning per
 process (at the first call, not when requiring azu) that names `Azu::App`.
@@ -133,6 +170,14 @@ Other changes:
 - Files moved: `src/azu/{performance_metrics,performance_reporter,development_tools}.cr`,
   `src/azu/handler/{dev_dashboard,performance_monitor}.cr` and `src/azu/components/dev_dashboard*` are under
   `src/azu/dev/`. Require `azu/dev`, not the files.
+
+**The development error context redacts credentials.** `Azu::ErrorContext` (the request/process data an error carries in development and
+puts in the JSON, text and `error_debug.html` pages) used to hold the whole process environment and the raw request headers. The
+environment is now `Azu::Env.redacted(ENV.to_h)` (values of names such as `*_SECRET`, `*_TOKEN`, `*_KEY`, `*PASSWORD*`, `*COOKIE*`, `*AUTH*` become
+`[FILTERED]`, and the password of a `scheme://user:password@host` URL is hidden), the header values of `Authorization`, `Cookie`, `Set-Cookie`,
+`X-CSRF-Token`, `X-API-Key` and the like are `[FILTERED]` in `to_h`/`to_json` (`ErrorContext#headers` is still the real request headers; use
+`#redacted_headers` for display), and query parameters with such names are redacted in `#redacted_params`. If you read a secret value out of an
+error JSON in development, read it from the environment instead.
 
 **Template helpers no longer read `_session` and `_flash` cookies.** `Helpers::TemplateContext#session` and
 `#flash` decoded an unsigned Base64 JSON cookie that no session library writes, so any client could forge
