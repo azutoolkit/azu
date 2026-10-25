@@ -232,9 +232,10 @@ module Azu
         problem && !Azu.current_config.error_format.legacy? ? "application/problem+json" : "application/json"
       end
 
-      # True when the request's Accept header names `problem+json`.
+      # True when the request's Accept header asks for `problem+json` at least as eagerly as for plain JSON
+      # (`Negotiation.prefers_problem?`).
       def self.accepts_problem?(context : HTTP::Server::Context) : Bool
-        context.request.headers["Accept"]?.try(&.downcase.includes?("problem+json")) || false
+        Negotiation.prefers_problem?(context.request.headers["Accept"]?)
       end
 
       def to_s(context : HTTP::Server::Context)

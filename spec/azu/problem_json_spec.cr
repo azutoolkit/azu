@@ -98,6 +98,19 @@ describe "error responses for JSON clients" do
     ProblemJsonSpec.get("/missing", "application/vnd.api+json").content_type.should eq "application/json"
   end
 
+  it "reads problem+json from the media ranges and their q values, not from a substring of the header" do
+    {
+      "application/json, application/problem+json;q=0.1"       => "application/json",
+      "application/problem+json;q=0, application/json"         => "application/json",
+      "application/json;q=0.4, application/problem+json"       => "application/problem+json",
+      "application/problem+json, application/json"             => "application/problem+json",
+      "application/problem+json, */*;q=0.1"                    => "application/problem+json",
+      "application/json; profile=\"application/problem+json\"" => "application/json",
+    }.each do |accept, expected|
+      ProblemJsonSpec.get("/missing", accept).content_type.should eq(expected), "Accept: #{accept}"
+    end
+  end
+
   it "sets instance to the request path and never to the error's own source" do
     response = ProblemJsonSpec.get("/leaky", "application/json")
     response.status_code.should eq 418
