@@ -579,19 +579,24 @@ module Azu
         loop do
           position += delimiter.size
           return if text[position, 2]? == "--"
-          headers_start = text.index('\n', position) || return
-          headers_start += 1
-          headers_end, value_start, break_size = part_head_end(text, headers_start) || return
-          # An empty value has no break of its own: the one that ends the headers is the one before the delimiter.
-          closing, consumed = part_end(text, value_start - break_size, delimiter) || return
-
-          params = disposition_params(text[headers_start...headers_end])
+          part = part_at(text, position, delimiter) || return
+          params = part.params
           return if params.nil? || params.has_key?("filename") || params.has_key?("filename*")
-          if params["name"]? == name
-            return closing < value_start ? "" : text[value_start...closing]
-          end
-          position = closing + consumed - delimiter.size
+          return part.value if params["name"]? == name
+          position = part.next_delimiter
         end
+      end
+
+      private record Part, params : Hash(String, String)?, value : String, next_delimiter : Int32
+
+      # The part that starts on the line after *position* (just past a delimiter), nil when it does not end in *text*.
+      private def self.part_at(text : String, position : Int32, delimiter : String) : Part?
+        headers_start = (text.index('\n', position) || return) + 1
+        headers_end, value_start, break_size = part_head_end(text, headers_start) || return
+        # An empty value has no break of its own: the one that ends the headers is the one before the delimiter.
+        closing, consumed = part_end(text, value_start - break_size, delimiter) || return
+        value = closing < value_start ? "" : text[value_start...closing]
+        Part.new(disposition_params(text[headers_start...headers_end]), value, closing + consumed - delimiter.size)
       end
 
       # The end of the header block, where the value starts, and the size of the line break that ends the last header.
@@ -641,9 +646,10 @@ module Azu
         quoted = false
         text.each_char_with_index do |char, index|
           quoted = !quoted if char == '"'
-          next unless char == ';' && !quoted
-          pieces << text[start...index]
-          start = index + 1
+          if char == ';' && !quoted
+            pieces << text[start...index]
+            start = index + 1
+          end
         end
         pieces << text[start..]
         pieces
