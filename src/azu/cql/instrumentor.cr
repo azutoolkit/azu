@@ -58,7 +58,7 @@ module Azu
         @@mutex.synchronize do
           ::CQL::Telemetry.unsubscribe(NAME)
           ::CQL::Telemetry.unsubscribe_transactions(NAME)
-          ::CQL::Telemetry.capture_params = @@capture_before if @@capturing
+          ::CQL::Telemetry.capture_params = @@capture_before if @@capturing && ::CQL::Telemetry.capture_params # still what we set
           @@capturing = false
           @@transactions.clear
           store.enabled = false

@@ -161,24 +161,83 @@ module Azu
     end
 
     # Words after which a quoted name is an identifier or a fixed term (`relation "users"`, `for column 'age'`),
-    # not a data value.
+    # not a data value. Assumes an English server message.
     NAME_WORDS = %w(relation column constraint table schema index function type role database trigger sequence view key)
 
     # What is safe to show of a database error when bound values must stay hidden: the first line only (PostgreSQL's
-    # DETAIL, CONTEXT and HINT lines, `Failing row contains (...)` and multi-line values live after it), with
-    # every quoted segment blanked unless a word like `relation` or `column` says it is a name, and the value
-    # lists after `Key (columns)=` and `contains` blanked. A rule that keeps little instead of one that hunts for
-    # known shapes, since servers quote values in many places: `invalid input value for enum`, `value "..." is out
-    # of range`, `Incorrect integer value: '...'`, `Duplicate entry '...'`.
+    # DETAIL, CONTEXT and HINT lines, `Failing row contains (...)` and multi-line values live after it), the value list
+    # of any `(columns)=(...)` or `contains (...)` blanked, and quoted text blanked (see `blank_quotes`). A rule that keeps
+    # little instead of one that hunts for known shapes, since servers quote values in many places: `invalid input value
+    # for enum`, `value "..." is out of range`, `Incorrect integer value: '...'`, `Duplicate entry '...'`. It assumes
+    # English messages and does not touch unquoted values such as a bare number in prose.
     def redact_error(message : String) : String
       line = message.lines.first? || ""
-      line = line.sub(/\s*\b(?:DETAIL|CONTEXT|HINT):.*\z/, "")
-      line = line.matches?(/Key \([\w ,."]*\)=\(/) ? line.sub(/Key \(([\w ,."]*)\)=\(.*\z/, "Key (\\1)=(…)") : line.sub(/Key \(.*\z/, "Key (…)")
-      line = line.sub(/\bcontains \(.*\z/, "contains (…)")
-      line = line.gsub(/(?:(?<word>\w+) )?(?<quote>['"])(?<body>.*?)\k<quote>/) do |match, found|
-        NAME_WORDS.includes?(found["word"]?.try(&.downcase)) ? match : "#{found["word"]?.try { |word| "#{word} " }}#{found["quote"]}…#{found["quote"]}"
+      if cut = line.index(/\b(?:DETAIL|CONTEXT|HINT):/)
+        line = line[0, cut]
       end
-      line.sub(/(?<!\w)(['"])[^'"]*\z/) { |_, found| "#{found[1]}…" } # a value cut by a line break
+      line = line.sub(/\(([\w ,."]*)\)=\(.*\z/, "(\\1)=(…)")
+      line = line.sub(/\bKey \(.*\z/, "Key (…)") if line.matches?(/\bKey \(/) && !line.includes?(")=(…)")
+      line = line.sub(/\bcontains \(.*\z/, "contains (…)")
+      blank_quotes(line.rstrip)
+    end
+
+    # Walks the line once. The first quote character (`'`, `"`, backtick, or a typographic one) starts a segment; it is
+    # kept only when a name word precedes it and its body is a plain identifier (`[\w.$]+`). Otherwise everything up
+    # to the LAST quote of that kind on the line is blanked, so a value that contains the quote character
+    # (`'O'Brien'`) cannot leak its tail, and the scan resumes after it.
+    private def blank_quotes(line : String) : String
+      chars = line.chars
+      String.build do |io|
+        i = 0
+        while i < chars.size
+          kind = quote_kind(chars[i])
+          unless kind
+            io << chars[i]
+            i += 1
+            next
+          end
+          close = next_quote(chars, i + 1, kind)
+          if close && name_before?(chars, i) && plain_identifier?(chars, i + 1, close)
+            (i..close).each { |at| io << chars[at] }
+            i = close + 1
+          else
+            last = last_quote(chars, i + 1, kind)
+            io << chars[i] << '…'
+            io << chars[last] if last
+            i = (last || chars.size - 1) + 1
+          end
+        end
+      end
+    end
+
+    # 0 for `'` and the typographic single quotes, 1 for `"` and the typographic double quotes, 2 for a backtick.
+    private def quote_kind(char : Char) : Int32?
+      case char
+      when '\'', '‘', '’' then 0
+      when '"', '“', '”'  then 1
+      when '`'            then 2
+      end
+    end
+
+    private def next_quote(chars : Array(Char), from : Int32, kind : Int32) : Int32?
+      (from...chars.size).find { |at| quote_kind(chars[at]) == kind }
+    end
+
+    private def last_quote(chars : Array(Char), from : Int32, kind : Int32) : Int32?
+      (chars.size - 1).downto(from).find { |at| quote_kind(chars[at]) == kind }
+    end
+
+    private def name_before?(chars : Array(Char), quote_at : Int32) : Bool
+      return false unless quote_at >= 2 && chars[quote_at - 1] == ' '
+      start = quote_at - 1
+      while start > 0 && chars[start - 1].ascii_letter?
+        start -= 1
+      end
+      NAME_WORDS.includes?(String.build { |io| (start...(quote_at - 1)).each { |at| io << chars[at] } }.downcase)
+    end
+
+    private def plain_identifier?(chars : Array(Char), from : Int32, to : Int32) : Bool
+      to > from && (from...to).all? { |at| chars[at].alphanumeric? || chars[at].in?('_', '.', '$') }
     end
 
     def table(sql : String) : String?

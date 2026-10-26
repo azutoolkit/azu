@@ -61,6 +61,19 @@ describe "Azu::QueryAnalysis.redact_error" do
     "single quotes"       => "bad value 'SECRET' here",
     "unterminated double" => "bad value \"SECRET\nmore",
     "hint"                => "something failed\nHINT: use SECRET",
+    "apostrophe in value" => "Duplicate entry 'O'Brien-SECRET@example.com' for key 'users.email'",
+    "apostrophe, integer" => "Incorrect integer value: 'it's SECRET' for column 'age' at row 1",
+    "quote in value"      => %(invalid input syntax for type integer: "a"SECRET"),
+    "name word in value"  => %(invalid input syntax for type integer: "x column "SECRET" y"),
+    "relation in value"   => %(invalid input syntax for type integer: "a" relation "SECRET"),
+    "cockroach"           => %(duplicate key value (id)=(SECRET) violates unique constraint "t_pkey"),
+    "cockroach columns"   => "duplicate key value (a, b)=(SECRET, SECRET2) violates unique constraint",
+    "complex key"         => "Key (lower(email::text))=(SECRET) already exists.",
+    "typographic single"  => "Duplicate entry ‘SECRET’ for key ‘users.email’",
+    "typographic double"  => "bad value “SECRET” here",
+    "mixed typographic"   => "bad value ‘it’s SECRET’ here",
+    "backticks"           => "bad value `SECRET` here",
+    "name word, spaces"   => %(relation "SECRET value" does not exist),
   }
 
   shapes.each do |name, message|
@@ -70,12 +83,20 @@ describe "Azu::QueryAnalysis.redact_error" do
     end
   end
 
+  it "stays linear on a megabyte of quotes" do
+    ["'x" * 500_000, "relation \"a\" " * 100_000, "'a\"b`c‘d“e" * 100_000, "x" * 1_000_000 + "'"].each do |message|
+      Time.measure { Azu::QueryAnalysis.redact_error(message) }.should be < 2.seconds
+    end
+  end
+
   it "keeps the first line, and the names it can keep without values" do
     redact = ->(message : String) { Azu::QueryAnalysis.redact_error(message) }
     redact.call("duplicate key value violates unique constraint \"users_email_key\"\nDETAIL: Key (email)=(a@b.c) already exists.").should eq "duplicate key value violates unique constraint \"users_email_key\""
     redact.call("Key (email)=(a@b.c) already exists.").should eq "Key (email)=(…)"
-    redact.call("Incorrect integer value: 'x' for column 'age' at row 1").should eq "Incorrect integer value: '…' for column 'age' at row 1"
-    redact.call("Duplicate entry 'a@b.c' for key 'users.email'").should eq "Duplicate entry '…' for key 'users.email'"
+    redact.call("Incorrect integer value: 'x' for column 'age' at row 1").should eq "Incorrect integer value: '…' at row 1"
+    redact.call("Duplicate entry 'a@b.c' for key 'users.email'").should eq "Duplicate entry '…'"
+    redact.call("column 'age' is wrong").should eq "column 'age' is wrong"
+    redact.call("duplicate key value (id)=(42) violates unique constraint \"t_pkey\"").should eq "duplicate key value (id)=(…)"
     redact.call("relation \"users\" does not exist").should eq "relation \"users\" does not exist"
     redact.call("no such table: users").should eq "no such table: users"
     redact.call("UNIQUE constraint failed: users.email").should eq "UNIQUE constraint failed: users.email"

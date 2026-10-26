@@ -38,11 +38,15 @@ Bound values often hold passwords and personal data, so the tab keeps them out b
 
 * **Bound values** (`where(name: x)`, `insert.values(...)`) show as `?` placeholders, even when your app turned on
   `CQL::Telemetry.capture_params` for its own tracing.
-* **Error text** shows the exception class and the first line of the message, with quoted segments blanked unless a word such as
-  `relation` or `column` marks them as a name (`relation "users" does not exist` stays, `invalid input value for enum status: "…"` does not).
-  PostgreSQL's `DETAIL`, `CONTEXT` and `HINT` lines, `Failing row contains (...)` and `Key (col)=(...)` values, and MySQL's
-  `Duplicate entry '...'` are dropped, also when the value spans several lines. This is a deliberately blunt rule, not a guarantee
-  about every driver message: a server can word an error in a way nobody anticipated. The SQL playground's 422 answer is redacted the same way.
+* **Error text** shows the exception class and the first line of the message. On that line the value list after `(columns)=` or
+  `contains (` is blanked, and so is quoted text (`'...'`, `"..."`, backticks and typographic quotes) from its first quote to
+  the last quote of the same kind on the line, so a value that itself contains a quote cannot leak its tail. A quoted segment
+  survives only when a name word (`relation`, `column`, `constraint`, ...) precedes it and it is a plain identifier:
+  `relation "users" does not exist` stays, `invalid input value for enum status: "…"` and `Duplicate entry '…'` do not
+  (so the key name after a duplicate entry is lost too). PostgreSQL's `DETAIL`, `CONTEXT` and `HINT` lines and
+  `Failing row contains (...)` are dropped, also when the value spans several lines. The rule assumes English server messages and is
+  deliberately blunt, not a guarantee about every driver: a bare value in prose (`value 99999999999 is out of range`) is not quoted, so it stays.
+  The SQL playground's 422 answer is redacted the same way.
 * **Hand-written SQL is shown as written.** A literal you put into a `schema.exec` string, or build by interpolation, is part of the
   statement text and appears in Recent queries, Slow queries, Query patterns (the pattern view replaces literals with `?`) and
   in the slow-query log line (`QueryStore#warn_if_slow` logs up to 300 characters of the SQL at warn level, in every

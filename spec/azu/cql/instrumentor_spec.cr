@@ -278,6 +278,22 @@ describe Azu::CQL do
     end
   end
 
+  it "leaves capture_params alone when the app turned it off after the instrumentor set it" do
+    ::CQL::Telemetry.capture_params = true # the app's own tracing, on before the instrumentor
+    Azu::CONFIG.database.show_params = true
+    begin
+      with_azu_env(Azu::Environment::Development) do
+        Azu::CQL::Instrumentor.install
+        ::CQL::Telemetry.capture_params = false # the app changed its mind
+        Azu::CQL::Instrumentor.uninstall
+      end
+      ::CQL::Telemetry.capture_params.should be_false # not put back to the value from before the install
+    ensure
+      Azu::CONFIG.database.show_params = false
+      ::CQL::Telemetry.capture_params = false
+    end
+  end
+
   it "gives capture_params back as the app had it when the instrumentor is removed" do
     ::CQL::Telemetry.capture_params = true # the app's own tracing
     Azu::CONFIG.database.show_params = true
