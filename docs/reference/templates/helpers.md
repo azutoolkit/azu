@@ -1014,6 +1014,14 @@ replaces Crinja's own `urlize`, which escapes nothing and links any `scheme://`:
 Text that is already safe (`| safe`) is not escaped again; its tags are copied as they are, and text inside an
 existing `<a>` is not linked twice.
 
+`urlize` reads markup with a simplified tokenizer, which differs from a browser in three known ways: a CDATA section
+is treated as a section also in HTML content (a browser reads it as a bogus comment that ends at the first `>`), a
+quote inside an attribute name, an end tag (`</a"`) or a bogus comment (`<?"`) starts a quoted value (a browser keeps it
+in the name or the comment), and the script double-escape
+state (`<!-- <script>`) is not modelled, so `</script>` always ends a script. A single comment, CDATA section or tag
+larger than a few MB exceeds the regex engine's limit; the text is then returned as it is, without links (only text marked `safe` can reach this, as the filter escapes the rest first), and a warning without any of
+the content is logged.
+
 ### cycle
 
 Function that returns its values in turn. Inside a `for` loop it follows the iteration (`loop.index0`), so two

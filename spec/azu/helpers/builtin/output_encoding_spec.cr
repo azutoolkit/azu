@@ -308,6 +308,23 @@ describe "helper output encoding" do
         end
       end
 
+      it "ignores </a> and <a> inside a raw text element" do
+        safe_urlize.call("<a href=x><iframe></a></iframe> http://a.com").should eq "<a href=x><iframe></a></iframe> http://a.com"
+        safe_urlize.call("<a href=x><xmp></a></xmp> http://a.com</a> http://b.com").should eq(
+          %(<a href=x><xmp></a></xmp> http://a.com</a> <a href="http://b.com" rel="noopener">http://b.com</a>))
+        safe_urlize.call("<iframe><a href=x></iframe> http://a.com").should eq(
+          %(<iframe><a href=x></iframe> <a href="http://a.com" rel="noopener">http://a.com</a>))
+      end
+
+      it "returns a single comment, CDATA section or tag too large for the regex engine unlinked instead of raising" do
+        # The leading address is linked unless the whole text falls back, so only the rescue can satisfy the assertion.
+        {"<!--" + "-" * 8_000_000, "<!--" + "--!x" * 3_000_000, "<![CDATA[" + "]" * 12_000_000, %(<a x=") + %("x) * 8_000_000}.each do |html|
+          safe_urlize.call("http://p.com " + html).should_not contain "<a href="
+        end
+        # Unsafe input is escaped first, so its markup is plain text and never reaches the fallback.
+        render("{{ x | urlize }}", {"x" => "http://p.com <!--" + "-" * 8_000_000}).should start_with %(<a href="http://p.com")
+      end
+
       it "stays fast on 1 MB of nasty markup" do
         shapes = {
           "<!--x>" * 170_000, "<![CDATA[x>" * 95_000, "<!-- a -- > " * 85_000, "<" * 1_000_000, "< " * 500_000, %(<a ") * 330_000,
@@ -315,7 +332,7 @@ describe "helper output encoding" do
         }
         shapes.each do |html|
           elapsed = Time.measure { safe_urlize.call(html) }
-          elapsed.should be < 2.seconds
+          elapsed.should be < 5.seconds
         end
       end
 

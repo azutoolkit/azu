@@ -324,7 +324,9 @@ Azu::Handler::CORS.new(
   cross-origin request.
 - `methods` - methods a preflight may ask for (default `POST PUT PATCH DELETE`).
 - `headers` - request headers a preflight may ask for (default `Accept Content-Type`).
-- `credentials : Bool` - send `Access-Control-Allow-Credentials: true`.
+- `credentials : Bool` - send `Access-Control-Allow-Credentials: true`. It cannot be combined with `"*"` in `origins`:
+  `CORS.new` (and the `origins=` / `credentials=` setters) raise `ArgumentError`, because a handler that echoed every origin
+  with credentials would let any site read a signed-in user's responses. List the origins instead.
 - `max_age : Int32?` - `Access-Control-Max-Age` of preflights.
 - `expose_headers`, `vary` - extra `Access-Control-Expose-Headers` / `Vary` content.
 
@@ -338,7 +340,23 @@ With the allowed origin `https://app.example.com`:
 | `OPTIONS` preflight asking for an allowed method and header | `200` with `Access-Control-Allow-Methods`, `-Headers`, `-Max-Age`; the endpoint does not run |
 | preflight asking for a method not in `methods` | `403` |
 
-With `origins: ["*"]` the request's origin is echoed back, so the response carries `Vary: Origin`.
+With `origins: ["*"]` (and no credentials) the response carries the literal `Access-Control-Allow-Origin: *`. `Vary: Origin`
+is sent whenever the answer depends on the request's `Origin` (always, with or without the header), so a shared cache
+keeps one entry per origin.
+
+How an `Origin` is matched:
+
+- A listed string must equal it exactly, and it is case-sensitive (browsers send the scheme and host in lower case): a
+  subdomain, another port, another scheme, a trailing slash or a path does not match.
+- A value that is not `scheme://host[:port]` matches nothing, not even a regex: a path, userinfo (`@`), whitespace or control
+  characters, a comma-joined value, and several `Origin` (or `X-Origin`) headers are all refused with `403`. `X-Origin` is only
+  read when there is no `Origin`.
+- `Origin: null` (sandboxed frames, `file:` pages, some redirects) is any page's to send, so it matches only when the string
+  `"null"` is listed in `origins`: never `"*"` and never a regex.
+- A preflight is allowed only when **every** header in `Access-Control-Request-Headers` is in `headers` (compared without
+  regard to case); one allowed header no longer carries the others. A preflight without `Access-Control-Request-Headers` (a
+  bare cross-origin `DELETE`) is decided by origin and method alone and gets no `Access-Control-Allow-Headers`. Anything
+  refused gets no `Access-Control-*` header.
 
 {% hint style="warning" %}
 Put `CORS` before authentication handlers: a preflight carries no credentials, so an authentication handler in front
@@ -372,6 +390,22 @@ Requests with a method in `POST PUT PATCH DELETE` must send a token that matches
 `X-CSRF-TOKEN` header, an `_csrf` form field or an `_csrf` query parameter. Other methods pass. A failing request
 gets `403 CSRF token validation failed`. Paths that start with an entry of `skip_routes` are not checked, and
 `Azu::Handler::CSRF.exempt("/exact/path")` exempts one path for every instance.
+
+Where the form token is looked for, and how much of the body is read for it:
+
+- A token in the `X-CSRF-TOKEN` header is checked first and the body is not touched. Without the token cookie
+  the request is refused before its body is read.
+- `application/x-www-form-urlencoded` (the media type is matched whatever its case): the body is read up to
+  `upload.max_file_size` (`UPLOAD_MAX_FILE_SIZE`, 10 MB by default) and parsed for the field. A `Content-Length`
+  over the limit, or a body (chunked, say) that turns out longer, is answered with `413 Payload Too Large` and
+  `Connection: close`, after reading at most the limit plus one byte.
+- `multipart/form-data`: only the first 64 KB (`CSRF::MULTIPART_SCAN_LIMIT`) are read. **The `_csrf` field must come
+  before the first file part** (a part with a `filename`) and end within those 64 KB; put `csrf_field()` at the top of
+  the form. A token after a file, after 64 KB, in a part whose `name` or `filename` is repeated, or in a request
+  without a `boundary` is not found, and the request is refused with `403`. The size of a multipart body is not
+  checked here: `upload.max_file_size` applies to each file, which the endpoint enforces as it parses.
+- In every case the endpoint still reads the whole body afterwards, as it was sent. The query parameter is the last
+  place tried.
 
 Strategies: `SignedDoubleSubmit` (default: an HMAC-signed token that expires with the cookie), `SynchronizerToken`
 and `DoubleSubmit` (plain cookie comparison, not recommended).
