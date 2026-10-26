@@ -1,15 +1,19 @@
+---
+description: "Build a small Azu app in about 15 minutes: a validated endpoint, an HTML page, a test and the development dashboard."
+---
+
 # Getting started
 
-In about 15 minutes you will build a small Azu app from an empty directory: one endpoint whose contract is validated before your code runs, an HTML page that links to it, a test, and the development dashboard. You type every file.
-
-You need [Crystal](https://crystal-lang.org/install/) 1.19.1 or newer and a terminal.
+You type every file. You need [Crystal](https://crystal-lang.org/install/) 1.19.1 or newer and a terminal.
 
 ```bash
 crystal --version
 # Crystal 1.19.1 (...)
 ```
 
+{% hint style="info" %}
 Prefer a generator? `azu new` writes a whole project for you; see [Get started in 5 minutes](https://github.com/azutoolkit/azu#get-started-in-5-minutes). This tutorial builds the pieces by hand so you see how they fit.
+{% endhint %}
 
 ## 1. Create the project
 
@@ -20,6 +24,7 @@ mkdir src spec templates
 
 Create `shard.yml`:
 
+{% code title="shard.yml" %}
 ```yaml
 name: hello
 version: 0.1.0
@@ -34,6 +39,7 @@ targets:
   hello:
     main: src/server.cr
 ```
+{% endcode %}
 
 ```bash
 shards install
@@ -43,6 +49,7 @@ shards install
 
 An Azu endpoint is `Endpoint(Request, Response)`: the request contract it accepts and the response it returns. Create `src/hello.cr`:
 
+{% code title="src/hello.cr" %}
 ```crystal
 require "azu"
 
@@ -87,6 +94,7 @@ struct GreetEndpoint
   end
 end
 ```
+{% endcode %}
 
 `include Azu` makes `Hello` your app. Endpoints register themselves when they are defined, and `config.templates.path` (used in step 4) is where Azu looks for templates, relative to the directory you start the server in.
 
@@ -95,11 +103,13 @@ end
 Create `src/server.cr`, the file that starts the app:
 
 <!-- skip -->
+{% code title="src/server.cr" %}
 ```crystal
 require "./hello"
 
 Hello.start
 ```
+{% endcode %}
 
 Run it:
 
@@ -135,15 +145,22 @@ curl -H "Accept: application/json" "http://127.0.0.1:4000/hello"
 # {"type":"about:blank","title":"Bad Request","status":400,"detail":"Missing required property: 'name'.","errors":[],"error_id":"dd7debd7409df9e9a279f3f67b62ec48","instance":"/hello","backtrace":"..."}
 ```
 
-(`backtrace` appears in development only.) So: `400` means "I could not read that", `422` means "I read it, and the values are not acceptable". Always pass an `Accept` header with curl in development; without one the error comes back as a plain-text debug page.
+(`backtrace` appears in development only.) So: `400` means "I could not read that", `422` means "I read it, and the values are not acceptable".
 
+{% hint style="warning" %}
+Always pass an `Accept` header with curl in development; without one the error comes back as a plain-text debug page.
+{% endhint %}
+
+{% hint style="info" %}
 Azu listens on `127.0.0.1` in development. In a container set `HOST=0.0.0.0`.
+{% endhint %}
 
 ## 3. A test
 
 Tests use `Azu::Testing::Client`, which sends requests through the real handler chain and router without opening a socket. Create `spec/hello_spec.cr`:
 
 <!-- skip -->
+{% code title="spec/hello_spec.cr" %}
 ```crystal
 require "spec"
 require "azu/testing"
@@ -167,6 +184,7 @@ describe "Hello" do
   end
 end
 ```
+{% endcode %}
 
 ```bash
 crystal spec
@@ -179,6 +197,7 @@ The second test asks for JSON because that is what the test reads; without an `A
 
 Add a response that renders a Jinja template, and an endpoint for it. Append this to `src/hello.cr`:
 
+{% code title="src/hello.cr" %}
 ```crystal
 struct HomePage
   include Azu::Response
@@ -200,9 +219,11 @@ struct HomeEndpoint
   end
 end
 ```
+{% endcode %}
 
 Create `templates/home.jinja`:
 
+{% code title="templates/home.jinja" %}
 ```jinja
 <!doctype html>
 <title>{{ title }}</title>
@@ -213,6 +234,7 @@ Create `templates/home.jinja`:
 {% endfor %}
 </ul>
 ```
+{% endcode %}
 
 `link_to_get_greet` was generated for you: every endpoint gets link and form helpers named after its verb and type (`GreetEndpoint` with `get` gives `link_to_get_greet`), and they use the endpoint's real path. Rename the route and the links follow. See [Template helpers](../reference/templates/helpers.md#type-safe-endpoint-helpers).
 
@@ -235,6 +257,7 @@ Outside development Azu compiles templates once at boot, so a broken template fa
 The dashboard shows your routes, configuration, logs and request timings. It is opt-in and serves in development only. Change `src/server.cr`:
 
 <!-- skip -->
+{% code title="src/server.cr" %}
 ```crystal
 require "azu/dev"
 require "./hello"
@@ -244,6 +267,7 @@ handlers.unshift Azu::Handler::DevDashboard.new if Hello.env.development?
 
 Hello.start handlers
 ```
+{% endcode %}
 
 Restart and open <http://127.0.0.1:4000/dev-dashboard>.
 
@@ -253,9 +277,26 @@ Restart and open <http://127.0.0.1:4000/dev-dashboard>.
 
 ## Next steps
 
-- Add a database: [Working with databases](working-with-databases.md).
-- Build a full JSON API: [Building a user API](building-a-user-api.md).
-- Make a page live: [Building live components](building-live-components.md).
-- Test more: [Testing your app](testing-your-app.md).
-- Ship it: [Deploying to production](deploying-to-production.md).
-- See everything Azu includes: [Features](../explanation/features.md).
+{% content-ref url="working-with-databases.md" %}
+[working-with-databases.md](working-with-databases.md)
+{% endcontent-ref %}
+
+{% content-ref url="building-a-user-api.md" %}
+[building-a-user-api.md](building-a-user-api.md)
+{% endcontent-ref %}
+
+{% content-ref url="building-live-components.md" %}
+[building-live-components.md](building-live-components.md)
+{% endcontent-ref %}
+
+{% content-ref url="testing-your-app.md" %}
+[testing-your-app.md](testing-your-app.md)
+{% endcontent-ref %}
+
+{% content-ref url="deploying-to-production.md" %}
+[deploying-to-production.md](deploying-to-production.md)
+{% endcontent-ref %}
+
+{% content-ref url="../explanation/features.md" %}
+[features.md](../explanation/features.md)
+{% endcontent-ref %}

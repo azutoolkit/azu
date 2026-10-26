@@ -1,23 +1,38 @@
+---
+description: Azu's middleware, called handlers, and how they enable cross-cutting concerns.
+---
+
 # Middleware
 
-This document explains Azu's middleware, called handlers, and how they enable cross-cutting concerns.
-
-## What is Middleware?
+## What is middleware?
 
 A handler is an object that sees every request before the router does and every response after the endpoint
 has produced it. Handlers are plain Crystal `HTTP::Handler`s, so anything written for the standard library's
 `HTTP::Server` works in Azu too. They form a chain:
 
-```text
-Request → Handler 1 → Handler 2 → Handler 3 → Router → Endpoint
-                                                           ↓
-Response ← Handler 1 ← Handler 2 ← Handler 3 ←────────────┘
+```mermaid
+sequenceDiagram
+    participant client as Client
+    participant h1 as Handler 1
+    participant h2 as Handler 2
+    participant h3 as Handler 3
+    participant router as Router
+    participant endpoint as Endpoint
+    client->>h1: Request
+    h1->>h2: Request
+    h2->>h3: Request
+    h3->>router: Request
+    router->>endpoint: Request
+    endpoint->>h3: Response
+    h3->>h2: Response
+    h2->>h1: Response
+    h1->>client: Response
 ```
 
 The router is always the last link. Endpoints are not part of the handler array: they are registered on an
 app (`get "/users"` in an endpoint, or `app.routes { ... }`) and found by the router.
 
-## The Handler Pattern
+## The handler pattern
 
 A handler includes `HTTP::Handler` and implements `call(context)`:
 
@@ -63,7 +78,7 @@ loses the header once the body reaches 32 KiB (the size of the standard library'
 compute up front (a request id, a security header) before `call_next`, and treat headers computed afterwards, like a
 timing, as best effort.
 
-## Handler Chain
+## Handler chain
 
 `Azu.start` (or `MyApp.start`) takes the chain as an array, outermost handler first:
 
@@ -93,13 +108,15 @@ An array you pass is used exactly as given and nothing is added to it. `MyApp.st
 `Static` serving `./public` with `fallthrough: true`. `Compression`, `HealthCheck`, `CORS`, `CSRF` and `Throttle`
 are opt-in.
 
+{% hint style="warning" %}
 A handler stores the next handler of the chain it is in, so one instance can be in one chain only. Reusing it
 for a second server raises `ArgumentError: ... is already part of a chain; use one handler instance per server`.
 Build fresh instances for every app or spec.
+{% endhint %}
 
-## Use Cases
+## Use cases
 
-### Cross-Cutting Concerns
+### Cross-cutting concerns
 
 Handlers are ideal for concerns that span many endpoints. Azu ships these (see the
 [handler reference](../../reference/handlers/built-in.md)):
@@ -121,7 +138,7 @@ Handlers are ideal for concerns that span many endpoints. Azu ships these (see t
 
 Authentication and authorization are application code: write a handler (below) or check in the endpoint.
 
-### Request Modification
+### Request modification
 
 A handler can change the request the endpoint sees. The request headers are the only channel an endpoint can read,
 so a handler that passes information down must overwrite what the client sent, never trust it:
@@ -142,7 +159,7 @@ class CurrentUserHandler
 end
 ```
 
-### Response Modification
+### Response modification
 
 Add headers before `call_next` so they are sent whatever the endpoint does:
 
@@ -160,7 +177,7 @@ end
 (`Azu::Handler::SecurityHeaders` does this for the standard security headers, and leaves a header alone when
 the application already set it.)
 
-### Short-Circuiting
+### Short-circuiting
 
 Stop processing early by not calling `call_next`. Handlers after this one, and the router, never run:
 
@@ -183,25 +200,25 @@ class ApiKeyHandler
 end
 ```
 
-## Handler vs Endpoint
+## Handler vs endpoint
 
-### When to Use Handlers
+### When to use handlers
 
 - Applies to many routes
 - Cross-cutting concern
 - Modifies request or response metadata
 - Needs to wrap endpoint execution
 
-### When to Use Endpoints
+### When to use endpoints
 
 - Specific business logic
 - A single route
 - Main request handling
 - Produces the response body
 
-## Handler Composition
+## Handler composition
 
-### Conditional Handlers
+### Conditional handlers
 
 Apply logic only to some requests and pass everything else straight through:
 
@@ -220,7 +237,7 @@ class AdminOnlyHandler
 end
 ```
 
-### Handlers with State
+### Handlers with state
 
 A handler lives as long as the server, so its instance variables are shared by every request, including requests
 running at the same time. Use `Atomic` or a `Mutex`:
@@ -238,7 +255,7 @@ class MetricsHandler
 end
 ```
 
-### Configurable Handlers
+### Configurable handlers
 
 Accept configuration in the constructor:
 
@@ -258,7 +275,7 @@ class MaintenanceHandler
 end
 ```
 
-## Ordering Best Practices
+## Ordering best practices
 
 Order is behaviour:
 
@@ -290,7 +307,7 @@ MyApp.start [
 ] of HTTP::Handler
 ```
 
-## Error Handling
+## Error handling
 
 `Azu::Handler::Rescuer` catches what the handlers after it and the endpoint raise:
 
@@ -304,7 +321,7 @@ In development the error carries the request context and HTML clients get an exc
 context is `null`, HTML clients get the `error.html` template, and for an unexpected exception they get a bare
 `500 Internal Server Error`. Put `Rescuer` early.
 
-## Testing Handlers
+## Testing handlers
 
 Test a handler through a real server on a free port; the request goes through the handler chain, the router and
 the endpoint exactly as in production:
@@ -366,7 +383,7 @@ describe StampHandler do
 end
 ```
 
-## See Also
+## See also
 
 - [Handler Reference](../../reference/handlers/built-in.md)
 - [How to Create Custom Middleware](../../how-to/middleware/create-custom-middleware.md)

@@ -1,6 +1,10 @@
+---
+description: An HTTP request passes through an Azu application in eight stages, from the socket to the response.
+---
+
 # Request lifecycle
 
-An HTTP request passes through an Azu application in eight stages, from the socket to the response. The program in
+The program in
 [Watching the lifecycle](#watching-the-lifecycle) prints the order.
 
 ## Overview
@@ -21,7 +25,7 @@ read body, and builds an `HTTP::Server::Context`. Azu does nothing here. Azu's `
 when `config.tls?`) and installs the SIGINT and SIGTERM handlers described under
 [graceful shutdown](../../how-to/deployment/graceful-shutdown.md).
 
-## Stage 2: App Scope
+## Stage 2: App scope
 
 The first handler of every chain is `Azu::App::Scope`, added by `App#server`, not by you. It
 
@@ -29,7 +33,7 @@ The first handler of every chain is `Azu::App::Scope`, added by `App#server`, no
 - answers `503` with `Connection: close` and `Retry-After: 1` once the app is shutting down,
 - makes the app's `Configuration` current for this fiber, which is what `Azu.current_config` and `Azu.cache` read.
 
-## Stage 3: Handler Chain
+## Stage 3: Handler chain
 
 The handlers you passed to `start` (or `Azu::App#default_handlers`: `RequestId`, `Logger`, `Rescuer`,
 `SecurityHeaders`, `Static`) run in array order. Each one
@@ -72,7 +76,7 @@ After the last handler the app's router takes the request. `Router#process`
 Routes come from the endpoint macros (`get "/users/:id"` in the endpoint body, registered on `Azu::App.default`) or
 from `app.routes { get "/users/:id", UserEndpoint }`, which also offers `scope` and `mount`.
 
-## Stage 5: The Request Contract
+## Stage 5: The request contract
 
 Inside the endpoint, before `call`, Azu builds the request object from the JSON body or, otherwise, from the
 form-encoded body and query string, and validates it. For a contract with no fields, no rules and no methods of its
@@ -105,7 +109,7 @@ neither `Rescuer` nor the router does, and a handler that rescues `Azu::Response
 The handlers around the endpoint see the `400` or `422` on the way out like any other status. An endpoint declared
 with the bare `Azu::Request` module has no contract and skips this stage.
 
-## Stage 6: Endpoint Execution
+## Stage 6: Endpoint execution
 
 `call` runs with `params` (path parameters, query string and form body), `context` (the whole
 `HTTP::Server::Context`) and the typed request. It returns an `Azu::Response`:
@@ -156,7 +160,7 @@ endpoint returns. A body of 32 KiB or more (the size of the standard library's o
 is written, after which the head (status and headers) can no longer change, so a handler's header set after
 `call_next` is lost.
 
-## Stage 8: Handler Chain, in Reverse
+## Stage 8: Handler chain, in reverse
 
 The response travels back out through the handlers: the code after each `call_next` runs, innermost first.
 
@@ -164,16 +168,13 @@ An exception does not unwind politely. It skips the code after `call_next` of ev
 the `Rescuer` that catches it, so a handler that must always run its second half (a timer, a resource) uses
 `ensure`. `Logger` does, which is why it logs requests that raised.
 
-## Error Handling
+## Error handling
 
-```text
-exception raised in the endpoint's call (or in a handler)
-        ↓
-bubbles up through the handlers after Rescuer, skipping their code after call_next
-        ↓
-Rescuer catches it and writes the error response
-        ↓
-the handlers before Rescuer (Logger, RequestId) see a normal return with the error status
+```mermaid
+flowchart TD
+    raised["exception raised in the endpoint's call (or in a handler)"] --> bubbles["bubbles up through the handlers after Rescuer, skipping their code after call_next"]
+    bubbles --> rescuer["Rescuer catches it and writes the error response"]
+    rescuer --> before["the handlers before Rescuer (Logger, RequestId) see a normal return with the error status"]
 ```
 
 | Raised | Status |
@@ -186,10 +187,13 @@ the handlers before Rescuer (Logger, RequestId) see a normal return with the err
 | any other `Response::Error` | its own status |
 | any other exception | 500 |
 
-The full table is in the [handler reference](../../reference/handlers/built-in.md#handlerrescuer). A handler placed
-before `Rescuer` is not protected by it.
+The full table is in the [handler reference](../../reference/handlers/built-in.md#handlerrescuer).
 
-## Watching the Lifecycle
+{% hint style="warning" %}
+A handler placed before `Rescuer` is not protected by it.
+{% endhint %}
+
+## Watching the lifecycle
 
 This program serves one endpoint behind two tracing handlers with `Rescuer` between them and sends three
 requests: a valid one, one that breaks the contract and one with a body that is not JSON.
@@ -280,7 +284,7 @@ In the failing requests `call` and `render` never run, but nothing is raised pas
 and the `400` itself and returns normally. So every handler, `B` inside `Rescuer` as well as `A` outside it, sees
 the error status on the way out, and `Rescuer` has nothing to catch.
 
-## WebSocket Lifecycle
+## WebSocket lifecycle
 
 A WebSocket channel is routed like an endpoint (`ws "/chat"`); the upgrade request goes through the same handler
 chain and router, and the router hands it to the channel's upgrader. The channel's callbacks then run:
@@ -295,11 +299,11 @@ on_close     when the connection ends
 
 See the [channel reference](../../reference/api/channel.md).
 
-## What Costs Time
+## What costs time
 
 [Performance Design](performance-design.md#measured) gives the time routing and a loopback request take.
 
-## See Also
+## See also
 
 - [Architecture Overview](overview.md)
 - [Handler Reference](../../reference/handlers/built-in.md)

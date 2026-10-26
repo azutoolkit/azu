@@ -1,7 +1,10 @@
+---
+description: A contract is a type that states the shape of the data an endpoint takes or returns, so the compiler can check every use of it.
+---
+
 # Contracts
 
-A contract is a type that states the shape of the data an endpoint takes or returns, so the compiler can check every
-use of it. This page explains request and response contracts, what they give an application and what they cost.
+This page explains request and response contracts, what they give an application and what they cost.
 
 ## What are contracts?
 

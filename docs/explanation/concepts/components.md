@@ -1,6 +1,10 @@
+---
+description: The ideas behind Azu's components.
+---
+
 # Components
 
-This page explains the ideas behind Azu's components. For the API see the
+For the API see the
 [Component Reference](../../reference/api/component.md); for the architecture, wire protocol and
 security model see [Spark Live Views](../spark-live-views.md).
 
@@ -54,18 +58,18 @@ end
 
 ## How live components work
 
-```text
- Browser                                   Server
- -------                                   ------
- <button spark-click="increment">          Counter (one instance per page load)
-        |  click                              state count = 5
-        v                                       ^
- azu_spark.js  --- {"type":"event",             | handle_event("increment")
-        |            "event":"increment"} ---->  | self.count += 1
-        |                                       | render
-        v                                       v
- DOM morph    <--- {"type":"diff",        patches: [{id, html}]
-                     "patches":[...]} ----
+```mermaid
+sequenceDiagram
+    participant button as #lt;button spark-click="increment"#gt;
+    participant client as azu_spark.js
+    participant counter as Counter (one instance per page load)
+    Note over button,client: Browser
+    Note over counter: Server<br/>state count = 5
+    button->>client: click
+    client->>counter: {"type":"event","event":"increment"}
+    Note over counter: handle_event("increment")<br/>self.count += 1<br/>render<br/>patches: [{id, html}]
+    counter->>client: {"type":"diff","patches":[...]}
+    Note over client: DOM morph
 ```
 
 1. `Azu::Spark.render(Counter)` puts the component's HTML in the page, together with a signed token.
@@ -104,9 +108,15 @@ class Feed < Azu::Spark::Component
 end
 ```
 
-```text
-mount (HTTP render) -> render -> mount (WebSocket join) -> render
-   -> [events, handle_info, timers] -> render -> ... -> unmount
+```mermaid
+flowchart LR
+    http["mount (HTTP render)"] --> render1["render"]
+    render1 --> join["mount (WebSocket join)"]
+    join --> render2["render"]
+    render2 --> events["events, handle_info, timers"]
+    events --> render3["render"]
+    render3 -- "..." --> events
+    render3 --> unmount["unmount"]
 ```
 
 `mount` runs twice: once while the page is rendered over HTTP (`socket.connected?` is `false`, so

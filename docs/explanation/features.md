@@ -1,6 +1,10 @@
+---
+description: What Azu ships today, grouped by what you are trying to do, with a link to the guide or reference for each.
+---
+
 # Everything in the box
 
-This page lists what Azu ships today, grouped by what you are trying to do, with a link to the guide or reference for each. A feature marked **opt-in** needs its own `require`; `require "azu"` alone does not load it. Azu is 0.x software: [breaking changes](../reference/breaking-changes.md) are listed per release.
+A feature marked **opt-in** needs its own `require`; `require "azu"` alone does not load it. Azu is 0.x software: [breaking changes](../reference/breaking-changes.md) are listed per release.
 
 ## Routing and endpoints
 

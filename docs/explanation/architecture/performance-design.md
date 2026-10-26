@@ -1,9 +1,10 @@
+---
+description: What Azu does to keep the work per request small, what it does not do, and how to measure your own application.
+---
+
 # Performance design
 
-Azu keeps the work per request small. This page shows what it does for that, what it does not do, and how to measure
-your own application.
-
-## What Azu Builds On
+## What Azu builds on
 
 Azu is compiled by Crystal to native code. Method calls on concrete types are resolved at compile time, and generics
 (`Endpoint(Request, Response)`) are specialized per type, so there is no reflection on the request path. The HTTP
@@ -14,7 +15,7 @@ Azu adds the handlers, router and endpoint layer on top.
 
 Routes live in a radix tree (the `radix` shard), keyed by method and path. A lookup walks the tree by path segment.
 
-### The Path Cache
+### The path cache
 
 Before the lookup the router builds the string it searches for (`"/get/users/42"`, or `"/ws/chat"` for an
 upgrade). That string is cached per `method:path` in a hash guarded by a mutex:
@@ -28,7 +29,7 @@ eviction**: once it is full, new paths are simply not added. A site with more th
 page) stops adding entries after the thousandth and builds the string for the rest on each request. Routes with
 parameters are therefore cached per distinct path, not per route.
 
-## Request Processing
+## Request processing
 
 - **The request is parsed once per call**, before `call`, because the contract is enforced before the endpoint
   runs. Parsing is not lazy: an endpoint with a request type pays for parsing and validation, even when `call`
@@ -42,7 +43,7 @@ parameters are therefore cached per distinct path, not per route.
 - **Handlers are created once.** The handler array is built at startup and every request goes through the same
   instances, so handler state is shared by all requests (use `Atomic` or `Mutex`).
 
-## Response Generation
+## Response generation
 
 An endpoint returns an object whose `render` produces the body; it is written to the connection by `<<`. Small
 bodies are buffered by the standard library and written when the endpoint returns, large ones leave while they are
@@ -165,7 +166,7 @@ The loopback figure is one sequential client: it measures latency per request, n
 server, and it includes the client's own work. Requests that parse a body, render a template or query a database
 cost what that work costs; measure those in your own application.
 
-## Measuring Your Application
+## Measuring your application
 
 With `require "azu/dev"`, `Azu::Handler::PerformanceMonitor` records every request that passes through it
 (endpoint, status, processing time, memory) and `metrics.aggregate_stats` summarizes them:
@@ -218,7 +219,7 @@ slow queries and N+1 patterns (see [Database dashboard](../../reference/database
 Without `require "azu/dev"` none of this is loaded: core calls `Azu::Instrumentation`, which costs a nil check until
 something subscribes.
 
-## Practical Rules
+## Practical rules
 
 1. **Declare endpoints as `struct`s**: a `class` endpoint is as safe, but its per-request copy is a heap allocation
    (see above).
@@ -227,7 +228,7 @@ something subscribes.
 3. **Cache rendered or computed values** with `Azu.cache.fetch`, and give every entry a TTL.
 4. **Keep CPU-bound work out of request fibers.**
 
-## See Also
+## See also
 
 - [Architecture Overview](overview.md)
 - [How to Optimize Endpoints](../../how-to/performance/optimize-endpoints.md)

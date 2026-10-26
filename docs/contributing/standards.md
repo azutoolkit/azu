@@ -1,6 +1,10 @@
+---
+description: The conventions used in the Azu source.
+---
+
 # Code standards
 
-The conventions used in the Azu source. CI enforces `crystal tool format`; run `ameba` locally (it reads
+CI enforces `crystal tool format`; run `ameba` locally (it reads
 `.ameba.yml`, and no CI workflow runs it); review checks the rest. When in doubt, follow the file you are editing.
 
 ## Style
@@ -189,7 +193,7 @@ end
 - Describe behaviour changes in the pull request; anything that breaks an API goes in
   [Breaking Changes](../reference/breaking-changes.md).
 
-## Next Steps
+## Next steps
 
 - [Development Setup](setup.md) - Setting up your development environment
 - [Roadmap](roadmap.md) - Development roadmap and priorities

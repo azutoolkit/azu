@@ -1,7 +1,8 @@
-# Real-time
+---
+description: "How Azu does real-time communication: WebSocket channels for your own message protocol, the PubSub bus that connects them, and Spark live components for server-rendered UI."
+---
 
-This page explains how Azu does real-time communication: WebSocket channels for your own message
-protocol, the PubSub bus that connects them, and Spark live components for server-rendered UI.
+# Real-time
 
 ## Why real-time?
 
@@ -55,13 +56,13 @@ end
 
 ### Channel lifecycle
 
-```text
-HTTP upgrade request
-   -> Origin check (403 for a foreign origin)
-   -> 101 Switching Protocols
-   -> on_connect
-   -> on_message / on_binary / on_ping / on_pong ...   (per frame)
-   -> on_close                                         (also when the peer vanishes)
+```mermaid
+flowchart TD
+    upgrade["HTTP upgrade request"] --> origin["Origin check<br/>(403 for a foreign origin)"]
+    origin --> switching["101 Switching Protocols"]
+    switching --> connect["on_connect"]
+    connect --> frames["on_message / on_binary / on_ping / on_pong ...<br/>(per frame)"]
+    frames --> closed["on_close<br/>(also when the peer vanishes)"]
 ```
 
 The server pings every `websocket.ping_interval` (30 seconds by default) so dead peers are noticed,
@@ -85,7 +86,9 @@ end
 subscription.cancel
 ```
 
+{% hint style="warning" %}
 Handlers run on the broadcaster's fiber, so they must be quick: enqueue and return.
+{% endhint %}
 
 ### Rooms
 
@@ -149,8 +152,10 @@ def notify(user_id : Int64, text : String) : Nil
 end
 ```
 
+{% hint style="danger" %}
 In a real application, take the user id from a verified session or token, never from a parameter the
 client controls (see Authentication below).
+{% endhint %}
 
 ### Presence
 
@@ -245,8 +250,10 @@ ws.onopen = () => ws.send(JSON.stringify({ type: "say", body: "hello" }));
 ws.onmessage = (event) => handle(JSON.parse(event.data));
 ```
 
+{% hint style="warning" %}
 An exception that escapes a callback ends that connection, so rescue what you can recover from and
 answer with an error message as above.
+{% endhint %}
 
 ## Authentication
 

@@ -1,9 +1,13 @@
+---
+description: Deploy an Azu application to a production environment.
+---
+
 # Deploying to production
 
-This tutorial teaches you how to deploy an Azu application to a production environment. It uses the `UserAPI`
+This tutorial uses the `UserAPI`
 from [Building a User API](building-a-user-api.md), but nothing here depends on it.
 
-## What You'll Learn
+## What you'll learn
 
 By the end of this tutorial, you'll know how to:
 
@@ -19,7 +23,7 @@ By the end of this tutorial, you'll know how to:
 - Access to a Linux server or cloud platform
 - Basic knowledge of command line and servers
 
-## Step 1: Production Configuration
+## Step 1: Production configuration
 
 Azu reads its settings from the environment, so the same binary runs in every environment. The one that matters most
 is `CRYSTAL_ENV` (`AZU_ENV` is not read): `production` turns template hot reload off, shows the production error pages
@@ -58,7 +62,7 @@ before the request reaches the router. `hsts: true` sends `Strict-Transport-Secu
 you choose the level and backend, as above. See [Configure Production](../how-to/deployment/configure-production.md)
 for every setting.
 
-## Step 2: Build for Production
+## Step 2: Build for production
 
 Create a release build:
 
@@ -69,7 +73,7 @@ ls -lh bin/user_api
 
 `--release` enables optimizations and `--no-debug` leaves out debug information.
 
-## Step 3: Environment Variables
+## Step 3: Environment variables
 
 Keep the settings in the environment of the process, not in the image or the repository. A file for systemd or
 `docker run --env-file` (do not commit it):
@@ -89,11 +93,12 @@ platform's secret store. Generate one with `openssl rand -base64 48`. A generate
 production without `SESSION_SECRET` and `CSRF_SECRET`; without `SPARK_SECRET`, Spark raises the first time it signs
 or verifies a token.
 
-## Step 4: Docker Deployment
+## Step 4: Docker deployment
 
 An application created with `azu new my_app --docker` already has a `Dockerfile` and a `.dockerignore`. Its shape
 (your Crystal version and packages differ) is a build stage and a small runtime stage:
 
+{% code title="Dockerfile" %}
 ```dockerfile
 FROM crystallang/crystal:1.19.1 AS build
 RUN apt-get update \
@@ -121,6 +126,7 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -fsS "http://127.0.0.1:${PORT}/health" || exit 1
 CMD ["./user_api"]
 ```
+{% endcode %}
 
 The secrets are deliberately not part of the image: pass them with `docker run -e` or your orchestrator. The
 packages in the runtime stage depend on the libraries your binary links (`ldd bin/user_api` lists them); let `azu new
@@ -166,9 +172,11 @@ volumes:
   postgres_data:
 ```
 
+{% hint style="warning" %}
 `stop_grace_period` is longer than `SHUTDOWN_TIMEOUT` so that Docker does not kill the process while it drains.
+{% endhint %}
 
-## Step 5: Run and Stop the Process
+## Step 5: Run and stop the process
 
 Any process manager works (systemd, Docker, your platform's runtime). What Azu needs from it:
 
@@ -183,11 +191,13 @@ Any process manager works (systemd, Docker, your platform's runtime). What Azu n
 - **Migrations before the new binary starts.** Run them with the Azu CLI (`azu db:migrate`); the application binary
   does not run them.
 
+{% hint style="warning" %}
 Behind a reverse proxy that terminates TLS and forwards WebSocket upgrades, Azu sees the proxy's address as the
 client address, which `Throttle` uses to count requests: run `Throttle` only where the peer address is the real
 client.
+{% endhint %}
 
-## Production Checklist
+## Production checklist
 
 Before going live:
 
@@ -200,8 +210,16 @@ Before going live:
 - [ ] Rate limiting where the API is public
 - [ ] The stop timeout of the process manager is longer than `SHUTDOWN_TIMEOUT`
 
-## Next Steps
+## Next steps
 
-- [How-to Guides](../how-to/deployment/configure-production.md) - Task-specific solutions
-- [API Reference](../reference/api/app.md) - Complete API documentation
-- [Architecture](../explanation/architecture/overview.md) - Deep dive into Azu internals
+{% content-ref url="../how-to/deployment/configure-production.md" %}
+[configure-production.md](../how-to/deployment/configure-production.md)
+{% endcontent-ref %}
+
+{% content-ref url="../reference/api/app.md" %}
+[app.md](../reference/api/app.md)
+{% endcontent-ref %}
+
+{% content-ref url="../explanation/architecture/overview.md" %}
+[overview.md](../explanation/architecture/overview.md)
+{% endcontent-ref %}

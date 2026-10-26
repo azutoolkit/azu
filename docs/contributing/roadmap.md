@@ -1,6 +1,10 @@
+---
+description: Where Azu is heading and where contributions help most.
+---
+
 # Development roadmap
 
-Where Azu is heading and where contributions help most. This page lists directions, not promises: there are
+This page lists directions, not promises: there are
 no dates, and no API on this page exists unless the [API reference](../reference/api/app.md) documents it.
 
 ## Where Azu stands
@@ -50,7 +54,7 @@ Good first contributions are listed on the GitHub issue tracker. Typical ones:
 - Fix a documentation page whose snippet no longer compiles (run `scripts/check_docs.cr` on it).
 - Improve an error message.
 
-## Next Steps
+## Next steps
 
 - [Development Setup](setup.md) - Set up your development environment
 - [Code Standards](standards.md) - Learn coding guidelines

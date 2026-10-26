@@ -1,11 +1,14 @@
+---
+description: "Write tests for an Azu application: endpoints, request contracts, WebSocket channels and live components."
+---
+
 # Testing your app
 
-This tutorial teaches you how to write tests for an Azu application: endpoints, request contracts,
-WebSocket channels and live components. Every example runs with the tools that ship with Crystal
+Every example runs with the tools that ship with Crystal
 (`spec`, `HTTP::Server`, `HTTP::Client`, `HTTP::WebSocket`) and with Azu's own `Azu::App` and
 `Azu::Spark::Testing`.
 
-## What You'll Learn
+## What you'll learn
 
 By the end of this tutorial, you'll be able to:
 
@@ -22,16 +25,19 @@ By the end of this tutorial, you'll be able to:
 - Basic understanding of testing concepts
 - Crystal 1.19.1 or newer
 
+{% hint style="info" %}
 Specs normally use `Azu::Testing::Client` (see [Testing](../reference/api/testing.md)), which sends requests and
 WebSocket frames through the app's real handler chain and router without opening a socket. The helpers below serve
 the app on a real port instead, which also exercises `HTTP::Server`'s socket and connection handling; for
 everything else the client replaces them.
+{% endhint %}
 
-## Step 1: Test Setup
+## Step 1: Test setup
 
 Create `spec/spec_helper.cr`. It loads the application and defines the two helpers the rest of the
 tutorial uses: `serve` runs an app on a free local port, and `WsClient` talks to it over a WebSocket.
 
+{% code title="spec/spec_helper.cr" %}
 ```crystal
 require "spec"
 require "azu"
@@ -84,13 +90,14 @@ class WsClient
   end
 end
 ```
+{% endcode %}
 
 `serve` builds the handler chain with `RequestId` (so responses carry `X-Request-ID`) and `Rescuer`
 (so errors raised in `call` become the 404 or 401 responses clients see; a request that breaks its contract is
 answered with 400 or 422 by the endpoint itself). In a real project each spec file
 starts with `require "./spec_helper"` and the application file.
 
-## Step 2: Testing Endpoints
+## Step 2: Testing endpoints
 
 An endpoint spec starts the app, makes a real request and checks the response.
 
@@ -222,7 +229,7 @@ Things to notice:
 See [How to test endpoints](../how-to/testing/test-endpoints.md) for PUT, DELETE, authentication and apps
 built as values.
 
-## Step 3: Testing Request Validation
+## Step 3: Testing request validation
 
 A request contract is enforced before the endpoint runs: a body that fails validation is answered with
 `422` and a problem document listing the broken fields. You can test the contract with
@@ -282,7 +289,7 @@ describe CreateUserRequest do
 end
 ```
 
-## Step 4: Testing WebSocket Channels
+## Step 4: Testing WebSocket channels
 
 A channel is tested over a real socket, which exercises the handshake and your callbacks together. Register
 the channel on a fresh `Azu::App` so the spec is isolated:
@@ -392,7 +399,7 @@ Wait for messages with `receive` (which times out) rather than sleeping, and ass
 a short timeout. [How to test WebSockets](../how-to/testing/test-websockets.md) covers authentication,
 origin checks and the Spark wire protocol.
 
-## Step 5: Testing Live Components
+## Step 5: Testing live components
 
 `Azu::Spark::Testing` mounts a component with a real session and no socket, so you test state, events and
 rendering directly:
@@ -440,7 +447,7 @@ describe Counter do
 end
 ```
 
-## Step 6: Integration Tests
+## Step 6: Integration tests
 
 An integration spec drives several requests through the same stack `Azu.start` builds. Use
 `app.default_handlers` for the full default chain (request id, logging, error pages, security headers,
@@ -497,7 +504,7 @@ end
 up to the timeout, for the requests in flight and for those sockets to close, as a graceful shutdown does (see
 [Shut down gracefully](../how-to/deployment/graceful-shutdown.md)).
 
-## Step 7: Running Tests
+## Step 7: Running tests
 
 ```bash
 crystal spec                              # everything
@@ -508,7 +515,7 @@ crystal spec --verbose                    # print every example
 crystal spec --order random               # shuffle, to find hidden dependencies
 ```
 
-## Test Organization
+## Test organization
 
 ```text
 spec/
@@ -521,15 +528,23 @@ spec/
 └── integration/             # whole-stack specs
 ```
 
-## Best Practices
+## Best practices
 
 1. **Start servers on a free port** (`bind_unused_port`) so specs can run side by side, and close them in `ensure`.
 2. **Never sleep to wait for something**; wait on a `Channel` with a timeout.
 3. **Reset shared state** (module variables, the database, PubSub subscriptions) in `before_each`.
 4. **Keep logic out of endpoints** so most specs need no server.
 
-## Next Steps
+## Next steps
 
-- [How to test endpoints](../how-to/testing/test-endpoints.md) - more endpoint scenarios
-- [How to test WebSockets](../how-to/testing/test-websockets.md) - authentication, origin checks, wire protocol
-- [Deploying to Production](deploying-to-production.md) - Deploy your tested app
+{% content-ref url="../how-to/testing/test-endpoints.md" %}
+[test-endpoints.md](../how-to/testing/test-endpoints.md)
+{% endcontent-ref %}
+
+{% content-ref url="../how-to/testing/test-websockets.md" %}
+[test-websockets.md](../how-to/testing/test-websockets.md)
+{% endcontent-ref %}
+
+{% content-ref url="deploying-to-production.md" %}
+[deploying-to-production.md](deploying-to-production.md)
+{% endcontent-ref %}

@@ -1,7 +1,10 @@
+---
+description: Azu uses Crystal's type system so that the shape of every request, response and endpoint is checked when the application compiles.
+---
+
 # Type safety
 
-Azu uses Crystal's type system so that the shape of every request, response and endpoint is checked when the
-application compiles: a typo, a missing field or an unhandled `nil` stops the build instead of reaching a user. This
+A typo, a missing field or an unhandled `nil` stops the build instead of reaching a user. This
 page explains where Azu puts types, what the compiler checks with them, and what they cost.
 
 ## Errors at compile time

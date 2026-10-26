@@ -1,8 +1,10 @@
+---
+description: The concept of endpoints in Azu and how they provide a structured approach to handling HTTP requests.
+---
+
 # Endpoints
 
-This document explains the concept of endpoints in Azu and how they provide a structured approach to handling HTTP requests.
-
-## What is an Endpoint?
+## What is an endpoint?
 
 An endpoint is a structured handler for a specific HTTP route. It combines:
 
@@ -46,9 +48,9 @@ struct CreateUserEndpoint
 end
 ```
 
-## Why Endpoints?
+## Why endpoints?
 
-### Traditional Approach Problems
+### Traditional approach problems
 
 In traditional MVC frameworks:
 
@@ -62,7 +64,7 @@ class UsersController
 end
 ```
 
-### Azu's Solution
+### Azu's solution
 
 Endpoints make contracts explicit:
 
@@ -101,9 +103,9 @@ struct CreateEndpoint
 end
 ```
 
-## Endpoint Components
+## Endpoint components
 
-### 1. Route Declaration
+### 1. Route declaration
 
 The route macro registers the HTTP method and path. Each endpoint declares one:
 
@@ -151,7 +153,7 @@ Routes support:
 - Parameters: `:id`
 - Wildcards: `*path`
 
-### 2. Request Contract
+### 2. Request contract
 
 The first type parameter defines expected input:
 
@@ -184,7 +186,7 @@ struct ShowEndpoint
 end
 ```
 
-### 3. Response Contract
+### 3. Response contract
 
 The second type parameter defines the output:
 
@@ -198,7 +200,7 @@ def call : UserResponse  # Must return this
 end
 ```
 
-### 4. Call Method
+### 4. Call method
 
 The `call` method contains business logic:
 
@@ -241,7 +243,7 @@ struct CreateUserEndpoint
 end
 ```
 
-## Available Context
+## Available context
 
 Inside `call`, you have access to:
 
@@ -274,7 +276,7 @@ struct ContextEndpoint
 end
 ```
 
-## Request Access Pattern
+## Request access pattern
 
 The request object is accessed via a generated method:
 
@@ -311,7 +313,7 @@ struct CreateUserEndpoint
 end
 ```
 
-## Single Responsibility
+## Single responsibility
 
 Each endpoint handles one route:
 
@@ -379,7 +381,7 @@ Benefits:
 - Simple to test
 - No action dispatch: the router calls the endpoint directly
 
-## Struct vs Class
+## Struct vs class
 
 Endpoints are typically structs:
 
@@ -412,7 +414,7 @@ Use a class only if you need inheritance. A class endpoint is as safe as a struc
 per route and runs every request on a copy of it (a struct is copied, a class is `dup`ed), so the instance variables
 set while serving a request belong to that request and do not carry over to the next one.
 
-## Error Handling
+## Error handling
 
 Endpoints can raise typed errors:
 
@@ -442,7 +444,7 @@ end
 
 The handler chain catches and converts these to HTTP responses (`Azu::Handler::Rescuer`).
 
-## Testing Endpoints
+## Testing endpoints
 
 Endpoints are easy to test in isolation: build an `HTTP::Server::Context` and call the endpoint with it.
 
@@ -498,7 +500,7 @@ describe CreateUserEndpoint do
 end
 ```
 
-## See Also
+## See also
 
 - [Contracts](contracts.md)
 - [Endpoint Reference](../../reference/api/endpoint.md)
