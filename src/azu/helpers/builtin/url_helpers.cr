@@ -129,7 +129,7 @@ module Azu
               # Add CSRF token from context if available
               csrf_val = env.context["csrf_token"]
               if !csrf_val.none? && !csrf_val.undefined?
-                io << %Q(<input type="hidden" name="_csrf" value="#{csrf_val}" />)
+                io << %Q(<input type="hidden" name="_csrf" value="#{Util.escape_html(csrf_val.to_s)}" />)
               end
 
               # Add method override for non-standard methods

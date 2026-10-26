@@ -22,6 +22,16 @@ module Azu
         HTML.escape(text)
       end
 
+      # What an HTML attribute name may be (a name that is not one could end the tag or start another attribute).
+      ATTRIBUTE_NAME = /\A[a-zA-Z_:][-a-zA-Z0-9_:.]*\z/
+
+      # What a tag name may be.
+      TAG_NAME = /\A[a-zA-Z][a-zA-Z0-9-]*\z/
+
+      def attribute_name?(name : String) : Bool
+        ATTRIBUTE_NAME.matches?(name)
+      end
+
       # Formats a number with thousands delimiter.
       #
       # ```
@@ -278,7 +288,8 @@ module Azu
         text.split.map(&.capitalize).join(" ")
       end
 
-      # Builds HTML attributes string from a hash.
+      # Builds HTML attributes string from a hash. Values are escaped; an attribute whose name is not a valid
+      # name (`[a-zA-Z_:][-a-zA-Z0-9_:.]*`) is left out and logged.
       #
       # ```
       # Util.tag_attributes({class: "btn", id: "submit"})
@@ -286,7 +297,10 @@ module Azu
       # ```
       def tag_attributes(attrs : Hash(String, String)) : String
         attrs.compact_map do |key, value|
-          if value == "true" || value == true.to_s
+          if !attribute_name?(key.to_s)
+            Log.for("azu.helpers").warn { "attribute #{key.to_s.inspect} was left out: not a valid attribute name" }
+            nil
+          elsif value == "true" || value == true.to_s
             key.to_s
           elsif value == "false" || value == false.to_s
             nil
@@ -311,6 +325,7 @@ module Azu
         content : String? = nil,
         self_closing : Bool = false,
       ) : String
+        raise ArgumentError.new("invalid tag name #{name.inspect}") unless TAG_NAME.matches?(name)
         attr_str = tag_attributes(attrs)
         attr_part = attr_str.empty? ? "" : " #{attr_str}"
 
@@ -360,7 +375,7 @@ module Azu
 
         args.defaults.each_key do |key|
           key_str = key.to_s
-          next if exclude.includes?(key_str)
+          next if exclude.includes?(key_str) || !attribute_name?(key_str)
 
           value = args[key_str]
           next if value.none? || value.undefined?

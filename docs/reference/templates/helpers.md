@@ -847,6 +847,10 @@ Function that generates an HTML tag:
 
 `content` is escaped unless it is already safe markup (another helper's output, or `| safe`).
 
+Tag names must match `[A-Za-z][A-Za-z0-9-]*` (anything else raises `ArgumentError`, so a user value can never become a
+second tag). Attribute names, in every helper that takes `attrs`, `data` or similar hashes, must match
+`[A-Za-z_:][-A-Za-z0-9_:.]*`; an attribute with another name is left out and logged at `warn`.
+
 ---
 
 ## i18n Helpers

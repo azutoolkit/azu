@@ -300,7 +300,7 @@ module Azu
             field_id = id.none? ? "#{object}_#{attribute}".gsub(/[\[\]]/, "_") : id.to_s
 
             # Hidden field for unchecked state
-            hidden = %Q(<input type="hidden" name="#{field_name}" value="0" />)
+            hidden = %Q(<input type="hidden" name="#{Util.escape_html(field_name)}" value="0" />)
 
             # Checkbox
             attrs = {
@@ -319,7 +319,7 @@ module Azu
 
             # Add label if provided
             unless label.none?
-              html += %Q( <label for="#{field_id}">#{Util.escape_html(label.to_s)}</label>)
+              html += %Q( <label for="#{Util.escape_html(field_id)}">#{Util.escape_html(label.to_s)}</label>)
             end
 
             Crinja::SafeString.new(html)
@@ -370,7 +370,7 @@ module Azu
 
             # Add label if provided
             unless label.none?
-              html += %Q( <label for="#{field_id}">#{Util.escape_html(label.to_s)}</label>)
+              html += %Q( <label for="#{Util.escape_html(field_id)}">#{Util.escape_html(label.to_s)}</label>)
             end
 
             Crinja::SafeString.new(html)
@@ -516,7 +516,7 @@ module Azu
           func = Crinja.function(:csrf_field) do
             csrf_val = env.context["csrf_token"]
             token = (!csrf_val.none? && !csrf_val.undefined?) ? csrf_val.to_s : ""
-            Crinja::SafeString.new(%Q(<input type="hidden" name="_csrf" value="#{token}" />))
+            Crinja::SafeString.new(%Q(<input type="hidden" name="_csrf" value="#{Util.escape_html(token)}" />))
           end
           Registry.register_function(:csrf_field, func)
         end
@@ -525,7 +525,7 @@ module Azu
           func = Crinja.function(:csrf_meta) do
             csrf_val = env.context["csrf_token"]
             token = (!csrf_val.none? && !csrf_val.undefined?) ? csrf_val.to_s : ""
-            Crinja::SafeString.new(%Q(<meta name="csrf-token" content="#{token}" />))
+            Crinja::SafeString.new(%Q(<meta name="csrf-token" content="#{Util.escape_html(token)}" />))
           end
           Registry.register_function(:csrf_meta, func)
         end
