@@ -253,10 +253,13 @@ describe "Azu::App#start" do
       app.address.should be_nil
       handlers.first.next.should be_nil
       prepared.should eq 0
+      app.router.frozen?.should be_false # a start that did not bind froze nothing
+      app.router.get "/added-after-a-failed-start", AppStartSpec::Ping.new
 
       app.config.port = 0
       finished = AppStartSpec.boot(app, handlers, teardown: false, signals: false)
       AppStartSpec.client(app).get("/ping").body.should eq "pong"
+      AppStartSpec.client(app).get("/added-after-a-failed-start").body.should eq "pong"
       prepared.should eq 1
       app.stop(2.seconds)
       finished.receive
