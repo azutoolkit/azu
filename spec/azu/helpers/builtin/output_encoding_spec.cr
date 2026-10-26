@@ -112,4 +112,71 @@ describe "helper output encoding" do
       end
     end
   end
+
+  describe "URL attributes" do
+    unsafe = [
+      "javascript:alert(1)", "JavaScript:alert(1)", "JAVASCRIPT:alert(1)", "  javascript:alert(1)", "\tjavascript:alert(1)",
+      "java\tscript:alert(1)", "java\nscript:alert(1)", "java\r\nscript:alert(1)", "\u0001javascript:alert(1)", "\u0000javascript:alert(1)",
+      "jav ascript:alert(1)", "javascript :alert(1)", "data:text/html,<script>alert(1)</script>", "DATA:text/html;base64,PHNjcmlwdD4=",
+      "vbscript:msgbox(1)", "VbScript:x", "file:///etc/passwd", "blob:https://x/y", "ftp://x/y", "view-source:https://x", "foo:bar",
+    ]
+    safe = [
+      "/", "/a/b?x=1&y=2#frag", "#frag", "?q=1", "a/b", "./a:b", "../x", "//cdn.example.com/x", "", "http://example.com", "https://example.com/a",
+      "HTTPS://EXAMPLE.COM", "mailto:a@example.com", "MAILTO:a@example.com", "tel:+15551234", "/search?q=javascript:alert(1)", "/a#javascript:x",
+    ]
+
+    it "Util.safe_url keeps http, https, mailto, tel, relative paths and fragments" do
+      safe.each { |url| Azu::Helpers::Util.safe_url(url).should eq(url), url.inspect }
+    end
+
+    it "Util.safe_url replaces every other scheme, whatever the case or the control characters in it" do
+      unsafe.each do |url|
+        Azu::Helpers::Util.safe_url(url).should eq("#"), url.inspect
+        Azu::Helpers::Util.safe_url(url, "about:invalid").should eq("about:invalid"), url.inspect
+      end
+    end
+
+    it "link_to never prints an unsafe href" do
+      unsafe.each do |url|
+        render("{{ link_to('site', u) }}", {"u" => url}).should eq(%(<a href="#">site</a>)), url.inspect
+      end
+      safe.each do |url|
+        render("{{ link_to('site', u) }}", {"u" => url}).should eq(%(<a href="#{HTML.escape(url)}">site</a>)), url.inspect
+      end
+    end
+
+    it "button_to and form_tag never print an unsafe action" do
+      unsafe.each do |url|
+        render("{{ button_to('Go', u) }}", {"u" => url}).should contain(%(action="about:invalid")), url.inspect
+        render("{{ form_tag(u) }}", {"u" => url}).should contain(%(action="about:invalid")), url.inspect
+      end
+      render("{{ button_to('Go', '/posts/1', method='delete') }}").should contain %(action="/posts/1")
+      render("{{ form_tag('/users') }}").should contain %(action="/users")
+    end
+
+    it "does not decode entities, so an encoded scheme stays text" do
+      render("{{ link_to('x', u) }}", {"u" => "&#106;avascript:alert(1)"}).should eq %(<a href="&amp;#106;avascript:alert(1)">x</a>)
+      render("{{ link_to('x', u) }}", {"u" => "javascript&colon;alert(1)"}).should eq %(<a href="javascript&amp;colon;alert(1)">x</a>)
+      render("{{ link_to('x', u) }}", {"u" => "%6Aavascript:alert(1)"}).should eq %(<a href="%6Aavascript:alert(1)">x</a>)
+    end
+
+    it "keeps the quote out of the attribute" do
+      render("{{ link_to('x', u) }}", {"u" => %(/a" onclick="alert(1))}).should eq %(<a href="/a&quot; onclick=&quot;alert(1)">x</a>)
+    end
+
+    it "mail_to builds its own mailto: URL" do
+      render("{{ mail_to(e) }}", {"e" => "javascript:alert(1)"}).should contain %(href="mailto:javascript:alert(1)")
+    end
+
+    it "asset helpers prefix anything that is not an http(s) or absolute URL, so a scheme is never the start" do
+      unsafe.reject { |url| url.starts_with?("ftp") || url.includes?('\u0000') }.each do |url|
+        ["image_tag(u)", "stylesheet_tag(u)", "javascript_tag(u)", "favicon_tag(u)", "preload_tag(u, as='image')"].each do |call|
+          out = render("{{ #{call} }}", {"u" => url})
+          out.should_not match(/(src|href)="\s*[a-z]*script:/i), "#{call} #{url.inspect}"
+          out.should_not match(/(src|href)="\s*data:/i), "#{call} #{url.inspect}"
+          out.should match(/(src|href)="\/assets\//), "#{call} #{url.inspect}"
+        end
+      end
+    end
+  end
 end

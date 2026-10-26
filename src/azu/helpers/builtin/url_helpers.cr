@@ -38,7 +38,7 @@ module Azu
             data:   nil,
           }, :link_to) do
             text = arguments["text"].to_s
-            href = arguments["href"].to_s
+            href = Util.safe_url(arguments["href"].to_s)
             css_class = arguments["class"]
             id = arguments["id"]
             target = arguments["target"]
@@ -85,7 +85,7 @@ module Azu
             disabled: false,
           }, :button_to) do
             text = arguments["text"].to_s
-            href = arguments["href"].to_s
+            href = Util.safe_url(arguments["href"].to_s, "about:invalid")
             method = arguments["method"].to_s.downcase
             css_class = arguments["class"]
             id = arguments["id"]

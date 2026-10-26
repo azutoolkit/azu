@@ -43,7 +43,7 @@ module Azu
             data:      nil,
             onsubmit:  nil,
           }, :form_tag) do
-            action = arguments["action"].to_s
+            action = Util.safe_url(arguments["action"].to_s, "about:invalid")
             method = arguments["method"].to_s.downcase
             css_class = arguments["class"]
             id = arguments["id"]

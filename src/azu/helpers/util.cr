@@ -28,6 +28,29 @@ module Azu
       # What a tag name may be.
       TAG_NAME = /\A[a-zA-Z][a-zA-Z0-9-]*\z/
 
+      # The schemes a link or form may point to; anything else (javascript:, data:, vbscript:, ...) is replaced.
+      SAFE_URL_SCHEMES = {"http", "https", "mailto", "tel"}
+
+      private URL_SCHEME = /\A([a-zA-Z][a-zA-Z0-9+.\-]*):/
+
+      # Returns `url` when it is safe to put into `href` or `action`: http, https, mailto, tel, a relative path
+      # or a fragment (compared case-insensitively). Any other scheme gives `fallback`. Browsers ignore control
+      # characters, spaces and tabs or newlines inside a scheme (`java\tscript:`), so they are removed before the
+      # scheme is read. Entities are not decoded here: the value is escaped when it is written, so `&#106;avascript:`
+      # reaches the page as text. The result still has to be escaped as an attribute value.
+      #
+      # ```
+      # Util.safe_url("/posts?page=2")                     # => "/posts?page=2"
+      # Util.safe_url("JavaScript:alert(1)")               # => "#"
+      # Util.safe_url("data:text/html,x", "about:invalid") # => "about:invalid"
+      # ```
+      def safe_url(url : String, fallback : String = "#") : String
+        compact = url.gsub(/[\x00-\x20\x7f]/, "")
+        scheme = URL_SCHEME.match(compact).try(&.[1])
+        return url if scheme.nil? || SAFE_URL_SCHEMES.includes?(scheme.downcase)
+        fallback
+      end
+
       def attribute_name?(name : String) : Bool
         ATTRIBUTE_NAME.matches?(name)
       end

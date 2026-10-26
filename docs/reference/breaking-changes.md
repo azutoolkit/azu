@@ -22,6 +22,13 @@ unless the author remembered `| e`. Now every template is escaped, string templa
   return HTML must return `Crinja::SafeString.new(html)`, built from escaped parts.
 - Last resort: `Azu::CONFIG.template_autoescape = false` or `TEMPLATE_AUTOESCAPE=false` restores the old behavior.
 
+**Template helpers escape what they used to pass through (security).** `highlight` and `content_tag` escape their text and
+content (pass markup as a `SafeString`: another helper's output or `| safe`); `link_to`, `button_to` and `form_tag` replace a
+URL whose scheme is not `http`, `https`, `mailto` or `tel` (`javascript:`, `data:`, `vbscript:`, ...) with `#` or
+`about:invalid`; an attribute name that is not `[A-Za-z_:][-A-Za-z0-9_:.]*` is dropped and a tag name that is not a name
+raises `ArgumentError`. Check `content_tag(content="<b>x</b>")` and links to other schemes (`sms:`, `ftp:`, custom app schemes):
+write those `<a>` tags yourself. See [attribute names and URLs](templates/helpers.md#attribute-names-and-urls).
+
 **`Static` can refuse paths (additive, nothing to change).** `Azu::Handler::Static.new(except: ["/templates"])` never serves
 `/templates` or anything below it; the request goes to the next handler, or answers `404` with `fallthrough: false`. Without
 `except` the handler behaves as before. Use it when template sources live under `public/`:
