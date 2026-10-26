@@ -22,7 +22,7 @@ module HotPath
   # Static builds paths under its dir per request: a cwd-relative dir would make bytes grow with the cwd's length.
   STATIC_DIR    = "/azu-hot-path/public"
   TEMPLATE_PATH = "/template"
-  # The bench apps' templates (template.jinja, template.ecr). Read once, when the first render compiles them.
+  # The bench apps' templates (template.jinja, template.ecr). Read once, when the first render preloads the Jinja one.
   TEMPLATE_DIR = File.expand_path("../apps/common", __DIR__)
   # The same page rendered with its request (template_request.jinja, in this directory), which reads one request variable.
   REQUEST_TEMPLATE_PATH = "/template/request"

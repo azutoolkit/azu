@@ -35,20 +35,20 @@ describe Azu::Helpers::TemplateContext do
                                "layout.jinja" => "<{% block body %}{% endblock %}>"}, "<GET>" },
     }.each do |construct, (files, expected)|
       it "are read from #{construct}" do
-        with_compiled_templates(files) do
+        with_preloaded_templates(files) do
           TemplateContextSpec::Page.new("page.jinja", TemplateContextSpec.request).render.should eq expected
         end
       end
     end
 
     it "give way to the view's data of the same name" do
-      with_compiled_templates({"page.jinja" => "{{ method }}"}) do
+      with_preloaded_templates({"page.jinja" => "{{ method }}"}) do
         TemplateContextSpec::Page.new("page.jinja", TemplateContextSpec.request, {"method" => "mine"}).render.should eq "mine"
       end
     end
 
     it "hide a global of the same name" do
-      with_compiled_templates({"page.jinja" => "{{ referer }}"}) do |config|
+      with_preloaded_templates({"page.jinja" => "{{ referer }}"}) do |config|
         config.templates.crinja.global_context["referer"] = "global"
         context = TemplateContextSpec.request(HTTP::Headers{"Referer" => "https://example.com/from"})
 
@@ -63,7 +63,7 @@ describe Azu::Helpers::TemplateContext do
         previous = Azu::Handler::CSRF.strategy
         Azu::Handler::CSRF.strategy = strategy
         begin
-          with_compiled_templates({"csrf.jinja" => "{{ csrf_token }}|{{ csrf_tag }}|{{ csrf_metatag }}"}) do
+          with_preloaded_templates({"csrf.jinja" => "{{ csrf_token }}|{{ csrf_tag }}|{{ csrf_metatag }}"}) do
             context = TemplateContextSpec.request
             token, tag, metatag = TemplateContextSpec::Page.new("csrf.jinja", context).render.split('|')
             param = Azu::Handler::CSRF.param_name
@@ -79,7 +79,7 @@ describe Azu::Helpers::TemplateContext do
     end
 
     it "set the CSRF cookie when the template prints no token" do
-      with_compiled_templates({"plain.jinja" => "<h1>{{ title }}</h1>"}) do
+      with_preloaded_templates({"plain.jinja" => "<h1>{{ title }}</h1>"}) do
         context = TemplateContextSpec.request
 
         TemplateContextSpec::Page.new("plain.jinja", context, {"title" => "Items"}).render.should eq "<h1>Items</h1>"
@@ -88,7 +88,7 @@ describe Azu::Helpers::TemplateContext do
     end
 
     it "reuse the token an earlier view of the same request issued" do
-      with_compiled_templates({"token.jinja" => "{{ csrf_token }}"}) do
+      with_preloaded_templates({"token.jinja" => "{{ csrf_token }}"}) do
         context = TemplateContextSpec.request
         # A layout and a partial, each rendered with `view`: one cookie, so both pages' tokens stay valid
         first = TemplateContextSpec::Page.new("token.jinja", context).render

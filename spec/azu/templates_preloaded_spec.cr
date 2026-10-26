@@ -9,12 +9,12 @@ ensure
   FileUtils.rm_rf(dir) if dir
 end
 
-describe "Azu::Templates compiled (every environment but development)" do
+describe "Azu::Templates preloaded (every environment but development)" do
   it "serves a template from memory: an edit after the first load is not read" do
     with_template_dir do |dir|
       File.write(File.join(dir, "page.jinja"), "one {{ x }}")
       templates = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false)
-      templates.compiled?.should be_true
+      templates.preloaded?.should be_true
       templates.load("page.jinja").render({"x" => 1}).should eq "one 1"
 
       File.write(File.join(dir, "page.jinja"), "two {{ x }}")
@@ -32,7 +32,7 @@ describe "Azu::Templates compiled (every environment but development)" do
     end
   end
 
-  it "compiles every template at prepare, so includes and extends resolve from memory too" do
+  it "preloads every template at prepare, so includes and extends resolve from memory too" do
     with_template_dir do |dir|
       Dir.mkdir_p(File.join(dir, "users"))
       File.write(File.join(dir, "base.jinja"), "[{% block body %}{% endblock %}]")
@@ -51,7 +51,7 @@ describe "Azu::Templates compiled (every environment but development)" do
       File.write(File.join(dir, "ok.jinja"), "fine")
       File.write(File.join(dir, "broken.jinja"), "line one\n{% if %}\n")
       templates = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false)
-      error = expect_raises(Azu::Templates::CompileError) { templates.prepare }
+      error = expect_raises(Azu::Templates::PreloadError) { templates.prepare }
       error.message.to_s.should contain "broken.jinja"
       error.message.to_s.should contain "broken.jinja:2:1"
     end
@@ -110,13 +110,13 @@ describe "Azu::Templates compiled (every environment but development)" do
     templates.load("error.html").render({"status" => 500, "title" => "x"}).should contain "x"
   end
 
-  it "does not compile what compile_ignore names, and still finds it through the file loader" do
+  it "does not preload what preload_ignore names, and still finds it through the file loader" do
     with_template_dir do |dir|
       Dir.mkdir_p(File.join(dir, "vendor"))
       File.write(File.join(dir, "vendor", "swagger.html"), "{{ not a template }} {% if %}")
       File.write(File.join(dir, "vendor", "ok.html"), "ok")
       File.write(File.join(dir, "page.jinja"), "page")
-      templates = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false, compile_ignore: ["vendor/**"])
+      templates = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false, preload_ignore: ["vendor/**"])
       templates.prepare
       templates.load("page.jinja").render.should eq "page"
       templates.load("vendor/ok.html").render.should eq "ok"
@@ -125,21 +125,21 @@ describe "Azu::Templates compiled (every environment but development)" do
   end
 
   it "reports a template that cannot be parsed as a Crinja error, so error handlers rescue it" do
-    Azu::Templates::CompileError.new("x").should be_a Crinja::Error
+    Azu::Templates::PreloadError.new("x").should be_a Crinja::Error
   end
 
-  it "compiles once and keeps serving the others when a template is broken and prepare was not called" do
+  it "preloads once and keeps serving the others when a template is broken and prepare was not called" do
     with_template_dir do |dir|
       File.write(File.join(dir, "good.jinja"), "good")
       File.write(File.join(dir, "bad.jinja"), "{% if %}")
       templates = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false)
       3.times { templates.load("good.jinja").render.should eq "good" }
       3.times { expect_raises(Crinja::Error) { templates.load("bad.jinja") } }
-      templates.compile_count.should eq 1
+      templates.preload_count.should eq 1
     end
   end
 
-  it "falls back to the built-in error page through Response::Error rendering when the lazy compile met a broken page" do
+  it "falls back to the built-in error page through Response::Error rendering when the lazy preload met a broken page" do
     with_template_dir do |dir|
       File.write(File.join(dir, "error.html"), "{% if %}")
       File.write(File.join(dir, "bad.jinja"), "{% if %}")
@@ -148,7 +148,7 @@ describe "Azu::Templates compiled (every environment but development)" do
     end
   end
 
-  it "rebuilds from the new paths when a path is added during a compile" do
+  it "rebuilds from the new paths when a path is added during a preload" do
     with_template_dir do |dir|
       a = File.join(dir, "a")
       b = File.join(dir, "b")
@@ -169,16 +169,16 @@ describe "Azu::Templates compiled (every environment but development)" do
     with_template_dir do |dir|
       {"p.html" => true, "p.jinja" => true, "p.j2" => true, "x.html.jinja" => true}.each do |name, escaped|
         File.write(File.join(dir, name), "{{ x }}")
-        compiled = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false).load(name).render({"x" => "<b>"})
+        preloaded = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false).load(name).render({"x" => "<b>"})
         reloading = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: true).load(name).render({"x" => "<b>"})
-        compiled.should eq reloading
-        compiled.should eq(escaped ? "&lt;b&gt;" : "<b>")
+        preloaded.should eq reloading
+        preloaded.should eq(escaped ? "&lt;b&gt;" : "<b>")
       end
       File.write(File.join(dir, "_inc.html"), "{{ x }}")
       File.write(File.join(dir, "outer.jinja"), %({% include "_inc.html" %}))
-      compiled = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false).load("outer.jinja").render({"x" => "<b>"})
+      preloaded = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false).load("outer.jinja").render({"x" => "<b>"})
       reloading = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: true).load("outer.jinja").render({"x" => "<b>"})
-      compiled.should eq reloading
+      preloaded.should eq reloading
     end
   end
 
@@ -187,7 +187,7 @@ describe "Azu::Templates compiled (every environment but development)" do
     page.render({"status" => 404, "title" => "Not Found", "detail" => "<script>alert(1)</script>"}).should_not contain "<script>alert(1)</script>"
   end
 
-  it "serves a symlinked file compiled, and leaves a symlinked directory to the file loader" do
+  it "serves a symlinked file preloaded, and leaves a symlinked directory to the file loader" do
     with_template_dir do |dir|
       real = File.join(dir, "real")
       Dir.mkdir_p(real)
@@ -207,7 +207,7 @@ describe "Azu::Templates compiled (every environment but development)" do
     end
   end
 
-  it "compiles nested names and .html.jinja, and leaves a dot directory to the file loader" do
+  it "preloads nested names and .html.jinja, and leaves a dot directory to the file loader" do
     with_template_dir do |dir|
       Dir.mkdir_p(File.join(dir, "a", "b"))
       Dir.mkdir_p(File.join(dir, ".hidden"))
@@ -228,11 +228,11 @@ describe "Azu::Templates compiled (every environment but development)" do
       Dir.mkdir_p(File.join(dir, "vendor", "sub"))
       File.write(File.join(dir, "vendor", "a.html"), "{% if %}")
       File.write(File.join(dir, "vendor", "sub", "b.html"), "{% if %}")
-      one = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false, compile_ignore: ["vendor/*"])
+      one = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false, preload_ignore: ["vendor/*"])
       error = expect_raises(Crinja::Error) { one.prepare }
       error.message.to_s.should contain "vendor/sub/b.html"
       error.message.to_s.should_not contain "template vendor/a.html"
-      Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false, compile_ignore: ["vendor/**"]).prepare
+      Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false, preload_ignore: ["vendor/**"]).prepare
     end
   end
 
@@ -251,7 +251,7 @@ describe "Azu::Templates compiled (every environment but development)" do
     end
   end
 
-  it "validates on prepare although a first render compiled leniently" do
+  it "validates on prepare although a first render preloaded leniently" do
     with_template_dir do |dir|
       File.write(File.join(dir, "good.jinja"), "good")
       File.write(File.join(dir, "bad.jinja"), "{% if %}")
@@ -279,7 +279,7 @@ describe "Azu::Templates compiled (every environment but development)" do
         error.message.to_s.should contain "locked"
         lazy = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false)
         3.times { lazy.load("ok.jinja").render.should eq "ok" }
-        lazy.compile_count.should eq 1
+        lazy.preload_count.should eq 1
       ensure
         File.chmod(locked, 0o755)
       end
@@ -302,7 +302,7 @@ describe "Azu::Templates compiled (every environment but development)" do
     end
   end
 
-  it "still finds a template added after the compile, and reports a missing one" do
+  it "still finds a template added after the preload, and reports a missing one" do
     with_template_dir do |dir|
       File.write(File.join(dir, "first.jinja"), "1")
       templates = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false)
@@ -316,13 +316,13 @@ describe "Azu::Templates compiled (every environment but development)" do
   it "applies the same autoescape as the loader" do
     with_template_dir do |dir|
       File.write(File.join(dir, "page.html"), "{{ x }}")
-      compiled = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false).load("page.html").render({"x" => "<b>"})
+      preloaded = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false).load("page.html").render({"x" => "<b>"})
       reloading = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: true).load("page.html").render({"x" => "<b>"})
-      compiled.should eq reloading
+      preloaded.should eq reloading
     end
   end
 
-  it "renders concurrently from many fibers, the first of them racing to compile" do
+  it "renders concurrently from many fibers, the first of them racing to preload" do
     with_template_dir do |dir|
       File.write(File.join(dir, "page.jinja"), "n={{ n }}")
       templates = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false)
@@ -330,17 +330,17 @@ describe "Azu::Templates compiled (every environment but development)" do
       50.times { |i| spawn { results.send(templates.load("page.jinja").render({"n" => i})) } }
       got = Array.new(50) { results.receive }
       got.sort.should eq (0...50).map { |i| "n=#{i}" }.sort
-      templates.compile_count.should eq 1
+      templates.preload_count.should eq 1
     end
   end
 
-  it "reloads again when reload is switched on, and compiles again when it is switched off" do
+  it "reloads again when reload is switched on, and preloads again when it is switched off" do
     with_template_dir do |dir|
       File.write(File.join(dir, "page.jinja"), "one")
       templates = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false)
       templates.load("page.jinja").render.should eq "one"
       templates.hot_reload = true
-      templates.compiled?.should be_false
+      templates.preloaded?.should be_false
       File.write(File.join(dir, "page.jinja"), "two")
       File.touch(File.join(dir, "page.jinja"), Time.utc + 5.seconds)
       templates.check_now!
@@ -373,18 +373,18 @@ private class DeniedTemplates < Azu::Templates
 end
 
 describe "Azu::Templates with an unreadable directory (stubbed, also as root)" do
-  it "raises CompileError naming the subdirectory, with the cause attached, when strict" do
+  it "raises PreloadError naming the subdirectory, with the cause attached, when strict" do
     with_template_dir do |dir|
       Dir.mkdir_p(File.join(dir, "a", "locked"))
       File.write(File.join(dir, "ok.jinja"), "ok")
       error = expect_raises(Crinja::Error) { DeniedTemplates.new([dir], File.join(dir, "errors"), hot_reload: false).prepare }
       error.message.to_s.should contain File.join(dir, "a", "locked")
-      error.should be_a Azu::Templates::CompileError
+      error.should be_a Azu::Templates::PreloadError
       error.cause.should be_a File::AccessDeniedError
     end
   end
 
-  it "warns once, publishes the rest and compiles once when lazy" do
+  it "warns once, publishes the rest and preloads once when lazy" do
     with_template_dir do |dir|
       Dir.mkdir_p(File.join(dir, "a", "locked"))
       File.write(File.join(dir, "ok.jinja"), "ok")
@@ -392,11 +392,11 @@ describe "Azu::Templates with an unreadable directory (stubbed, also as root)" d
       templates = DeniedTemplates.new([dir], File.join(dir, "errors"), hot_reload: false)
       Log.capture("azu.templates") do |logs|
         3.times { templates.load("ok.jinja").render.should eq "ok" }
-        logs.check(:warn, /locked was not compiled.*may be shadowed by later directories/)
-        logs.check(:debug, /compiled \d+ templates/)
+        logs.check(:warn, /locked was not preloaded.*may be shadowed by later directories/)
+        logs.check(:debug, /preloaded \d+ templates/)
         logs.empty
       end
-      templates.compile_count.should eq 1
+      templates.preload_count.should eq 1
       File.delete(File.join(dir, "ok.jinja"))
       File.delete(File.join(dir, "a", "inner.jinja"))
       templates.load("ok.jinja").render.should eq "ok"
@@ -411,7 +411,7 @@ describe "Azu::Templates with reload (development)" do
       file = File.join(dir, "page.jinja")
       File.write(file, "one")
       templates = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: true)
-      templates.compiled?.should be_false
+      templates.preloaded?.should be_false
       templates.prepare
       templates.load("page.jinja").render.should eq "one"
       File.write(file, "two")
@@ -429,15 +429,15 @@ describe "Azu::Templates with reload (development)" do
     end
   end
 
-  it "is the default for development, and every other environment compiles" do
+  it "is the default for development, and every other environment preloads" do
     original = ENV["CRYSTAL_ENV"]?
     begin
-      {"development" => false, "production" => true, "staging" => true}.each do |env, compiled|
+      {"development" => false, "production" => true, "staging" => true}.each do |env, preloaded|
         ENV["CRYSTAL_ENV"] = env
-        Azu::Templates.new(["spec/test_templates"], "spec/test_errors").compiled?.should eq compiled
+        Azu::Templates.new(["spec/test_templates"], "spec/test_errors").preloaded?.should eq preloaded
       end
       ENV["CRYSTAL_ENV"] = "staging"
-      Azu::Templates.new(["spec/test_templates"], "spec/test_errors", hot_reload: true).compiled?.should be_false
+      Azu::Templates.new(["spec/test_templates"], "spec/test_errors", hot_reload: true).preloaded?.should be_false
     ensure
       original ? (ENV["CRYSTAL_ENV"] = original) : ENV.delete("CRYSTAL_ENV")
     end
@@ -462,14 +462,45 @@ describe "Azu::Configuration templates" do
     config.template_hot_reload = !config.template_hot_reload?
     config.templates.@hot_reload_enabled.should eq config.template_hot_reload?
     config.template_hot_reload = false
-    config.templates.compiled?.should be_true
+    config.templates.preloaded?.should be_true
   end
 
-  it "passes template_compile_ignore= on to templates that were built already" do
+  it "passes template_preload_ignore= on to templates that were built already" do
     config = Azu::Configuration.new
     config.templates
+    config.template_preload_ignore = ["vendor/**"]
+    config.templates.preload_ignore.should eq ["vendor/**"]
+  end
+
+  it "reads TEMPLATE_PRELOAD_IGNORE, and TEMPLATE_COMPILE_IGNORE (deprecated) when it is not set" do
+    preload, compile = ENV["TEMPLATE_PRELOAD_IGNORE"]?, ENV["TEMPLATE_COMPILE_IGNORE"]?
+    begin
+      ENV.delete("TEMPLATE_PRELOAD_IGNORE")
+      ENV["TEMPLATE_COMPILE_IGNORE"] = "old/**"
+      Azu::Configuration.new.template_preload_ignore.should eq ["old/**"]
+      ENV["TEMPLATE_PRELOAD_IGNORE"] = "new/**, other/*"
+      Azu::Configuration.new.template_preload_ignore.should eq ["new/**", "other/*"]
+      # Set, even empty, the new name wins
+      ENV["TEMPLATE_PRELOAD_IGNORE"] = ""
+      Azu::Configuration.new.template_preload_ignore.should be_empty
+    ensure
+      preload ? (ENV["TEMPLATE_PRELOAD_IGNORE"] = preload) : ENV.delete("TEMPLATE_PRELOAD_IGNORE")
+      compile ? (ENV["TEMPLATE_COMPILE_IGNORE"] = compile) : ENV.delete("TEMPLATE_COMPILE_IGNORE")
+    end
+  end
+
+  it "keeps the 0.5.113 names as deprecated aliases" do
+    config = Azu::Configuration.new
+    templates = config.templates
     config.template_compile_ignore = ["vendor/**"]
-    config.templates.compile_ignore.should eq ["vendor/**"]
+    config.template_compile_ignore.should eq ["vendor/**"]
+    templates.preload_ignore.should eq ["vendor/**"]
+    templates.compile_ignore = ["swagger/*"]
+    templates.compile_ignore.should eq ["swagger/*"]
+    config.template_hot_reload = false
+    templates.compiled?.should be_true
+
+    Azu::Templates.new(["spec/test_templates"], "spec/test_errors", hot_reload: false, compile_ignore: ["x/**"]).preload_ignore.should eq ["x/**"]
   end
 
   it "has one rule for the reload default, used by Configuration and Templates" do
@@ -479,7 +510,7 @@ describe "Azu::Configuration templates" do
        "build" => false, "integration" => false, "acceptance" => false}.each do |env, reload|
         ENV["CRYSTAL_ENV"] = env
         Azu::Configuration.hot_reload_default.should eq reload
-        Azu::Templates.new(["spec/test_templates"], "spec/test_errors").compiled?.should eq !reload
+        Azu::Templates.new(["spec/test_templates"], "spec/test_errors").preloaded?.should eq !reload
       end
     ensure
       original ? (ENV["CRYSTAL_ENV"] = original) : ENV.delete("CRYSTAL_ENV")

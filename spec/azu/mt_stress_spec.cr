@@ -167,10 +167,10 @@ describe Azu::Handler::Static do
 end
 
 describe Azu::Templates do
-  it "loads templates the compiled map does not hold from several fibers at once" do
+  it "loads templates the preloaded map does not hold from several fibers at once" do
     dir = File.tempname("azu_mt_templates")
     Dir.mkdir_p(dir)
-    # `.txt` is not compiled at boot, so each first render parses it and stores it in Crinja's template cache. Without
+    # `.txt` is not preloaded at boot, so each first render parses it and stores it in Crinja's template cache. Without
     # the lock on that cache this crashes, raises from a corrupted Hash, or wedges the process (spinning at 100% CPU,
     # ignoring SIGTERM): CI then hangs until the job times out instead of failing fast.
     count = 400
