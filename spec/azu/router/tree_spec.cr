@@ -102,6 +102,17 @@ describe Azu::Router::Tree do
       routes.find(GET, "/posts/1/comments/2").try(&.params).should eq({"post_id" => "1", "id" => "2"})
     end
 
+    it "reads a : or * inside a segment literally, as the OpenAPI document does" do
+      routes = tree({GET, "/users:search"}, {GET, "/f/report-:id"}, {GET, "/a*b"})
+
+      payload(routes, GET, "/users:search").should eq "Get /users:search"
+      routes.find(GET, "/f/report-:id").try(&.params).should be_nil
+      payload(routes, GET, "/a*b").should eq "Get /a*b"
+      payload(routes, GET, "/usersfoo").should be_nil
+      payload(routes, GET, "/f/report-7").should be_nil
+      payload(routes, GET, "/axb").should be_nil
+    end
+
     it "lets a declared route name a parameter unlike the HEAD and OPTIONS routes Router#get adds" do
       routes = tree({GET, "/posts/:id"}, {HEAD, "/posts/:id"}, {OPTIONS, "/posts/:id"})
       routes.add OPTIONS, "/posts/:post_id/comments", "Options comments"
@@ -243,6 +254,9 @@ private FIND_DIFFERENCES = [
   {[{GET, "/posts/:id"}, {GET, "/posts/:post_id/comments"}], "/posts/1", {"/get/posts/:id", {"id" => "1"}}, nil},
   {[{GET, "/posts/:id"}, {GET, "/posts/:post_id/comments"}], "/posts/1/comments",
    {"/get/posts/:post_id/comments", {"post_id" => "1"}}, nil},
+  # radix reads a parameter inside a segment, the tree a literal (as openapi/document.cr does)
+  {[{GET, "/users:search"}], "/usersfoo", nil, {"/get/users:search", {"search" => "foo"}}},
+  {[{GET, "/f/report-:id"}], "/f/report-7", nil, {"/get/f/report-:id", {"id" => "7"}}},
 ]
 
 # GET routes radix accepts and the tree refuses: {paths, the tree's error}.
