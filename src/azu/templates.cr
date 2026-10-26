@@ -98,6 +98,19 @@ module Azu
     end
 
     # :nodoc:
+    # Crinja's in-memory template cache behind a lock. Renders run on several threads under preview_mt, and a template
+    # the compiled map does not hold (hot reload, other extensions, `compile_ignore`, files added after boot, the
+    # built-in pages) is parsed and stored here by whichever render asks for it first.
+    class SynchronizedCache < Crinja::TemplateCache
+      @cache = Crinja::TemplateCache::InMemory.new
+      @lock = Mutex.new
+
+      def fetch(env, name, file_name, source, &)
+        @lock.synchronize { @cache.fetch(env, name, file_name, source) { yield } }
+      end
+    end
+
+    # :nodoc:
     # A render's variables as the scope of its Crinja context, taken over instead of copied (rendering with a hash,
     # Crinja copies it twice: `Crinja.variables`, then into the context's own scope).
     class Scope < Crinja::Context
@@ -194,6 +207,7 @@ module Azu
 
     def initialize(@path : Array(String), @error_path : String, hot_reload : Bool? = nil, @compile_ignore : Array(String) = [] of String, autoescape : Bool = true)
       @hot_reload_enabled = hot_reload.nil? ? development_environment? : hot_reload
+      crinja.cache = SynchronizedCache.new
       self.autoescape = autoescape
       initialize_loader
     end
@@ -219,7 +233,7 @@ module Azu
 
     # Azu's own error page `name`, ignoring every directory: what is rendered when an app's `error.html` is broken.
     def builtin(name : String) : Crinja::Template
-      env = @@builtin_lock.synchronize { @builtin_crinja ||= Crinja.new.tap { |crinja| crinja.loader = BuiltinLoader.new(BUILTIN) } }
+      env = @@builtin_lock.synchronize { @builtin_crinja ||= Crinja.new(loader: BuiltinLoader.new(BUILTIN), cache: SynchronizedCache.new) }
       env.get_template(name)
     end
 

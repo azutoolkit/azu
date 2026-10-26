@@ -111,3 +111,28 @@ describe Azu::Router do
     paths.each { |path| router.path_cache.get("GET", path).should eq "/get#{path}" }
   end
 end
+
+describe Azu::Templates do
+  it "loads templates the compiled map does not hold from several fibers at once" do
+    dir = File.tempname("azu_mt_templates")
+    Dir.mkdir_p(dir)
+    # `.txt` is not compiled at boot, so each first render parses it and stores it in Crinja's template cache
+    count = 400
+    count.times { |i| File.write(File.join(dir, "t#{i}.txt"), "{{ v }}-#{i}") }
+    wrong = Atomic(Int32).new(0)
+    begin
+      5.times do
+        config = Azu::Configuration.new
+        config.template_hot_reload = false
+        config.templates.path = dir
+        templates = config.templates
+        done = parallel(count) { |i| wrong.add(1) unless templates.render("t#{i}.txt", {"v" => "x"}) == "x-#{i}" }
+        wait_for(done, count)
+      end
+    ensure
+      FileUtils.rm_rf(dir)
+    end
+
+    wrong.get.should eq 0
+  end
+end
