@@ -14,7 +14,7 @@ This page lists what Azu ships today, grouped by what you are trying to do, with
 
 - **Request contracts.** A struct that includes `Azu::Request` is built from the path, query string, form or JSON body, and validated before your endpoint runs. [Request](../reference/api/request.md).
 - **Validation rules.** `presence`, `required`, `size`, `match`, `in`, `exclude`, `eq`, `gt`, `gte`, `lt` and `lte`, with custom messages. [Validate requests](../how-to/validation/validate-requests.md).
-- **Problem documents.** A failed contract answers `422` with the failing fields, as RFC 7807 JSON. [Handle validation errors](../how-to/validation/handle-validation-errors.md).
+- **Problem documents.** The endpoint answers a failed contract with `422` and the failing fields, as RFC 7807 JSON when the request accepts JSON. [Handle validation errors](../how-to/validation/handle-validation-errors.md).
 - **Parameters and uploads.** Typed access to route, query and body parameters, and multipart uploads with size limits. [Handle parameters](../how-to/endpoints/handle-parameters.md), [Handle file uploads](../how-to/file-handling/handle-file-uploads.md).
 
 ## Responses and errors

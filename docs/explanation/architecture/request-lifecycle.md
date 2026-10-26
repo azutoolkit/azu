@@ -20,7 +20,7 @@ order.
 `HTTP::Server` from the standard library accepts the TCP connection, parses the request line, headers and a lazily
 read body, and builds an `HTTP::Server::Context`. Azu does nothing here. Azu's `start` binds the listener (with TLS
 when `config.tls?`) and installs the SIGINT and SIGTERM handlers described under
-[graceful shutdown](../../reference/breaking-changes.md).
+[graceful shutdown](../../how-to/deployment/graceful-shutdown.md).
 
 ## Stage 2: App Scope
 
@@ -94,15 +94,17 @@ struct CreateUserRequest
 end
 ```
 
-- A body that cannot become the request type (malformed JSON, `"abc"` for an `Int32`, in JSON or in a form) raises
-  `Azu::Response::BadRequest`: `400`.
-- A request that breaks a validation raises `Azu::Response::ValidationError`: `422` with an
-  RFC 7807 problem body listing the failing fields (`Content-Type: application/problem+json` when the client's `Accept` names it,
-  `application/json` otherwise).
+- A body that cannot become the request type (malformed JSON, `"abc"` for an `Int32`, in JSON or in a form) is
+  answered with `400` (`Azu::Response::BadRequest`).
+- A request that breaks a validation is answered with `422` (`Azu::Response::ValidationError`) and a body
+  listing the failing fields, in the format of the request's `Accept` header (see
+  [Error types](../../reference/errors/error-types.md)).
 - Otherwise the parsed request is available in `call` as `create_user_request`, parsed once per call.
 
-Both errors are raised before `call`, so an endpoint never sees an invalid request. They are answered by `Rescuer`.
-An endpoint declared with the bare `Azu::Request` module has no contract and skips this stage.
+Both checks run before `call`, so `call` never sees an invalid request. The endpoint answers both errors itself:
+neither `Rescuer` nor the router does, and a handler that rescues `Azu::Response::ValidationError` never sees them.
+The handlers around the endpoint see the `400` or `422` on the way out like any other status. An endpoint declared
+with the bare `Azu::Request` module has no contract and skips this stage.
 
 ## Stage 6: Endpoint Execution
 
@@ -165,7 +167,7 @@ the `Rescuer` that catches it, so a handler that must always run its second half
 ## Error Handling
 
 ```text
-exception raised in the endpoint (or a handler, or the contract)
+exception raised in the endpoint's call (or in a handler)
         ↓
 bubbles up through the handlers after Rescuer, skipping their code after call_next
         ↓
@@ -263,19 +265,20 @@ end
 server.close
 ```
 
-Its output (the log lines `Rescuer` writes for the two errors are left out):
+Its output:
 
 ```text
 200 {"hello":"Ada"}
 A in > B in > endpoint call > render > B out (200) > A out (200)
 422 {"type":"about:blank","title":"Validatio
-A in > B in > A out (422)
+A in > B in > B out (422) > A out (422)
 400 {"type":"about:blank","title":"Bad Reque
-A in > B in > A out (400)
+A in > B in > B out (400) > A out (400)
 ```
 
-In the failing requests `B out` is missing: the exception skipped it on its way to `Rescuer`, while `A`, outside
-`Rescuer`, saw the `422` and the `400`.
+In the failing requests `call` and `render` never run, but nothing is raised past the endpoint: it answers the `422`
+and the `400` itself and returns normally. So every handler, `B` inside `Rescuer` as well as `A` outside it, sees
+the error status on the way out, and `Rescuer` has nothing to catch.
 
 ## WebSocket Lifecycle
 

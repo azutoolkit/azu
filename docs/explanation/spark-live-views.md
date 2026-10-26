@@ -18,9 +18,8 @@ class CounterView < Azu::Spark::Component
   end
 end
 
-# once, at boot
+# once, at boot (tokens are signed with SPARK_SECRET: set it in production and staging)
 Azu::Spark.install                       # registers the WebSocket endpoint and the client script
-Azu::Spark.configure { |c| c.secret = ENV["SPARK_SECRET"] }
 
 # in a layout
 Azu::Spark.script_tag                    # <script src=...> served by your own application
@@ -141,7 +140,9 @@ field are in [the client reference](../reference/spark-client.md#events-and-deli
   in `Azu::Spark.config.allowed_origins` (`SPARK_ALLOWED_ORIGINS`).
 - **Signed join token.** `Spark.render` signs the component id, type, props and session claims
   with `config.secret`. A component can only be joined with a valid, unexpired token
-  (`token_ttl`). Production and staging refuse to start without an explicit secret.
+  (`token_ttl`). Spark reads the secret from `SPARK_SECRET`. Without it, production and staging raise
+  `Azu::Spark::ConfigurationError` the first time a token is signed or verified (not at boot), and the
+  other environments, development and test among them, use a random per-process secret.
 - **Per-connection ownership.** Each connection has its own component registry
   (`max_components`); events can only address components that connection joined or rendered.
   Reconnect snapshots are signed, expiring, size limited and bound to the page, its session claims

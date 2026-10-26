@@ -239,7 +239,7 @@ end
 The browser side:
 
 ```javascript
-const ws = new WebSocket("ws://localhost:3000/chat");
+const ws = new WebSocket("ws://localhost:4000/chat");
 
 ws.onopen = () => ws.send(JSON.stringify({ type: "say", body: "hello" }));
 ws.onmessage = (event) => handle(JSON.parse(event.data));
@@ -281,7 +281,9 @@ class AccountChannel < Azu::Channel
 
   # Replace with your own verification (a signed token, a session lookup, ...).
   private def authenticate(token : String?) : String?
-    "alice" if token == ENV.fetch("CHANNEL_TOKEN", "change-me")
+    expected = ENV["CHANNEL_TOKEN"]?.presence
+    return unless expected && token # refuse every connection while CHANNEL_TOKEN is unset
+    "alice" if Crypto::Subtle.constant_time_compare(token, expected)
   end
 end
 ```

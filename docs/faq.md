@@ -8,7 +8,7 @@ Common questions, issues, and solutions when working with Azu.
 
 **Q: What makes Azu different from other web frameworks?**
 
-A: Azu emphasizes compile-time type safety and contract-first development. Unlike traditional frameworks that validate at runtime, Azu catches errors during compilation, so type errors in endpoints, contracts and responses show up when you build, not in production.
+A: Azu emphasizes compile-time type safety and contract-first development. Endpoints, contracts and responses are typed, so a type error in them shows up when you build, not in production. Input is still checked per request: before `call` runs, the endpoint parses the request into its contract and runs the contract's `validate` rules, and answers `400` or `422` when the request breaks it.
 
 **Q: Can I use Azu for production applications?**
 
@@ -529,17 +529,24 @@ puts "took #{time.total_milliseconds}ms"
 ```
 
 For a running development server, `require "azu/dev"` adds the profiler and dashboard (see
-[Breaking Changes](reference/breaking-changes.md)).
+[Monitor performance](how-to/performance/monitor-performance.md)).
 
 ### Monitor Memory Usage
 
 ```bash
-# Check memory usage during runtime
+# Resident memory of the running process (the RSS column)
 ps aux | grep my_app
-
-# Compiler statistics
-crystal run --stats src/my_app.cr
 ```
+
+Inside the process, `GC.stats` reports the heap the garbage collector manages:
+
+```crystal
+stats = GC.stats
+puts "heap: #{stats.heap_size} bytes, free: #{stats.free_bytes} bytes"
+```
+
+`crystal run --stats` and `crystal build --stats` report statistics of the compiler (time and memory per
+compile stage), not the memory your application uses.
 
 ## Getting Help
 
@@ -561,4 +568,4 @@ When reporting issues, include:
 
 ---
 
-**Still need help?** Check the [Contributing Guide](contributing/setup.md) for information on getting support from the community.
+**Still need help?** Open an issue at [github.com/azutoolkit/azu/issues](https://github.com/azutoolkit/azu/issues).

@@ -189,7 +189,7 @@ struct CreateOrderRequest
 end
 ```
 
-Invalid requests are rejected before reaching your endpoint: the router answers `422` with the failing fields
+Invalid requests never reach `call`: the endpoint answers `422` itself, with the failing fields
 (see [Handle Validation Errors](../../how-to/validation/handle-validation-errors.md)).
 
 ### 3. Type Safety

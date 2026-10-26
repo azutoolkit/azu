@@ -1,7 +1,7 @@
 # Code standards
 
-The conventions used in the Azu source. They are enforced by `crystal tool format`, Ameba (`.ameba.yml`) and
-review; when in doubt, follow the file you are editing.
+The conventions used in the Azu source. CI enforces `crystal tool format`; run `ameba` locally (it reads
+`.ameba.yml`, and no CI workflow runs it); review checks the rest. When in doubt, follow the file you are editing.
 
 ## Style
 
@@ -113,8 +113,8 @@ end
 - Guard shared mutable state with `Mutex#synchronize`; the cache stores and the helper registry do.
 - Avoid global mutable state. `Azu::App` carries configuration and routes as values; prefer passing an app to
   reaching for `Azu::App.default`.
-- Fibers share the process: a handler or endpoint that stores per-request data in an ivar races with other
-  requests.
+- Fibers share the process: a handler that stores per-request data in an ivar races with other requests.
+  Endpoints do not: every request runs on its own copy of the endpoint.
 
 ## SQL and secrets
 

@@ -401,10 +401,13 @@ Overloads are:
    end
    ```
 
-4. **Leverage union types for flexibility**
+4. **Use union types sparingly; prefer one explicit type**
+
+   Convert input to one type where it enters (a request contract does this for its fields) instead of accepting
+   several types everywhere:
+
    ```text
-   def find(id : Int64 | String)
-     # Accept either type
+   def find(id : Int64)  # rather than id : Int64 | String
    end
    ```
 

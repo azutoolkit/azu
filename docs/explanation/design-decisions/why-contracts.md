@@ -134,7 +134,7 @@ struct CreateOrderRequest
   end
 
   # Validation right here with the fields
-  validate items, presence: true, size: 0..100, message: "must have between 1 and 100 items"
+  validate items, presence: true, size: 1..100, message: "must have between 1 and 100 items"
   validate shipping_address, presence: true
   validate payment_method, in: %w(card paypal)
 end
@@ -300,9 +300,11 @@ A contract needs no server to test: construct it and ask `valid?` and `errors`.
 
 ## Code Generation
 
-Because the shape of the input and output is declared in types, tooling can read it. The Azu CLI exports an OpenAPI
-specification from the contracts of a project with `azu openapi:export`, and can generate code from a specification
-with `azu openapi:generate`.
+Because the shape of the input and output is declared in types, tooling can read it. Azu itself builds an OpenAPI 3.1
+document from the `Endpoint(Request, Response)` contracts of an app with `Azu::OpenAPI.document`, and
+`Azu::OpenAPI::Handler` serves it (see [OpenAPI](../../reference/api/openapi.md)). The Azu CLI exports a
+specification from a project with `azu openapi:export`, and can generate code from a specification with
+`azu openapi:generate`.
 
 ## Comparison
 

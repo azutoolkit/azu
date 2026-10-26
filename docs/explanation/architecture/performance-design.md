@@ -36,11 +36,11 @@ parameters are therefore cached per distinct path, not per route.
   never reads the request. Two exceptions read params on first use: an endpoint declared with the bare
   `Azu::Request` module, which has no contract, and a contract with no fields, no rules and no methods of its
   own, for a request without a `Content-Type`.
-- **Endpoints are copied per call.** The router holds one endpoint value per route; a `struct` endpoint is copied for
-  every request, so the instance variables `call` sets (the context, the params) belong to that request. A `class`
-  endpoint is one object shared by all concurrent requests, and its params and context are overwritten by the next
-  request that arrives while the first one waits. Three simultaneous requests to a class endpoint that slept in
-  `call` all saw the params of the last one. Declare endpoints as `struct`s.
+- **Endpoints are copied per call.** The router holds one endpoint value per route and every request runs on a copy
+  of it, so the instance variables `call` sets (the context, the params) belong to that request: a `struct`
+  endpoint is copied by value, a `class` endpoint is copied with `dup`. Three simultaneous requests to a class
+  endpoint that sleeps in `call` each see their own params. The `dup` of a class is one heap allocation per
+  request (48 bytes for an endpoint with no instance variables of its own) that the copy of a struct does not make.
 - **Handlers are created once.** The handler array is built at startup and every request goes through the same
   instances, so handler state is shared by all requests (use `Atomic` or `Mutex`).
 
@@ -233,7 +233,8 @@ perf report
 
 ## Practical Rules
 
-1. **Declare endpoints as `struct`s** (see above).
+1. **Declare endpoints as `struct`s**: a `class` endpoint is as safe, but its per-request copy is a heap allocation
+   (see above).
 2. **Paginate and limit** what an endpoint reads; the work of an endpoint is usually its database access, which the
    dashboard's database tab shows per request.
 3. **Cache rendered or computed values** with `Azu.cache.fetch`, and give every entry a TTL.

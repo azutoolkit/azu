@@ -408,13 +408,9 @@ Why structs?
 - Nothing to inherit: an endpoint is a small, flat unit
 - Request state lives in the call, not in fields you add
 
-Use class only if you need:
-- Inheritance
-- Reference semantics
-- Instance-level state (rare)
-
-One instance of an endpoint serves every request to its route, so do not keep per-request data in your own
-instance variables.
+Use a class only if you need inheritance. A class endpoint is as safe as a struct: the router holds one instance
+per route and runs every request on a copy of it (a struct is copied, a class is `dup`ed), so the instance variables
+set while serving a request belong to that request and do not carry over to the next one.
 
 ## Error Handling
 
