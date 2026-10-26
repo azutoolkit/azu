@@ -157,9 +157,34 @@ module Azu
       end
     end
 
-    def initialize(@path : Array(String), @error_path : String, hot_reload : Bool? = nil, @compile_ignore : Array(String) = [] of String)
+    # File extensions (also as the inner extension of `x.json.jinja`) of formats that are not HTML and are not
+    # escaped: HTML escaping would corrupt them, and they need their own encoding (`| tojson` for JSON and
+    # JavaScript). `xml`, `rss`, `atom`, `svg`, `html` and `htm` stay escaped. A single block opts out inside a
+    # template: `{% autoescape false %}...{% endautoescape %}`.
+    PLAIN_TEXT_EXTENSIONS = %w(txt text json js mjs css csv md markdown yml yaml sql sh)
+
+    # The autoescape rule of the environment. Crinja decides per template from the file name, and only knows
+    # `html`, `htm` and `xml`; a `.jinja` or `.j2` name (the framework's own default, see `Renderable#page_path`)
+    # has no inner extension and would not be escaped. With `enabled` everything is escaped but plain text
+    # (`.txt`, `.text`, `x.txt.jinja`), string templates included; `| safe` is the opt-out for a value.
+    def self.autoescape_rule(enabled : Bool) : Crinja::Config::Autoescape
+      return Crinja::Config::Autoescape.new unless enabled
+      Crinja::Config::Autoescape.new(disabled_extensions: PLAIN_TEXT_EXTENSIONS, default_for_string: true, default: true)
+    end
+
+    def initialize(@path : Array(String), @error_path : String, hot_reload : Bool? = nil, @compile_ignore : Array(String) = [] of String, autoescape : Bool = true)
       @hot_reload_enabled = hot_reload.nil? ? development_environment? : hot_reload
+      self.autoescape = autoescape
       initialize_loader
+    end
+
+    # Whether `.jinja`, `.j2` and string templates are autoescaped like `.html` (default). Decided at render time,
+    # so it applies to compiled templates too.
+    getter? autoescape : Bool = true
+
+    def autoescape=(enabled : Bool)
+      @autoescape = enabled
+      crinja.config.autoescape = Templates.autoescape_rule(enabled)
     end
 
     def path=(path : String)

@@ -31,4 +31,23 @@ describe Azu::LogText do
     dump.should contain "page=2"
     dump.should_not contain "\u2028"
   end
+
+  # The server splits the request line on spaces only, so the method can carry control characters
+  it "escapes the method like the path" do
+    Azu::LogText.client_error_line("GET\r\nforged", "/", 404, "Not Found").should_not contain "\n"
+
+    request = begin
+      HTTP::Request.new("GET\e[2Jforged", "/")
+    rescue ArgumentError # newer Crystal versions refuse such a method while parsing: no handler ever logs it there
+      nil
+    end
+    if request
+      backend = Log::MemoryBackend.new
+      handler = Azu::Handler::Logger.new(Log.new("spec", backend, Log::Severity::Debug))
+      handler.next = ->(_c : HTTP::Server::Context) { }
+      handler.call(HTTP::Server::Context.new(request, HTTP::Server::Response.new(IO::Memory.new)))
+
+      backend.entries.map(&.message).join.should_not contain "\e[2J"
+    end
+  end
 end

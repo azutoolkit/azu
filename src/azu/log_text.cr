@@ -61,7 +61,7 @@ module Azu
     end
 
     def self.client_error_line(method : String, path : String, status : Int32, title : String, detail : String? = nil) : String
-      line = "#{method} #{safe(path, REASON_LENGTH)} -> #{status} #{title}"
+      line = "#{safe(method, REASON_LENGTH)} #{safe(path, REASON_LENGTH)} -> #{status} #{title}"
       detail && !detail.empty? && detail != title ? "#{line}: #{safe(detail, REASON_LENGTH)}" : line
     end
   end

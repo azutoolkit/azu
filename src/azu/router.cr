@@ -215,8 +215,8 @@ module Azu
 
     def process(context : HTTP::Server::Context)
       method_override(context)
-      result = @radix.find path(context)
-      return not_found(context).to_s(context) unless result.found?
+      result = path(context).try { |key| @radix.find key }
+      return not_found(context).to_s(context) unless result && result.found?
       context.request.path_params = result.params
       route = result.payload
 
@@ -282,12 +282,16 @@ module Azu
       end
     end
 
-    # Optimized path building with caching and efficient string operations
-    private def path(context) : String
+    # Optimized path building with caching and efficient string operations. Nil when the request cannot name a
+    # route: the key joins method and path, so a method that is not one of the verbs exactly (`GET/admin /secret`)
+    # or a path without its leading "/" would otherwise reach a route other than the one `request.method` and
+    # `request.path` show to middleware. A WebSocket upgrade is a GET (RFC 6455); its key has no method.
+    private def path(context) : String?
       request = context.request
       method_str = request.method
       path_str = request.path
       upgraded = upgrade?(context)
+      return unless path_str.starts_with?('/') && (upgraded ? method_str == "GET" : @method_cache.has_key?(method_str))
 
       cache_method = upgraded ? WEBSOCKET_CACHE : method_str
 
@@ -307,7 +311,7 @@ module Azu
                    else
                      # HTTP path: "/" + method + normalized_path
                      normalized_path = path_str.rstrip('/')
-                     method_lower = @method_cache[method_str]? || method_str.downcase
+                     method_lower = @method_cache[method_str]
                      String.build(capacity: 1 + method_lower.bytesize + normalized_path.bytesize) do |str|
                        str << "/"
                        str << method_lower

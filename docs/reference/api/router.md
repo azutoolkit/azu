@@ -263,6 +263,10 @@ When no route matches, the router answers `404` with an `Azu::Response::NotFound
 plain text according to the `Accept` header. The JSON body has the `Status`, `Title`, `Detail` and `Source` (the
 path) fields.
 
+A request is routed only when its method is one of the verbs spelled exactly (`GET`, `POST`, ...: methods are
+case-sensitive) and its path starts with `/`; a WebSocket route is reached only by a `GET` upgrade. Any other request
+answers `404`.
+
 ## Complete Example
 
 ```crystal

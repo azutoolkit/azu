@@ -840,6 +840,68 @@ describe Azu::Router do
       end
     end
   end
+
+  # The router keys a route by method and path together, so a request reaches a route only when each is exactly
+  # what the route was declared with: the route matched is the one `request.path` and `request.method` name (the
+  # method as the router sees it, after a POST's `_method` override).
+  describe "requests that do not name a route" do
+    router = Azu::Router.new
+    router.get "/admin/secret", VerbEndpoint.new("get")
+    router.post "/users", VerbEndpoint.new("post")
+    router.get "secret", VerbEndpoint.new("get")
+    router.ws "/chat", TestChannel
+
+    # Parses the request line (and any header lines after it) as the server does and returns the status and body the router
+    # answered with. Newer Crystal versions refuse a method that is not an HTTP token while parsing: such a request never
+    # reaches a handler, and counts as a 400 here.
+    answer = ->(request_line : String) do
+      parsed = begin
+        HTTP::Request.from_io(IO::Memory.new("#{request_line}\r\nHost: example.com\r\n\r\n"))
+      rescue ArgumentError
+        nil
+      end
+      if request = parsed.as?(HTTP::Request)
+        io = IO::Memory.new
+        response = HTTP::Server::Response.new(io)
+        router.process(HTTP::Server::Context.new(request, response))
+        response.close
+        {response.status_code, io.to_s}
+      else
+        {400, ""}
+      end
+    end
+
+    it "routes the methods and paths as declared" do
+      answer.call("GET /admin/secret HTTP/1.1")[1].should contain("handled by get")
+      answer.call("POST /users HTTP/1.1")[1].should contain("handled by post")
+    end
+
+    it "does not let a slash in the method reach another path" do
+      status, body = answer.call("GET/admin /secret HTTP/1.1")
+      {400, 404}.should contain(status)
+      body.should_not contain("handled by")
+    end
+
+    it "does not let a verb split across the method and the path reach a route" do
+      status, body = answer.call("PO st/users HTTP/1.1")
+      status.should eq 404
+      body.should_not contain("handled by")
+    end
+
+    it "does not route a path without a leading slash" do
+      status, body = answer.call("GET secret HTTP/1.1")
+      status.should eq 404
+      body.should_not contain("handled by")
+    end
+
+    it "reaches a WebSocket channel only through a GET upgrade" do
+      answer.call("POST /chat HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade")[0].should eq 404
+    end
+
+    it "treats the method as case-sensitive" do
+      answer.call("get /admin/secret HTTP/1.1")[0].should eq 404
+    end
+  end
 end
 
 # Renders the verb it was registered for, plus the title the form body carried

@@ -45,7 +45,7 @@ module Azu
         String.build do |str|
           str << addr.colorize(:green).underline
           str << " ⤑ "
-          str << req.method.colorize(:yellow)
+          str << LogText.safe(req.method, LogText::REASON_LENGTH).colorize(:yellow)
           str << entry(:Path, LogText.target(req.resource), :light_blue)
           str << entry(:Endpoint, get_endpoint_class_name(req), :magenta)
           str << status(:Status, res.status_code)
