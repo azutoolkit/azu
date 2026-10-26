@@ -32,6 +32,7 @@ module Azu
       # Raised inside the transaction to roll it back for a status, and caught right outside it: CQL logs
       # a warning for every `DB::Rollback`, which would flood the log with one line per 4xx.
       private class StatusRollback < Exception
+        include Instrumentor::IntentionalRollback # a rolled back transaction, not an error, in the dashboard
       end
 
       def call(context : HTTP::Server::Context) : Nil

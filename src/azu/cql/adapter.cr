@@ -55,6 +55,27 @@ module Azu
         "unknown" # plain EXPLAIN; the statement itself will report why the schema is unavailable
       end
 
+      def adapter_name : String?
+        schema.adapter.to_s
+      rescue
+        nil
+      end
+
+      # Which connection layer serves the schema: crystal-db's pool, CQL's native PostgreSQL engine, or another source.
+      def connection_source : String?
+        {% if ::CQL.has_constant?("ConnectionSource") %}
+          source = schema.source
+          {% if ::CQL.has_constant?("Postgres") && ::CQL::Postgres.has_constant?("EngineSource") %}
+            return "native PostgreSQL engine" if source.is_a?(::CQL::Postgres::EngineSource)
+          {% end %}
+          source.is_a?(::CQL::DatabaseSource) ? "crystal-db pool" : source.class.name
+        {% else %}
+          "crystal-db pool"
+        {% end %}
+      rescue
+        nil
+      end
+
       private def schema : ::CQL::Schema
         @schema || @mutex.synchronize { @schema ||= @provider.not_nil!.call }
       end

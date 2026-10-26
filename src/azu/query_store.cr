@@ -25,10 +25,21 @@ module Azu
     getter caller : String?
     getter transaction_id : Int64?
     getter started_ms : Int64
+    # Time the statement waited for a pooled connection (part of `duration_ms`); 0 when the ORM does not report it.
+    getter pool_wait_ms : Float64 = 0.0
+    # Free-form tag the application set for the statement (`CQL::Telemetry.with_context`).
+    getter context : String?
+    # Database adapter that ran the statement ("SQLite", "Postgres", ...).
+    getter adapter : String?
 
     def initialize(@id, @request_id, @endpoint, @method, @path, @fiber_id, @sql, @normalized_sql,
                    @operation, @table, @params, @duration_ms, @rows, @error, @caller,
-                   @transaction_id, @started_ms)
+                   @transaction_id, @started_ms, @pool_wait_ms = 0.0, @context = nil, @adapter = nil)
+    end
+
+    # True when `params` holds the bound values (`database.show_params`) instead of `?` placeholders.
+    def params_shown? : Bool
+      @params.any? { |value| value != "?" }
     end
 
     def error? : Bool
@@ -117,6 +128,14 @@ module Azu
 
   # Hooks an ORM integration provides to the dashboard.
   abstract class DatabaseAdapter
+    # Name of the database adapter ("SQLite", "Postgres", "CockroachDB", ...), for the pool card.
+    def adapter_name : String?
+    end
+
+    # Where connections come from ("crystal-db pool", "native PostgreSQL engine"), for the pool card.
+    def connection_source : String?
+    end
+
     # Runs read-only SQL (always rolled back) and returns columns and rows.
     abstract def read_only(sql : String, limit : Int32) : {Array(String), Array(Array(String?))}
 
@@ -142,6 +161,17 @@ module Azu
 
     def operation(sql : String) : String
       sql.lstrip.split(/\s+/, 2).first?.try(&.upcase) || ""
+    end
+
+    # An error message without the data values database servers quote in it: PostgreSQL's
+    # `Key (email)=(ada@example.com)` detail and `invalid input syntax for type integer: "abc"`, MySQL's
+    # `Duplicate entry 'ada@example.com' for key`. Applied to every error the dashboard shows unless
+    # `database.show_params` is on.
+    def redact_error(message : String) : String
+      message
+        .gsub(/Key \([^)]*\)=\(.*\)/, "Key (…)=(…)")
+        .gsub(/(invalid input syntax for [^:]+): ".*"/, "\\1: \"…\"")
+        .gsub(/Duplicate entry '.*' for key/, "Duplicate entry '…' for key")
     end
 
     def table(sql : String) : String?
@@ -238,14 +268,16 @@ module Azu
     def record_query(sql : String, params : Array(String), duration_ms : Float64, rows : Int64?,
                      error : String?, caller_location : String?, transaction_id : Int64?,
                      request_id : String?, endpoint : String?, method : String?, path : String?,
-                     fiber_id : UInt64) : QueryMetric
+                     fiber_id : UInt64, operation : String? = nil, pool_wait_ms : Float64 = 0.0,
+                     context : String? = nil, adapter : String? = nil) : QueryMetric
       normalized = QueryAnalysis.normalize(sql)
       metric = @@mutex.synchronize do
         @next_id += 1
         entry = QueryMetric.new(
           @next_id, request_id, endpoint, method, path, fiber_id, sql, normalized,
-          QueryAnalysis.operation(sql), QueryAnalysis.table(sql), params, duration_ms, rows, error,
-          caller_location, transaction_id, Time.utc.to_unix_ms - duration_ms.to_i64
+          operation || QueryAnalysis.operation(sql), QueryAnalysis.table(sql), params, duration_ms, rows, error,
+          caller_location, transaction_id, Time.utc.to_unix_ms - duration_ms.to_i64,
+          pool_wait_ms, context, adapter
         )
         @queries << entry
         @queries.shift if @queries.size > MAX_QUERIES

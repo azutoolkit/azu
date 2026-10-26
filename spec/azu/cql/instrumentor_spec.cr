@@ -21,6 +21,35 @@ private def build_schema
   schema
 end
 
+private class SpecRollback < Exception
+  include Azu::CQL::Instrumentor::IntentionalRollback
+end
+
+# Runs a fake statement through `CQL::Telemetry.observe`, the public path every CQL statement takes, so a spec can
+# set what a SQLite flow cannot produce (a server's error text, an operation CQL labels itself, bound values).
+private def publish_query(sql : String, params : Array(DB::Any) = [] of DB::Any, error : Exception? = nil, operation : Symbol = :select,
+                          context : String? = nil) : Nil
+  observe = -> do
+    begin
+      CQL::Telemetry.observe(CQL::Adapter::Postgres, operation, sql, params) { error ? raise(error) : nil }
+    rescue ex
+      raise ex unless ex.same?(error)
+    end
+  end
+  context ? CQL::Telemetry.with_context(context) { observe.call } : observe.call
+end
+
+# A statement that waited for a pooled connection; only releases that measure the wait can report one.
+private def publish_pool_wait(sql : String, wait : Time::Span) : Bool
+  {% if ::CQL::Telemetry::QueryEvent.has_method?("pool_wait") %}
+    event = CQL::Telemetry::QueryEvent.new(sql, 0, nil, 3.milliseconds, nil, CQL::Adapter::Postgres, :select, nil, nil, wait)
+    CQL::Telemetry.publish(event)
+    true
+  {% else %}
+    false
+  {% end %}
+end
+
 describe Azu::CQL do
   store = Azu::QueryStore.instance
 
@@ -99,6 +128,188 @@ describe Azu::CQL do
     columns.should eq ["name"]
     rows.should eq [["Grace"]]
     adapter.read_only("SELECT count(*) FROM authors", 10)[1].size.should eq 1
+  end
+
+  it "records placeholders, never bound values, even when the app turned on CQL's capture_params" do
+    schema = Azu::CQL.attach(build_schema)
+    store.clear
+    ::CQL::Telemetry.capture_params = true
+    begin
+      schema.insert.into(:authors).values(name: "hunter2-secret").commit
+      schema.query.from(:authors).select(:id).where(name: "hunter2-secret").all(Int64)
+    ensure
+      ::CQL::Telemetry.capture_params = false
+    end
+
+    store.queries.size.should eq 2
+    store.queries.each do |metric|
+      metric.params.should eq ["?"]
+      metric.to_json.should_not contain "hunter2"
+    end
+  end
+
+  it "does not show a deliberate rollback as an error, but keeps the error of a failed transaction" do
+    schema = Azu::CQL.attach(build_schema)
+    store.clear
+    schema.transaction { |_tx| raise DB::Rollback.new }
+    expect_raises(Exception) { schema.transaction { |_tx| schema.exec("INSERT INTO missing_table (x) VALUES (1)") } }
+
+    failed, deliberate = store.transactions
+    deliberate.state.should eq "rolled_back"
+    deliberate.error.should be_nil
+    failed.state.should eq "rolled_back"
+    failed.error.to_s.should contain "missing_table"
+  end
+
+  it "reinstalls the transaction subscriber after only that one was removed" do
+    schema = Azu::CQL.attach(build_schema)
+    ::CQL::Telemetry.unsubscribe_transactions(Azu::CQL::Instrumentor::NAME)
+    Azu::CQL::Instrumentor.install
+    store.clear
+
+    schema.transaction { |_tx| schema.exec("INSERT INTO authors (name) VALUES ('x')") }
+
+    store.transactions.map(&.state).should eq ["committed"]
+  end
+
+  describe "bound values" do
+    after_each do
+      Azu::CONFIG.database.show_params = false
+      ::CQL::Telemetry.capture_params = false
+    end
+
+    it "shows them only when database.show_params is on in development, and has CQL capture them for it" do
+      Azu::CONFIG.database.show_params = true
+      with_azu_env(Azu::Environment::Development) do
+        Azu::CQL::Instrumentor.install
+        ::CQL::Telemetry.capture_params.should be_true
+        schema = Azu::CQL.attach(build_schema)
+        store.clear
+        schema.insert.into(:authors).values(name: "visible-name").commit
+
+        metric = store.queries.first
+        metric.params.should eq [%("visible-name")]
+        metric.params_shown?.should be_true
+
+        Azu::CQL::Instrumentor.uninstall
+        ::CQL::Telemetry.capture_params.should be_false
+      end
+    end
+
+    it "ignores show_params outside development" do
+      Azu::CONFIG.database.show_params = true
+      with_azu_env(Azu::Environment::Production) do
+        Azu::CQL::Instrumentor.install
+        ::CQL::Telemetry.capture_params.should be_false
+        ::CQL::Telemetry.capture_params = true # the app's own switch
+        schema = Azu::CQL.attach(build_schema)
+        store.clear
+        schema.insert.into(:authors).values(name: "hidden-name").commit
+
+        store.queries.first.params.should eq ["?"]
+      end
+    end
+
+    it "summarizes binary values and truncates long ones" do
+      Azu::CONFIG.database.show_params = true
+      with_azu_env(Azu::Environment::Development) do
+        Azu::CQL::Instrumentor.install
+        publish_query("INSERT INTO blobs (data, note) VALUES (?, ?)", [Bytes.new(2048), "x" * 500] of DB::Any, operation: :insert)
+
+        store.queries.first.params.first.should eq "<2048 bytes>"
+        store.queries.first.params.last.size.should be <= 202
+      end
+    end
+
+    it "keeps values out of error text unless they are shown" do
+      Azu::CQL::Instrumentor.install
+      server_error = Exception.new("duplicate key value violates unique constraint \"u\"\nDETAIL: Key (email)=(ada@example.com) already exists.")
+      publish_query("INSERT INTO users (email) VALUES ($1)", error: server_error, operation: :insert)
+      mysql_error = Exception.new("Duplicate entry 'grace@example.com' for key 'email'")
+      publish_query("INSERT INTO users (email) VALUES (?)", error: mysql_error, operation: :insert)
+
+      store.queries.each { |metric| metric.error.to_s.should_not contain "example.com" }
+      store.queries.first.error.to_s.should contain "duplicate key value violates unique constraint"
+
+      Azu::CONFIG.database.show_params = true
+      with_azu_env(Azu::Environment::Development) do
+        store.clear
+        publish_query("INSERT INTO users (email) VALUES ($1)", error: server_error, operation: :insert)
+        store.queries.first.error.to_s.should contain "ada@example.com"
+      end
+    end
+  end
+
+  it "labels statements with CQL's operation, and falls back to the SQL for raw exec" do
+    schema = Azu::CQL.attach(build_schema)
+    store.clear
+    schema.insert.into(:authors).values(name: "a").commit
+    schema.exec("INSERT INTO authors (name) VALUES ('raw')")
+    publish_query("(SELECT id FROM authors) UNION (SELECT id FROM books)")
+    publish_query("WITH moved AS (UPDATE authors SET name = 'x' RETURNING id) SELECT id FROM moved", operation: :update)
+
+    store.queries.map(&.operation).should eq ["INSERT", "INSERT", "SELECT", "UPDATE"]
+    store.queries.map(&.adapter).uniq!.should eq ["SQLite", "Postgres"]
+  end
+
+  it "records the telemetry context, the pool wait and the adapter" do
+    Azu::CQL::Instrumentor.install
+    publish_query("SELECT 1", context: "job:nightly")
+    if publish_pool_wait("SELECT 2", 12.milliseconds)
+      store.queries.last.pool_wait_ms.should eq 12.0
+    end
+    schema = Azu::CQL.attach(build_schema)
+    ::CQL::Telemetry.with_context("request:42") { schema.exec("SELECT 1") }
+
+    store.queries.first.context.should eq "job:nightly"
+    store.queries.first.pool_wait_ms.should eq 0.0
+    store.queries.last.context.should eq "request:42"
+  end
+
+  it "attributes statements to the nested transaction they ran in and back to the outer one after it" do
+    schema = Azu::CQL.attach(build_schema)
+    store.clear
+    begin
+      schema.transaction do |_tx|
+        schema.exec("INSERT INTO authors (name) VALUES ('outer')")
+        schema.transaction do |_inner|
+          schema.exec("INSERT INTO authors (name) VALUES ('inner')")
+          raise DB::Rollback.new
+        end
+        schema.exec("INSERT INTO authors (name) VALUES ('outer again')")
+      end
+    rescue ex : SQLite3::Exception
+      # CQL before 0.0.626 ran a nested transaction on a second connection, which SQLite refuses (database is locked)
+      pending!("CQL #{ex.message}: nested transactions are savepoints from 0.0.626")
+    end
+
+    outer, inner = store.transactions.sort_by(&.id)
+    outer.nested.should be_false
+    inner.nested.should be_true
+    inner.state.should eq "rolled_back"
+    outer.state.should eq "committed"
+    by_name = store.queries.to_h { |metric| {metric.sql[/VALUES \('(.*)'\)/, 1], metric.transaction_id} }
+    by_name["outer"].should eq outer.id
+    by_name["inner"].should eq inner.id
+    by_name["outer again"].should eq outer.id
+    outer.query_count.should eq 2
+    inner.query_count.should eq 1
+  end
+
+  it "does not show an exception marked as an intentional rollback as an error" do
+    Azu::CQL::Instrumentor.install
+    observer = CQL::Telemetry.begin_transaction(CQL::Adapter::SQLite, false).not_nil!
+    observer.failed(SpecRollback.new("status 404"))
+    observer.finish
+
+    store.transactions.first.state.should eq "rolled_back"
+    store.transactions.first.error.should be_nil
+  end
+
+  it "describes the connection source of the attached schema" do
+    adapter = Azu::CQL::SchemaAdapter.new(build_schema)
+    adapter.adapter_name.should eq "SQLite"
+    adapter.connection_source.should eq "crystal-db pool"
   end
 
   it "honours database.instrument = false" do

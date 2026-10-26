@@ -41,6 +41,21 @@ describe Azu::QueryAnalysis do
   end
 end
 
+describe "Azu::QueryAnalysis.redact_error" do
+  it "removes the data values database servers quote" do
+    redact = ->(message : String) { Azu::QueryAnalysis.redact_error(message) }
+    redact.call("Key (email)=(ada@example.com) already exists.").should eq "Key (…)=(…) already exists."
+    redact.call(%(invalid input syntax for type integer: "12abc")).should eq %(invalid input syntax for type integer: "…")
+    redact.call("Duplicate entry 'ada@example.com' for key 'users.email'").should eq "Duplicate entry '…' for key 'users.email'"
+  end
+
+  it "leaves messages without values alone" do
+    ["no such table: users", "UNIQUE constraint failed: users.email", "relation \"users\" does not exist"].each do |message|
+      Azu::QueryAnalysis.redact_error(message).should eq message
+    end
+  end
+end
+
 describe Azu::QueryStore do
   it "assigns increasing ids and filters by since" do
     store = Azu::QueryStore.new
@@ -115,6 +130,30 @@ describe Azu::QueryStore do
     store.clear
     store.queries.should be_empty
     store.transactions.should be_empty
+  end
+end
+
+describe Azu::QueryMetric do
+  it "keeps the new fields optional when recording and when reading older JSON" do
+    store = Azu::QueryStore.new
+    plain = store.record_query("SELECT 1", ["?"], 1.0, nil, nil, nil, nil, nil, nil, nil, nil, 1_u64)
+    plain.pool_wait_ms.should eq 0.0
+    plain.context.should be_nil
+    plain.operation.should eq "SELECT"
+
+    full = store.record_query("(SELECT 1)", [] of String, 1.0, nil, nil, nil, nil, nil, nil, nil, nil, 1_u64,
+      operation: "SELECT", pool_wait_ms: 7.5, context: "job:x", adapter: "Postgres")
+    full.operation.should eq "SELECT"
+    full.pool_wait_ms.should eq 7.5
+
+    old = JSON.parse(plain.to_json).as_h.reject("pool_wait_ms", "context", "adapter").to_json
+    Azu::QueryMetric.from_json(old).pool_wait_ms.should eq 0.0
+  end
+
+  it "tells shown values from placeholders" do
+    store = Azu::QueryStore.new
+    store.record_query("SELECT 1", ["?", "?"], 1.0, nil, nil, nil, nil, nil, nil, nil, nil, 1_u64).params_shown?.should be_false
+    store.record_query("SELECT 1", %w(1 "a"), 1.0, nil, nil, nil, nil, nil, nil, nil, nil, 1_u64).params_shown?.should be_true
   end
 end
 

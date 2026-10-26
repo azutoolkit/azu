@@ -52,10 +52,13 @@ module Azu
             td do
               badge query_status(query.duration_ms), Format.ms(query.duration_ms)
               badge Status::Bad, "Error" if query.error?
+              paragraph "waited #{Format.ms(query.pool_wait_ms)} for a connection", class: "azd-muted" if query.pool_wait_ms >= DatabaseData::POOL_WAIT_NOTICE_MS
             end
             td class: "azd-mono azd-wrap" do
               text query.sql
               copy_button "SQL", query.sql
+              paragraph "params: #{query.params.join(", ")}", class: "azd-muted" if query.params_shown?
+              paragraph "tag: #{query.context}", class: "azd-muted" if query.context
               paragraph query.error.to_s, class: "azd-muted" if query.error?
             end
             td query.rows.try(&.to_s) || "-"
@@ -78,7 +81,10 @@ module Azu
                 transactions.each do |transaction|
                   tr data_filter: nil do
                     td "##{transaction.id}#{" (nested)" if transaction.nested}"
-                    td { badge transaction_status(transaction.state), transaction.state.tr("_", " ") }
+                    td do
+                      badge transaction_status(transaction.state), transaction.state.tr("_", " ")
+                      paragraph transaction.error.to_s, class: "azd-muted" if transaction.error
+                    end
                     td transaction.query_count.to_s
                     td transaction.state == "open" ? "running" : Format.ms(transaction.duration_ms)
                     td transaction.endpoint || transaction.request_id || "-"
@@ -108,11 +114,22 @@ module Azu
                 fact "Open", pool.open.to_s
                 fact "Idle", pool.idle.to_s
                 fact "Limit", pool.max > 0 ? pool.max.to_s : "unbounded"
+                fact "Pool waits", pool_waits_text
+                provider.database_adapter_name.try { |name| fact "Database", name }
+                provider.database_connection_source.try { |source| fact "Connections", source }
               end
+              paragraph "No connection is open yet; the pool connects on the first query.", class: "azd-muted" if pool.open == 0
             else
               empty_state "No pool information", "Define the schema with Azu::CQL.schema, or attach it with Azu::CQL.attach, to see pool usage.", "database"
             end
           end
+        end
+
+        # "none" or how many statements waited for a connection and the longest wait: a pool that is too small.
+        private def pool_waits_text : String
+          db = provider.database_stats
+          return "none" if db.pool_waits == 0
+          "#{db.pool_waits} statements, longest #{Format.ms(db.max_pool_wait_ms)}"
         end
 
         # Read-only SELECT / EXPLAIN against the app database; `dashboard.js` posts to `<dashboard>/sql`.
@@ -137,7 +154,8 @@ module Azu
         private def render_database_kpis(db : DatabaseData::DatabaseStats) : Nil
           div class: "azd-grid azd-kpis" do
             kpi "Queries", "database" do
-              kpi_value Format.number(db.queries), caption: "#{db.patterns} unique patterns, avg #{Format.ms(db.avg_ms)}"
+              failed = db.errors > 0 ? ", #{db.errors} failed" : ""
+              kpi_value Format.number(db.queries), caption: "#{db.patterns} unique patterns, avg #{Format.ms(db.avg_ms)}#{failed}"
             end
             slow = zero_is_good(db.slow, Status::Warn)
             kpi "Slow queries", "clock", slow, slow.good? ? "Clear" : "Slow" do
@@ -173,8 +191,11 @@ module Azu
             div class: "azd-query-meta" do
               badge Status.latency(query.ms), Format.ms(query.ms)
               span "#{query.rows} rows", class: "azd-muted"
+              span "waited #{Format.ms(query.pool_wait_ms)} for a connection", class: "azd-muted" if query.pool_wait_ms >= DatabaseData::POOL_WAIT_NOTICE_MS
               time Format.clock(query.at), datetime: query.at.to_rfc3339, class: "azd-muted"
             end
+            paragraph [query.request, query.caller].compact.join(" at "), class: "azd-muted azd-mono" if query.request || query.caller
+            paragraph query.error.to_s, class: "azd-muted" if query.error
             code_block query.sql, "SQL"
           end
         end

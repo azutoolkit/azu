@@ -6,12 +6,45 @@ connection pool usage and a read-only SQL playground. The dashboard itself comes
 
 The tab is fed through CQL's event framework only: `Azu::CQL::Instrumentor` subscribes to `CQL::Telemetry`
 (one query event per statement, one transaction event per begin/commit/rollback) and records them in
-`Azu::QueryStore`. Azu does not wrap or patch CQL, and anything that emits those events shows up. It needs CQL
-0.0.609 or newer (Azu's `shard.yml` requires it; the code checks for `CQL::Telemetry.subscribe_transactions` and `CQL::Schema#pool_stats`, which releases after 0.0.533 have, and older ones fail
-to compile with a message saying so). Telemetry reports affected rows for writes only, so SELECT row counts show "-",
-and parameter values only appear when you turn on `CQL::Telemetry.capture_params` (otherwise `?` placeholders). Without `azu/cql` the tab falls back to CQL's own performance monitor (when `cql`
-is required before `azu`), or shows an "n/a" card that explains how to install the event bridge. Once `azu/cql` is
-installed, the statements recorded in `Azu::QueryStore` take precedence.
+`Azu::QueryStore`. Azu does not wrap or patch CQL, and anything that emits those events shows up. Without `azu/cql` the tab
+falls back to CQL's own performance monitor (when `cql` is required before `azu`), or shows an "n/a" card that explains how
+to install the event bridge. Once `azu/cql` is installed, the statements recorded in `Azu::QueryStore` take precedence.
+
+## CQL versions
+
+Azu's `shard.yml` asks for CQL 0.0.609 or newer, the first release with `CQL::ConnectionSource` and
+`CQL::Postgres::EngineSource`. The compile-time guard in `azu/cql` is looser: it needs `CQL::Telemetry.subscribe_transactions`
+and `CQL::Schema#pool_stats`, which first shipped in 0.0.541, and an older release fails to compile with a message saying so.
+What the dashboard uses of CQL's telemetry:
+
+| CQL provides | Dashboard shows | Since |
+| --- | --- | --- |
+| `QueryEvent` `sql`, `duration`, `rows_affected`, `error`, `operation`, `adapter` | timing badge, rows (writes only: a SELECT shows "-"), error, operation, database | 0.0.541 |
+| `QueryEvent#params` (only with `Telemetry.capture_params`) | `?` placeholders; the values only with `database.show_params` | 0.0.541 |
+| `QueryEvent#context` (`Telemetry.with_context("job:x")`) | a `tag:` line under the SQL | 0.0.541 |
+| `QueryEvent#pool_wait` | "waited N ms for a connection" on slow statements, a "Pool waits" fact on the pool card | 0.0.798 |
+| `TransactionEvent` Begin, Commit, Rollback with `id`, `duration`, `nested`, `error` | the Transactions card; statements inside are counted per transaction | 0.0.541 |
+| `Schema#pool_stats` (`open`, `idle`, `in_flight`, `max`) | the pool meter and counters | 0.0.541 |
+| `Schema#source` (`DatabaseSource`, `Postgres::EngineSource`) | "Connections" on the pool card | 0.0.609 |
+| A nested `schema.transaction` is a SAVEPOINT on the outer connection | statements of the inner block are attributed to it; "(nested)" in the card | 0.0.626 |
+
+The subscribers are synchronous on purpose: an `async: true` subscriber runs on another fiber, where the request, the call
+site and the open transaction are no longer visible. Slow statements are judged by `database.slow_query_ms`, not by
+`Telemetry.alert_on_slow`, so the tab and the log warning agree.
+
+## What the tab never shows
+
+Bound values often hold passwords and personal data, so the dashboard keeps them out:
+
+* Statements show `?` placeholders even when your app turned on `CQL::Telemetry.capture_params` for its own tracing.
+* Error text loses the data values servers quote in it: PostgreSQL's `Key (email)=(...)` and `invalid input syntax for type integer: "..."`,
+  MySQL's `Duplicate entry '...' for key`.
+* The opt-in is `database.show_params` (`AZU_DB_SHOW_PARAMS=true`), honoured in development only. It shows the values (long
+  ones cut at 200 characters, binary as `<n bytes>`), keeps the server's error text, and turns on `CQL::Telemetry.capture_params`
+  for the whole process while the instrumentor is installed.
+* SQL you write by hand is shown as written: bind values (`where(name: x)`) instead of interpolating them.
+* A rollback on purpose (`DB::Rollback`, or an exception that includes `Azu::CQL::Instrumentor::IntentionalRollback`, which is
+  what `Azu::CQL::Middleware` raises for a 4xx) is shown as "rolled back" without an error.
 
 Azu core does not depend on CQL. The integration is opt-in and lives in one initializer of your app,
 which configures CQL with its own `configure` and attaches the dashboard:
@@ -124,7 +157,7 @@ CQL's types are also reachable under the Azu namespace (`Azu::CQL::Schema`,
 | `CQL::Telemetry` | cql `src/telemetry.cr` | query and transaction events; zero cost without subscribers |
 | `Azu::CQL::Instrumentor` | `src/azu/cql/instrumentor.cr` | subscribes (as `azu.dashboard`) and records the events in `Azu::QueryStore` |
 | `Azu::RequestContext` | `src/azu/request_context.cr` | fiber-keyed current request (id, endpoint, method, path); set by `Handler::RequestId` and `Endpoint#call` |
-| `Azu::QueryStore` | `src/azu/query_store.cr` | bounded store (2000 queries), N+1 analysis, transactions, pool snapshot |
+| `Azu::QueryStore` | `src/azu/query_store.cr` | bounded store (2000 queries), N+1 analysis, transactions, pool snapshot, error redaction |
 | `Dashboard::DatabaseData` | `src/azu/dev/dev_dashboard/database_data.cr` | numbers for the tab: from `QueryStore` when an integration is installed, else from CQL's monitor |
 | `Dashboard::DatabaseSection` | `src/azu/dev/dev_dashboard/database_section.cr` | server-rendered cards (queries, transactions, pool, playground) |
 | `dashboard.js` | `src/azu/dev/dev_dashboard/dashboard.js` | the playground's `fetch`; the tab itself refreshes with the dashboard's soft refresh |
@@ -146,6 +179,7 @@ module MyApp
     c.database.instrument = true          # AZU_DB_INSTRUMENT
     c.database.n_plus_one_threshold = 3   # AZU_DB_N_PLUS_ONE_THRESHOLD
     c.database.slow_query_ms = 50.0       # AZU_DB_SLOW_QUERY_MS (flagged in the tab and logged as a warning; 0 disables the log)
+    c.database.show_params = false        # AZU_DB_SHOW_PARAMS: show bound values (development only, see "What the tab never shows")
     c.database.playground = true          # AZU_DB_PLAYGROUND
   end
 end
@@ -154,7 +188,7 @@ end
 ## N+1 detection
 
 Within one request, a `SELECT` whose normalized shape (literals and bindings replaced by `?`, `IN` lists collapsed)
-runs at least `n_plus_one_threshold` times is reported with its count, total time, call site and an eager-load hint.
+runs at least `n_plus_one_threshold` times is reported (a statement counts as a `SELECT` by CQL's own `operation` label, so a CTE or a `UNION` built with CQL counts too; raw `schema.exec` is classified by its first keyword) with its count, total time, call site and an eager-load hint.
 
 ## SQL playground
 

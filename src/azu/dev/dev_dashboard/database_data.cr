@@ -10,15 +10,20 @@ module Azu
       module DatabaseData
         record DatabaseStats, active : Bool, queries : Int64, patterns : Int32,
           avg_ms : Float64, min_ms : Float64, max_ms : Float64,
-          slow : Int32, very_slow : Int32, n_plus_one : Int32, critical : Int32, high : Int32 do
-          # 100 minus penalties for slow queries, N+1 patterns and a high average latency.
+          slow : Int32, very_slow : Int32, n_plus_one : Int32, critical : Int32, high : Int32,
+          errors : Int32 = 0, pool_waits : Int32 = 0, max_pool_wait_ms : Float64 = 0.0 do
+          # 100 minus penalties for slow queries, N+1 patterns, failed statements and a high average latency.
           def health : Int32
             latency_penalty = avg_ms > 100 ? ((avg_ms - 100) / 50).to_i.clamp(0, 20) : 0
-            (100 - (slow * 2).clamp(0, 30) - (n_plus_one * 5).clamp(0, 25) - latency_penalty).clamp(0, 100)
+            (100 - (slow * 2).clamp(0, 30) - (n_plus_one * 5).clamp(0, 25) - (errors * 2).clamp(0, 20) - latency_penalty).clamp(0, 100)
           end
         end
 
-        record SlowQuery, sql : String, ms : Float64, rows : Int64, at : Time
+        # A statement that waited at least this long (ms) for a pooled connection counts as a pool wait.
+        POOL_WAIT_NOTICE_MS = 1.0
+
+        record SlowQuery, sql : String, ms : Float64, rows : Int64, at : Time,
+          request : String? = nil, caller : String? = nil, pool_wait_ms : Float64 = 0.0, error : String? = nil
         record QueryPattern, sql : String, executions : Int32, avg_ms : Float64, score : Float64
         record NPlusOneIssue, severity : String, message : String
 
@@ -85,6 +90,14 @@ module Azu
           QueryStore.instance.pool
         end
 
+        def database_adapter_name : String?
+          QueryStore.instance.adapter.try(&.adapter_name)
+        end
+
+        def database_connection_source : String?
+          QueryStore.instance.adapter.try(&.connection_source)
+        end
+
         # The SQL playground card is shown only in development with a database attached.
         def sql_playground? : Bool
           QueryStore.instance.playground_available?
@@ -124,14 +137,21 @@ module Azu
             very_slow: queries.count { |query| query.duration_ms > 500 },
             n_plus_one: alerts.size,
             critical: alerts.count { |alert| alert.count >= store_critical_threshold },
-            high: alerts.count { |alert| alert.count < store_critical_threshold })
+            high: alerts.count { |alert| alert.count < store_critical_threshold },
+            errors: queries.count(&.error?),
+            pool_waits: queries.count { |query| query.pool_wait_ms >= POOL_WAIT_NOTICE_MS },
+            max_pool_wait_ms: queries.max_of?(&.pool_wait_ms) || 0.0)
         end
 
         private def store_slow_queries(limit : Int32) : Array(SlowQuery)
           threshold = Azu.current_config.database.slow_query_ms
           store_queries.select { |query| query.duration_ms >= threshold }
             .sort_by!(&.duration_ms).reverse!.first(limit)
-            .map { |query| SlowQuery.new(query.sql, query.duration_ms, query.rows || 0_i64, Time.unix_ms(query.started_ms)) }
+            .map do |query|
+              request = [query.method, query.path].compact.join(" ").presence
+              SlowQuery.new(query.sql, query.duration_ms, query.rows || 0_i64, Time.unix_ms(query.started_ms),
+                request, query.caller, query.pool_wait_ms, query.error)
+            end
         end
 
         private def store_query_patterns(limit : Int32) : Array(QueryPattern)
