@@ -45,6 +45,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
+      CRYSTAL_CACHE_DIR: /tmp/crystal-cache
       # The Azu::CQL engine path needs a real PostgreSQL: specs fail (not pend) in CI without it.
       AZU_TEST_PG_URL: postgres://postgres:postgres@postgres:5432/azu_test
       # Specs that may be skipped in CI: none. The engine specs need cql >= 0.0.609 (shard.yml) and the service above.
@@ -90,6 +91,20 @@ jobs:
 
       - name: Install dependencies
         run: shards install
+
+      # The `run` helper behind Azu::Templates.compile builds Crinja in release mode (87 s cold, 10 s from this cache). Crystal
+      # relinks it unless every file it requires keeps its recorded modification time, so pin those times; the cache key
+      # hashes the same files and the compiler version, so any change builds a fresh helper.
+      - name: Pin the template compiler sources' times
+        run: |
+          find src/azu/template_compiler lib/crinja/src -name '*.cr' -exec touch -d '2000-01-01T00:00:00Z' {} +
+          crystal --version > .crystal-version
+
+      - name: Cache the template compiler helper
+        uses: actions/cache@v4
+        with:
+          path: /tmp/crystal-cache/*template_compiler-process.cr
+          key: template-compiler-${{ hashFiles('.crystal-version', 'src/azu/template_compiler/**', 'lib/crinja/src/**') }}
 
       - name: Build binary to test
         run: |
@@ -199,6 +214,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
+      CRYSTAL_CACHE_DIR: /tmp/crystal-cache
       # The Azu::CQL engine path needs a real PostgreSQL: specs fail (not pend) in CI without it.
       AZU_TEST_PG_URL: postgres://postgres:postgres@postgres:5432/azu_test
       # Specs that may be skipped in CI: none. The engine specs need cql >= 0.0.609 (shard.yml) and the service above.
@@ -218,6 +234,20 @@ jobs:
 
       - name: Install dependencies
         run: shards install
+
+      # The `run` helper behind Azu::Templates.compile builds Crinja in release mode (87 s cold, 10 s from this cache). Crystal
+      # relinks it unless every file it requires keeps its recorded modification time, so pin those times; the cache key
+      # hashes the same files and the compiler version, so any change builds a fresh helper.
+      - name: Pin the template compiler sources' times
+        run: |
+          find src/azu/template_compiler lib/crinja/src -name '*.cr' -exec touch -d '2000-01-01T00:00:00Z' {} +
+          crystal --version > .crystal-version
+
+      - name: Cache the template compiler helper
+        uses: actions/cache@v4
+        with:
+          path: /tmp/crystal-cache/*template_compiler-process.cr
+          key: template-compiler-${{ hashFiles('.crystal-version', 'src/azu/template_compiler/**', 'lib/crinja/src/**') }}
 
       - name: Check the example app compiles
         run: |
