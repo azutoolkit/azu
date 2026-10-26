@@ -66,7 +66,7 @@ describe Azu::Handler::CORS do
       handler.call(context)
 
       get_response_body(context, io).should eq("OK")
-      context.response.headers["Access-Control-Allow-Origin"].should eq("https://example.com")
+      context.response.headers["Access-Control-Allow-Origin"].should eq("*")
       verify.call
     end
 
@@ -250,14 +250,14 @@ describe Azu::Handler::CORS do
       star.response.headers["Vary"].should eq "*"
     end
 
-    it "varies by Origin when every origin is allowed, since the request's Origin is reflected" do
+    it "varies by Origin when every origin is allowed, since the answer is for the Origin asked" do
       handler = Azu::Handler::CORS.new(origins: ["*"])
       handler.next = create_next_handler(1)[0]
       context, _ = create_context("GET", "/test", HTTP::Headers{"Origin" => "https://example.com"})
 
       handler.call(context)
 
-      context.response.headers["Access-Control-Allow-Origin"].should eq "https://example.com"
+      context.response.headers["Access-Control-Allow-Origin"].should eq "*"
       context.response.headers["Vary"].should eq "Origin"
     end
 
@@ -400,7 +400,7 @@ describe Azu::Handler::CORS do
       verify.call
     end
 
-    it "sets Vary: Origin for wildcard origin, since the request's Origin is reflected" do
+    it "sets Vary: Origin for wildcard origin, since the answer is for the Origin asked" do
       handler = Azu::Handler::CORS.new(origins: ["*"])
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
@@ -411,7 +411,7 @@ describe Azu::Handler::CORS do
 
       handler.call(context)
 
-      context.response.headers["Access-Control-Allow-Origin"].should eq("https://example.com")
+      context.response.headers["Access-Control-Allow-Origin"].should eq("*")
       context.response.headers["Vary"].should eq("Origin")
       verify.call
     end

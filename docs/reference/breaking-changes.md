@@ -12,6 +12,16 @@ release to the current API, with old and new code side by side; every release is
 
 ## Next release
 
+**`CORS` refuses a wildcard with credentials, and sends `*` for a plain wildcard.** `CORS.new(origins: ["*"], credentials: true)`
+(and setting either option so that both hold) now raises `ArgumentError` where it used to echo every `Origin`, `null` included,
+with `Access-Control-Allow-Credentials: true`: any site could read a signed-in user's responses. List the origins (or a regex)
+when you need credentials. With `origins: ["*"]` and no credentials the response now carries the literal
+`Access-Control-Allow-Origin: *` instead of the echoed origin (it still varies by `Origin`). `Origin: null` is matched only when
+`"null"` is listed (it matched `"*"` and any permissive regex), an `Origin` that is not a plain `scheme://host[:port]` or comes
+in several headers is refused with `403`, and a preflight must ask for allowed headers only: before, one allowed header in
+`Access-Control-Request-Headers` let the others through. An app that built `CORS` with the wildcard and credentials must change
+its configuration to boot, which is why this release is a minor one.
+
 **Responses get the request variables, and CSRF values need a CSRF handler.** A response's `view` had no request: its
 template got no `csrf_token`, `current_path` or other [request variable](templates/helpers.md#request-variables), and
 reading `flash.notice` raised a `500`. `view` now takes the request from `Azu::RequestContext` while a request is served,

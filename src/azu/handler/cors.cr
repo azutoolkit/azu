@@ -25,14 +25,16 @@ module Azu
       # Previously was ["*", /./] which allowed all origins
       DEFAULT_ORIGINS = [] of (String | Regex)
 
-      property origins, headers, methods, credentials, max_age
+      property headers, methods, max_age
+      getter origins : OriginType
+      getter credentials : Bool
       @origin : Origin
 
       def initialize(
         origins : OriginType? = nil,
         @methods = ALLOW_METHODS,
         @headers = ALLOW_HEADERS,
-        @credentials = false,
+        @credentials : Bool = false,
         @max_age : Int32? = 0,
         @expose_headers : Array(String)? = nil,
         @vary : String? = nil,
@@ -43,6 +45,27 @@ module Azu
                      DEFAULT_ORIGINS
                    end
         @origin = Origin.new(@origins)
+        ensure_not_wildcard_with_credentials!(@origin, @credentials)
+      end
+
+      def origins=(origins : OriginType) : OriginType
+        origin = Origin.new(origins)
+        ensure_not_wildcard_with_credentials!(origin, @credentials)
+        @origin = origin
+        @origins = origins
+      end
+
+      def credentials=(credentials : Bool) : Bool
+        ensure_not_wildcard_with_credentials!(@origin, credentials)
+        @credentials = credentials
+      end
+
+      # Browsers ignore `Access-Control-Allow-Origin: *` on a credentialed request, and echoing the request's origin
+      # instead would let every site read the responses of a signed-in user: the combination is refused outright.
+      private def ensure_not_wildcard_with_credentials!(origin : Origin, credentials : Bool) : Nil
+        return unless credentials && origin.any?
+        raise ArgumentError.new("CORS: origins \"*\" cannot be combined with credentials: true (it would let any site read " \
+                                "credentialed responses); list the allowed origins instead")
       end
 
       def call(context : HTTP::Server::Context)
@@ -81,8 +104,14 @@ module Azu
 
       private def put_response_headers(response, request_origin : String)
         response.headers[Headers::ALLOW_CREDENTIALS] = @credentials.to_s if @credentials
-        response.headers[Headers::ALLOW_ORIGIN] = request_origin
+        response.headers[Headers::ALLOW_ORIGIN] = allow_origin_value(request_origin)
         Vary.add(response.headers, [Headers::ORIGIN] + vary)
+      end
+
+      # A literal `*` for a public wildcard (never with credentials, which the constructor refuses), the request's own
+      # origin otherwise.
+      private def allow_origin_value(request_origin : String) : String
+        @origin.any? ? "*" : request_origin
       end
 
       private def vary : Array(String)
@@ -129,9 +158,10 @@ module Azu
         request_headers = request.headers[Headers::REQUEST_HEADERS]?
         return false if request_headers.nil? || request_headers.empty?
 
-        headers.any? do |header|
-          request_headers.downcase.split(',').includes? header.downcase
-        end
+        allowed = headers.map(&.downcase)
+        requested = request_headers.split(',').map { |header| header.strip.downcase }.reject(&.empty?)
+        # Every requested header must be allowed: one allowed header must not carry the others through.
+        !requested.empty? && requested.all? { |header| allowed.includes?(header) }
       end
     end
 
@@ -142,16 +172,32 @@ module Azu
       def initialize(@origins : CORS::OriginType)
       end
 
-      def match?(request_origin : String)
-        return false if @origins.empty?
+      NULL_ORIGIN = "null"
+
+      # Exact (case-sensitive: browsers serialize the scheme and host in lower case), never by prefix or suffix. An Origin
+      # that is not `scheme://host[:port]` (a path, userinfo, a trailing slash, a comma-joined pair of Origin headers,
+      # control characters) matches nothing, whatever the regexes say. `null` (sandboxed frames, `file:`, redirects across
+      # origins) is any site's to send, so it matches only when it is listed as the string "null": not by `"*"`, not by a regex.
+      def match?(request_origin : String) : Bool
+        return false if @origins.empty? || !well_formed?(request_origin)
+        return @origins.includes?(NULL_ORIGIN) if request_origin == NULL_ORIGIN
         return true if any?
 
         @origins.any? do |origin|
           case origin
           when String then origin == request_origin
-          when Regex  then origin =~ request_origin
+          when Regex  then origin.matches?(request_origin)
           end
         end
+      end
+
+      private def well_formed?(origin : String) : Bool
+        return true if origin == NULL_ORIGIN
+
+        scheme, separator, authority = origin.partition("://")
+        return false if separator.empty? || authority.empty? || !scheme.matches?(/\A[A-Za-z][A-Za-z0-9+.\-]*\z/)
+
+        authority.each_char.all? { |char| char.ord > 0x20 && char.ord < 0x7f && !"/?#@,\\".includes?(char) }
       end
 
       def any?

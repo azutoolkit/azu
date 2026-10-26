@@ -324,7 +324,9 @@ Azu::Handler::CORS.new(
   cross-origin request.
 - `methods` - methods a preflight may ask for (default `POST PUT PATCH DELETE`).
 - `headers` - request headers a preflight may ask for (default `Accept Content-Type`).
-- `credentials : Bool` - send `Access-Control-Allow-Credentials: true`.
+- `credentials : Bool` - send `Access-Control-Allow-Credentials: true`. It cannot be combined with `"*"` in `origins`:
+  `CORS.new` (and the `origins=` / `credentials=` setters) raise `ArgumentError`, because a handler that echoed every origin
+  with credentials would let any site read a signed-in user's responses. List the origins instead.
 - `max_age : Int32?` - `Access-Control-Max-Age` of preflights.
 - `expose_headers`, `vary` - extra `Access-Control-Expose-Headers` / `Vary` content.
 
@@ -338,7 +340,21 @@ With the allowed origin `https://app.example.com`:
 | `OPTIONS` preflight asking for an allowed method and header | `200` with `Access-Control-Allow-Methods`, `-Headers`, `-Max-Age`; the endpoint does not run |
 | preflight asking for a method not in `methods` | `403` |
 
-With `origins: ["*"]` the request's origin is echoed back, so the response carries `Vary: Origin`.
+With `origins: ["*"]` (and no credentials) the response carries the literal `Access-Control-Allow-Origin: *`. `Vary: Origin`
+is sent whenever the answer depends on the request's `Origin` (always, with or without the header), so a shared cache
+keeps one entry per origin.
+
+How an `Origin` is matched:
+
+- A listed string must equal it exactly, and it is case-sensitive (browsers send the scheme and host in lower case): a
+  subdomain, another port, another scheme, a trailing slash or a path does not match.
+- A value that is not `scheme://host[:port]` matches nothing, not even a regex: a path, userinfo (`@`), whitespace or control
+  characters, a comma-joined value, and several `Origin` (or `X-Origin`) headers are all refused with `403`. `X-Origin` is only
+  read when there is no `Origin`.
+- `Origin: null` (sandboxed frames, `file:` pages, some redirects) is any page's to send, so it matches only when the string
+  `"null"` is listed in `origins`: never `"*"` and never a regex.
+- A preflight is allowed only when **every** header in `Access-Control-Request-Headers` is in `headers` (compared without
+  regard to case); one allowed header no longer carries the others. Anything refused gets no `Access-Control-*` header.
 
 {% hint style="warning" %}
 Put `CORS` before authentication handlers: a preflight carries no credentials, so an authentication handler in front
