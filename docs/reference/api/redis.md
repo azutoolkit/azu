@@ -72,8 +72,8 @@ connection settings (`url`, `pool_size`, the three timeouts, `health_check_after
 
 The URL constructors do the same for you: `PubSub::Redis.new(url)` and `Store::Redis.new(url)` acquire a client for
 the URL (a pool of 2, 5 second connect and command timeouts), so the two share a pool when they use the same URL.
-`Cache::RedisStore.new(url, pool_size, timeout, ttl, operation_timeout)` keeps its signature and uses
-`operation_timeout` as its command timeout, so with the default 2 seconds it has a pool of its own; pass the shared
+`Cache::RedisStore.new(url, pool_size, timeout, ttl, operation_timeout)` uses `operation_timeout` as its command
+timeout, so with the default 2 seconds it has a pool of its own; pass the shared
 client (`Cache::RedisStore.new(redis)` or `cache_config.redis_client = redis`) to put the cache on the same pool.
 A client you pass is yours to close; one a backend or store built from a URL is closed by its `shutdown` or `close`.
 

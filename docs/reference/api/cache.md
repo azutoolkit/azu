@@ -89,8 +89,8 @@ store = Azu::Cache::RedisStore.new(
 A failing command is logged and swallowed: `get` returns `nil`, `set` / `delete` return `false`, `increment`
 returns `nil`. Through `Azu::CONFIG` use `cache_config.store = "redis"` and `cache_config.redis_url`. If the first
 connection check fails `cache_connection_retries` times (waiting `cache_connection_retry_delay` seconds, doubling
-each time), the manager logs the failure and falls back to a disabled `NullStore` (3.0 seconds with the defaults,
-measured). Everything then behaves as a cache that never hits.
+each time, so 3 seconds of waiting with the defaults), the manager logs the failure and falls back to a disabled
+`NullStore`. Everything then behaves as a cache that never hits.
 
 ### NullStore
 
@@ -134,8 +134,8 @@ end
 ```
 
 `fetch(key, ttl = nil, &block : -> String) : String` returns the cached value, or computes it, stores it and returns
-it. Concurrent fibers asking for the same missing key wait for one computation (a lock per key); the block ran once
-for ten simultaneous callers. `get(key, ttl) { ... }` with a block is the same operation.
+it. Concurrent fibers asking for the same missing key wait for one computation (a lock per key), so the block runs
+once for all of them. `get(key, ttl) { ... }` with a block is the same operation.
 
 ### delete, exists?, clear, size
 
@@ -177,10 +177,9 @@ Azu.cache.increment("hits", 5)   # => 7
 Azu.cache.decrement("hits")      # => 6
 ```
 
-`increment(key, amount = 1, ttl = nil) : Int32?`. The amount is positional (there is no `by:`). With the
-memory store every call gives the counter a fresh TTL, so a counter that is hit more often than its TTL never
-expires (a 200 ms TTL still held the counter after 240 ms of increments every 120 ms). For rate limiting use
-`Azu::Handler::Throttle`, which does not use the cache.
+`increment(key, amount = 1, ttl = nil) : Int32?`. The amount is positional (there is no `by:`). The TTL is set
+when the counter is created; later calls do not renew it. For rate limiting use `Azu::Handler::Throttle`, which does
+not use the cache.
 
 ### stats, ping, redis_info
 

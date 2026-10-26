@@ -213,63 +213,8 @@ Every other `Response::Error` (a `404` from the router, `BadRequest`, `Authentic
 turned into a `500`, ...) answers JSON clients with the same envelope, `errors` being a list of messages (the
 `Content-Type` is `application/problem+json` for a client that names it in `Accept`, `application/json` otherwise): see [Error Types](../errors/error-types.md#error-response-format).
 
-Set `config.error_format = Azu::ErrorFormat::Legacy` to keep the pre-0.6 bodies (`FieldErrors`, `ErrorId`, ... and the
-PascalCase body of the other errors) as `application/json` for one more minor release.
-
-## Custom Response Example
-
-```crystal
-struct User
-  getter id : Int64
-  getter name : String
-  getter email : String
-  getter created_at : Time?
-
-  def initialize(@id, @name, @email, @created_at = nil)
-  end
-end
-
-struct UserResponse
-  include Azu::Response
-
-  def initialize(@user : User)
-  end
-
-  def render
-    {
-      id: @user.id,
-      name: @user.name,
-      email: @user.email,
-      created_at: @user.created_at.try(&.to_rfc3339)
-    }.to_json
-  end
-end
-
-struct UsersResponse
-  include Azu::Response
-
-  def initialize(
-    @users : Array(User),
-    @page : Int32,
-    @total : Int64
-  )
-  end
-
-  def render
-    {
-      data: @users.map { |u| serialize_user(u) },
-      meta: {
-        page: @page,
-        total: @total
-      }
-    }.to_json
-  end
-
-  private def serialize_user(user : User)
-    {id: user.id, name: user.name}
-  end
-end
-```
+With `config.error_format = Azu::ErrorFormat::Legacy` the bodies are PascalCase instead (`FieldErrors`, `ErrorId`, ...
+for a validation failure), sent as `application/json`.
 
 ## Response with Headers
 

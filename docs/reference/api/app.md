@@ -81,7 +81,7 @@ This holds for `Azu::App.default` too, so `MyApp.start` runs once per process.
 | `server(handlers = [] of HTTP::Handler)` | `HTTP::Server` | The app's chain for `handlers` in an `HTTP::Server` you drive yourself: it is not bound or started. `stop` closes the server built last |
 | `default_handlers` | `Array(HTTP::Handler)` | The default stack, new instances on every call |
 
-An app on an ephemeral port, as the specs of Azu run it:
+An app on an ephemeral port:
 
 ```crystal
 require "azu"

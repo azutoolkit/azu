@@ -54,7 +54,8 @@ process:
   without event numbers (`eid`), which isolates the cost of the dedupe and acknowledgement bookkeeping;
   events per second and p50 and p99 round-trip latency. The load is closed loop (a client sends its next
   event after the previous reply), so a stall delays the sends that would have queued behind it: the
-  `closed_loop_p99_ms` metrics are a lower bound of the tail an open-loop arrival would see.
+  `closed_loop_p99_ms` metrics are a lower bound of the tail an open-loop arrival would see. The `nagle_on`
+  metrics run the same round trip with `WEBSOCKET_TCP_NODELAY=false`.
 - *fanout*: a PubSub message delivered to M subscribed connections; the latency from publish to the diff
   arriving (paced, so messages do not queue) and the delivery rate under a burst. Lost deliveries are
   recorded.
@@ -63,34 +64,9 @@ process:
 - *micro*: `Benchmark.ips` for `Session#accept`, `Protocol.reply` and `diff` with and without `ack`, and
   `Inbound.from_json` with and without `eid`, as nanoseconds per operation.
 
-## Findings the suite made, and what became of them
-
-The first run of the suite found three slow paths. All are fixed; the numbers are same-session, interleaved
-medians on a shared box, so read the ratios only.
-
-| case | before | after |
-|---|---:|---:|
-| 2,000 unkeyed siblings, 1 changed | 306 ms | 41 ms (about 7x faster; 4x the rows costs about 5x, was 9x to 12x) |
-| 500 unkeyed siblings, 1 changed | 33 ms | 8 ms |
-| 500-input form, 1 label changed, input focused | 29 ms | 8.5 ms (focus, value and caret still kept) |
-| 1 row changed in 1,000 keyed rows | 45 ms | 27 ms |
-| swap 2 of 1,000 rows | 52 ms | 28 ms |
-| server event round trip, p50, 10 connections | 44 ms | 0.3 ms |
-
-- *Unkeyed siblings were quadratic.* `morphChildren` looked one unkeyed node ahead with
-  `slice(i + 1).filter(...)`, which read the keys of every later sibling for every sibling. It now steps an index,
-  and an element whose children are all unkeyed and of the same kinds as the new ones is morphed pair by pair
-  without any bookkeeping. Attribute comparison, the sanitiser and the layout reads before a patch no longer
-  allocate a set, a copy or a closure per node. A test counts attribute reads instead of timing
-  (`js/test/patch.test.mjs`, "cost grows linearly").
-- *Nagle.* A Spark event is answered by two small writes, and with Nagle's algorithm on the second waited for
-  the peer's delayed ACK. Upgraded sockets now get `TCP_NODELAY` (`websocket.tcp_nodelay`, on by default);
-  `nagle_on` runs the old behaviour with `WEBSOCKET_TCP_NODELAY=false`. Loopback figures; a real network
-  depends on the peer's ACK behaviour.
-
 ## The comparison arms
 
-Client numbers are compared against two baselines that need no new dependencies:
+Client numbers are compared against two baselines:
 
 | arm | what it is |
 |---|---|

@@ -123,7 +123,7 @@ escaped. `App#start` logs a warning while `template_autoescape` is off. Turn it 
 only for an app that cannot be migrated yet: `Azu::CONFIG.template_autoescape = false`, or `TEMPLATE_AUTOESCAPE=false`; any
 other value of the variable keeps it on. It applies to compiled templates too, because Crinja decides at render time.
 
-The default template path is a leftover that resolves relative to the working directory, so set `TEMPLATES_PATH`
+The default template path resolves relative to the working directory, so set `TEMPLATES_PATH`
 or add your directory (relative entries are resolved against the working directory, so run the app from its root).
 Azu's own `error.html` and `error_debug.html` are compiled into the binary and found from any working directory;
 an `error.html` in your template directories overrides them. `templates.path = "..."` **adds** a directory to the list:
@@ -140,13 +140,13 @@ the templates are **compiled**: `Azu.prepare` (which `App#start` calls) finds ev
 file below the template directories, reads and parses each once, and a request only looks the parsed template up
 by name. Nothing is read from disk per request, so an edit to a template file needs a restart. A template with a
 syntax error stops the start, with its name and line, instead of failing its first request (an app `error.html`
-that does not parse is the exception: the built-in page is used, as before). A file added after the compile is still
+that does not parse is the exception: the built-in page is used). A file added after the compile is still
 found, by the file loader. Without `Azu.prepare` the compile happens on the first render.
 
 | Environment | Templates |
 |---|---|
 | `development` | reload (modification time checked at most once a second) |
-| `test`, `pipeline` | reload, as before, so specs can write templates while running |
+| `test`, `pipeline` | reload, so specs can write templates while running |
 | `staging`, `production`, any other | compiled |
 | `build`, `integration`, `acceptance` | compiled (only `development`, `test` and `pipeline` reload) |
 | `template_hot_reload` / `TEMPLATE_HOT_RELOAD` set | wins over the environment, e.g. reload in staging |
@@ -181,7 +181,7 @@ whole at boot, with the count and time logged at debug level.
 |---|---|---|
 | `error_format` | `Azu::ErrorFormat` | `Problem` |
 
-`Problem` answers every error a JSON client receives (a failed contract, a `404` from the router, `BadRequest`, a `500`, ...) with the same RFC 7807 problem body (`Content-Type: application/problem+json` only when the request's `Accept` names it, `application/json` otherwise); `Legacy` keeps the pre-0.6 PascalCase bodies as `application/json`.
+`Problem` answers every error a JSON client receives (a failed contract, a `404` from the router, `BadRequest`, a `500`, ...) with the same RFC 7807 problem body (`Content-Type: application/problem+json` only when the request's `Accept` names it, `application/json` otherwise); `Legacy` writes PascalCase bodies (`Status`, `Title`, `Detail`, ...) as `application/json` (see [Error types](../errors/error-types.md)).
 There is no `max_request_size` or `request_timeout` option; the size of uploaded files is limited below.
 
 ## Uploads

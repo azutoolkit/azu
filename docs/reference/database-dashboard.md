@@ -7,8 +7,7 @@ connection pool usage and a read-only SQL playground. The dashboard itself comes
 The tab is fed through CQL's event framework only: `Azu::CQL::Instrumentor` subscribes to `CQL::Telemetry`
 (one query event per statement, one transaction event per begin/commit/rollback) and records them in
 `Azu::QueryStore`. Azu does not wrap or patch CQL, and anything that emits those events shows up. It needs CQL
-0.0.609 or newer (Azu's `shard.yml` requires it; the code checks for `CQL::Telemetry.subscribe_transactions` and `CQL::Schema#pool_stats`, which releases after 0.0.533 have, and older ones fail
-to compile with a message saying so). Telemetry reports affected rows for writes only, so SELECT row counts show "-",
+0.0.609 or newer, the version Azu's `shard.yml` requires. Telemetry reports affected rows for writes only, so SELECT row counts show "-",
 and parameter values only appear when you turn on `CQL::Telemetry.capture_params` (otherwise `?` placeholders). Without `azu/cql` the tab falls back to CQL's own performance monitor (when `cql`
 is required before `azu`), or shows an "n/a" card that explains how to install the event bridge. Once `azu/cql` is
 installed, the statements recorded in `Azu::QueryStore` take precedence.
@@ -50,7 +49,7 @@ end
 User.where(name: "Ada").all
 ```
 
-That is the whole setup (the three files are shown together so the example compiles on its own). Models, queries,
+That is the whole setup (three files, shown here as one block). Models, queries,
 transactions and migrations are plain CQL, and every query shows up in the dashboard tagged with the request that
 ran it. A runnable PostgreSQL example laid out like this is
 [`playground/azu_cql_postgres`](https://github.com/azutoolkit/azu/tree/master/playground/azu_cql_postgres).
@@ -69,10 +68,9 @@ ran it. A runnable PostgreSQL example laid out like this is
 * **SQLite defaults.** For a `sqlite3://` URL taken from `CQL.config`, the `c.sqlite` settings (`journal_mode` WAL,
   `foreign_keys` on, `busy_timeout` 5000, `synchronous`, `cache_size`) are appended the same way, so the schema opens
   connections the way `CQL.build_schema` does. An explicit `uri` argument is used as given.
-  **Behaviour change:** before, such a schema ran with SQLite's own defaults (foreign keys off, no busy timeout).
-  Rows or fixtures that violate a foreign key now fail with `FOREIGN KEY constraint failed`. Opt out with
+  Rows or fixtures that violate a foreign key fail with `FOREIGN KEY constraint failed`. Opt out with
   `CQL.configure { |c| c.sqlite.foreign_keys = false }` (or `busy_timeout`, `journal_mode`, ...), or per URL with
-  `?foreign_keys=0`; parameters on the URL always win. `config.sqlite` exists since CQL 0.0.533.
+  `?foreign_keys=0`; parameters on the URL always win.
 * **Lazy connection.** The schema is created without opening a socket (`initial_pool_size=0`), so the app, console and tasks boot
   without a database and the first query connects. Turn it off with `Azu.configure { |c| c.database.lazy_connect = false }`
   (`AZU_DB_LAZY=false`), per schema with `Azu::CQL.schema(:app, lazy: false)`, or with `initial_pool_size` in the URL.
@@ -80,8 +78,7 @@ ran it. A runnable PostgreSQL example laid out like this is
 * **PostgreSQL runs on CQL's native engine by default.** For `postgres://` and `postgresql://` URLs the schema is built
   on `CQL::Postgres::EngineSource` (a `CQL::Postgres::AsyncEngine` pool: fiber-safe, prepared-statement cache, binary
   results, health-checked connections), so models, queries, `Model.transaction` and migrations use it and the `pg` shard is
-  not needed. It needs a CQL release that provides `CQL::Postgres::EngineSource`; older releases keep crystal-db's pool.
-  SQLite and MySQL are unchanged; `cockroachdb://` stays on crystal-db unless you ask for `driver: :engine`.
+  not needed. SQLite and MySQL use crystal-db; `cockroachdb://` stays on crystal-db unless you ask for `driver: :engine`.
   Opt out with `Azu::CQL.schema(:app, driver: :db)` or `AZU_CQL_DRIVER=db` (crystal-db's pool and whichever driver is
   registered; with `require "pg"` that is the `pg` shard). The argument wins over the variable. Pool settings from
   `CQL.config.pool` map to the engine's URL parameters: `pool.size` or `max_pool_size` become `pool_size`, an eager connection
@@ -105,8 +102,6 @@ CQL's types are also reachable under the Azu namespace (`Azu::CQL::Schema`,
 
 ## CQL on PostgreSQL: things to know
 
-* `User.create!(...)` needs a CQL release that includes the PostgreSQL fix (cql#13, newer than 0.0.536; checked on 0.0.604).
-  Older releases insert the row and then fail looking up id 0; build records with `User.new(...)` and `save!` there.
 * Use `Model(Int64)` with `primary :id, Int64`, and `class` for models.
 * Indexes declared in `schema.table` (`index [...]`, a column's `index: true`) are created with the table.
 * `CQL::Migrator` writes the database URI into `src/schemas/app_schema.cr` while `auto_sync` is on; pass

@@ -3,7 +3,7 @@
 One response type can render itself as HTML, JSON, XML or plain text and let the request's `Accept`
 header pick. `Azu::Response::Negotiable` finds the formats a type defines, `Azu::Negotiation` chooses
 among them, and a client that accepts none of them gets a `406`. A response that does not include
-`Negotiable` is written exactly as before.
+`Negotiable` is not negotiated.
 
 ## Defining a negotiated response
 
@@ -139,9 +139,3 @@ end
 
 The document lists every media type of a negotiated response under the `200` response. The JSON one
 carries the response schema when the type is a `JSON::Serializable`; the others are described as strings.
-
-## Replaced: `Azu::ContentNegotiator`
-
-The undocumented, never wired `Azu::ContentNegotiator.content_type(context)` is removed. It copied the
-first `Accept` entry into the response `Content-Type` without checking that anything could be rendered
-in it, and nothing called it.

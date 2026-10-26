@@ -187,6 +187,3 @@ and the mounted apps. Treat it like source code you would show to a client.
 - An explicit JSON `null` for a nilable field is accepted by Azu but not advertised in the schema.
 - The routes are read when the document is built. Endpoints declared with the verb macros (`get "/path"`
   inside an endpoint) are registered on `Azu::App.default`, so pass that app.
-
-The generator in the `azu` CLI (`azu openapi:export`) reads source files with regular expressions. This
-module reads the compiler's types instead and supersedes it; the CLI is not changed here.

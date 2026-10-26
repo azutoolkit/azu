@@ -233,7 +233,7 @@ Azu::App.default.router.path_of(PathEndpoint) # => "/path"
 
 The router caches the radix lookup key of the first 1000 distinct method and path pairs. The cache has two levels
 (method, then path), and reads take no lock: a lookup is two hash reads and allocates nothing. Once 1000 entries are
-cached, new paths are no longer added (there is no eviction). `clear_path_cache` empties it:
+cached, new paths are not added (there is no eviction). `clear_path_cache` empties it:
 
 ```crystal
 Azu::App.default.router.clear_path_cache
@@ -273,90 +273,6 @@ in [Error types](../errors/error-types.md).
 A request is routed only when its method is one of the verbs spelled exactly (`GET`, `POST`, ...: methods are
 case-sensitive) and its path starts with `/`; a WebSocket route is reached only by a `GET` upgrade. Any other request
 answers `404`.
-
-## Complete Example
-
-```crystal
-struct UsersResponse
-  include Azu::Response
-
-  def render
-    "[]"
-  end
-end
-
-struct UserResponse
-  include Azu::Response
-
-  def render
-    "{}"
-  end
-end
-
-struct CreateUserRequest
-  include Azu::Request
-
-  getter name : String
-
-  def initialize(@name = "")
-  end
-
-  validate name, presence: true
-end
-
-# User CRUD endpoints
-struct UsersIndex
-  include Azu::Endpoint(Azu::Request, UsersResponse)
-
-  get "/users"
-
-  def call : UsersResponse
-    UsersResponse.new
-  end
-end
-
-struct UsersShow
-  include Azu::Endpoint(Azu::Request, UserResponse)
-
-  get "/users/:id"
-
-  def call : UserResponse
-    UserResponse.new
-  end
-end
-
-struct UsersCreate
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
-
-  post "/users"
-
-  def call : UserResponse
-    UserResponse.new
-  end
-end
-
-struct UsersDelete
-  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
-
-  delete "/users/:id"
-
-  def call : Azu::Response::Empty
-    status 204
-    Azu::Response::Empty.new
-  end
-end
-
-# Nested routes
-struct UserPosts
-  include Azu::Endpoint(Azu::Request, UsersResponse)
-
-  get "/users/:user_id/posts"
-
-  def call : UsersResponse
-    UsersResponse.new
-  end
-end
-```
 
 ## See Also
 

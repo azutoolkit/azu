@@ -197,8 +197,8 @@ is sent with every file.
 
 The types are the handler's own table (`Azu::Handler::Static::MIME_TYPES`), **the same on every host**: it never reads the
 operating system's `/etc/mime.types` and does not use the process-wide `MIME` registry. It holds Crystal's built-in
-defaults (`.css .gif .htm .html .jpg .jpeg .js .json .pdf .png .svg .txt .xml .wasm .webp`), the fonts and source maps Azu has
-always served (`.woff .woff2 .ttf .otf .sfnt .collection .map`), and these, so common assets keep working:
+defaults (`.css .gif .htm .html .jpg .jpeg .js .json .pdf .png .svg .txt .xml .wasm .webp`), fonts and source maps
+(`.woff .woff2 .ttf .otf .sfnt .collection .map`), and these:
 
 | Extension | Content-Type |
 | --- | --- |
@@ -222,8 +222,7 @@ A file with no extension is refused, with one exception for ACME HTTP-01 challen
 segment after `/.well-known` starts with a dot and the name does not end in a dot. Deeper paths (`/.well-known/a/b/c`) and
 dot names at any level (`/.well-known/.git/config`, `/.well-known/.env`, `/.well-known/.secrets.json`, even with a
 known extension) are refused, as is an extensionless file anywhere else; `/.well-known/a/b/c.json` and `/.well-known/.x.json`
-are refused too (an earlier release served them), deliberately. Only the root `/.well-known/` counts, whatever the case it
-is written in. An extensionless file there (`apple-app-site-association`, `openid-configuration`) is sent as `text/plain`:
+are refused too. Only the root `/.well-known/` counts, whatever the case it is written in. An extensionless file there (`apple-app-site-association`, `openid-configuration`) is sent as `text/plain`:
 an app that needs JSON names the file `.json` or answers from a route.
 
 Files that are compressed on the fly (when the client accepts it and the file is over 860 bytes) are the text types:
@@ -237,7 +236,7 @@ the type must be a plain `type/subtype`, and two keys that are the same after th
 Azu::Handler::Static.new("public", mime_types: {".heic" => "image/heic", "avifs" => "image/avif-sequence"})
 ```
 
-Behaviour seen by running it:
+Other behavior:
 
 - A file whose name carries a content hash (`app-3f2a9c1b.css`) is sent with
   `public, max-age=31536000, immutable`; every other file with `cache_control` (`public, no-cache` by default).
@@ -247,10 +246,8 @@ Behaviour seen by running it:
 - Text files (the extensions listed under "Which files are served") larger than 860 bytes are gzip or deflate compressed
   when the client accepts it.
 - Methods other than `GET` and `HEAD` answer `405` with `Allow` (or fall through).
-- A `public_dir` that does not exist costs no file system calls per request (one monotonic clock read). A public dir created after boot is
-  picked up within a second (the handler looks for a missing one again at most once a second); once found it is not
-  checked again. With no public directory and `fallthrough: true`, a plain path (no `%`, NUL, `//`, `/.` or trailing slash) falls
-  through before any path work and allocates nothing; any other path takes the full route (decode, refuse or redirect).
+- A `public_dir` that does not exist costs no file system calls per request: the handler looks for it again at most
+  once a second, so a directory created after boot is picked up within a second.
 - A file in `public/` shadows a route with the same path, so keep only public files there.
 
 ## Handler::Compression
@@ -283,7 +280,7 @@ Azu::Handler::CORS.new(
 - `max_age : Int32?` - `Access-Control-Max-Age` of preflights.
 - `expose_headers`, `vary` - extra `Access-Control-Expose-Headers` / `Vary` content.
 
-Observed with an allowed origin `https://app.example.com`:
+With the allowed origin `https://app.example.com`:
 
 | Request | Result |
 |---|---|
@@ -294,7 +291,7 @@ Observed with an allowed origin `https://app.example.com`:
 | preflight asking for a method not in `methods` | `403` |
 
 With `origins: ["*"]` the request's origin is echoed back, so the response carries `Vary: Origin`. Put `CORS` before authentication
-handlers: a preflight carries no credentials, and an authentication handler in front of `CORS` answered it with `401`.
+handlers: a preflight carries no credentials, so an authentication handler in front of `CORS` answers it with `401`.
 
 ## Handler::CSRF
 
@@ -384,9 +381,8 @@ with a per-process key are rejected after a restart and by every other server.
 
 `Azu::Handler::CSRF.token(context)` uses `Azu::Handler::CSRF.default`. A second instance validates those tokens
 only if it has the same secret: set `CSRF_SECRET` (or `Azu::Handler::CSRF.secret_key = ...` before building it), or put
-`Azu::Handler::CSRF.default` in the chain. Checked by running
-all four combinations: an instance with a different random key answered `403` to a valid token; the same key,
-`200`. The `Secure` flag of the cookie is only set when `X-Forwarded-Proto` is `https`.
+`Azu::Handler::CSRF.default` in the chain. An instance with a different key answers `403` to a valid token. The
+`Secure` flag of the cookie is only set when `X-Forwarded-Proto` is `https`.
 
 ## Handler::Throttle
 
@@ -408,9 +404,8 @@ All five arguments are required.
 - `blacklist` / `whitelist` - addresses that are always refused / never counted.
 
 Clients are identified by the peer address of the connection (not by headers a client controls). A blocked
-client gets `429` with `Retry-After` (seconds left) and an empty body. With `threshold: 3` the fourth request
-in the interval was refused (`429`, `Retry-After: 2` for `duration: 3`) and `stats` reported
-`{tracked_ips: 1, blocked_ips: 1}`. `reset` clears the counters. Behind a proxy every request comes from the
+client gets `429` with `Retry-After` (seconds left) and an empty body: with `threshold: 3` the fourth request in the
+interval answers `429`. `stats` returns `{tracked_ips: Int32, blocked_ips: Int32}`, and `reset` clears the counters. Behind a proxy every request comes from the
 proxy's address; the limit then applies to all clients together.
 
 ## Handler::HealthCheck

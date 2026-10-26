@@ -356,34 +356,6 @@ end
 - `size : UInt64?` - Size in bytes
 - `headers : HTTP::Headers` - File headers
 
-## Complete Example
-
-```crystal
-struct CreateUserRequest
-  include Azu::Request
-
-  getter name : String
-  getter email : String
-  getter password : String
-  getter age : Int32?
-  getter role : String
-
-  def initialize(
-    @name = "",
-    @email = "",
-    @password = "",
-    @age = nil,
-    @role = "user",
-  )
-  end
-
-  validate name, size: 2..100
-  validate email, match: /@/, message: "must be an email address"
-  validate password, size: 8..128, message: "must have at least 8 characters"
-  validate role, in: %w(user admin moderator)
-end
-```
-
 ## See Also
 
 - [Endpoint Reference](endpoint.md)

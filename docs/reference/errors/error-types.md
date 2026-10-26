@@ -127,7 +127,7 @@ raise Azu::Response::ValidationError.new("email", "is invalid")
 }
 ```
 
-With `config.error_format = Azu::ErrorFormat::Legacy` the body keeps its pre-0.6 shape (`FieldErrors`, `ErrorId`,
+With `config.error_format = Azu::ErrorFormat::Legacy` the body is PascalCase (`FieldErrors`, `ErrorId`,
 `Fingerprint`, ...).
 
 ### RateLimitError (429)
@@ -243,7 +243,7 @@ of a broken request contract uses, and it is the same for every JSON client (see
   messages there.
 - `error_id` is the value of the `X-Error-ID` response header.
 - In development `context` and `backtrace` are added. Production bodies never carry them.
-- `error_format = Legacy` keeps the pre-0.6 PascalCase body (`Status`, `Link`, `Title`, `Detail`, `Source`, `Errors`,
+- `error_format = Legacy` writes a PascalCase body (`Status`, `Link`, `Title`, `Detail`, `Source`, `Errors`,
   `ErrorId`, `Fingerprint`, `Context`, `Backtrace`, `Timestamp`) as `application/json`, for validation failures and for
   every other error.
 

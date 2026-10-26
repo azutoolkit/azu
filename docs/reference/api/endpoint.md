@@ -393,52 +393,6 @@ struct FilesEndpoint
 end
 ```
 
-## Complete Example
-
-```crystal
-struct User
-  getter id : Int64
-  getter name : String
-  getter email : String
-
-  def initialize(@id, @name, @email)
-  end
-
-  def self.find?(id : Int64) : User?
-    new(id, "Ada", "ada@example.com") if id == 1
-  end
-end
-
-struct ShowUserResponse
-  include Azu::Response
-
-  def initialize(@user : User)
-  end
-
-  def render
-    {
-      id:    @user.id,
-      name:  @user.name,
-      email: @user.email,
-    }.to_json
-  end
-end
-
-struct ShowUserEndpoint
-  include Azu::Endpoint(Azu::Request, ShowUserResponse)
-
-  get "/users/:id"
-
-  def call : ShowUserResponse
-    user_id = params["id"].to_i64
-    user = User.find?(user_id) || raise Azu::Response::NotFound.new("/users/#{user_id}")
-
-    content_type "application/json"
-    ShowUserResponse.new(user)
-  end
-end
-```
-
 ## See Also
 
 - [Request Reference](request.md)
