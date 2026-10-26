@@ -844,6 +844,13 @@ describe Azu::Handler::Static do
       end
     {% end %}
 
+    it "serves below an entry whose own name ends in a dot, as a POSIX file system allows" do
+      # Trailing dots are dropped from entry names too, or `assets.` would never match the request's `assets.`
+      with_temp_dir({"assets./app.css" => "body {}"}) do |dir|
+        static_body(falling_through_static(dir), "/assets./app.css").should eq("body {}")
+      end
+    end
+
     it "refuses a raw NUL byte in the path, with the directory present or missing" do
       with_temp_dir({"robots.txt" => "robots"}) do |dir|
         [dir, File.join(dir, "missing")].each do |public_dir|
