@@ -97,3 +97,25 @@ describe "Azu::Templates under concurrent requests" do
     end
   end
 end
+
+describe "Azu::Templates between requests" do
+  it "does not hand a macro one request defined to the next" do
+    files = {"macros.jinja" => "{% if admin %}{% macro panel(note=secret) %}[{{ note }}]{% endmacro %}{% endif %}",
+             "page.jinja"   => %({% from "macros.jinja" import panel %}{{ panel() }})}
+    TemplatesRaceSpec.with_templates(files) do
+      TemplatesRaceSpec::Page.new("page.jinja", {"admin" => "yes", "secret" => "A-SECRET"}).render.should eq "[A-SECRET]"
+
+      # This request defines no macro: the import finds none, not the previous request's (and its secret)
+      expect_raises(Crinja::Error, /Unknown import `panel`/) { TemplatesRaceSpec::Page.new("page.jinja").render }
+    end
+  end
+
+  it "keeps what an include without context sets out of later renders" do
+    files = {"set.jinja" => "{% set banner = 'leaked' %}", "page.jinja" => %({% include "set.jinja" without context %}a),
+             "later.jinja" => "b:{{ banner }}"}
+    TemplatesRaceSpec.with_templates(files) do
+      TemplatesRaceSpec::Page.new("page.jinja").render.should eq "a"
+      TemplatesRaceSpec::Page.new("later.jinja").render.should eq "b:"
+    end
+  end
+end
