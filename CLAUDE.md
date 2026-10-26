@@ -5,7 +5,7 @@
 Azu is a high-performance, type-safe web framework for Crystal that emphasizes developer productivity, compile-time safety, and real-time capabilities. It follows the "fast as C, slick as Ruby" philosophy.
 
 **Type:** Web Framework (Library)
-**Crystal Version:** 1.19.1+ (the oldest version CI tests; `shard.yml` declares the same floor)
+**Crystal Version:** 1.22.1+ (the oldest version CI tests; `shard.yml` declares the same floor)
 **License:** MIT
 
 ## Quick Reference Commands
@@ -284,7 +284,7 @@ The dev dashboard, performance monitor, profiler and reporter live in `src/azu/d
 ## CI/CD Notes
 
 - **Linter:** Ameba with max cyclomatic complexity of 10
-- **Container:** crystallang/crystal:1.19.1
+- **Container:** crystallang/crystal:1.22.1
 - **Services:** Redis required for cache tests
 - **Excluded from complexity:** dev/ (performance_monitor, performance_reporter, dev_dashboard_component), demo_reporting
 - **Releases:** every green push to master is a release: the `release` job commits the `shard.yml` version

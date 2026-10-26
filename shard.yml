@@ -2,7 +2,7 @@ name: azu
 version: 0.5.123
 authors:
   - Elias J. Perez <eliasjpr@gmail.com>
-crystal: '>= 1.19.1'
+crystal: '>= 1.22.1'
 license: MIT
 dependencies:
   radix:

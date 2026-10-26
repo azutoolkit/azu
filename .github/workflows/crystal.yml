@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     container:
-      image: crystallang/crystal:1.19.1
+      image: crystallang/crystal:1.22.1
     services:
       # Label used to access the service container
       redis:
@@ -117,7 +117,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     container:
-      image: crystallang/crystal:latest
+      image: crystallang/crystal:1.22.1
     steps:
       - uses: actions/checkout@v4
 
@@ -202,12 +202,13 @@ jobs:
         run: crystal spec $(find spec -name '*_spec.cr' | sort)
 
   # The concurrency specs only race with several threads: they run here in a -Dpreview_mt build
-  # (4 workers) on the oldest supported Crystal, where the flag is not yet deprecated.
+  # (4 workers) on the oldest supported Crystal. -Dpreview_mt is deprecated there (it warns, and the build still uses
+  # the threaded scheduler); moving to execution contexts is a separate change.
   test-mt:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     container:
-      image: crystallang/crystal:1.19.1
+      image: crystallang/crystal:1.22.1
     env:
       CRYSTAL_ENV: pipeline
       CRYSTAL_WORKERS: "4"

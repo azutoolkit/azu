@@ -37,7 +37,7 @@
 # failed runs; see --allow-errors).
 #
 # Environment: BENCH_CRYSTAL / BENCH_SHARDS name the compiler and shards commands (default crystal, shards).
-# Needs: crystal 1.19.1+, wrk, node 22+, sqlite3 CLI, libmagic (Athena), and git access for `shards install`.
+# Needs: crystal 1.22.1+, wrk, node 22+, sqlite3 CLI, libmagic (Athena), and git access for `shards install`.
 # The load generator and the apps share the machine: results are only comparable within one session.
 set -euo pipefail
 cd "$(dirname "$0")/.."
