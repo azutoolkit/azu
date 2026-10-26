@@ -82,8 +82,25 @@ describe Azu::Router::Tree do
       hostile = "/" * 8000 + "x"
 
       payload(routes, GET, hostile).should be_nil
-      # 41 offsets (164 B), not one per slash of the path (32 KB)
+      # 42 offsets (168 B), not one per slash of the path (32 KB)
       HotPath.bytes_per_call { routes.find(GET, hostile) }.should be < 256
+    end
+
+    it "allocates nothing to miss a path of more segments than any route, with glob routes as a mount adds" do
+      routes = tree({GET, "/admin"}, {GET, "/admin/*mount_path"}, {GET, "/users/:id"})
+      hostile = "/" * 8000 + "x"
+
+      payload(routes, GET, hostile).should be_nil
+      HotPath.bytes_per_call { routes.find(GET, hostile) }.should eq 0
+    end
+
+    it "reads a path of more segments than any route only as far as a glob route needs" do
+      routes = tree({GET, "/a/:x/:y"}, {GET, "/g/*rest"})
+
+      routes.find(GET, "/a/1/2").try(&.params).should eq({"x" => "1", "y" => "2"})
+      payload(routes, GET, "/a/1/2/3").should be_nil
+      payload(routes, GET, "/a/1/2/3/4").should be_nil
+      routes.find(GET, "/g/1/2/3/4/5").try(&.params).should eq({"rest" => "1/2/3/4/5"})
     end
   end
 

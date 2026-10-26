@@ -15,8 +15,10 @@ module Azu
     class Tree(T)
       private SLASH = '/'.ord.to_u8
       # How many offsets `find` keeps on the stack: a slash per segment plus the path's end, so a path of more than
-      # STACK_BOUNDS - 1 (31) segments has them on the heap.
+      # STACK_BOUNDS - 1 (31) segments has them on the heap when a route is that deep, and is cut short otherwise.
       private STACK_BOUNDS = 32
+      # The segment count of a path cut short: more than any route has, so it ends at no node and only a glob takes it
+      private DEEPER = Int32::MAX
 
       # A route `add` refuses.
       class Error < Exception
@@ -102,14 +104,14 @@ module Azu
           @entries[method.value] = entry
         end
 
-        # The route for `method` below this node, reached by the segments before `bounds[depth]`.
-        def search(path : String, bounds : Slice(Int32), depth : Int32, method : Azu::Method) : Entry(T)?
-          return entry(method) || @glob.try(&.entry(method)) if depth == bounds.size - 1
+        # The route for `method` below this node, reached by the segments before `bounds[depth]`; the path has `segments`.
+        def search(path : String, bounds : Slice(Int32), segments : Int32, depth : Int32, method : Azu::Method) : Entry(T)?
+          return entry(method) || @glob.try(&.entry(method)) if depth == segments
 
           from = bounds[depth] + 1
           segment = Bytes.new(path.to_unsafe + from, bounds[depth + 1] - from, read_only: true)
-          @static.try(&.[segment]?).try(&.search(path, bounds, depth + 1, method)) ||
-            @dynamic.try(&.search(path, bounds, depth + 1, method)) ||
+          @static.try(&.[segment]?).try(&.search(path, bounds, segments, depth + 1, method)) ||
+            @dynamic.try(&.search(path, bounds, segments, depth + 1, method)) ||
             @glob.try(&.entry(method))
         end
       end
@@ -151,8 +153,9 @@ module Azu
         return if size > 0 && bytes[0] != SLASH
 
         stack = uninitialized StaticArray(Int32, STACK_BOUNDS)
-        return unless bounds = bounds(bytes[0, size], stack.to_slice)
-        entry = @root.search(path, bounds, 0, method)
+        return unless cut = cut(bytes[0, size], stack.to_slice)
+        bounds, segments = cut
+        entry = @root.search(path, bounds, segments, 0, method)
         Match(T).new(entry, entry.params(path, bounds)) if entry
       end
 
@@ -170,27 +173,32 @@ module Azu
         @names[name] ||= name
       end
 
-      # The offset of each slash of `path`, then its size: segment `i` lies between `bounds[i]` and `bounds[i + 1]`.
-      # Nil as soon as the path has more segments than any route takes. They are kept in `stack`, unless the path has
-      # more than STACK_BOUNDS - 1 (31) segments, which only a glob or a deeper route can take.
-      private def bounds(path : Bytes, stack : Slice(Int32)) : Slice(Int32)?
+      # The offset of each slash of `path`, then its size: segment `i` lies between `bounds[i]` and `bounds[i + 1]`. With
+      # the path's segment count; nil as soon as it has more than any route and no glob route can take them. A path of
+      # more segments than the deepest route is cut after the offsets a route reads, so a long path costs no more than a
+      # short one, and its count is DEEPER. The offsets are kept in `stack` unless the deepest route has more than
+      # STACK_BOUNDS - 2 (30) segments.
+      private def cut(path : Bytes, stack : Slice(Int32)) : {Slice(Int32), Int32}?
         bounds = stack
         count = 0
         path.each_with_index do |byte, offset|
           next unless byte == SLASH
-          return if count == @deepest && !@any_glob
-          bounds = on_heap(path, stack, count) if count == stack.size - 1
+          return unless count < @deepest || @any_glob
+          if count > @deepest # the offsets any route reads are known: the rest is a glob's
+            bounds[count] = path.size
+            return {bounds[0, count + 1], DEEPER}
+          end
+          bounds = on_heap(stack, count) if count == stack.size - 1
           bounds[count] = offset
           count += 1
         end
         bounds[count] = path.size
-        bounds[0, count + 1]
+        {bounds[0, count + 1], count}
       end
 
-      # The first `count` offsets of `stack` on the heap, with room for every slash of `path` when a glob route can take
-      # them all, else for those of the deepest route.
-      private def on_heap(path : Bytes, stack : Slice(Int32), count : Int32) : Slice(Int32)
-        Slice(Int32).new((@any_glob ? path.count(SLASH) : @deepest) + 1).tap(&.copy_from(stack.to_unsafe, count))
+      # The first `count` offsets of `stack` on the heap, with room for those of the deepest route and the path's end.
+      private def on_heap(stack : Slice(Int32), count : Int32) : Slice(Int32)
+        Slice(Int32).new(@deepest + 2).tap(&.copy_from(stack.to_unsafe, count))
       end
     end
   end
