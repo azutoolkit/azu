@@ -24,6 +24,8 @@ module HotPath
   TEMPLATE_PATH = "/template"
   # The bench apps' templates (template.jinja, template.ecr). Read once, when the first render compiles them.
   TEMPLATE_DIR = File.expand_path("../apps/common", __DIR__)
+  # The same page rendered with its request (template_request.jinja, in this directory), which reads one request variable.
+  REQUEST_TEMPLATE_PATH = "/template/request"
 
   # Bytes and nanoseconds per request; `measure` takes the smallest of each over its windows, maybe from different ones.
   record Measurement, bytes : Float64, ns : Float64
@@ -86,6 +88,33 @@ module HotPath
     def call : ItemsPage
       content_type "text/html"
       ItemsPage.new
+    end
+  end
+
+  # ItemsPage rendered with the request, as an endpoint's own `view` renders: the request variables are there to read.
+  struct RequestItemsPage
+    include Azu::Response
+    include Azu::Templates::Renderable
+
+    getter context : HTTP::Server::Context
+
+    def initialize(@context : HTTP::Server::Context)
+    end
+
+    def render
+      items = Bench::ITEMS.map do |item|
+        {"id" => Crinja::Value.new(item.id), "name" => Crinja::Value.new(item.name), "price" => Crinja::Value.new(item.price)}
+      end
+      view "template_request.jinja", {"items" => items}
+    end
+  end
+
+  struct RequestTemplateEndpoint
+    include Azu::Endpoint(NoRequest, RequestItemsPage)
+
+    def call : RequestItemsPage
+      content_type "text/html"
+      RequestItemsPage.new(context)
     end
   end
 
@@ -193,9 +222,11 @@ module HotPath
     # As the bench app runs (CRYSTAL_ENV=production): templates parsed once, never reloaded, whatever CRYSTAL_ENV is here
     app.config.template_hot_reload = false
     app.config.templates.path = TEMPLATE_DIR
+    app.config.templates.path = __DIR__
     app.routes do
       get "/plaintext", PlaintextEndpoint
       get TEMPLATE_PATH, TemplateEndpoint
+      get REQUEST_TEMPLATE_PATH, RequestTemplateEndpoint
       # They mirror the bench app's router size, which shapes the cost of finding a route
       {% for i in 0...100 %}
         get "/api/v1/resource{{ i }}/:id", ResourceEndpoint

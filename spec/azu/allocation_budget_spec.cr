@@ -264,3 +264,30 @@ describe "allocation budget of a template render" do
     end
   {% end %}
 end
+
+# What rendering the same page with its request adds on the default stack: the request variables (the template reads
+# one), the CSRF token and its cookie. Calibrated like the budgets above (measured 2506).
+REQUEST_TEMPLATE_AZU_BUDGET = 2760
+
+describe "allocation budget of a template render with its request" do
+  it "answers /template/request with the page, the request variable it reads and the CSRF cookie" do
+    {HotPath::Stack::AzuMin, HotPath::Stack::Azu}.each do |stack|
+      response = HotPath.response(stack, "/template/request")
+
+      response.should start_with("HTTP/1.1 200")
+      response.should contain("Set-Cookie: csrf_token=")
+      response.should contain("<h1>Items</h1><p>GET</p><ul>")
+      response.should end_with("(140)</li></ul></body></html>")
+    end
+  end
+
+  {% if flag?(:preview_mt) %}
+    pending "keeps what the request adds to /template within its budget on the default stack"
+  {% else %}
+    it "keeps what the request adds to /template within its budget on the default stack" do
+      added = HotPath.measure(HotPath::Stack::Azu, "/template/request").bytes - HotPath.measure(HotPath::Stack::Azu, "/template").bytes
+
+      added.should be <= REQUEST_TEMPLATE_AZU_BUDGET
+    end
+  {% end %}
+end

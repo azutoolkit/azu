@@ -18,5 +18,7 @@ puts "%-8s %-24s %10s %10s" % {"stack", "scenario", "bytes/req", "ns/req"}
   {"/plaintext", HotPath::RESOURCE_PATH, HotPath::TEMPLATE_PATH}.each do |path|
     report(stack, path, HotPath.measure(stack, path))
   end
+  # The hand-written baseline has no request variables to render with
+  report(stack, HotPath::REQUEST_TEMPLATE_PATH, HotPath.measure(stack, HotPath::REQUEST_TEMPLATE_PATH)) unless stack.baseline?
   report(stack, "routing (cycling)", HotPath.measure_routing(stack))
 end
