@@ -31,8 +31,10 @@ describe Azu::RequestContext do
     it "has the form req_<unix ms>_<16 hex digits>" do
       before = Time.utc.to_unix_ms
       id = Azu::RequestContext.generate_id
+      after = Time.utc.to_unix_ms
       id.should match(/\Areq_(\d+)_[0-9a-f]{16}\z/)
       id.split('_')[1].to_i64.should be >= before
+      id.split('_')[1].to_i64.should be <= after
     end
 
     it "refuses a number of random bytes it cannot serve" do
@@ -52,8 +54,10 @@ describe Azu::RequestContext do
       suffixes.each_cons(2).count { |pair| pair[1] == pair[0] + 1 }.should eq 0
     end
 
-    it "does not repeat over 10k ids" do
-      Array.new(10_000) { Azu::RequestContext.generate_id }.uniq.size.should eq 10_000
+    it "spells every hex digit at every position of the random part" do
+      # A digit table or a nibble order gone wrong would leave a position with fewer than 16 values
+      suffixes = Array.new(10_000) { Azu::RequestContext.generate_id.split('_').last }
+      16.times { |position| suffixes.map(&.[position]).uniq.sort.join.should eq "0123456789abcdef" }
     end
 
     {% if flag?(:preview_mt) %}
