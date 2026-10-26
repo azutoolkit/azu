@@ -21,11 +21,13 @@ module Azu
       def call(context : HTTP::Server::Context)
         request = context.request
         original = request.path
+        params = request.path_params?
         request.path = original.lchop(@at).presence || "/"
         begin
           Azu.with_config(@child) { @child.router.process(context) }
         ensure
           request.path = original
+          request.path_params = params # the child's router wrote its own
         end
         context
       end

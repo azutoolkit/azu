@@ -196,6 +196,20 @@ describe Azu::App do
       fetch(main, "/admin/items/7").body.should eq %({"id" => "7"})
     end
 
+    it "leaves the request's path params as the mount found them, after the child routed it or answered 404" do
+      child = Azu::App.new
+      child.routes { get "/items/:id", PathParams }
+      main = Azu::App.new
+      main.routes { mount child, at: "/admin" }
+
+      {"/admin/items/7" => "items/7", "/admin/nope" => "nope"}.each do |path, rest|
+        context = HTTP::Server::Context.new(HTTP::Request.new("GET", path), HTTP::Server::Response.new(IO::Memory.new))
+        main.router.process(context)
+
+        context.request.path_params.should eq({"mount_path" => rest})
+      end
+    end
+
     it "rejects a mount path that is not a sub path" do
       expect_raises(ArgumentError) { Azu::App.new.routes { mount Azu::App.new, at: "/" } }
     end
