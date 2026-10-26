@@ -71,6 +71,28 @@ private struct PathParams
   end
 end
 
+# Sends the room its route named, as soon as it is connected
+private class RoomChannel < Azu::Channel
+  def on_connect
+    send context.request.path_params["room"]? || "no room in #{context.request.path_params}"
+  end
+
+  def on_message(message : String)
+  end
+
+  def on_binary(binary : Bytes)
+  end
+
+  def on_ping(message : String)
+  end
+
+  def on_pong(message : String)
+  end
+
+  def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
+  end
+end
+
 private def fetch(app : Azu::App, path : String, method : String = "GET") : Azu::Testing::Response
   Azu::Testing::Client.new(app, [] of HTTP::Handler).request(method, path)
 end
@@ -208,6 +230,17 @@ describe Azu::App do
 
         context.request.path_params.should eq({"mount_path" => rest})
       end
+    end
+
+    it "gives a channel of a mounted app its own path params when it connects" do
+      child = Azu::App.new
+      child.routes { ws "/rooms/:room", RoomChannel }
+      main = Azu::App.new
+      main.routes { mount child, at: "/chat" }
+
+      socket = Azu::Testing::Client.new(main, [] of HTTP::Handler).connect "/chat/rooms/42"
+      socket.receive.should eq "42"
+      socket.close
     end
 
     it "rejects a mount path that is not a sub path" do
