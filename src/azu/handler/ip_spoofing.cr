@@ -8,7 +8,7 @@ module Azu
     # ### Usage
     #
     # ```
-    # Azu::Throttle.new
+    # Azu::Handler::IpSpoofing.new
     # ```
     #
     class IpSpoofing

@@ -83,7 +83,7 @@ answers is waited for until `shutdown_timeout`.
 
 ## Several apps
 
-Each `Azu::App` tracks its own sockets and requests. `Azu.start` drains `Azu::App.default`; for another app call
+Each `Azu::App` tracks its own sockets and requests. `MyApp.start` drains `Azu::App.default`; for another app call
 `app.stop` (or `begin_shutdown` then `drain`) yourself. A mounted app belongs to the app that owns the server.
 
 ## Testing it

@@ -56,7 +56,7 @@ end
 `Azu::Testing::Client.new` drives `Azu::App.default`, where endpoints declared with `get "/path"`, `post "/path"`
 and friends register, through the handlers `RequestId` and `Rescuer`. `Rescuer` turns errors raised in `call` (a
 missing record, say) into the error responses clients see; a request that breaks its contract never reaches
-`call`, the endpoint answers it itself. To test with the stack `Azu.start` uses, pass `app.default_handlers` as the
+`call`, the endpoint answers it itself. To test with the stack `MyApp.start` uses without arguments, pass `app.default_handlers` as the
 second argument. `accept(:json)` sets the `Accept` header of every request the client sends.
 
 ## Test GET endpoints

@@ -356,7 +356,7 @@ end
 
 The client never opens a socket, so it does not exercise what `HTTP::Server` does itself: parsing the request
 line, keep-alive and connection handling. Keep one spec that binds the app to a free port with the handlers
-`Azu.start` uses (`app.default_handlers`) and talks to it with `HTTP::Client`:
+`MyApp.start` uses without arguments (`app.default_handlers`) and talks to it with `HTTP::Client`:
 
 {% code title="spec/integration/real_port_spec.cr" %}
 ```crystal

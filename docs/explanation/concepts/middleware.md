@@ -80,7 +80,7 @@ timing, as best effort.
 
 ## Handler chain
 
-`Azu.start` (or `MyApp.start`) takes the chain as an array, outermost handler first:
+`MyApp.start` (a module that includes `Azu`), like `Azu::App#start`, takes the chain as an array, outermost handler first:
 
 ```crystal
 module MyApp

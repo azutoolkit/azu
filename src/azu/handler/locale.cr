@@ -10,11 +10,11 @@ module Azu
     # `Helpers::I18n.locale=` while handling it, never reaches the next.
     #
     # ```
-    # Azu.start [
+    # MyApp.start [ # a module that includes Azu
     #   Azu::Handler::RequestId.new,
     #   Azu::Handler::Locale.new,
     #   Azu::Handler::Rescuer.new,
-    # ]
+    # ] of HTTP::Handler
     # ```
     class Locale
       include HTTP::Handler

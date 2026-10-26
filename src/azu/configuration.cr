@@ -211,7 +211,7 @@ module Azu
     # endpoint can have its own `format` field; rename the parameter if it also takes those values.
     property format_parameter : String? = "format"
 
-    # The middleware pipeline handed to `Azu.start`, in execution order. Recorded
+    # The middleware pipeline handed to `App#start`, in execution order. Recorded
     # for introspection only (the development dashboard draws it).
     property handlers : Array(HTTP::Handler) = [] of HTTP::Handler
 
@@ -259,7 +259,7 @@ module Azu
 
     # Starts what needs a running app: the upload temp directory and its cleanup task, plus whatever
     # `Instrumentation.on_prepare` hooks add (`azu/dev` starts the profiler and memory monitor).
-    # `Azu.start` calls this; building a configuration, and so requiring azu, starts nothing.
+    # `App#start` calls this; building a configuration, and so requiring azu, starts nothing.
     def prepare : Nil
       templates.prepare # App#prepare calls it first, before logging starts; this second call is a cheap no-op
       cache_config.validate!
@@ -371,7 +371,7 @@ module Azu
     @cleanup_started = false
     @cleanup_lock = Mutex.new
 
-    # Creates the temp directory and starts the cleanup task, once. `Azu.start` calls this, and so
+    # Creates the temp directory and starts the cleanup task, once. `App#start` calls this, and so
     # does the first upload for apps that never call `start`; nothing happens when the configuration
     # is built, so requiring azu leaves no directory or fiber behind.
     def prepare : Nil
@@ -441,7 +441,7 @@ module Azu
     # answered by two small writes, and with Nagle on the second waits for the peer's delayed ACK
     # (about 40 ms per round trip on a Linux peer). Set `WEBSOCKET_TCP_NODELAY=false` to keep the
     # operating system's default. Plain TCP sockets are set at the upgrade; a TLS listener started by
-    # `Azu.start` is built on `Azu::NoDelayTCPServer`, so every connection it accepts is set.
+    # `App#start` is built on `Azu::NoDelayTCPServer`, so every connection it accepts is set.
     property? tcp_nodelay : Bool = WebSocketConfiguration.flag("WEBSOCKET_TCP_NODELAY", true)
 
     # Reads a boolean variable: true, 1, on, yes / false, 0, off, no (any case). Anything else keeps

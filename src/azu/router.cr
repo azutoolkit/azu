@@ -5,37 +5,21 @@ require "./routable"
 require "./log_text"
 
 module Azu
-  # Defines an Azu Router
-  #
-  # The router provides a set of methods for mapping routes that dispatch to
-  # specific endpoints or handers. For example
+  # Maps a method and a path to what serves it: an endpoint, a channel or another app. Endpoints declare their
+  # routes with the verb macros (`get "/users/:id"`), which `App.default` registers; an app of your own takes
+  # them through its route builder:
   #
   # ```
-  # MyAppWeb.router do
-  #   root :web, ExampleApp::HelloWorld
-  #   ws "/hi", ExampleApp::ExampleChannel
-  #
-  #   routes :web, "/test" do
-  #     get "/hello/", ExampleApp::HelloWorld
-  #     get "/hello/:name", ExampleApp::HtmlEndpoint
-  #     get "/hello/json", ExampleApp::JsonEndpoint
+  # admin = Azu::App.new
+  # app = Azu::App.new
+  # app.routes do
+  #   get "/", HomeEndpoint
+  #   ws "/chat", ChatChannel
+  #   scope "/api" do
+  #     endpoint UsersEndpoint # the routes UsersEndpoint declared, below /api
   #   end
+  #   mount admin, at: "/admin"
   # end
-  # ```
-  #
-  # You can use most common HTTP verbs: GET, POST, PUT, PATCH, DELETE, TRACE
-  # and OPTIONS.
-  #
-  # ```
-  # endpoint = ->(env) { [200, {}, ['Hello from Hanami!']] }
-  #
-  # get     '/hello', to: endpoint
-  # post    '/hello', to: endpoint
-  # put     '/hello', to: endpoint
-  # patch   '/hello', to: endpoint
-  # delete  '/hello', to: endpoint
-  # trace   '/hello', to: endpoint
-  # options '/hello', to: endpoint
   # ```
   class Router
     private LOG = Log.for("Azu::Router")

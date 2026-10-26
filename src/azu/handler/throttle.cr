@@ -11,11 +11,15 @@ module Azu
     #
     # ### Options
     #
-    #   * **interval**   Duration in seconds until the request counter is reset. Defaults to 5
-    #   * **duration**   Duration in seconds that a remote address will be blocked. Defaults to 900 (15 minutes)
-    #   * **threshold**  Number of requests allowed. Defaults to 100
-    #   * **blacklist**  Array of remote addresses immediately considered malicious.
-    #   * **whitelist**  Array of remote addresses which bypass Deflect.
+    # All five are required:
+    #
+    #   * **interval**   Seconds until the request counter is reset
+    #   * **duration**   Seconds a remote address stays blocked
+    #   * **threshold**  Number of requests allowed per interval
+    #   * **blacklist**  Remote addresses refused at once
+    #   * **whitelist**  Remote addresses never throttled
+    #
+    # `log:` is optional: without it, the log of the app serving the request.
     #
     # ### Usage
     #

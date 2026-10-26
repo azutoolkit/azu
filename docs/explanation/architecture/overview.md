@@ -19,7 +19,7 @@ Azu is a web framework for Crystal. Its design choices:
 
 ### An app is a value
 
-An `Azu::App` bundles a `Configuration` and a `Router`. The endpoint macros, `include Azu` and `Azu.start` use the
+An `Azu::App` bundles a `Configuration` and a `Router`. The endpoint macros and the `include Azu` facade (`MyApp.start`) use the
 default app, `Azu::App.default`, which wraps the global `Azu::CONFIG`; you can build more (`Azu::App.new`) and
 `mount` one below a prefix of another, each with its own configuration. `app.server(handlers)` returns the
 `HTTP::Server` that serves it.
