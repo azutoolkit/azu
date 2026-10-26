@@ -32,6 +32,18 @@ private def static_bytes(dir : String, path : String) : Float64
   end
 end
 
+# A handler for `dir` that passes what it does not serve to a next handler answering "OK".
+private def falling_through_static(dir : String) : Azu::Handler::Static
+  Azu::Handler::Static.new(dir, fallthrough: true).tap { |handler| handler.next = create_next_handler(0)[0] }
+end
+
+# The body `handler` answers `path` with.
+private def static_body(handler : Azu::Handler::Static, path : String) : String
+  context, io = create_context("GET", path)
+  handler.call(context)
+  get_response_body(context, io)
+end
+
 describe Azu::Handler::Static do
   describe "initialization" do
     it "initializes with default public directory" do
@@ -804,11 +816,47 @@ describe Azu::Handler::Static do
           handler.call(context)
           get_response_body(context, io).should eq("OK")
 
-          clock.advance(Azu::Handler::Static::MISSING_DIRECTORY_RECHECK + 1.millisecond)
+          clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
           context, io = create_context("GET", "/late.txt")
           handler.call(context)
           get_response_body(context, io).should eq("created after boot")
           verify.call
+        end
+      end
+    end
+
+    it "reads the names again when a trusted modification time changes, and not before" do
+      with_temp_dir({"robots.txt" => "robots"}) do |dir|
+        with_fake_clock do |clock|
+          trusted = Time.utc - 1.minute # older than the trust window when the names are read
+          File.touch(dir, trusted)
+          handler = falling_through_static(dir)
+          static_body(handler, "/late.txt").should eq("OK")
+
+          File.write(File.join(dir, "late.txt"), "late")
+          File.touch(dir, trusted) # a change the modification time does not show
+          clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+          static_body(handler, "/late.txt").should eq("OK")
+
+          File.touch(dir, trusted + 1.second)
+          clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+          static_body(handler, "/late.txt").should eq("late")
+        end
+      end
+    end
+
+    it "reads the names again at each check while the modification time is too recent to trust" do
+      with_temp_dir({"robots.txt" => "robots"}) do |dir|
+        with_fake_clock do |clock|
+          recent = Time.utc # a change in the same timestamp tick would not move it
+          File.touch(dir, recent)
+          handler = falling_through_static(dir)
+          static_body(handler, "/late.txt").should eq("OK")
+
+          File.write(File.join(dir, "late.txt"), "late")
+          File.touch(dir, recent)
+          clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+          static_body(handler, "/late.txt").should eq("late")
         end
       end
     end
