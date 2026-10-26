@@ -18,7 +18,7 @@ Azu.cache.set("user:1", %({"id":1}))
 
 Things that are per process in Azu:
 
-- the memory cache (`CACHE_STORE=memory`, the default) and the router path cache;
+- the memory cache (`CACHE_STORE=memory`, the default);
 - `Azu::Handler::Throttle` counters;
 - the in-memory `Azu::PubSub` backend (see [WebSocket Scaling](#websocket-scaling));
 - the CSRF key, unless every instance is given the same one (`Azu::Handler::CSRF.new(secret_key: ENV["CSRF_SECRET"]?)`);

@@ -143,7 +143,7 @@ module Azu
         @any_glob ||= params.last?.try(&.glob) || false
       end
 
-      # Trailing slashes aside, as Router strips them from the request path.
+      # Trailing slashes are ignored, on the request path as on the route paths.
       def find(method : Azu::Method, path : String) : Match(T)?
         bytes = path.to_slice
         size = bytes.size

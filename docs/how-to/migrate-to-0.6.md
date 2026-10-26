@@ -95,6 +95,20 @@ main.routes do
 end
 ```
 
+The router finds routes in its own segment tree instead of the `radix` shard (`Router#radix` is gone). Routes that
+0.5 accepted but never matched now stop the boot:
+
+- two routes of one method whose paths differ only by a trailing slash or by their parameter names (`get "/posts/:id"`
+  and `get "/posts/:slug"`) raise `Azu::Router::DuplicateRoute` on the second: keep one name, or give the other its
+  own path (`/posts/by-slug/:slug`);
+- a route path that does not start with `/` (`get "posts"`) raises `ArgumentError`: write `get "/posts"`. A wildcard that
+  is not the last segment (`/files/*rest/meta`) raises `ArgumentError` too;
+- a route added once the app serves raises `Azu::Router::Frozen`: `App#start` freezes the router, so declare every
+  route, and call `Azu::Spark.install`, before `start`.
+
+Nested routes 0.5 could not hold now work: `get "/posts/:id"` and `get "/posts/:post_id/comments"` each match, with
+their own parameter names.
+
 ## Handlers
 
 Pass the handlers when you build the server. Without an argument you get the default stack
