@@ -235,9 +235,10 @@ describe "allocation budget" do
   {% end %}
 end
 
-# One render of benchmark/apps/common/template.jinja on the default stack, over the baseline's ECR render, calibrated
-# like the budgets above (whole-suite measurement plus ~10%, rounded up to a multiple of 8; measured 77922).
-TEMPLATE_AZU_BUDGET = 85720
+# One render of benchmark/apps/common/template.jinja, compiled as the bench app's (HotPath::COMPILED), on the default
+# stack over the baseline's ECR render, calibrated like the budgets above (whole-suite measurement plus ~10%, rounded
+# up to a multiple of 8; measured 11024 compiled, 77922 through Crinja).
+TEMPLATE_AZU_BUDGET = 12128
 
 describe "allocation budget of a template render" do
   it "answers /template with the bench app's HTML on every stack it measures" do
@@ -254,6 +255,11 @@ describe "allocation budget of a template render" do
     end
   end
 
+  it "renders the bench templates compiled, as the bench app does, none of them falling back to Crinja" do
+    HotPath::COMPILED.templates.keys.sort!.should eq ["template.jinja", "template_request.jinja"]
+    HotPath::COMPILED.fallbacks.should be_empty
+  end
+
   {% if flag?(:preview_mt) %}
     pending "keeps the default stack on /template within its budget over the baseline"
   {% else %}
@@ -264,8 +270,8 @@ describe "allocation budget of a template render" do
 end
 
 # What rendering the same page with its request adds on the default stack: the request variables (the template reads
-# one), the CSRF token and its cookie. Calibrated like the budgets above (measured 2506).
-REQUEST_TEMPLATE_AZU_BUDGET = 2760
+# one), the CSRF token and its cookie. Calibrated like the budgets above (measured 34 compiled, 2506 through Crinja).
+REQUEST_TEMPLATE_AZU_BUDGET = 40
 
 describe "allocation budget of a template render with its request" do
   it "answers /template/request with the page, the request variable it reads and the CSRF cookie" do

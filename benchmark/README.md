@@ -51,7 +51,7 @@ One program per framework in `benchmark/apps/<name>/src/app.cr`, built with `cry
 | App | Stack | Notes |
 |---|---|---|
 | `baseline` | `HTTP::Server`, a hand-written `case` on the path, ECR, crystal-sqlite3, `HTTP::WebSocketHandler` | the ceiling for this stack with no framework; its "router" is not a router |
-| `azu` | `Azu::App`, default handler stack minus the request logger (`RequestId`, `Rescuer`, `SecurityHeaders`, `Static`), Crinja, CQL on SQLite, `Azu::Channel` | the only app whose DB scenarios go through an ORM; see "How to read the Azu rows" |
+| `azu` | `Azu::App`, default handler stack minus the request logger (`RequestId`, `Rescuer`, `SecurityHeaders`, `Static`), compiled Jinja, CQL on SQLite, `Azu::Channel` | the only app whose DB scenarios go through an ORM; see "How to read the Azu rows" |
 | `kemal` 1.9.0 | default handlers, logging off, ECR, crystal-sqlite3, `ws` | |
 | `athena` 0.23.0 | default listeners, annotation routing, ECR, crystal-sqlite3 | has no WebSocket support, so `websocket` is skipped |
 | `lucky` 1.5.0 | `ErrorHandler`, `RouteHandler`, `RouteNotFoundHandler`, `HTMLPage`, crystal-sqlite3 | Avram is PostgreSQL-only, so raw SQLite; no WebSocket support |
@@ -67,10 +67,11 @@ One program per framework in `benchmark/apps/<name>/src/app.cr`, built with `cry
 - The app is written against the lower-level `Azu::App` API (routes declared with `app.routes`, the server
   built with `app.server(handlers)`), the 0.6 style of this repository at the commit in the result's `git`
   field. That API is not in a release yet; results from another commit are not comparable.
-- **The `template` scenario is Crinja against compiled ECR.** Azu parses and renders a Jinja template on each
-  request (and builds a `Crinja::Value` hash per call); the baseline, Kemal and Athena run ECR that the compiler
-  turned into straight code. The scenario measures the template systems, not the routers. A compile-time Azu
-  variant (`Azu::Component`) is not included yet.
+- **The `template` scenario is compiled Jinja against compiled ECR.** Azu renders the Jinja template through
+  `Azu::Templates.compile`: build-time generated Crystal, a template it cannot compile falling back to Crinja (the
+  bench template compiles). It still builds a `Crinja::Value` hash per call and evaluates values as Crinja does; the
+  baseline, Kemal and Athena run ECR that the compiler turned into straight code. The scenario measures the
+  template systems, not the routers.
 - The `routing` scenario requests 99,700 distinct paths (100 routes x 997 ids). Azu has no path cache since its
   segment tree replaced radix, so every request is a lookup either way.
 
@@ -109,7 +110,8 @@ skipped and said so in the result (`--require-all` turns that into a failure).
 
 ### Known confounds (read before comparing)
 
-- **Templates**: Azu renders a Crinja (Jinja) template looked up at request time; the baseline, Kemal and
+- **Templates**: Azu renders a Jinja template compiled to Crystal at build time (`Azu::Templates.compile`, falling
+  back per template to Crinja); the baseline, Kemal and
   Athena render ECR, which the compiler turns into straight code; Lucky builds the page with its HTML DSL.
   The `template` scenario compares template *systems*, not routers.
 - **Database**: Azu goes through CQL (query builder, model instances); the others call crystal-sqlite3
@@ -218,7 +220,8 @@ mkdir -p bin && crystal build --release --no-debug benchmark/micro/hot_path.cr -
 ```
 
 prints one row per stack and scenario (`/plaintext`, one parameterised URL, `/template`, the bench template rendered
-with `view` and parsed-once Crinja on the Azu stacks and with ECR on `baseline`, `/template/request`, the same page
+with `view` and compiled Jinja on the Azu stacks, as the bench app, and with ECR on `baseline`: on `azu`, 24.1 KB and
+about 20 us per request against 92.1 KB and about 65 us through Crinja; `/template/request`, the same page
 rendered with its request on the Azu stacks (it reads one request variable and sets the CSRF cookie), and
 `routing (cycling)`, the URLs of `routing.lua`, warmed with 1200 of them so that every measured path is new to the
 router): bytes and nanoseconds

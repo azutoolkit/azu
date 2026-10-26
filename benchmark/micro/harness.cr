@@ -8,7 +8,7 @@ require "../apps/common/bench"
 # checks. The routes mirror benchmark/apps/azu, except that one resource endpoint serves all 100 routes with a
 # simplified body (`{"route":"resource","id":...}`, the bench app has a struct per route); that does not change the
 # difference over the baseline. `/template` renders the bench app's template as the bench apps do: through `view` on
-# the Azu stacks, from ECR on the baseline.
+# the Azu stacks (compiled Jinja, as the bench app), from ECR on the baseline.
 module HotPath
   WARMUP_REQUESTS =  200
   WINDOW_REQUESTS = 2000
@@ -26,6 +26,12 @@ module HotPath
   TEMPLATE_DIR = File.expand_path("../apps/common", __DIR__)
   # The same page rendered with its request (template_request.jinja, in this directory), which reads one request variable.
   REQUEST_TEMPLATE_PATH = "/template/request"
+  # Both directories' templates compiled to Crystal (paths from the project root, where the harness is built), as the
+  # bench app compiles its own: one set, as a Templates holds one.
+  COMPILED = begin
+    common, micro = Azu::Templates.compile("benchmark/apps/common"), Azu::Templates.compile("benchmark/micro")
+    Azu::Templates::CompiledSet.new(common.templates.merge(micro.templates), common.fallbacks.merge(micro.fallbacks))
+  end
 
   # Bytes and nanoseconds per request; `measure` takes the smallest of each over its windows, maybe from different ones.
   record Measurement, bytes : Float64, ns : Float64
@@ -223,6 +229,7 @@ module HotPath
     app.config.template_hot_reload = false
     app.config.templates.path = TEMPLATE_DIR
     app.config.templates.path = __DIR__
+    app.config.templates.compiled = COMPILED
     # An app with CSRF protection, as the bench app: a render with its request issues the token and sets its cookie
     Azu::Handler::CSRF.default
     app.routes do
