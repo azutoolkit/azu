@@ -21,15 +21,44 @@ connections, on the decrypted request. WebSockets are exempt once upgraded. A ti
 very slow link, or a stream that waits on the client for more than 30 s, raises the matching limit; `SERVER_*` variables set them.
 A server you bind yourself (`server.bind_tcp`) is unchanged; use `Azu::ServerLimits.bind_tcp` to give it the same limits.
 
+**Multipart uploads have request-wide limits, and temp files are private and removed after the request.** `upload.max_file_size`
+bounded each file only, so a client could stream any number of files of up to 10 MB each. New `upload.max_request_size` (64 MB,
+`UPLOAD_MAX_REQUEST_SIZE`), `max_parts` (100) and `max_files` (20) are enforced while the body streams (and a `Content-Length` over
+the first is refused before reading); a request over any of them answers `413`. An app that takes more raises them. Temp
+files are created `0600`, with a random name in which the client's file name only appears reduced to `[A-Za-z0-9._-]`, and
+`Endpoint` deletes them in its `ensure`, when the request is done: **an endpoint that handed `temp_path` to a background job
+or kept it for later must copy the file first.** A second file under one field name now deletes the first's temp file.
+
+**`CORS#origins` returns a copy, and preflight responses vary by what they ask for.** `cors.origins << "https://b.test"` edited the
+live list on 0.6; the reader now returns a copy, so that does nothing (and `<< "*"` can no longer sneak the wildcard past the
+credentials check). Assign the whole list with `cors.origins = [...]`. A preflight response now carries
+`Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers`. **`Throttle`**: a request that a whitelisted or
+blacklisted trusted proxy forwards with an `X-Forwarded-For` that names no client is no longer matched against the lists (it
+used to inherit the proxy's whitelist entry and was never throttled); block and release lines are rate-limited in the log like
+the refusals. **`CSRF`**: `CSRF_MAX_FORM_SIZE` and `CSRF.new(max_form_size:)` set the urlencoded read limit.
+
+**`OPTIONS` answers with `Allow` instead of running the `GET` endpoint.** `get` registered an `OPTIONS` route to its own
+endpoint, so an `OPTIONS` request ran the `GET` action and got its body. `get` now registers `GET` and `HEAD` only, and
+the router answers an `OPTIONS` itself: `204` with `Allow` listing the methods the path routes (`GET, HEAD, POST,
+OPTIONS`), or `404` for a path that routes none. An `options` route you declare still runs, and declaring one on the
+path of a `get` no longer raises `DuplicateRoute`. CORS preflights are unchanged: `Handler::CORS` answers them first. In tests,
+`client.options(SomeGetEndpoint)` (`Azu::Testing::Client`) now raises `ArgumentError` ("is not routed for OPTIONS")
+unless the endpoint declares `options`; call `client.options("/path")` to get the `Allow` answer.
+
+## 0.7.0
+
 **`CSRF` walks a multipart body in one pass, and reads at most 1 MB of a form.** The search for `_csrf` in a multipart body
 cost more than the body's size for a body of thousands of tiny parts (seconds of CPU for a request with any cookie); it now
 looks at each byte a bounded number of times, gives up after 64 parts, and a `csrf_token` cookie that is not a token the
-`SignedDoubleSubmit` handler signed is refused before any body is read. A urlencoded body is read up to the new
-`max_form_size` (1 MB by default) and a larger one answers `413`. **A browser sends an empty file input as a part with
+`SignedDoubleSubmit` handler signed is refused before any body is read (the other strategies cannot check a cookie the
+client chose, and read the body first). A urlencoded body is read up to the new `max_form_size` (1 MB by default,
+`CSRF_MAX_FORM_SIZE`) and a larger one answers `413`: **a urlencoded form between 1 MB and `upload.max_file_size` that
+passed before is now refused** (the 1 MB default shipped in 0.7.0 without a minor-release marker); raise `max_form_size` for such forms. **A browser sends an empty file input as a part with
 `filename=""`: it counts as a file part, so `_csrf` must come before it.** Put `csrf_field()` at the top of every form,
 above its file inputs (the scaffolds' upload forms too), or send the `X-CSRF-TOKEN` header. A form with more than 64
 fields before `_csrf`, or with `_csrf` after the first 64 KB, is refused with `403` where the 0.6.1 behaviour was already
 to refuse it after a file. The multipart total size is not bounded by `CSRF`; see the built-in handler reference.
+
 **`Throttle` keeps clients that a proxy forwarded garbage for apart, and its lists take CIDR blocks and refuse bad entries.**
 `blacklist` and `whitelist` now accept CIDR blocks (`"10.0.0.0/8"`) and raise `ArgumentError` when the handler is built for
 an entry that is not an IP address or block (`"unknown"`, a host name, `"1.2.3.4:80"`); before they compared text and ignored
@@ -38,6 +67,8 @@ such entries silently. `trusted_proxies` refuses a catch-all block (`0.0.0.0/0`,
 the proxy's own requests refused. The table is kept in two parts (clients in their window, blocked clients), which makes
 making room O(1); a table at `max_clients` full of blocked clients cost milliseconds per new client before. Because the
 `ipv6_prefix` default of 64 changes how every IPv6 client is counted (see the entry below), this release is a minor one.
+
+## 0.6.2
 
 **`HEAD` responses carry no body.** A `HEAD` to a `get` route sent the `GET` body, which a client reusing the
 connection read as the start of its next response. The body is now counted and discarded: the response has the `GET`

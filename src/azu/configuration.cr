@@ -434,6 +434,12 @@ module Azu
 
   class UploadConfiguration
     property max_file_size : UInt64 = ENV.fetch("UPLOAD_MAX_FILE_SIZE", "10485760").to_u64 # 10MB default
+    # The whole multipart request, headers of its parts included, counted as it streams in: a larger one is answered 413
+    # after at most this many bytes (and at once when `Content-Length` already says so).
+    property max_request_size : UInt64 = ENV.fetch("UPLOAD_MAX_REQUEST_SIZE", "67108864").to_u64 # 64MB default
+    # The most parts (fields and files) and files of one multipart request; more is answered 413.
+    property max_parts : Int32 = ENV.fetch("UPLOAD_MAX_PARTS", "100").to_i
+    property max_files : Int32 = ENV.fetch("UPLOAD_MAX_FILES", "20").to_i
     property temp_dir : String = ENV.fetch("UPLOAD_TEMP_DIR", Dir.tempdir)
     property buffer_size : Int32 = ENV.fetch("UPLOAD_BUFFER_SIZE", "8192").to_i                        # 8KB default
     property cleanup_interval : Time::Span = ENV.fetch("UPLOAD_CLEANUP_INTERVAL", "3600").to_i.seconds # 1 hour

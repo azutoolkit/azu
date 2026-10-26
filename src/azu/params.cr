@@ -20,6 +20,11 @@ module Azu
       @form, @files, @json = Body.parse(request)
     end
 
+    # Deletes the temp files of the uploads: the endpoint does it when the request is done, so nothing outlives it.
+    def cleanup_files : Nil
+      @files.each_value(&.cleanup)
+    end
+
     # A parameter is looked up in the path, then the query string, then the body: what the URL addresses cannot be
     # changed by a body field of the same name (`POST /users/5` with `id=1` is user 5).
     def [](key)
@@ -221,6 +226,53 @@ module Azu
     end
 
     module Multipart
+      # The body of a multipart request, counted as it is read: more than *limit* bytes raise `TooLarge` at the byte after
+      # the limit, whether or not the client declared a length.
+      class LimitedBody < IO
+        getter count = 0_u64
+
+        def initialize(@io : IO, @limit : UInt64)
+        end
+
+        def read(slice : Bytes) : Int32
+          allowed = @limit - Math.min(@count, @limit) + 1 # one byte past the limit shows that there is more
+          read = @io.read(slice[0, Math.min(slice.size.to_u64, allowed).to_i])
+          @count += read
+          raise TooLarge.new("Request body exceeds maximum allowed size of #{@limit} bytes") if @count > @limit
+          read
+        end
+
+        # What the body has buffered, never more than the limit allows plus the byte that shows there is more. The
+        # stdlib's `IO::Delimited` (the multipart parser) scans ahead through `peek` and falls back to a byte at a time
+        # without it, which is twenty times slower.
+        def peek : Bytes?
+          data = @io.peek || return
+          allowed = (@limit - Math.min(@count, @limit) + 1).to_i64
+          data.size <= allowed ? data : data[0, allowed]
+        end
+
+        def skip(bytes_count : Int) : Nil
+          @io.skip(bytes_count)
+          @count += bytes_count.to_u64
+          raise TooLarge.new("Request body exceeds maximum allowed size of #{@limit} bytes") if @count > @limit
+        end
+
+        def write(slice : Bytes) : NoReturn
+          raise IO::Error.new("A request body is read only")
+        end
+
+        def close : Nil
+          @io.close
+          super
+        end
+      end
+
+      private def self.refuse_declared_length(request : HTTP::Request, limits : UploadConfiguration) : Nil
+        length = request.headers["Content-Length"]?.try(&.to_u64?)
+        return unless length && length > limits.max_request_size
+        raise TooLarge.new("Request body of #{length} bytes exceeds maximum allowed size of #{limits.max_request_size} bytes")
+      end
+
       class File
         getter file : ::File
         getter filename : String?
@@ -239,18 +291,20 @@ module Azu
           @read_time = upload.read_time
           @size = upload.size
 
-          # Generate unique temp file path
-          timestamp = Time.utc.to_unix_ms
-          random_suffix = Random.rand(999999)
-          temp_filename = "azu_upload_#{timestamp}_#{random_suffix}"
-          temp_filename += "_#{@filename}" if @filename && !@filename.try(&.empty?)
           upload_config = Azu.current_config.upload
           upload_config.prepare
-          @temp_path = Path[upload_config.temp_dir, temp_filename].to_s
 
-          # Create temp file and stream upload data
-          @file = ::File.new(@temp_path, "w+")
+          # Created exclusively (O_EXCL) with mode 0600, in the temp directory, under a name nobody can guess: the
+          # client's file name is only a hint in it, reduced to safe characters (`File#filename` keeps the original).
+          suffix = @filename && !@filename.try(&.empty?) ? "_#{safe_name(@filename)}" : nil
+          @file = ::File.tempfile(prefix: "azu_upload_#{Time.utc.to_unix_ms}_", suffix: suffix, dir: upload_config.temp_dir)
+          @temp_path = @file.path
           stream_upload_data(upload.body, upload_config)
+        end
+
+        private def safe_name(name : String?) : String
+          safe = name.to_s.gsub(/[^A-Za-z0-9._-]/, "_").lstrip('.')
+          safe[Math.max(0, safe.size - 80)..]
         end
 
         private def stream_upload_data(source_io : IO, upload_config : UploadConfiguration)
@@ -321,13 +375,23 @@ module Azu
       def self.parse(request : HTTP::Request)
         multipart_params = HTTP::Params.new
         files = Hash(String, Multipart::File).new
+        limits = Azu.current_config.upload
+        refuse_declared_length(request, limits)
+        request.body.try { |body| request.body = LimitedBody.new(body, limits.max_request_size) }
 
         begin
+          parts = 0
+          file_count = 0
           HTTP::FormData.parse(request) do |upload|
             next unless upload
+            parts += 1
+            raise TooLarge.new("Too many parts in the request (at most #{limits.max_parts})") if parts > limits.max_parts
             filename = upload.filename
             if filename.is_a?(String) && !filename.empty?
+              file_count += 1 # every file counts, whatever the field name
+              raise TooLarge.new("Too many files in the request (at most #{limits.max_files})", filename: filename) if file_count > limits.max_files
               begin
+                files.delete(upload.name).try(&.cleanup) # a second file under one name replaces the first
                 files[upload.name] = File.new(upload: upload)
               rescue ex : FileUploadError
                 # Log the error and continue processing other uploads

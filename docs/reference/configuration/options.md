@@ -256,6 +256,9 @@ How templates and the CSRF session token store reach your session library; see
 | Option | Type | Default | Environment |
 |---|---|---|---|
 | `upload.max_file_size` | `UInt64` | 10 MB | `UPLOAD_MAX_FILE_SIZE` (bytes) |
+| `upload.max_request_size` | `UInt64` | 64 MB | `UPLOAD_MAX_REQUEST_SIZE` (bytes): the whole multipart request, counted as it streams in |
+| `upload.max_parts` | `Int32` | 100 | `UPLOAD_MAX_PARTS`: fields and files of one multipart request |
+| `upload.max_files` | `Int32` | 20 | `UPLOAD_MAX_FILES`: files of one multipart request |
 | `upload.temp_dir` | `String` | `Dir.tempdir` | `UPLOAD_TEMP_DIR` |
 | `upload.buffer_size` | `Int32` | 8192 | `UPLOAD_BUFFER_SIZE` |
 | `upload.cleanup_interval` | `Time::Span` | 1 hour | `UPLOAD_CLEANUP_INTERVAL` (seconds) |
@@ -413,6 +416,7 @@ These are read outside `Azu::Configuration`:
 | Variable | Type | Default | Meaning |
 |---|---|---|---|
 | `AZU_STRICT_ENVS` | comma separated environment names | `production` | Environments in which [`Azu::Env.secret`](env.md) raises `Azu::Env::MissingError` for an unset secret instead of using a random per-process value (`Azu::Env.strict_environments=` overrides it) |
+| `CSRF_MAX_FORM_SIZE` | `UInt64` | `1048576` | The most of a urlencoded body `Handler::CSRF` reads to find the token (`max_form_size`); a larger one answers `413` |
 | `CSRF_SECRET` | `String` | `Azu::Env.secret("CSRF_SECRET")`: random per process, `Azu::Env::MissingError` in the strict environments | Key `Handler::CSRF` signs its tokens with when it is given none |
 | `PERFORMANCE_SLOW_REQUEST_THRESHOLD` | `Float64` (milliseconds) | `1000` | `Handler::PerformanceMonitor` (`azu/dev`) logs a warning for a request that takes longer |
 | `PERFORMANCE_MEMORY_THRESHOLD` | `Int64` (bytes) | `10485760` (10 MB) | `Handler::PerformanceMonitor` (`azu/dev`) logs a warning for a request whose memory use grows by more |
