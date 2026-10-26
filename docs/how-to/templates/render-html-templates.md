@@ -36,7 +36,7 @@ end
 hashes). Without a template name it renders the template named after the response type: `Blog::Posts::ShowPage`
 renders `blog/posts/show_page.jinja`.
 
-The [template helpers](use-template-helpers.md) are always available. The request variables (`csrf_token`, `flash`,
+The [template helpers](../../reference/templates/helpers.md) are always available. The request variables (`csrf_token`, `flash`,
 `current_path`, ...) are not: `view` adds them only when the type that calls it has a `context` method, and a response
 has none. In a response's `view`, `{{ csrf_field() }}` renders an empty token and a template that reads `flash.notice`
 fails with a `500` (`flash is undefined`). A page with a form or flash messages takes the endpoint's `context` and
@@ -343,7 +343,7 @@ Use in a template:
 {{ "hello" | shout }}
 ```
 
-See [Use Template Helpers](use-template-helpers.md).
+See [Template helpers](../../reference/templates/helpers.md).
 
 ## See Also
 

@@ -39,9 +39,11 @@ match, size, presence, required, confirmation, accept.`
 The `in` and `exclude` messages print the Crystal literal as written, so an array of strings reads
 `status must be included in ["active", "archived"] of ::String`; pass `message:` for user-facing text.
 
-A `nil` value fails every rule. `presence` calls `empty?`, so it does not compile on numbers.
+A `nil` value fails every rule: `gt: 0` on an `Int32?` property that is `nil` fails, and `confirmation` fails unless
+both properties are set. For an optional value write a custom validator or give the property a default. `presence`
+calls `empty?`, so it does not compile on numbers; use `required: true` or a comparison for those.
 There is no `length`, `format`, `numericality`, `inclusion`, `exclusion`, `uniqueness`, `allow_nil`, `allow_blank`,
-`if`/`unless`, and the `on:` option does not compile in this release; see
+`if`/`unless`, and the `on:` option does not compile (`undefined macro variable 'context'`); see
 [Custom Validators](#custom-validators) for how to express those.
 
 ```crystal
@@ -147,7 +149,9 @@ Person.new("a@example.com", 0).errors.map(&.message)   # => ["must be positive"]
 
 For anything the rules cannot say (uniqueness, optional values, cross-field checks, context-dependent rules) subclass
 `CQL::ActiveRecord::Validations::CustomValidator`, return the failures from `valid?` and attach it with `use`. The
-class has all the rule predicates available as helper methods (`presence?`, `gt?`, `match?`, ...):
+class has all the rule predicates available as helper methods (`presence?`, `gt?`, `match?`, ...). `use` takes one
+or more validators (`use UniqueEmail, AdultsOnly`) and can be called again; the errors of the `use` validators come
+before those of the `validate` rules:
 
 ```crystal
 require "cql"
@@ -205,11 +209,13 @@ Order.new("A-1", 10.0, 20.0).errors.map(&.message)   # => ["cannot exceed the to
 
 ### valid?
 
-Runs the validations and returns `true` when there are no errors. It does not run callbacks.
+Runs the validations and returns `true` when there are no errors.
 
 ### errors
 
-Returns `Array(CQL::ActiveRecord::Validations::Error)`; each error has a `field` (`Symbol`) and a `message` (`String`).
+Runs the validations and returns `Array(CQL::ActiveRecord::Validations::Error)`; each error has a `field` (`Symbol`)
+and a `message` (`String`). Neither `valid?` nor `errors` runs callbacks, so call your normalization yourself first
+when a `before_validation` callback matters.
 There is no `full_messages`, `on(:field)` or `errors.add`; build those from the array:
 
 ```crystal
@@ -267,9 +273,9 @@ The class-level `create!(**fields)`, `update!`, `update_by`, `update_all` and th
 6. the `INSERT` or `UPDATE`
 7. `after_create` or `after_update`, then `after_save`
 
-Note that `after_validation` runs before the rules are evaluated in this release, so it cannot inspect the result;
-use `before_save` for work that needs a valid record. A callback returning `false` stops the sequence and `save`
-returns `false`.
+`before_validation` and `after_validation` both run before the rules are evaluated, so `after_validation` also runs
+for an invalid record. It can call `errors`, which validates on demand; use `before_save` for work that needs a valid
+record. A callback returning `false` stops the sequence and `save` returns `false`.
 
 ```crystal
 require "cql"
@@ -307,71 +313,8 @@ end
 User.new(" Ada ", " ADA@EXAMPLE.COM ").save
 ```
 
-## Complete Example
-
-```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String
-    column :password_hash, String, null: true
-    column :age, Int32, null: true
-    column :role, String, default: "user"
-    column :terms_accepted, Bool, default: false
-    timestamps
-  end
-end
-
-class AdminEmail < CQL::ActiveRecord::Validations::CustomValidator
-  def initialize(@record : User)
-  end
-
-  def valid? : Array(CQL::ActiveRecord::Validations::Error)
-    errors = [] of CQL::ActiveRecord::Validations::Error
-    if @record.role == "admin" && !@record.email.ends_with?("@company.com")
-      errors << CQL::ActiveRecord::Validations::Error.new(:email, "admins must use company email")
-    end
-    if age = @record.age
-      errors << CQL::ActiveRecord::Validations::Error.new(:age, "must be between 1 and 149") unless (1..149).includes?(age)
-    end
-    errors
-  end
-end
-
-class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property name : String
-  property email : String
-  property password_hash : String?
-  property age : Int32?
-  property role : String = "user"
-  property terms_accepted : Bool = false
-  property created_at : Time?
-  property updated_at : Time?
-
-  validate :name, presence: true, size: 2..100
-  validate :email, presence: true, match: /@/
-  validate :role, in: %w(user admin moderator)
-  validate :terms_accepted, accept: true
-
-  use AdminEmail
-
-  def initialize(@name : String, @email : String)
-  end
-end
-
-user = User.new("Ada", "ada@example.com")
-user.terms_accepted = true
-user.save!
-```
-
 ## See Also
 
 - [CQL API Reference](cql-api.md)
-- [How to Validate Models](../../how-to/validation/validate-models.md)
+- [Create models](../../how-to/database/create-models.md#model-with-validations)
+- [Validate requests](../../how-to/validation/validate-requests.md)

@@ -1,6 +1,6 @@
 # Create models
 
-This guide shows you how to create CQL models that map to your database tables. A model is a class that includes
+Create CQL models that map to your database tables. A model is a class that includes
 `CQL::ActiveRecord::Model(PrimaryKeyType)` and points at a table of a [schema](define-schema.md) with `db_context`.
 
 Every example is self-contained: it defines the schema it needs first. In an application the schema lives in
@@ -53,6 +53,10 @@ To check at boot that every property matches its column, run the app with `CQL_V
 
 ## Model with Validations
 
+Model rules protect the table. Checks on incoming HTTP data belong to the request contract (see
+[Validate requests](../validation/validate-requests.md)); a request that passes its contract can still build a record
+that fails here, so keep both.
+
 `validate` takes the attribute and one or more predicates; `message:` overrides the default message. The predicates
 are `presence`, `required`, `size`, `match`, `gt`, `gte`, `lt`, `lte`, `eq`, `in`, `exclude`, `confirmation` and
 `accept` (see the [validations reference](../../reference/database/validations.md)):
@@ -91,8 +95,67 @@ user.valid?                          # => false
 user.errors.map(&.message)           # => ["name must have a size of 2..100", "must be an email address"]
 ```
 
-There is no uniqueness validation; enforce it with a `unique: true` column and rescue the database error, or check
-with `User.exists?(email: email)` in a [custom validator](../validation/validate-models.md#custom-validators).
+### Check uniqueness and answer 422
+
+There is no uniqueness rule. Check it in a
+[custom validator](../../reference/database/validations.md#custom-validators) attached with `use`, and turn the
+model's errors into Azu's `422`, so clients get the same body as for a request-contract failure:
+
+```crystal
+require "cql"
+require "sqlite3"
+
+AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :email, String, unique: true
+  end
+end
+
+class UniqueEmail < CQL::ActiveRecord::Validations::CustomValidator
+  def initialize(@record : User)
+  end
+
+  def valid? : Array(CQL::ActiveRecord::Validations::Error)
+    errors = [] of CQL::ActiveRecord::Validations::Error
+    if @record.new_record? && User.exists?(email: @record.email)
+      errors << CQL::ActiveRecord::Validations::Error.new(:email, "has already been taken")
+    end
+    errors
+  end
+end
+
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AcmeDB, :users
+
+  property name : String
+  property email : String
+
+  validate :name, presence: true
+  validate :email, match: /@/
+  use UniqueEmail
+
+  def initialize(@name : String, @email : String)
+  end
+end
+
+def save_or_422(user : User) : User
+  return user if user.save
+  raise Azu::Response::ValidationError.new({"base" => ["could not be saved"]})
+rescue ex : CQL::ActiveRecord::Validations::ValidationError
+  fields = Hash(String, Array(String)).new { |hash, key| hash[key] = [] of String }
+  user.errors.each { |error| fields[error.field.to_s] << error.message }
+  raise Azu::Response::ValidationError.new(fields.to_h)
+end
+
+save_or_422(User.new("Alice", "alice@example.com"))
+```
+
+`save` raises `CQL::ActiveRecord::Validations::ValidationError` for an invalid record and returns `false` only when a
+callback halts it. The uniqueness check races: two requests can pass it at the same time, so the `unique: true`
+column is the last line of defence; rescue the database error it raises as well.
 
 ## Associations
 
@@ -289,7 +352,9 @@ puts user.normalized_email           # => "alice@example.com"
 ```
 
 Callbacks run for `save` (instance) and `delete!`. `User.create!(...)` and `update!` write directly and skip both
-validations and callbacks; use `User.new(...).save` when you need them.
+validations and callbacks; use `User.new(...).save` when you need them. To normalize values before they are
+validated, use `before_validation`; the
+[validation lifecycle](../../reference/database/validations.md#validation-lifecycle) gives the order.
 
 ## Scopes
 
@@ -443,4 +508,4 @@ directly; see [Working with Databases](../../tutorials/working-with-databases.md
 
 - [Define Schema](define-schema.md)
 - [Query Data](query-data.md)
-- [Validate Models](../validation/validate-models.md)
+- [Database validations](../../reference/database/validations.md)

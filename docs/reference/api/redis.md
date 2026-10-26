@@ -195,4 +195,4 @@ client raises `Azu::Redis::ClosedError`.
 
 ## See also
 
-- [Cache](cache.md), [Presence](presence.md), [Scale out real-time](../../how-to/deployment/scale-out-realtime.md)
+- [Cache](cache.md), [Presence](presence.md), [Real-time across processes](../../how-to/deployment/scale-horizontally.md#real-time-across-processes)

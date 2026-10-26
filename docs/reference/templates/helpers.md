@@ -62,7 +62,11 @@ Opens a form. It adds no CSRF token: put [`{{ csrf_field() }}`](#csrf_field) ins
 | `data` | hash | `nil` | Data attributes |
 | `onsubmit` | string | `nil` | JavaScript onsubmit handler |
 
-Non-standard methods (put, patch, delete) automatically add a hidden `_method` field.
+Non-standard methods (put, patch, delete) automatically add a hidden `_method` field. `multipart=true` sets
+`enctype="multipart/form-data"`; there is no file-field helper, so write `<input type="file" name="file">` yourself.
+
+The field helpers below name an input `object[attribute]` (`user[name]`) and give it the id `object_attribute`
+(`user_name`; `object_attribute_value` for a radio button), unless you pass `id`.
 
 ### end_form
 
@@ -169,14 +173,14 @@ Generates a hidden input:
 
 ### checkbox
 
-Generates a checkbox with hidden unchecked value:
+Generates a checkbox, preceded by a hidden input with the value `0` so an unchecked box is still sent:
 
 ```jinja
 {{ checkbox("user", "active", checked=true) }}
 {{ checkbox("user", "newsletter", label="Subscribe to newsletter") }}
 ```
 
-Additional parameters: `checked`, `label`, `unchecked_value` (default "0")
+Additional parameters: `value` (default `"1"`), `checked`, `label`, `class`, `id`, `disabled`. It takes no `required`.
 
 ### radio_button
 
@@ -252,7 +256,8 @@ Generates an anchor tag:
 | `title` | string | `nil` | Title attribute |
 | `data` | hash | `nil` | Data attributes |
 
-Links with `target="_blank"` automatically add `rel="noopener noreferrer"`.
+A link with `target="_blank"` and no `rel` gets `rel="noopener noreferrer"`; no other link gets a `rel` you did not
+pass.
 
 ### button_to
 
@@ -321,6 +326,10 @@ Filter that checks if a path matches the current page:
   <span class="active">Home</span>
 {% endif %}
 ```
+
+`current_path`, `current_url`, `is_current_page` and `active_class` read the request variables, like
+[`csrf_field`](#csrf_field). Rendered without them, `current_path()` is empty and the two filters compare with `/`,
+so the `/` link is active on every page.
 
 ### active_class
 
@@ -425,6 +434,9 @@ This generates the following helpers:
 | `CreateUserEndpoint.post "/users"` | `link_to_post_create_user()`, `form_for_post_create_user()` |
 | `UpdateUserEndpoint.put "/users/:id"` | `link_to_put_update_user(id=...)`, `form_for_put_update_user(id=...)` |
 | `DeleteUserEndpoint.delete "/users/:id"` | `link_to_delete_delete_user(id=...)`, `form_for_delete_delete_user(id=...)`, `button_to_delete_delete_user(id=...)` |
+
+The helpers do not check their arguments: the helper of a route with `:id` called without `id` prints the pattern
+itself (`href="/users/:id"`).
 
 ### link_to_{method}_{resource}
 
@@ -571,13 +583,6 @@ The helper name is derived from the endpoint class name:
 | `CreateUserEndpoint` | `create_user` |
 | `Admin::UsersEndpoint` | `admin_users` |
 | `Api::V1::UserEndpoint` | `v1_user` |
-
-### Benefits
-
-1. **Intuitive**: `link_to_get_users` clearly indicates a GET request
-2. **Hard to confuse**: The HTTP method is in the name, not a parameter
-3. **Type-safe**: Helpers are generated at compile-time from your endpoints
-4. **Consistent**: Same pattern works for all endpoints
 
 ---
 
@@ -871,6 +876,20 @@ asset path to anything else. To link to another scheme, write the `<a>` yourself
 
 ## i18n Helpers
 
+Translations are YAML (or JSON) files under the load path (`locales/` by default, see the
+[i18n options](../configuration/options.md#i18n)), with the locale as the top-level key:
+
+```yaml
+# locales/en.yml
+en:
+  welcome:
+    title: "Welcome!"
+    greeting: "Hello, %{name}!"
+  date:
+    short: "%b %d"
+    long: "%B %d, %Y"
+```
+
 ### t (Translate)
 
 Function that translates a key:
@@ -920,6 +939,10 @@ Filter that localizes dates using translation formats:
 {{ created_at | l("date.long") }}   {# January 15, 2024 #}
 ```
 
+`l("date.short")` reads the key `date.short` as written, so the formats sit directly under `date` in the locale
+file. When the key is missing it falls back to built-in formats for `date.short` (`%b %d`), `date.long`
+(`%B %d, %Y`), `time.short`, `time.long`, `datetime.short` and `datetime.long`.
+
 ### current_locale
 
 Function that returns the current locale:
@@ -930,7 +953,7 @@ Function that returns the current locale:
 
 ### Choosing the locale per request
 
-`Azu::Handler::Locale` serves each request in the available locale that best matches its `Accept-Language` header, or in the default locale when none matches. The locale applies to everything the request does, including template rendering, and ends with the request:
+`Azu::Handler::Locale` serves each request in the available locale that best matches its `Accept-Language` header, or in the default locale when none matches. The locale applies to everything the request does, including template rendering, and ends with the request. Nothing reads a `?locale=` parameter, so a link cannot switch the locale:
 
 ```crystal
 module MyApp
@@ -962,7 +985,7 @@ Function that returns available locales:
 
 ```jinja
 {% for locale in available_locales() %}
-  <a href="?locale={{ locale }}">{{ locale | locale_name }}</a>
+  <li lang="{{ locale }}">{{ locale | locale_name }}</li>
 {% endfor %}
 ```
 
@@ -998,67 +1021,8 @@ Returns the `id` of a component object (or its string form).
 
 ---
 
-## Complete Example
-
-```jinja
-{% extends "layouts/application.jinja" %}
-
-{% block title %}{{ t("users.index.title") }}{% endblock %}
-
-{% block content %}
-<div class="container">
-  <h1>{{ t("users.index.heading") }}</h1>
-
-  {% if flash.notice %}
-    <div class="alert alert-success">{{ flash.notice }}</div>
-  {% endif %}
-
-  {{ form_tag("/users", method="post", class="user-form") }}
-    {{ csrf_field() }}
-
-    <div class="form-group">
-      {{ label_tag("user_name", t("users.form.name")) }}
-      {{ text_field("user", "name", required=true, class="form-control") }}
-    </div>
-
-    <div class="form-group">
-      {{ label_tag("user_email", t("users.form.email")) }}
-      {{ email_field("user", "email", required=true, class="form-control") }}
-    </div>
-
-    {{ submit_button(t("users.form.submit"), class="btn btn-primary") }}
-  {{ end_form() }}
-
-  <table class="table">
-    <thead>
-      <tr>
-        <th>{{ t("users.table.name") }}</th>
-        <th>{{ t("users.table.created") }}</th>
-        <th>{{ t("users.table.actions") }}</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for user in users %}
-      <tr>
-        <td>{{ user.name }}</td>
-        <td>{{ user.created_at | time_ago }}</td>
-        <td>
-          {{ link_to(t("actions.edit"), "/users/" ~ user.id ~ "/edit", class="btn btn-sm") }}
-          {{ button_to(t("actions.delete"), "/users/" ~ user.id, method="delete",
-             confirm=t("users.confirm_delete")) }}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  <p>{{ t("users.count", count=users.size) }}</p>
-</div>
-{% endblock %}
-```
-
 ## See Also
 
 - [Template Engine](engine.md)
 - [How to Render HTML Templates](../../how-to/templates/render-html-templates.md)
-- [How to Use Template Helpers](../../how-to/templates/use-template-helpers.md)
+- [i18n options](../configuration/options.md#i18n)

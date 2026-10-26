@@ -294,4 +294,4 @@ end
 ## See Also
 
 - [Handle Validation Errors](handle-validation-errors.md)
-- [Validate Models](validate-models.md)
+- [Database validations](../../reference/database/validations.md)

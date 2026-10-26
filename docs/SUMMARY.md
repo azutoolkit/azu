@@ -33,14 +33,12 @@
 * [Add logging](how-to/middleware/add-logging.md)
 * [Use sessions](how-to/middleware/use-sessions.md)
 * [Render HTML templates](how-to/templates/render-html-templates.md)
-* [Use template helpers](how-to/templates/use-template-helpers.md)
 * [Enable hot reload](how-to/templates/enable-hot-reload.md)
 * [Create a WebSocket channel](how-to/real-time/create-websocket-channel.md)
 * [Broadcast messages](how-to/real-time/broadcast-messages.md)
 * [Build a live component](how-to/real-time/build-live-component.md)
 * [Define a schema](how-to/database/define-schema.md)
 * [Create models](how-to/database/create-models.md)
-* [Validate models](how-to/validation/validate-models.md)
 * [Run migrations](how-to/database/run-migrations.md)
 * [Query data](how-to/database/query-data.md)
 * [Handle transactions](how-to/database/handle-transactions.md)
@@ -55,7 +53,6 @@
 * [Configure production](how-to/deployment/configure-production.md)
 * [Deploy with Docker](how-to/deployment/deploy-with-docker.md)
 * [Scale horizontally](how-to/deployment/scale-horizontally.md)
-* [Scale real-time features out](how-to/deployment/scale-out-realtime.md)
 * [Shut down gracefully](how-to/deployment/graceful-shutdown.md)
 
 ## Reference

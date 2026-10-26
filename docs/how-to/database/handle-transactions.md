@@ -122,7 +122,7 @@ import("Alice", "alice@example.com", dry_run: true)
 
 Exceptions leave the transaction rolled back and reach your `rescue`. Records saved with `save`/`save!` raise
 `CQL::ActiveRecord::Validations::ValidationError` when invalid; `create!(**fields)` does not validate at all (see
-[Validate Models](../validation/validate-models.md)):
+[Database validations](../../reference/database/validations.md#checking-validity)):
 
 ```crystal
 require "cql"

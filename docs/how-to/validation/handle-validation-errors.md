@@ -330,5 +330,5 @@ end
 ## See Also
 
 - [Validate Requests](validate-requests.md)
-- [Validate Models](validate-models.md)
+- [Database validations](../../reference/database/validations.md)
 - [Create Custom Errors](../errors/create-custom-errors.md)

@@ -191,7 +191,7 @@ As with the user id above, take `user` from a verified session or token in a rea
 Authentication below). A user with several sockets is one key with several entries, and counts as
 departed only when the last one closes. The default store keeps presence in one process; with several
 servers, give every node `Azu::Presence::Store::Redis` and the Redis PubSub backend (see
-[Scale real-time features out](../../how-to/deployment/scale-out-realtime.md)). Every option is in the
+[Real-time across processes](../../how-to/deployment/scale-horizontally.md#real-time-across-processes)). Every option is in the
 [Presence reference](../../reference/api/presence.md).
 
 ## Message protocol

@@ -1,12 +1,13 @@
 # Scale horizontally
 
-This guide shows you how to scale your Azu application across multiple servers.
+Run several Azu processes behind one load balancer: keep shared state out of the process, give every process the
+same secrets, and let real-time traffic cross processes through Redis.
 
 ## Stateless Design
 
 Each process has its own memory: a second instance does not see a hash, a counter or a default `Azu.cache` entry
 that the first one filled. Keep anything that must be shared in the database, or in a shared cache (see
-[Redis cache](../caching/setup-redis-cache.md), which also states what works in this checkout):
+[Redis cache](../caching/setup-redis-cache.md)):
 
 ```crystal
 # In-memory state lives in one process only
@@ -20,7 +21,8 @@ Things that are per process in Azu:
 
 - the memory cache (`CACHE_STORE=memory`, the default) and the router path cache;
 - `Azu::Handler::Throttle` counters;
-- the in-memory `Azu::PubSub` backend (see [WebSocket Scaling](#websocket-scaling));
+- the in-memory `Azu::PubSub` backend and the default `Azu::Presence` store (see
+  [Real-time across processes](#real-time-across-processes));
 - the CSRF key while `CSRF_SECRET` is unset: `Azu::Handler::CSRF` reads `CSRF_SECRET` itself (and raises in production
   without it), so set the same `CSRF_SECRET` everywhere;
 - the Spark signing secret: set the same `SPARK_SECRET` everywhere.
@@ -49,220 +51,46 @@ end
 
 ## Load Balancer Configuration
 
-### Nginx as Load Balancer
-
-```nginx
-upstream app_servers {
-    least_conn;  # Use least connections algorithm
-    server app1:8080;
-    server app2:8080;
-    server app3:8080;
-}
-
-server {
-    listen 80;
-
-    location / {
-        proxy_pass http://app_servers;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # WebSocket support
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-
-    location /health {
-        proxy_pass http://app_servers;
-        proxy_connect_timeout 1s;
-        proxy_read_timeout 1s;
-    }
-}
-```
-
-### HAProxy Configuration
-
-```haproxy
-frontend http_front
-    bind *:80
-    default_backend app_servers
-
-backend app_servers
-    balance roundrobin
-    option httpchk GET /health
-    http-check expect status 200
-
-    server app1 app1:8080 check inter 5s fall 3 rise 2
-    server app2 app2:8080 check inter 5s fall 3 rise 2
-    server app3 app3:8080 check inter 5s fall 3 rise 2
-```
-
-## Docker Swarm
-
-Scale with Docker Swarm:
-
-```yaml
-# docker-compose.swarm.yml
-version: "3.8"
-
-services:
-  app:
-    image: myapp:latest
-    deploy:
-      replicas: 3
-      update_config:
-        parallelism: 1
-        delay: 10s
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-    environment:
-      - CRYSTAL_ENV=production
-      - DATABASE_URL=postgres://...
-      - CACHE_STORE=redis
-      - CACHE_REDIS_URL=redis://redis:6379/0
-    networks:
-      - app_network
-
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-    deploy:
-      placement:
-        constraints:
-          - node.role == manager
-    networks:
-      - app_network
-
-  redis:
-    image: redis:7-alpine
-    deploy:
-      replicas: 1
-    networks:
-      - app_network
-
-networks:
-  app_network:
-    driver: overlay
-```
-
-Deploy to swarm:
-
-```bash
-docker stack deploy -c docker-compose.swarm.yml myapp
-docker service scale myapp_app=5
-```
-
-## Kubernetes Deployment
-
-```yaml
-# kubernetes/deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: myapp
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: myapp
-  template:
-    metadata:
-      labels:
-        app: myapp
-    spec:
-      terminationGracePeriodSeconds: 45
-      containers:
-        - name: app
-          image: myapp:latest
-          ports:
-            - containerPort: 8080
-          lifecycle:
-            preStop:
-              exec:
-                command: ["sleep", "5"]
-          env:
-            - name: CRYSTAL_ENV
-              value: "production"
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: myapp-secrets
-                  key: database-url
-          resources:
-            limits:
-              cpu: "500m"
-              memory: "512Mi"
-            requests:
-              cpu: "250m"
-              memory: "256Mi"
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 8080
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 5
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: myapp
-spec:
-  selector:
-    app: myapp
-  ports:
-    - port: 80
-      targetPort: 8080
-  type: LoadBalancer
----
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: myapp-hpa
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: myapp
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70
-```
+Any load balancer works. Point its health check at
+[`Azu::Handler::HealthCheck`](../../reference/handlers/built-in.md#handlerhealthcheck), and pass the `Upgrade` and
+`Connection` headers through so channels can open WebSockets. Behind a proxy every connection comes from the
+proxy's address; [`Handler::Throttle`](../../reference/handlers/built-in.md#handlerthrottle) and
+[`Handler::IpSpoofing`](../../reference/handlers/built-in.md#handleripspoofing) state what that means for rate limits
+and forwarded headers.
 
 ## Graceful Rollouts
 
 On `SIGTERM` an instance stops accepting connections and waits for requests in flight, up to
 `SHUTDOWN_TIMEOUT` seconds (30 by default), before it exits. Set the grace period of the orchestrator above it
-(`terminationGracePeriodSeconds: 45` above, `docker stop -t 40`), and let the load balancer's health check take the
-instance out of rotation. Open WebSockets are sent a close frame with code 1001 when the stop begins, so clients
-reconnect to another instance; see [Shut Down Gracefully](graceful-shutdown.md).
+(for example `terminationGracePeriodSeconds: 45` in Kubernetes, `docker stop -t 40`), and let the load balancer's
+health check take the instance out of rotation. Open WebSockets are sent a close frame with code 1001 when the stop
+begins, so clients reconnect to another instance; see [Shut Down Gracefully](graceful-shutdown.md).
 
-## WebSocket Scaling
+## Real-time across processes
 
-`Azu::PubSub` delivers broadcasts to the subscribers in the same process. With several instances, select the Redis
-backend once at boot and every instance receives every broadcast:
+`Azu::PubSub` and `Azu::Presence` keep their state in one process by default. Every node runs the same code against
+one Redis; the load balancer may send a client to any node, with no sticky routing and no leader:
+
+```mermaid
+flowchart LR
+  ca[client A] -- ws --> na[node A]
+  cb[client B] -- ws --> nb[node B]
+  na -- publish, presence --> r[(Redis)]
+  nb -- publish, presence --> r
+  r -- PSUBSCRIBE --> na
+  r -- PSUBSCRIBE --> nb
+```
+
+Select the Redis PubSub backend and the Redis presence store at boot, before the first connection is served. Then
+every node receives every broadcast and lists the users of every node:
 
 ```crystal
-Azu::PubSub.backend = Azu::PubSub::Redis.new(ENV.fetch("REDIS_URL", "redis://localhost:6379/0"))
+url = ENV.fetch("REDIS_URL", "redis://localhost:6379/0")
+Azu::PubSub.backend = Azu::PubSub::Redis.new(url)
+Azu::Presence.default = Azu::Presence::Tracker.new(
+  Azu::Presence::Store::Redis.new(url),
+  node: "#{System.hostname}-#{Random::Secure.hex(4)}",
+  ttl: 30.seconds)
 
 class NotificationChannel < Azu::Channel
   ws "/notifications"
@@ -291,9 +119,18 @@ end
 Azu::PubSub.broadcast("notifications", {text: "Deploy finished"})
 ```
 
-See [Broadcast Messages](../real-time/broadcast-messages.md), and
-[Scale Real-Time Features Out](scale-out-realtime.md) for the connections, reconnect behaviour and how to
-track who is online across instances with [Presence](../../reference/api/presence.md).
+- **Node id.** `node` is the prefix of every presence `ref`, so each process needs its own, and a new one after a
+  restart: a restarted process must not reuse the counter of its previous life while its old entries may still be
+  expiring. The default, a random id per boot, does that; a hostname alone does not.
+- **Prefixes.** Environments that share one Redis need their own prefixes, the second argument of both constructors:
+  `Azu::PubSub::Redis.new(url, "staging:pubsub:")` and `Azu::Presence::Store::Redis.new(url, "staging:presence:")`.
+- **Connections.** Each process holds one dedicated subscriber connection, opened at the first subscribe, plus a
+  pool of at most 2 connections that the publisher and the presence store share when built from the same URL (see
+  [Redis](../../reference/api/redis.md)). Subscriber handlers run on the listener's fiber, so keep them short.
+
+Broadcasts published while a node's subscriber reconnects are lost;
+[Presence](../../reference/api/presence.md#guarantees) lists what holds after a dropped connection, a Redis outage or
+a crashed node. See also [Broadcast messages](../real-time/broadcast-messages.md).
 
 ## Database Scaling
 
@@ -344,27 +181,13 @@ A replica lags behind the primary, so read your own writes from the primary.
 
 ### Connection Pooling
 
-Use PgBouncer for PostgreSQL:
-
-```ini
-# pgbouncer.ini
-[databases]
-myapp = host=db port=5432 dbname=myapp
-
-[pgbouncer]
-listen_port = 6432
-listen_addr = 0.0.0.0
-auth_type = md5
-auth_file = /etc/pgbouncer/userlist.txt
-pool_mode = transaction
-max_client_conn = 1000
-default_pool_size = 20
-```
+Each process opens its own database pool (the pool options go in the database URL, see
+[Adapters](../../reference/database/cql-api.md#adapters)), so the connections add up across processes.
 
 ## Cache Scaling
 
-The memory cache is per process. Select the Redis store through the environment, and read
-[Redis cache](../caching/setup-redis-cache.md) for what the store does in this checkout:
+The memory cache is per process. Select the Redis store through the environment (see
+[Redis cache](../caching/setup-redis-cache.md)):
 
 ```bash
 CACHE_STORE=redis
@@ -388,3 +211,4 @@ MyApp.log.info { "instance #{ENV.fetch("HOSTNAME", "unknown")} version #{ENV.fet
 
 - [Configure Production](configure-production.md)
 - [Deploy with Docker](deploy-with-docker.md)
+- [Presence](../../reference/api/presence.md)

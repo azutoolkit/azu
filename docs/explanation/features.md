@@ -27,7 +27,7 @@ This page lists what Azu ships today, grouped by what you are trying to do, with
 ## Real-time
 
 - **WebSocket channels.** `Azu::Channel` classes with connect, message and close callbacks, limits on message size and origin. [Channel](../reference/api/channel.md), [Create a WebSocket channel](../how-to/real-time/create-websocket-channel.md).
-- **Pub/sub.** `Azu::PubSub` broadcasts to topics in memory, or through Redis across processes. [Broadcast messages](../how-to/real-time/broadcast-messages.md), [Scale real-time features out](../how-to/deployment/scale-out-realtime.md).
+- **Pub/sub.** `Azu::PubSub` broadcasts to topics in memory, or through Redis across processes. [Broadcast messages](../how-to/real-time/broadcast-messages.md), [Real-time across processes](../how-to/deployment/scale-horizontally.md#real-time-across-processes).
 - **Presence.** Track who is in a topic across nodes and subscribe to joins and leaves. [Presence](../reference/api/presence.md).
 - **Spark live views.** Server-rendered Spark components (`Azu::Spark::Component`) with `prop`, `state` and `event def`; the browser sends events over a WebSocket and gets back only the HTML that changed, with reconnect and rehydration. [Build a live component](../how-to/real-time/build-live-component.md), [Spark live views](spark-live-views.md), [Spark client](../reference/spark-client.md).
 - **Spark security and limits.** A component can only be joined with a signed, expiring token (`SPARK_SECRET` is required in production and staging), reconnect snapshots are signed and size limited, and each connection has an event rate limiter and a frame size limit. [Spark live views](spark-live-views.md#security-model).
