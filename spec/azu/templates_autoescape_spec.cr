@@ -138,7 +138,7 @@ describe "Azu::Templates autoescape" do
           {{ form_tag("/users", method="post") }}{{ csrf_field() }}{{ label_tag("u_name", "Name") }}{{ text_field("u", "name", value=x) }}{{ textarea("u", "bio", value=x) }}{{ hidden_field("u", "h", value=x) }}{{ checkbox("u", "ok", label=x) }}{{ radio_button("u", "r", value="a", label=x) }}{{ select_field("u", "s", options=[x, "b"]) }}{{ submit_button("Go") }}{{ end_form() }}
           {{ link_to("Home", "/", class="nav") }}{{ link_to(x, "/x") }}{{ button_to("Delete", "/posts/1", method="delete") }}{{ mail_to("a@example.com", "Mail") }}
           {{ stylesheet_tag("app.css") }}{{ javascript_tag("app.js") }}{{ image_tag("logo.png", alt=x) }}{{ favicon_tag("favicon.ico") }}{{ preload_tag("f.woff2", as="font") }}
-          {{ x | simple_format }}{{ x | safe_html }}{{ csrf_meta() }}{{ time_tag(time=0) }}
+          {{ content_tag(name="p", content=x, class="c") }}{{ x | highlight("script") }}{{ x | simple_format }}{{ x | safe_html }}{{ csrf_meta() }}{{ time_tag(time=0) }}
           JINJA
         each_mode(dir) do |mode, templates|
           out = templates.load("helpers.jinja").render({"x" => ATTACK})
@@ -157,6 +157,8 @@ describe "Azu::Templates autoescape" do
           out.should contain(%(<input type="hidden" name="_csrf")), mode
           out.should contain(%(<link rel="stylesheet" href="/assets/app.css" />)), mode
           out.should contain("<p>#{ESCAPED}</p>"), mode
+          out.should contain("<p class=\"c\">#{ESCAPED}</p>"), mode
+          out.should contain("&lt;<mark>script</mark>&gt;alert(1)&lt;/<mark>script</mark>&gt;"), mode
           out.scan("<script>").size.should eq(1), "#{mode}: only the javascript_tag and the safe_html filter may emit <script>"
         end
       end

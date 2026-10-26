@@ -796,6 +796,10 @@ Filter that highlights occurrences of a phrase:
 {{ text | highlight("term", highlighter="<strong>\\0</strong>") }}
 ```
 
+The text and the matches are escaped (the phrase is searched in the raw text, so `{{ "a & b" | highlight("&") }}`
+prints `a <mark>&amp;</mark> b`); only the `highlighter` markup, which you write, is passed through. Text that is
+already safe (a `SafeString`, e.g. after `| e`) is used as it is.
+
 ### truncate_html
 
 Filter that truncates HTML while preserving structure:
@@ -840,6 +844,8 @@ Function that generates an HTML tag:
 {{ content_tag(name="div", content="Hello", class="container") }}
 {# <div class="container">Hello</div> #}
 ```
+
+`content` is escaped unless it is already safe markup (another helper's output, or `| safe`).
 
 ---
 

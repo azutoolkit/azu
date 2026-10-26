@@ -186,7 +186,8 @@ module Azu
         escaped.gsub(/\r?\n/, "<br>")
       end
 
-      # Highlights occurrences of a phrase in text.
+      # Highlights occurrences of a phrase in text. Neither `text` nor `phrase` is escaped: the result is only
+      # safe as HTML when `text` is. Use `highlight_html` for text that is not.
       #
       # ```
       # Util.highlight("Hello World", "World")
@@ -201,6 +202,32 @@ module Azu
 
         escaped_phrase = Regex.escape(phrase)
         text.gsub(/#{escaped_phrase}/i, highlighter)
+      end
+
+      # Highlights occurrences of a phrase in plain text and returns HTML: the text between the matches and the
+      # matches themselves are escaped, `highlighter` (markup written by the template author, `\\0` is the match)
+      # is not. The phrase is searched in the raw text, so `&` and `<` match and an entity is never cut in half.
+      #
+      # ```
+      # Util.highlight_html("a <b> c", "<b>") # => "a <mark>&lt;b&gt;</mark> c"
+      # ```
+      def highlight_html(
+        text : String,
+        phrase : String,
+        highlighter : String = "<mark>\\0</mark>",
+      ) : String
+        return escape_html(text) if phrase.empty?
+
+        pattern = /#{Regex.escape(phrase)}/i
+        String.build do |io|
+          position = 0
+          text.scan(pattern) do |match|
+            io << escape_html(text.byte_slice(position, match.byte_begin - position))
+            io << highlighter.gsub("\\0") { escape_html(match[0]) }
+            position = match.byte_end
+          end
+          io << escape_html(text.byte_slice(position))
+        end
       end
 
       # Pluralizes a word based on count.
