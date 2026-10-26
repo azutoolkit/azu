@@ -48,5 +48,11 @@ describe "Asset Helpers" do
 
       result.should contain %(crossorigin="anonymous")
     end
+
+    it "defaults a font to anonymous when crossorigin names an undefined variable" do
+      result = render_asset("{{ preload_tag('/f.woff2', as='font', crossorigin=missing) }}")
+
+      result.should contain %(crossorigin="anonymous")
+    end
   end
 end

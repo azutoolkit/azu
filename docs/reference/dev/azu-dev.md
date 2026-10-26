@@ -160,7 +160,7 @@ than 50 MB allocated since the last collection.
 | --- | --- | --- |
 | `Benchmark.run(name, iterations = 1000, warmup = 100) { ... }` | `BenchmarkResult` | Runs the block `warmup` times, collects garbage, then times `iterations` runs |
 | `Benchmark.compare(benchmarks : Hash(String, Proc(Nil)), iterations = 1000)` | `Array(BenchmarkResult)` | Fastest first |
-| `Benchmark.load_test(url, concurrent = 10, requests = 1000, timeout = 30.seconds)` | `Hash(String, Float64)` | `requests` GETs over `concurrent` fibers: `total_requests`, `successful_requests`, `failed_requests` (any non-2xx or error), `requests_per_second`, `avg_`/`min_`/`max_response_time_ms` (successes only, `0.0` without one), `total_time_seconds`. Requests still running after `timeout` are not counted |
+| `Benchmark.load_test(url, concurrent = 10, requests = 1000, timeout = 30.seconds)` | `Hash(String, Float64)` | `requests` GETs over `concurrent` fibers: `total_requests`, `successful_requests`, `failed_requests` (any non-2xx or error), `requests_per_second`, `avg_`/`min_`/`max_response_time_ms` (successes only, `0.0` without one), `total_time_seconds`. Answers that come more than `timeout` after the start are not counted; the workers still finish their requests |
 
 `BenchmarkResult` has `name`, `iterations`, `total_time`, `avg_time`, `min_time`, `max_time`, `std_deviation`
 (nanoseconds), `memory_usage` (heap growth in bytes), `timestamp` and `ops_per_second`.

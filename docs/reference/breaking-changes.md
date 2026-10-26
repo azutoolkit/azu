@@ -15,7 +15,9 @@ release to the current API, with old and new code side by side; every release is
 **`HEAD` responses carry no body.** A `HEAD` to a `get` route sent the `GET` body, which a client reusing the
 connection read as the start of its next response. The body is now counted and discarded: the response has the `GET`
 status and headers, and a `Content-Length` for the body it would send, even where the `GET` is chunked (a large body,
-or compressed by `Handler::Compression`).
+or compressed by `Handler::Compression`, which a `HEAD` now goes through too). A `Stream` or `EventStream` answers
+`HEAD` with `Transfer-Encoding: chunked`, as its `GET` does, instead of `Content-Length: 0`. An exception that no
+handler rescues still gets the standard library's plain-text `500` body; the connection is closed after it.
 
 **`CSRF.validate_origin` matches a `Referer` without a port.** It appended a `:` to the expected origin for a `Referer`
 with no port, so `http://example.com/form` never matched; an `Origin` with an explicit default port

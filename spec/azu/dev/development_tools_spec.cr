@@ -246,5 +246,22 @@ describe Azu::DevelopmentTools do
         server.close
       end
     end
+
+    it "stops collecting once timeout has passed since the start, not after each slow answer" do
+      server = HTTP::Server.new do |context|
+        sleep 150.milliseconds
+        context.response.print "ok"
+      end
+      address = server.bind_unused_port
+      spawn { server.listen }
+      begin
+        started = Time.instant
+        result = Azu::DevelopmentTools::Benchmark.load_test("http://#{address}/slow", concurrent: 1, requests: 6, timeout: 400.milliseconds)
+        (Time.instant - started).should be < 650.milliseconds # 6 answers 150 ms apart would take 900 ms
+        result["successful_requests"].should be < 6.0
+      ensure
+        server.close
+      end
+    end
   end
 end

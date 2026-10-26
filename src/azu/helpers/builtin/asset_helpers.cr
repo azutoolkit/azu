@@ -264,7 +264,7 @@ module Azu
             case raw = crossorigin.raw
             when String, Crinja::SafeString then attrs["crossorigin"] = raw.to_s
             when true                       then attrs["crossorigin"] = "anonymous"
-            when nil                        then attrs["crossorigin"] = "anonymous" if as_type == "font"
+            when nil, Crinja::Undefined     then attrs["crossorigin"] = "anonymous" if as_type == "font"
             end
 
             Crinja::SafeString.new(Util.void_tag("link", attrs))

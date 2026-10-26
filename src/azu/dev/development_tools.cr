@@ -368,7 +368,8 @@ module Azu
       end
 
       # Load test an HTTP endpoint: `requests` GETs spread over `concurrent` workers. `total_requests` counts the
-      # answered ones (successes and failures); requests still running after `timeout` are not counted.
+      # answered ones (successes and failures). The run stops collecting `timeout` after it started: answers that
+      # come later are not counted (the workers finish their requests in the background).
       def self.load_test(url : String, concurrent : Int32 = 10, requests : Int32 = 1000,
                          timeout : Time::Span = 30.seconds) : Hash(String, Float64)
         # `::Channel`: inside `Azu`, `Channel` is the WebSocket channel. Buffered, so a worker never blocks after a
@@ -377,6 +378,7 @@ module Azu
         errors = ::Channel(String).new(requests)
 
         start_time = Time.instant
+        deadline = start_time + timeout
 
         # The first `requests % concurrent` workers take one request more, so every request is sent
         concurrent.times do |worker|
@@ -394,7 +396,7 @@ module Azu
             response_times << time
           when errors.receive
             error_count += 1
-          when timeout(timeout)
+          when timeout(Math.max(deadline - Time.instant, Time::Span.zero))
             break
           end
         end

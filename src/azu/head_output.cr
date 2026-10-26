@@ -1,3 +1,8 @@
+class HTTP::Server::Context
+  # :nodoc: Set by `Azu::HeadOutput.wrap`, so the output of a HEAD request is wrapped once.
+  property? azu_head_output : Bool = false
+end
+
 module Azu
   # The response output of a HEAD request: it counts what the endpoint writes and sends none of it, so a HEAD
   # answers with the headers its GET would send and no body (RFC 9110 9.3.2). `HTTP::Server::Response` writes
@@ -13,11 +18,15 @@ module Azu
     end
 
     # Wraps the output of `context` when it answers a HEAD request; does nothing for any other method, or when
-    # it is already wrapped.
-    def self.wrap(context : HTTP::Server::Context) : Nil
+    # it was wrapped already. That is recorded on the context, not read from the output's type: a handler between
+    # the first wrap and the router (`Handler::Compression`) wraps the output again, and its writes must still
+    # reach the HEAD output under it, so the length counts what the GET sends. `force` wraps again, for an output
+    # that `HTTP::Server::Response#reset` replaced.
+    def self.wrap(context : HTTP::Server::Context, force : Bool = false) : Nil
       return unless context.request.method == "HEAD"
+      return if context.azu_head_output? && !force
+      context.azu_head_output = true
       response = context.response
-      return if response.output.is_a?(HeadOutput)
       response.output = new(response, response.output)
     end
 

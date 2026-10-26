@@ -307,6 +307,29 @@ describe "contract <-> model bridge" do
       File.delete?(file)
     end
 
+    it "sends no body for a HEAD whose commit fails, error page included" do
+      file = File.tempname("azu_cql_head_commit_failure", ".db")
+      schema = Azu::CQL.schema(:head_commit_failure, "sqlite3://#{file}?foreign_keys=1", lazy: false) { table(:parents) { primary :id, Int64 } }
+      schema.build
+      schema.exec("CREATE TABLE kids (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parents(id) DEFERRABLE INITIALLY DEFERRED)")
+      orphan = ->(context : HTTP::Server::Context) do
+        schema.exec("INSERT INTO kids (parent_id) VALUES (404)") # fails only at commit
+        context.response.print "SUCCESS-BODY"
+      end
+      handler = Azu::CQL::Middleware.new(schema, transaction: true)
+      handler.next = orphan
+      context, io = create_context("HEAD", "/orphan")
+      Azu::HeadOutput.wrap(context) # as App::Scope does
+      expect_raises(Exception) { handler.call(context) }
+      context.response.status_code = 500
+      context.response.print "ERROR-PAGE" # what Rescuer would write
+      context.response.close
+      io.to_s.should_not contain "SUCCESS-BODY"
+      io.to_s.should_not contain "ERROR-PAGE"
+      io.to_s.should contain "Content-Length: 10"
+      File.delete?(file)
+    end
+
     it "keeps the write of a failing request when it is not transactional" do
       ContractBridgeSpec.serve(transaction: false) do |base|
         ContractBridgeSpec.post(base, "/people/boom", "Ada").status_code.should eq 500
