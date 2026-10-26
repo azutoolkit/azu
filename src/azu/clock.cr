@@ -12,6 +12,16 @@ module Azu
       abstract def now : Time
       abstract def instant : Time::Instant
 
+      # A monotonic reading in nanoseconds that may lag `instant` by up to one timer tick (1-10 ms) and is cheaper to
+      # read, for checks with a far longer interval (Static looks at its directory at most once a second). Compare it
+      # only with other `coarse_nanoseconds` readings: its origin is unspecified. By default it follows `instant`.
+      def coarse_nanoseconds : Int64
+        elapsed = instant - INSTANT_ORIGIN
+        elapsed.to_i * 1_000_000_000 + elapsed.nanoseconds
+      end
+
+      private INSTANT_ORIGIN = Time.instant
+
       # Waits for *span*. The system clock sleeps; a fake one advances instead, so retry and backoff code
       # runs in a spec without waiting.
       def sleep(span : Time::Span) : Nil
@@ -27,6 +37,17 @@ module Azu
       def instant : Time::Instant
         Time.instant
       end
+
+      {% if flag?(:linux) %}
+        # CLOCK_MONOTONIC_COARSE: the time of the last timer tick, up to one tick (1-10 ms) old, read without asking
+        # the hardware. CLOCK_MONOTONIC, which counts from the same origin, on a kernel without it.
+        def coarse_nanoseconds : Int64
+          if LibC.clock_gettime(LibC::CLOCK_MONOTONIC_COARSE, out time) != 0
+            LibC.clock_gettime(LibC::CLOCK_MONOTONIC, pointerof(time))
+          end
+          time.tv_sec.to_i64 * 1_000_000_000 + time.tv_nsec
+        end
+      {% end %}
     end
 
     # A clock that only moves when told to.
@@ -81,6 +102,10 @@ module Azu
 
     def self.instant : Time::Instant
       @@source.instant
+    end
+
+    def self.coarse_nanoseconds : Int64
+      @@source.coarse_nanoseconds
     end
 
     def self.sleep(span : Time::Span) : Nil

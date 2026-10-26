@@ -1,6 +1,7 @@
 require "file_utils"
 require "../../spec_helper"
 require "../../support/integration_helpers"
+require "../../../benchmark/micro/harness"
 
 include IntegrationHelpers
 
@@ -9,6 +10,41 @@ class StaticRedirectProbe < Azu::Handler::Static
   def location(path : String, directory : Bool) : String
     redirect_path(path, directory)
   end
+end
+
+# What a routed path falls through to; it answers nothing, so measured bytes are Static's own.
+private class StaticNoopNext
+  include HTTP::Handler
+
+  def call(context : HTTP::Server::Context)
+  end
+end
+
+# Bytes Static allocates per request for `path` under `dir`, after a first call that memoizes request.path (a
+# connection's request has parsed it already). The clock does not move, so the directory is not looked at again.
+# The path is set after the request is built: Crystal 1.22 refuses a non-ASCII resource in `HTTP::Request.new` (and so
+# on the wire), but a handler ahead of Static can still set one with `HTTP::Request#path=`.
+private def static_bytes(dir : String, path : String) : Float64
+  with_fake_clock do
+    handler = Azu::Handler::Static.new(dir, fallthrough: true)
+    handler.next = StaticNoopNext.new
+    request = HTTP::Request.new("GET", "/").tap(&.path = path)
+    context = HTTP::Server::Context.new(request, HTTP::Server::Response.new(IO::Memory.new))
+    handler.call(context)
+    HotPath.bytes_per_call { handler.call(context) }
+  end
+end
+
+# A handler for `dir` that passes what it does not serve to a next handler answering "OK".
+private def falling_through_static(dir : String) : Azu::Handler::Static
+  Azu::Handler::Static.new(dir, fallthrough: true).tap { |handler| handler.next = create_next_handler(0)[0] }
+end
+
+# The body `handler` answers `path` with.
+private def static_body(handler : Azu::Handler::Static, path : String) : String
+  context, io = create_context("GET", path)
+  handler.call(context)
+  get_response_body(context, io)
 end
 
 describe Azu::Handler::Static do
@@ -720,6 +756,228 @@ describe Azu::Handler::Static do
         get_response_body(context, io).should eq("created after boot")
       ensure
         FileUtils.rm_rf(missing)
+      end
+    end
+
+    it "redirects //evil.com to a path on this site, not to another host (regression guard)" do
+      FileUtils.rm_rf(missing)
+      context, _ = create_context("GET", "//evil.com")
+      Azu::Handler::Static.new(missing, fallthrough: true).call(context)
+
+      context.response.status_code.should eq(302)
+      context.response.headers["Location"].should eq("/evil.com")
+    end
+
+    {% if flag?(:preview_mt) %}
+      # GC.stats.total_bytes counts every thread, so a window would include the other workers' garbage
+      pending "takes the full route for a path with a backslash, which except reads as a separator"
+    {% else %}
+      it "takes the full route for a path with a backslash, which except reads as a separator" do
+        FileUtils.rm_rf(missing)
+        # Only the full route allocates; with fallthrough it then passes the path on as well
+        static_bytes(missing, "/templates\\x.txt").should be > 0
+      end
+    {% end %}
+  end
+
+  describe "a public directory that exists" do
+    {% if flag?(:preview_mt) %}
+      # GC.stats.total_bytes counts every thread, so a window would include the other workers' garbage
+      pending "passes a path whose first segment names no entry on without allocating"
+    {% else %}
+      it "passes a path whose first segment names no entry on without allocating" do
+        with_temp_dir({"robots.txt" => "robots", "assets/app.css" => "body {}"}) do |dir|
+          static_bytes(dir, "/plaintext").should be < 1
+          static_bytes(dir, "/api/v1/resource57/123").should be < 1
+        end
+      end
+
+      it "looks up a path whose first segment names an entry, or might on a case-insensitive file system" do
+        with_temp_dir({"robots.txt" => "robots", "assets/app.css" => "body {}"}) do |dir|
+          # The full lookup allocates; on this file system each then falls through as before
+          ["/assets/missing.css", "/ROBOTS.TXT", "/Assets/app.css", "/röbots.txt"].each do |path|
+            static_bytes(dir, path).should be > 0
+          end
+        end
+      end
+
+      it "looks up a path whose first segment names an entry but for trailing dots, which Windows ignores" do
+        with_temp_dir({"robots.txt" => "robots", "assets/app.css" => "body {}"}) do |dir|
+          ["/robots.txt.", "/assets../app.css"].each { |path| static_bytes(dir, path).should be > 0 }
+        end
+      end
+
+      it "keeps no names for a directory with a non-ASCII one, which a file system may fold or normalize" do
+        # U+212A KELVIN SIGN folds to an ASCII "k": a case-insensitive file system can serve "/key.txt" from it
+        with_temp_dir({"\u212Aey.txt" => "kelvin", "robots.txt" => "robots"}) do |dir|
+          ["/key.txt", "/plaintext"].each { |path| static_bytes(dir, path).should be > 0 }
+        end
+      end
+
+      it "keeps no names for a directory with more than MAX_ENTRIES of them, so every path takes the full route" do
+        with_temp_dir({"robots.txt" => "robots"}) do |dir|
+          Azu::Handler::Static::MAX_ENTRIES.times { |index| File.touch(File.join(dir, "file-#{index}.txt")) }
+          static_bytes(dir, "/plaintext").should be > 0
+        end
+      end
+
+      it "looks up a path with a trailing slash, which may name a directory's index.html" do
+        with_temp_dir({"robots.txt" => "robots"}) do |dir|
+          static_bytes(dir, "/plaintext/").should be > 0
+        end
+      end
+
+      it "keeps no names once they cannot be read, so every path takes the full route" do
+        with_temp_dir({"robots.txt" => "robots"}) do |root|
+          with_fake_clock do |clock|
+            dir = File.join(root, "public")
+            Dir.mkdir(dir)
+            handler = Azu::Handler::Static.new(dir, fallthrough: true)
+            handler.next = StaticNoopNext.new
+            context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/plaintext"), HTTP::Server::Response.new(IO::Memory.new))
+            handler.call(context)
+
+            Dir.delete(dir)
+            File.write(dir, "a file now: listing it fails")
+            clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+            handler.call(context)
+            HotPath.bytes_per_call { handler.call(context) }.should be > 0
+          end
+        end
+      end
+    {% end %}
+
+    it "serves below an entry whose own name ends in a dot, as a POSIX file system allows" do
+      # Trailing dots are dropped from entry names too, or `assets.` would never match the request's `assets.`
+      with_temp_dir({"assets./app.css" => "body {}"}) do |dir|
+        static_body(falling_through_static(dir), "/assets./app.css").should eq("body {}")
+      end
+    end
+
+    it "refuses a raw NUL byte in the path, with the directory present or missing" do
+      with_temp_dir({"robots.txt" => "robots"}) do |dir|
+        [dir, File.join(dir, "missing")].each do |public_dir|
+          context, _ = create_context("GET", "/")
+          context.request.path = "/a\0b" # the URI parser stops at a NUL: only code that sets the path can put one there
+          falling_through_static(public_dir).call(context)
+          context.response.status_code.should eq(400)
+        end
+      end
+    end
+
+    it "passes requests on once the directory is removed, and serves it again once it is back" do
+      with_temp_dir({"public/robots.txt" => "robots"}) do |root|
+        with_fake_clock do |clock|
+          dir = File.join(root, "public")
+          handler = falling_through_static(dir)
+          static_body(handler, "/robots.txt").should eq("robots")
+
+          FileUtils.rm_rf(dir)
+          clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+          static_body(handler, "/robots.txt").should eq("OK")
+
+          Dir.mkdir(dir)
+          File.write(File.join(dir, "robots.txt"), "robots again")
+          clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+          static_body(handler, "/robots.txt").should eq("robots again")
+        end
+      end
+    end
+
+    it "serves a top-level file added after boot once the directory is looked at again, not before" do
+      with_temp_dir({"robots.txt" => "robots"}) do |dir|
+        with_fake_clock do |clock|
+          handler = Azu::Handler::Static.new(dir, fallthrough: true)
+          next_handler, verify = create_next_handler(2)
+          handler.next = next_handler
+
+          context, io = create_context("GET", "/late.txt")
+          handler.call(context)
+          get_response_body(context, io).should eq("OK")
+
+          File.write(File.join(dir, "late.txt"), "created after boot")
+          # Within the recheck interval the handler still knows the entries it read
+          context, io = create_context("GET", "/late.txt")
+          handler.call(context)
+          get_response_body(context, io).should eq("OK")
+
+          clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+          context, io = create_context("GET", "/late.txt")
+          handler.call(context)
+          get_response_body(context, io).should eq("created after boot")
+          verify.call
+        end
+      end
+    end
+
+    it "reads the names again when a trusted modification time changes, and not before" do
+      with_temp_dir({"robots.txt" => "robots"}) do |dir|
+        with_fake_clock do |clock|
+          trusted = Time.utc - 1.minute # older than the trust window when the names are read
+          File.touch(dir, trusted)
+          handler = falling_through_static(dir)
+          static_body(handler, "/late.txt").should eq("OK")
+
+          File.write(File.join(dir, "late.txt"), "late")
+          File.touch(dir, trusted) # a change the modification time does not show
+          clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+          static_body(handler, "/late.txt").should eq("OK")
+
+          File.touch(dir, trusted + 1.second)
+          clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+          static_body(handler, "/late.txt").should eq("late")
+        end
+      end
+    end
+
+    it "reads the names again at each check while the modification time is too recent to trust" do
+      with_temp_dir({"robots.txt" => "robots"}) do |dir|
+        with_fake_clock do |clock|
+          recent = Time.utc # a change in the same timestamp tick would not move it
+          File.touch(dir, recent)
+          handler = falling_through_static(dir)
+          static_body(handler, "/late.txt").should eq("OK")
+
+          File.write(File.join(dir, "late.txt"), "late")
+          File.touch(dir, recent)
+          clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+          static_body(handler, "/late.txt").should eq("late")
+        end
+      end
+    end
+
+    it "reads the names again every ENTRIES_REREAD, even when the modification time does not move" do
+      with_temp_dir({"robots.txt" => "robots"}) do |dir|
+        with_fake_clock do |clock|
+          trusted = Time.utc - 1.minute
+          File.touch(dir, trusted)
+          handler = falling_through_static(dir)
+          static_body(handler, "/late.txt").should eq("OK")
+
+          # rsync -a, cp -a and archives with fixed timestamps can add a name and keep the time
+          File.write(File.join(dir, "late.txt"), "late")
+          File.touch(dir, trusted)
+          clock.advance(Azu::Handler::Static::ENTRIES_REREAD + 1.millisecond)
+          static_body(handler, "/late.txt").should eq("late")
+        end
+      end
+    end
+
+    it "reads the names again when the public directory is swapped for another with the same modification time" do
+      with_temp_dir({"one/robots.txt" => "robots", "two/robots.txt" => "robots", "two/late.txt" => "late"}) do |root|
+        with_fake_clock do |clock|
+          trusted = Time.utc - 1.minute
+          {"one", "two"}.each { |name| File.touch(File.join(root, name), trusted) }
+          public_dir = File.join(root, "public")
+          File.symlink(File.join(root, "one"), public_dir)
+          handler = falling_through_static(public_dir)
+          static_body(handler, "/late.txt").should eq("OK")
+
+          File.delete(public_dir) # a deploy that switches the link to a new release
+          File.symlink(File.join(root, "two"), public_dir)
+          clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+          static_body(handler, "/late.txt").should eq("late")
+        end
       end
     end
   end

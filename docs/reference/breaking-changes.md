@@ -180,7 +180,14 @@ read. `Router#process` returns `""` for a routed request instead of the renderin
 
 **A request id is cut from a buffered chunk of secure random bytes.** The format `req_<ms>_<16 hex>` is unchanged.
 
-**A `Static` public directory created after boot is picked up within a second**, not at once.
+**An invalid `SecurityHeaders` value raises `ArgumentError` when the handler is built.** A value a header cannot carry (a
+line break in `content_security_policy:`, `frame_options:` or `referrer_policy:`) used to raise on every request, which
+`Rescuer` answered with a `500`; the application now fails to boot instead.
+
+**A `Static` public directory created after boot is picked up within a second**, not at once, **and a top-level file
+or directory added to an existing one usually within a second, at most a minute** (`Handler::Static` reads the
+top-level names again when the directory's modification time or identity changes, checked once a second, and every
+60 seconds regardless).
 
 **A Redis cache needs an explicit URL, and `clear` only removes the cache's own keys.**
 

@@ -284,6 +284,23 @@ describe Azu::Handler::RequestId do
       verify.call
     end
 
+    it "replaces a supplied id that is not a valid header value, and never echoes it" do
+      handler = Azu::Handler::RequestId.new
+      handler.next = create_next_handler(1)[0]
+      # The wire parser and HTTP::Headers refuse CR and LF; a header written without that check (as TrustedHeader
+      # writes one) still reaches the handler with them
+      headers = HTTP::Headers.new
+      Azu::Handler::TrustedHeader.set(headers, Azu::Handler::TrustedHeader.key("X-Request-ID"), "a\rSet-Cookie: x")
+      context, io = create_context("GET", "/test", headers)
+
+      handler.call(context)
+
+      context.response.headers["X-Request-ID"].should match(/\Areq_\d+_[0-9a-f]{16}\z/)
+      context.request.headers["X-Request-ID"].should eq context.response.headers["X-Request-ID"]
+      get_response_body(context, io)
+      io.to_s.should_not contain("Set-Cookie")
+    end
+
     it "handles very long request IDs" do
       handler = Azu::Handler::RequestId.new
       next_handler, verify = create_next_handler(1)

@@ -13,10 +13,26 @@ module Azu
       # The hash has at least one letter, so a date (`report-20240101.pdf`) is not one.
       FINGERPRINTED = /[-.](?=[0-9]*[a-f])[0-9a-f]{8,}(?:\.[a-z0-9]+)+\z/i
 
-      # How long a public directory that does not exist is believed to stay missing. An application with no
-      # `public/` pays no file system calls per request, and one created after boot is served from the next
-      # check on.
+      # How long a public directory that does not exist is believed to stay missing. An application with no `public/`
+      # pays no file system calls per request, and a directory created after boot is served from the next check on.
       MISSING_DIRECTORY_RECHECK = 1.second
+      # How often the public directory's modification time and identity are compared with those its entry names were
+      # read at. A request whose first path segment names no entry pays no file system call.
+      ENTRIES_RECHECK = MISSING_DIRECTORY_RECHECK
+      # How long the entry names are kept at most, whatever the directory's modification time and identity say: a copy
+      # that keeps timestamps (`rsync -a`, `cp -a`, archives with fixed dates) or a network file system can add a name
+      # without changing either.
+      ENTRIES_REREAD = 60.seconds
+      # A directory with more top-level names than this keeps none, and every path takes the full lookup.
+      MAX_ENTRIES = 10_000
+
+      # A directory modified less than this before its entries were read is read again at the next check: on a file
+      # system with coarse timestamps an entry added in the same tick would leave the modification time unchanged.
+      private COARSE_MTIME = 2.seconds
+
+      # FNV-1a, 64-bit
+      private FINGERPRINT_BASIS = 0xcbf29ce484222325_u64
+      private FINGERPRINT_PRIME =      0x100000001b3_u64
 
       HTML_TYPE = "text/html; charset=utf-8"
 
@@ -107,14 +123,37 @@ module Azu
         @mime_types = MIME_TYPES.merge(normalized_mime_types(mime_types))
         @excluded = excluded.map { |entry| excluded_segments(entry) }
         @fingerprinted_cache_control = "public, max-age=#{cache_max_age}, immutable"
-        @clock_origin = Clock.instant
+        @clock_origin = Clock.coarse_nanoseconds
         @public_dir_found = Atomic(Bool).new(false)
         @next_directory_check = Atomic(Int64).new(0_i64)
+        @next_entries_check = Atomic(Int64).new(0_i64)
+        @entries = Atomic(Entries?).new(nil)
         public_dir?
       end
 
       @excluded : Array(Array(String))
       @mime_types : Hash(String, String)
+
+      # What one read of the public directory found, never changed once published: a lookup sees the whole of one
+      # read or none (nil: not read yet, or unreadable, so every path takes the full route).
+      private class Entries
+        # Fingerprints of the entry names; nil when they are not kept, so every path takes the full route
+        getter fingerprints : Set(UInt64)?
+
+        # *directory*: what was read, nil when it did not exist. *mtime*: its modification time, nil when not trusted.
+        # *read_at*: the clock reading of the read.
+        def initialize(@fingerprints : Set(UInt64)?, @directory : File::Info?, @mtime : Time?, @read_at : Int64)
+        end
+
+        # Whether reading at *now* would find the same names: the directory is still missing, or it is the same
+        # directory (device and inode) with the same trusted modification time, read less than ENTRIES_REREAD ago.
+        def current?(directory : File::Info?, now : Int64) : Bool
+          read = @directory
+          return directory.nil? if read.nil?
+          return false unless directory && (mtime = @mtime) && now - @read_at < ENTRIES_REREAD.total_nanoseconds.to_i64
+          read.same_file?(directory) && directory.modification_time == mtime
+        end
+      end
 
       def call(context : HTTP::Server::Context)
         return allow_get_or_head(context) unless method_get_or_head?(context.request.method)
@@ -149,7 +188,7 @@ module Azu
 
       private def public_dir? : Bool
         return true if @public_dir_found.get
-        now = (Clock.instant - @clock_origin).total_nanoseconds.to_i64
+        now = clock_nanoseconds
         return false if now < @next_directory_check.get
 
         if Dir.exists?(@public_dir)
@@ -160,18 +199,88 @@ module Azu
         end
       end
 
-      # With no public directory a plain path can only fall through; decoding and expanding it would allocate.
-      private def falls_through_early?(path : String) : Bool
-        @fallthrough && !public_dir? && plain_path?(path)
+      # Nanoseconds since the handler was built, on the coarse clock (its lag of up to one timer tick is nothing next to
+      # a one-second recheck). It runs on every request that reaches the directory checks, so it is integer math only.
+      private def clock_nanoseconds : Int64
+        Clock.coarse_nanoseconds - @clock_origin
       end
 
-      # A path `call` would neither decode, refuse nor redirect: it has no escapes or NUL, no empty or dot
-      # segment and no trailing slash (but the root), so it is its own normal form. Checked without allocating.
-      private def plain_path?(path : String) : Bool
-        return false unless path.starts_with?('/')
-        return false if path != "/" && dir_path?(path)
+      # A plain path that cannot name anything under the public directory can only fall through; decoding,
+      # expanding and looking it up would allocate and ask the file system.
+      private def falls_through_early?(path : String) : Bool
+        return false unless @fallthrough && plain_path?(path)
+        !public_dir? || !maybe_entry?(path)
+      end
 
-        !(path.includes?('%') || path.includes?('\0') || path.includes?("//") || path.includes?("/."))
+      # Whether the first segment of a plain path may name an entry of the public directory: its fingerprint is
+      # one of the entries'. The root may (`index.html`), and so may a segment with a non-ASCII byte, which a
+      # case-insensitive or normalizing file system can resolve to a name spelled otherwise (and no ASCII name of
+      # the directory resolves to it: a directory with a non-ASCII name keeps none).
+      private def maybe_entry?(path : String) : Bool
+        segment = path.to_slice[1, (path.byte_index('/'.ord, 1) || path.bytesize) - 1]
+        return true if segment.empty? || segment.any? { |byte| byte >= 0x80 }
+        refresh_entries
+        fingerprints = @entries.get.try(&.fingerprints)
+        fingerprints.nil? || fingerprints.includes?(fingerprint(segment))
+      end
+
+      # Reads the entry names again unless `Entries#current?`, checked at most once per ENTRIES_RECHECK; one
+      # fiber reads and publishes, the others keep the names they have meanwhile.
+      private def refresh_entries : Nil
+        now = clock_nanoseconds
+        due = @next_entries_check.get
+        return if now < due
+        return unless @next_entries_check.compare_and_set(due, now + ENTRIES_RECHECK.total_nanoseconds.to_i64)[1]
+
+        directory = File.info?(@public_dir)
+        return if @entries.get.try(&.current?(directory, now))
+        mtime = directory.try(&.modification_time)
+        trusted = mtime && Clock.now - mtime >= COARSE_MTIME
+        @entries.set(Entries.new(directory ? entry_fingerprints : Set(UInt64).new, directory, trusted ? mtime : nil, now))
+      rescue IO::Error
+        @entries.set(nil)
+      end
+
+      # Fingerprints of the public directory's entry names; nil past MAX_ENTRIES, or when one name is not ASCII: how a
+      # file system folds or normalizes those (NFD, NTFS case tables) is not modelled, so every path takes the full lookup.
+      private def entry_fingerprints : Set(UInt64)?
+        fingerprints = Set(UInt64).new
+        Dir.each_child(@public_dir) do |name|
+          return if fingerprints.size >= MAX_ENTRIES || !name.ascii_only?
+          fingerprints << fingerprint(name.to_slice)
+        end
+        fingerprints
+      end
+
+      # Two names that differ only in ASCII case or in trailing dots share a fingerprint, as a case-insensitive file
+      # system, or Windows (which ignores trailing dots), would resolve one to the other. A name that shares one by
+      # chance only takes its request down the full lookup.
+      private def fingerprint(name : Bytes) : UInt64
+        size = name.size
+        while size > 0 && name[size - 1] === '.'
+          size -= 1
+        end
+        name[0, size].reduce(FINGERPRINT_BASIS) do |hash, byte|
+          byte += 32 if 'A'.ord <= byte <= 'Z'.ord
+          (hash ^ byte) &* FINGERPRINT_PRIME
+        end
+      end
+
+      # A path `call` would neither decode, refuse nor redirect: it has no escape, NUL or backslash (a separator
+      # to `except`), no empty or dot segment and no trailing slash, so it is its own normal form. Excluding a
+      # trailing slash is conservative: the full lookup of such a path (an `index.html`) falls through as well when
+      # nothing is there. One pass, no allocation.
+      private def plain_path?(path : String) : Bool
+        return path == "/" if dir_path?(path)
+        return false unless path.starts_with?('/')
+
+        previous = 0_u8
+        path.each_byte do |byte|
+          return false if byte === '%' || byte === '\0' || byte === '\\'
+          return false if previous === '/' && (byte === '/' || byte === '.')
+          previous = byte
+        end
+        true
       end
 
       private def valid_path?(original_path : String, request_path : String) : Bool
