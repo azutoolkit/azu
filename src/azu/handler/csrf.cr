@@ -86,6 +86,12 @@ module Azu
       # the first file part and ends within these bytes. The rest of the body is not read here.
       MULTIPART_SCAN_LIMIT = 64 * 1024
 
+      # ... and the token field must be among the first parts: a walk over more is given up, whatever their size.
+      MULTIPART_MAX_PARTS = 64
+
+      # The largest urlencoded body read for the token by default (`max_form_size`).
+      FORM_SIZE_LIMIT = 1_048_576_u64
+
       # The body is over `upload.max_file_size`: answered with 413, never buffered past the limit.
       private class BodyTooLarge < Exception
       end
@@ -112,6 +118,10 @@ module Azu
           super
         end
       end
+
+      # The most of a urlencoded body that is read to look for the token; a larger one is answered 413. The endpoint's
+      # own limit (`upload.max_file_size`) still applies when it is smaller.
+      property max_form_size : UInt64 = FORM_SIZE_LIMIT
 
       # Instance-level configuration properties
       property strategy : Strategy
@@ -442,13 +452,12 @@ module Azu
 
       private def validate_signed_double_submit(context : HTTP::Server::Context) : Bool
         return false unless cookie_token = extract_token_from_cookie(context)
+        # A cookie that is not a token this handler signed is refused before any body is read for the request's token.
+        return false unless verify_hmac_token(cookie_token)
         return false unless request_token = extract_token_from_request(context)
 
-        # Both tokens must be identical
-        return false unless Crypto::Subtle.constant_time_compare(request_token, cookie_token)
-
-        # Verify HMAC signature
-        verify_hmac_token(request_token)
+        # Both tokens must be identical (and the cookie's signature was checked above)
+        Crypto::Subtle.constant_time_compare(request_token, cookie_token)
       end
 
       private def generate_signed_double_submit_token(context : HTTP::Server::Context) : String
@@ -525,7 +534,7 @@ module Azu
       end
 
       private def form_token(context : HTTP::Server::Context, body : IO) : String?
-        limit = Azu.current_config.upload.max_file_size
+        limit = {Azu.current_config.upload.max_file_size, @max_form_size}.min
         raise BodyTooLarge.new if declared_length(context.request).try { |length| length > limit }
 
         buffer = IO::Memory.new
@@ -540,25 +549,34 @@ module Azu
       private def multipart_token(context : HTTP::Server::Context, body : IO) : String?
         # No size check here: `upload.max_file_size` applies to each file of a multipart body, which the endpoint
         # enforces as it parses; this only looks at the first bytes.
-        preamble = read_up_to(body, MULTIPART_SCAN_LIMIT)
+        boundary = boundary_of(context.request.headers["Content-Type"]?)
+        preamble, token = scan_preamble(body, boundary, @param_name)
         context.request.body = ReplayedBody.new(preamble, body)
-        boundary = boundary_of(context.request.headers["Content-Type"]?) || return
-        CSRF.multipart_field(preamble, boundary, @param_name)
+        token
+      end
+
+      # Reads *io* in small steps until the walk over the multipart parts has decided (found the field, met a file,
+      # run out of parts or of MULTIPART_SCAN_LIMIT bytes) and returns what was read with the value. A client that
+      # sends the token part and then stalls is not waited for.
+      private def scan_preamble(io : IO, boundary : String?, name : String) : {Bytes, String?}
+        buffer = Bytes.new(MULTIPART_SCAN_LIMIT)
+        filled = 0
+        parsed = 0
+        loop do
+          count = io.read(buffer[filled, Math.min(4096, MULTIPART_SCAN_LIMIT - filled)])
+          filled += count
+          # Small buffers are walked after every read; bigger ones after every KB: a client that sends a byte at a time
+          # cannot make the walk run once per byte.
+          next unless count == 0 || filled == MULTIPART_SCAN_LIMIT || filled <= 1024 || filled - parsed >= 1024
+          parsed = filled
+          return {buffer[0, filled], nil} unless boundary
+          token, decided = CSRF.scan_multipart(buffer[0, filled], boundary, name)
+          return {buffer[0, filled], token} if decided || count == 0 || filled == MULTIPART_SCAN_LIMIT
+        end
       end
 
       private def declared_length(request : HTTP::Request) : UInt64?
         request.headers["Content-Length"]?.try(&.to_u64?)
-      end
-
-      private def read_up_to(io : IO, limit : Int32) : Bytes
-        buffer = Bytes.new(limit)
-        filled = 0
-        while filled < limit
-          count = io.read(buffer[filled, limit - filled])
-          break if count == 0
-          filled += count
-        end
-        buffer[0, filled]
       end
 
       private def boundary_of(content_type : String?) : String?
@@ -568,58 +586,95 @@ module Azu
         nil
       end
 
-      # The value of the multipart field *name* in *preamble* (the first bytes of a body), or nil. Parts are walked in
-      # order: the walk ends without a token at the first part that is a file (it has a `filename`), at a part that
-      # does not end within *preamble*, and at a field whose `name` is given twice. So the token field has to come
-      # before the files in the form, and a `_csrf` placed after an upload is not found.
+      # The value of the multipart field *name* in *preamble* (the first bytes of a body), or nil; see `scan_multipart`.
       def self.multipart_field(preamble : Bytes, boundary : String, name : String) : String?
-        text = String.new(preamble)
-        delimiter = "--#{boundary}"
-        position = text.index(delimiter) || return
-        loop do
+        scan_multipart(preamble, boundary, name)[0]
+      end
+
+      # Walks the parts of *preamble* once, front to back, looking at each byte a bounded number of times (so 64 KB of
+      # tiny parts cost no more than 64 KB of anything else): the value of the field *name* and whether the walk is
+      # decided. It ends without a token at the first part that is a file (it has a `filename`), at more than
+      # MULTIPART_MAX_PARTS parts, at a part with a repeated or missing `name`, and at a field whose `name` is given
+      # twice. It is undecided when *preamble* ends first: more bytes could still bring the field. So the token field has
+      # to come before the files in the form, and a `_csrf` placed after an upload is not found.
+      def self.scan_multipart(preamble : Bytes, boundary : String, name : String) : {String?, Bool}
+        delimiter = "--#{boundary}".to_slice
+        position = delimiter_at_line_start(preamble, delimiter, 0) || return {nil, false}
+        MULTIPART_MAX_PARTS.times do
           position += delimiter.size
-          return if text[position, 2]? == "--"
-          part = part_at(text, position, delimiter) || return
-          params = part.params
-          return if params.nil? || params.has_key?("filename") || params.has_key?("filename*")
-          return part.value if params["name"]? == name
-          position = part.next_delimiter
+          return {nil, true} if closing?(preamble, position)
+          head = part_head(preamble, position) || return {nil, false}
+          params = head.params
+          return {nil, true} if params.nil? || params.has_key?("filename") || params.has_key?("filename*")
+          if params["name"]? == name
+            value = first_line(preamble, head.value_start) || return {nil, false}
+            return {value, true}
+          end
+          position = delimiter_at_line_start(preamble, delimiter, head.value_start) || return {nil, false}
+        end
+        {nil, true}
+      end
+
+      private def self.closing?(bytes : Bytes, position : Int32) : Bool
+        position + 1 < bytes.size && bytes[position] == '-'.ord && bytes[position + 1] == '-'.ord
+      end
+
+      private record Head, params : Hash(String, String)?, value_start : Int32
+
+      # Longest header line looked at and most header lines in a part: a part with more is not a form field of ours.
+      MAX_HEADER_LINE  = 1024
+      MAX_HEADER_LINES =   16
+
+      # The header lines of the part that starts after the line break that follows *position* (just past a delimiter);
+      # nil when they do not end in *bytes* (more bytes are needed).
+      private def self.part_head(bytes : Bytes, position : Int32) : Head?
+        line_start = (index_of(bytes, '\n'.ord.to_u8, position) || return) + 1
+        disposition = nil.as(String?)
+        MAX_HEADER_LINES.times do
+          line_end = index_of(bytes, '\n'.ord.to_u8, line_start) || return
+          line = bytes[line_start, line_end - line_start]
+          line = line[0, line.size - 1] if line.size > 0 && line[line.size - 1] == '\r'.ord
+          return Head.new(disposition.try { |text| disposition_params(text) }, line_end + 1) if line.empty?
+          disposition = String.new(line) if line.size <= MAX_HEADER_LINE && disposition_line?(line)
+          line_start = line_end + 1
+        end
+        nil
+      end
+
+      # The value of a token field: its first line. A token has no line break, so nothing after one is read, and the
+      # field does not have to be followed by its delimiter (a client that stalls there is not waited for).
+      private def self.first_line(bytes : Bytes, from : Int32) : String?
+        return if from > bytes.size
+        rest = bytes[from..]
+        stop = rest.index { |byte| byte == '\r'.ord || byte == '\n'.ord } || return
+        String.new(rest[0, stop])
+      end
+
+      private def self.disposition_line?(line : Bytes) : Bool
+        prefix = "content-disposition:"
+        line.size >= prefix.size && prefix.each_char.with_index.all? { |char, index| (line[index] | 0x20) == char.ord }
+      end
+
+      private def self.index_of(bytes : Bytes, byte : UInt8, from : Int32) : Int32?
+        return if from >= bytes.size
+        bytes[from..].index(byte).try { |found| found + from }
+      end
+
+      # The first delimiter at the start of a line at or after *from*, which is itself a line start (the body may open
+      # with a preamble before the first one).
+      private def self.delimiter_at_line_start(bytes : Bytes, delimiter : Bytes, from : Int32) : Int32?
+        position = from
+        while position < bytes.size
+          return position if matches?(bytes, delimiter, position)
+          next_break = index_of(bytes, '\n'.ord.to_u8, position) || return
+          position = next_break + 1
         end
       end
 
-      private record Part, params : Hash(String, String)?, value : String, next_delimiter : Int32
-
-      # The part that starts on the line after *position* (just past a delimiter), nil when it does not end in *text*.
-      private def self.part_at(text : String, position : Int32, delimiter : String) : Part?
-        headers_start = (text.index('\n', position) || return) + 1
-        headers_end, value_start, break_size = part_head_end(text, headers_start) || return
-        # An empty value has no break of its own: the one that ends the headers is the one before the delimiter.
-        closing, consumed = part_end(text, value_start - break_size, delimiter) || return
-        value = closing < value_start ? "" : text[value_start...closing]
-        Part.new(disposition_params(text[headers_start...headers_end]), value, closing + consumed - delimiter.size)
-      end
-
-      # The end of the header block, where the value starts, and the size of the line break that ends the last header.
-      private def self.part_head_end(text : String, from : Int32) : {Int32, Int32, Int32}?
-        crlf = text.index("\r\n\r\n", from)
-        lf = text.index("\n\n", from)
-        if crlf && (lf.nil? || crlf < lf)
-          {crlf, crlf + 4, 2}
-        elsif lf
-          {lf, lf + 2, 1}
-        end
-      end
-
-      # Where the part ends: the line break before the next delimiter (which belongs to the delimiter, not the value),
-      # and how many bytes that break and the delimiter take.
-      private def self.part_end(text : String, from : Int32, delimiter : String) : {Int32, Int32}?
-        crlf = text.index("\r\n#{delimiter}", from)
-        lf = text.index("\n#{delimiter}", from)
-        if crlf && lf && lf == crlf + 1
-          {crlf, 2 + delimiter.size}
-        elsif lf
-          {lf, 1 + delimiter.size}
-        end
+      private def self.matches?(bytes : Bytes, delimiter : Bytes, position : Int32) : Bool
+        return false if position + delimiter.size > bytes.size
+        delimiter.each_with_index { |byte, index| return false unless bytes[position + index] == byte }
+        true
       end
 
       # The `name`, `filename` ... parameters of the part's Content-Disposition header, with quotes honoured;

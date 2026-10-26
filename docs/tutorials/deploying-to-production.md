@@ -193,8 +193,9 @@ Any process manager works (systemd, Docker, your platform's runtime). What Azu n
 
 {% hint style="warning" %}
 Behind a reverse proxy that terminates TLS and forwards WebSocket upgrades, Azu sees the proxy's address as the
-client address, which `Throttle` uses to count requests: run `Throttle` only where the peer address is the real
-client.
+client address, which `Throttle` uses to count requests, unless you pass the proxy's address or network as
+`trusted_proxies:` to `Throttle`: it then counts the client in `X-Forwarded-For`
+([Behind a reverse proxy](../reference/handlers/built-in.md#behind-a-reverse-proxy)).
 {% endhint %}
 
 ## Production checklist

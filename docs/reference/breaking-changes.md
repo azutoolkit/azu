@@ -12,14 +12,23 @@ release to the current API, with old and new code side by side; every release is
 
 ## Next release
 
-**`CORS` regex origins must match the whole `Origin`, and `OPTIONS` without a request method is not a preflight.** A regex in
-`origins` was searched for in the `Origin`, so `/good\.com/` allowed `https://good.com.evil.test` and `/\.example\.com$/`
-allowed `https://evil.test/x.example.com`, with `Access-Control-Allow-Credentials` echoed. It is now wrapped in `\A(?:...)\z`:
-anchor nothing, but write the whole origin, scheme included (`/https:\/\/[a-z0-9-]+\.example\.com/`); a regex that only
-described a suffix stops matching and its origins get `403` until it is rewritten. An `OPTIONS` request with an `Origin` but no
-`Access-Control-Request-Method` was refused with `403` as a bad preflight (also before 0.6.0); it is now handled as the ordinary
-request it is. `Access-Control-Allow-Headers` is sent in the spelling of `headers` instead of echoing the request. The commit
-carries `(MINOR)` for the regex change.
+**`CSRF` walks a multipart body in one pass, and reads at most 1 MB of a form.** The search for `_csrf` in a multipart body
+cost more than the body's size for a body of thousands of tiny parts (seconds of CPU for a request with any cookie); it now
+looks at each byte a bounded number of times, gives up after 64 parts, and a `csrf_token` cookie that is not a token the
+`SignedDoubleSubmit` handler signed is refused before any body is read. A urlencoded body is read up to the new
+`max_form_size` (1 MB by default) and a larger one answers `413`. **A browser sends an empty file input as a part with
+`filename=""`: it counts as a file part, so `_csrf` must come before it.** Put `csrf_field()` at the top of every form,
+above its file inputs (the scaffolds' upload forms too), or send the `X-CSRF-TOKEN` header. A form with more than 64
+fields before `_csrf`, or with `_csrf` after the first 64 KB, is refused with `403` where the 0.6.1 behaviour was already
+to refuse it after a file. The multipart total size is not bounded by `CSRF`; see the built-in handler reference.
+**`Throttle` keeps clients that a proxy forwarded garbage for apart, and its lists take CIDR blocks and refuse bad entries.**
+`blacklist` and `whitelist` now accept CIDR blocks (`"10.0.0.0/8"`) and raise `ArgumentError` when the handler is built for
+an entry that is not an IP address or block (`"unknown"`, a host name, `"1.2.3.4:80"`); before they compared text and ignored
+such entries silently. `trusted_proxies` refuses a catch-all block (`0.0.0.0/0`, `::/0`). Requests from a trusted proxy whose
+`X-Forwarded-For` names no client are counted in a bucket of their own, no longer under the proxy's address, so they cannot get
+the proxy's own requests refused. The table is kept in two parts (clients in their window, blocked clients), which makes
+making room O(1); a table at `max_clients` full of blocked clients cost milliseconds per new client before. Because the
+`ipv6_prefix` default of 64 changes how every IPv6 client is counted (see the entry below), this release is a minor one.
 
 **`HEAD` responses carry no body.** A `HEAD` to a `get` route sent the `GET` body, which a client reusing the
 connection read as the start of its next response. The body is now counted and discarded: the response has the `GET`
