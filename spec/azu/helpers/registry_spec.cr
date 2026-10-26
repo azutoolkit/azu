@@ -106,4 +106,14 @@ describe Azu::Helpers::Registry do
       Azu::Helpers::Registry.globals.empty?.should be_true
     end
   end
+
+  describe "builtin helper names" do
+    it "are all valid Crinja identifiers" do
+      Azu::Helpers::Builtin.register_all
+      identifier = /\A[A-Za-z_][A-Za-z0-9_]*\z/
+
+      names = Azu::Helpers::Registry.filters.keys + Azu::Helpers::Registry.functions.keys
+      names.map(&.to_s).reject(&.matches?(identifier)).should be_empty
+    end
+  end
 end

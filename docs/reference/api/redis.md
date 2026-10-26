@@ -196,8 +196,8 @@ late reply would answer the next command. A server error reply and a pool timeou
 
 ### Shutdown
 
-`Azu.shutdown` stops Spark, then Presence, then PubSub, and last calls `Azu::Redis.shutdown`, which closes every
-shared pool. The order matters: Presence's departures are published through PubSub, which needs the pool. A closed
+`Azu.shutdown` stops Spark, then Presence, then PubSub, then calls `Azu::Redis.shutdown`, which closes every
+shared pool (only the async log pipeline is flushed after it). The order matters: Presence's departures are published through PubSub, which needs the pool. A closed
 client raises `Azu::Redis::ClosedError`.
 
 ### Instrumentation

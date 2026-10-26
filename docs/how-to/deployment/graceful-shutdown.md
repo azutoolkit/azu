@@ -18,7 +18,8 @@ description: See what happens to requests, streams and WebSockets when an Azu ap
 4. The listener is closed, and the app waits for what is still in flight: normal requests, streams that have not
    finished and WebSockets whose peer has not answered the close frame yet.
 5. If anything is left when the timeout passes, `start` logs a warning and goes on to `Azu.shutdown`, which closes
-   Spark connections and the PubSub backend.
+   Spark connections and the PubSub backend and, last, writes every entry the async log pipeline still holds
+   (`Azu::AsyncLogging.shutdown`; a program that exits without `start` gets the same from an `at_exit`).
 
 Closing the sockets at the start, rather than after the requests, means a quiet WebSocket never holds up the drain,
 and clients start reconnecting while the slow requests are still finishing.

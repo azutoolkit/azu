@@ -119,6 +119,24 @@ describe "Date Helpers" do
       result.should eq "2024-01-15 10:30"
     end
 
+    it "keeps the time of a date-time string" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string("{{ '2024-01-15T10:30:00' | date_format('%Y-%m-%d %H:%M') }}")
+
+      template.render.should eq "2024-01-15 10:30"
+    end
+
+    it "keeps the local time of an RFC 3339 string" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string("{{ '2024-01-15T10:30:00+02:00' | date_format('%Y-%m-%d %H:%M') }}")
+
+      template.render.should eq "2024-01-15 10:30"
+    end
+
     it "uses default format when none specified" do
       crinja = Crinja.new
       Azu::Helpers::Registry.apply_to(crinja)
@@ -244,6 +262,35 @@ describe "Date Helpers" do
       result = template.render
 
       result.should eq "2 hours"
+    end
+  end
+
+  describe "distance_of_time_between function" do
+    it "measures the time of date-time strings" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string("{{ distance_of_time_between('2024-01-01T10:00:00', '2024-01-01T13:00:00') }}")
+
+      template.render.should eq "3 hours"
+    end
+
+    it "measures date-time strings with a space separator" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string("{{ distance_of_time_between('2024-01-01 10:00:00', '2024-01-01 10:45:00') }}")
+
+      template.render.should eq "45 minutes"
+    end
+
+    it "still parses date-only strings" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string("{{ distance_of_time_between('2024-01-01', '2024-01-03') }}")
+
+      template.render.should eq "2 days"
     end
   end
 end

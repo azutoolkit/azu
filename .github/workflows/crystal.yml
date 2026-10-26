@@ -97,6 +97,10 @@ jobs:
           shards install
           shards build example_app
 
+      # The scripts require ../../src/azu and find their shards in the root lib/, so they type-check from here.
+      - name: Check the playground examples compile
+        run: for f in playground/examples/*.cr; do crystal build --no-codegen "$f" || exit 1; done
+
       - name: Check code style
         run: crystal tool format --check --exclude lib --exclude playground/lib
 

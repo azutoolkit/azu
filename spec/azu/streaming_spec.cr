@@ -400,6 +400,9 @@ describe Azu::Response::Stream do
     response = HTTP::Client.head("#{serve(streaming_app)}/st-csv")
 
     response.headers["Content-Type"].should eq "text/csv"
+    # the GET is chunked: the HEAD says so, rather than a Content-Length of 0
+    response.headers["Transfer-Encoding"]?.should eq "chunked"
+    response.headers["Content-Length"]?.should be_nil
     response.body.should be_empty
   end
 

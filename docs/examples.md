@@ -97,10 +97,12 @@ secret. [Building live components](tutorials/building-live-components.md) builds
 | `direct_log_test.cr` | How Azu's log format prints exceptions | Runs |
 | `exception_test.cr` | The same for exceptions without a message, nested ones and warnings | Runs |
 | `final_endpoint_logging_demo.cr` | The endpoint class name the request logger prints | Runs |
-| `async_logging_example.cr` | `Azu::AsyncLogging::AsyncLogger` with request ids, batches and error reporting | Runs, then prints an unhandled `Channel::ClosedError` from a log fiber as it exits |
-| `server_exception_test.cr` | An exception raised in an endpoint, as the logger records it | Compiles, but its server does not start: it declares its route twice (`Azu::Router::DuplicateRoute`) |
-| `cache_metrics_demo.cr` | Cache operations recorded in `PerformanceMetrics` | Does not compile: it subtracts a `Time::Instant` from a `Time::Span` |
-| `performance_reporter_demo.cr` | The performance reporters | Does not compile: it calls `AggregatedStats#requests_per_second`, which does not exist |
+| `async_logging_example.cr` | `Azu::AsyncLogging::AsyncLogger` with request ids, batches and error reporting; `Azu::AsyncLogging.shutdown` writes what is queued | Runs |
+| `server_exception_test.cr` | An exception raised in an endpoint, as the logger records it (listens on `PORT`, or a free port) | Runs |
+| `cache_metrics_demo.cr` | Cache operations recorded in `PerformanceMetrics` | Runs |
+| `performance_reporter_demo.cr` | The performance reporters, including a custom CSV one | Runs |
+
+CI type-checks every script in `playground/examples/` (`crystal build --no-codegen`).
 
 ## See also
 

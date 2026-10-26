@@ -126,7 +126,7 @@ class CacheMetricsDemo
       error = ex.message
       nil # Return nil instead of re-raising for demo purposes
     ensure
-      processing_time = (Time.monotonic - start_time).total_milliseconds
+      processing_time = (Time.instant - start_time).total_milliseconds
       value_size = operation == "set" ? 20 : nil # Approximate value size for set operations
 
       metrics.record_cache(

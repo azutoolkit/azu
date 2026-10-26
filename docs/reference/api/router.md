@@ -273,8 +273,10 @@ answers `404`.
 | CONNECT | `connect` | `CONNECT` |
 | TRACE | `trace` | `TRACE` |
 
-A `HEAD` or `OPTIONS` request to a `get` route runs the endpoint as a `GET` does, and gets the `GET` response: the
-same status, headers and body. Declaring `head` or `options` on the path of a `get` route raises `DuplicateRoute`,
+A `HEAD` or `OPTIONS` request to a `get` route runs the endpoint as a `GET` does. `OPTIONS` gets the `GET` response;
+`HEAD` gets its status and headers with no body, and a `Content-Length` that counts the bytes the `GET` would send,
+compressed when `Handler::Compression` compresses the `GET` (unless the endpoint set one, the status is `204`, `304` or
+`1xx`, or the response streams: `Stream` and `EventStream` answer `Transfer-Encoding: chunked`). Declaring `head` or `options` on the path of a `get` route raises `DuplicateRoute`,
 in either order. A CORS preflight is answered by `Handler::CORS` before the router (see
 [Built-in handlers](../handlers/built-in.md)).
 
@@ -312,8 +314,6 @@ end
 
 ## Limits
 
-- **`HEAD` responses carry the body.** The endpoint behind a `get` route writes its body for a `HEAD` request too,
-  and it is sent. An HTTP/1.1 client that reuses the connection reads those bytes as the start of the next response.
 - **`OPTIONS` runs the `GET` endpoint.** There is no `Allow` header and no `405`: a method a path does not route
   answers `404`.
 - **`root`.** `Router#root` registers `GET /` only (no `HEAD`, no `OPTIONS`), and `path_of` does not know it. A

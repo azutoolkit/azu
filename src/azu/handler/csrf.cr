@@ -715,34 +715,29 @@ module Azu
         Crypto::Subtle.constant_time_compare(signature, expected_signature)
       end
 
-      # Origin validation (additional security layer)
+      # Origin validation (additional security layer): the `Origin` header, else the `Referer`, names the origin the
+      # request is served under (`X-Forwarded-Proto`, else https when this app terminates TLS, and `Host`). Origins
+      # compare by scheme, host and effective port, so `http://example.com` and `http://example.com:80` are the same.
       def validate_origin(context : HTTP::Server::Context) : Bool
-        origin = context.request.headers["Origin"]?
-        referer = context.request.headers["Referer"]?
+        headers = context.request.headers
+        return false unless host = headers["Host"]?
+        return false unless source = headers["Origin"]? || headers["Referer"]?
 
-        # Get expected origin from request
-        scheme = context.request.headers["X-Forwarded-Proto"]? || "http"
-        expected_origin = "#{scheme}://#{context.request.headers["Host"]}"
+        scheme = headers["X-Forwarded-Proto"]?.try(&.split(',').first.strip.downcase) || (Azu.current_config.tls? ? "https" : "http")
+        expected = origin_of("#{scheme}://#{host}")
+        !expected.nil? && origin_of(source) == expected
+      end
 
-        # Check Origin header first
-        if origin
-          return origin == expected_origin
-        end
-
-        # Fallback to Referer header
-        if referer
-          begin
-            referer_uri = URI.parse(referer)
-            referer_origin = "#{referer_uri.scheme}://#{referer_uri.host}"
-            referer_origin += ":#{referer_uri.port}" if referer_uri.port != 80 && referer_uri.port != 443
-            return referer_origin == expected_origin
-          rescue ex : URI::Error
-            return false
-          end
-        end
-
-        # No origin information available
-        false
+      # `scheme://host[:port]` of a URL, the port only when it is not the scheme's default; nil when it has no
+      # scheme or host.
+      private def origin_of(url : String) : String?
+        uri = URI.parse(url)
+        return unless (scheme = uri.scheme.try(&.downcase)) && (host = uri.host.try(&.downcase))
+        default = URI.default_port(scheme)
+        port = uri.port || default
+        port == default ? "#{scheme}://#{host}" : "#{scheme}://#{host}:#{port}"
+      rescue URI::Error
+        nil
       end
     end
   end

@@ -46,8 +46,8 @@ class ExceptionTest
       }, ex)
     end
 
-    # Give async logger time to process
-    sleep(1.second)
+    # Write what the async logger still holds (an at_exit would also do it, after the lines below)
+    Azu::AsyncLogging.shutdown
 
     puts "\n✅ Exception Test Completed"
     puts "Check the logs above to see exception formatting!"

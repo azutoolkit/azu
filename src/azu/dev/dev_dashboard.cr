@@ -37,14 +37,17 @@ module Azu
       @start_time : Time
 
       def initialize(@path = DEFAULT_PATH, metrics : PerformanceMetrics? = nil, @log : ::Log = Azu::CONFIG.log, @queries : QueryStore = QueryStore.instance)
-        @metrics = metrics || Azu::CONFIG.performance_monitor.try(&.metrics) || PerformanceMetrics.new
+        monitored = metrics || Azu::CONFIG.performance_monitor.try(&.metrics)
+        @metrics = monitored || PerformanceMetrics.new
         @start_time = Time.utc
         # Guarded by `run_playground` itself, and sent without a token by dashboard.js. Registered whatever the
         # environment: the handler is built before the app that will serve it is known, and the exemption only matters
         # if the dashboard serves, which `call` allows in development only.
         CSRF.exempt("#{@path}/sql")
-        unless serving?
+        if !serving?
           @log.warn { "Handler::DevDashboard was built in the #{Azu.current_config.env.to_s.downcase} environment: it only serves in development and passes every request on" }
+        elsif monitored.nil?
+          @log.warn { "Handler::DevDashboard has no performance monitor, so its request panels stay empty: set PERFORMANCE_MONITORING=true and mount Azu::CONFIG.performance_monitor, or pass metrics:" }
         end
       end
 

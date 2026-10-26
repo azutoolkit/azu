@@ -97,11 +97,28 @@ describe Azu::Handler::DevDashboard do
       end
     end
 
-    it "logs nothing in development" do
+    it "logs nothing in development when it has metrics" do
+      logs = ::Log.capture("spec.dashboard_gate") do
+        with_azu_env(Azu::Environment::Development) do
+          Azu::Handler::DevDashboard.new(metrics: Azu::PerformanceMetrics.new, log: ::Log.for("spec.dashboard_gate"))
+        end
+      end
+      logs.empty
+    end
+
+    it "warns in development when no performance monitor feeds it, as its request panels would stay empty" do
+      previous = Azu::CONFIG.@performance_monitor
+      enabled = Azu::CONFIG.performance_enabled?
+      Azu::CONFIG.performance_monitor = nil
+      Azu::CONFIG.performance_enabled = false
       logs = ::Log.capture("spec.dashboard_gate") do
         with_azu_env(Azu::Environment::Development) { Azu::Handler::DevDashboard.new(log: ::Log.for("spec.dashboard_gate")) }
       end
+      logs.check(:warn, /no performance monitor.*PERFORMANCE_MONITORING=true/i)
       logs.empty
+    ensure
+      Azu::CONFIG.performance_monitor = previous
+      Azu::CONFIG.performance_enabled = enabled.as(Bool)
     end
   end
 end
