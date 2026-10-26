@@ -1,23 +1,31 @@
+require "ecr"
 require "../../src/azu"
+require "../apps/common/bench"
 
 # Bytes and time per request of three stacks, each driven through the RequestProcessor HTTP::Server builds per
 # connection: the default Azu stack, azu-min (router, endpoint and Rescuer) and a hand-written baseline handler. The
 # difference over the baseline is the framework's cost. `bytes_per_call` measures a block the same way, for component
 # checks. The routes mirror benchmark/apps/azu, except that one resource endpoint serves all 100 routes with a
 # simplified body (`{"route":"resource","id":...}`, the bench app has a struct per route); that does not change the
-# difference over the baseline.
+# difference over the baseline. `/template` renders the bench app's template as the bench apps do: through `view` on
+# the Azu stacks, from ECR on the baseline.
 module HotPath
   WARMUP_REQUESTS =  200
   WINDOW_REQUESTS = 2000
   WINDOWS         =    3
-  # More paths than the router's path cache holds (1000). Once it is full `PathCache#set` returns early, so measured
-  # requests carry no cache insert (each dups the cached hashes, which would inflate bytes) and every one misses.
+  # More paths than the 1000 the router's path cache held before the segment tree replaced it, so that the routing rows
+  # stay comparable with commits that had it (they measured past a full cache).
   ROUTING_WARMUP_REQUESTS = 1200
   BODY                    = "Hello, World!"
   RESOURCE_PATH           = "/api/v1/resource57/123"
   RESOURCE_BODY           = %({"route":"resource","id":"123"})
   # Static builds paths under its dir per request: a cwd-relative dir would make bytes grow with the cwd's length.
-  STATIC_DIR = "/azu-hot-path/public"
+  STATIC_DIR    = "/azu-hot-path/public"
+  TEMPLATE_PATH = "/template"
+  # The bench apps' templates (template.jinja, template.ecr). Read once, when the first render compiles them.
+  TEMPLATE_DIR = File.expand_path("../apps/common", __DIR__)
+  # The same page rendered with its request (template_request.jinja, in this directory), which reads one request variable.
+  REQUEST_TEMPLATE_PATH = "/template/request"
 
   # Bytes and nanoseconds per request; `measure` takes the smallest of each over its windows, maybe from different ones.
   record Measurement, bytes : Float64, ns : Float64
@@ -61,6 +69,55 @@ module HotPath
     end
   end
 
+  # benchmark/apps/azu's ItemsPage and TemplateEndpoint.
+  struct ItemsPage
+    include Azu::Response
+    include Azu::Templates::Renderable
+
+    def render
+      items = Bench::ITEMS.map do |item|
+        {"id" => Crinja::Value.new(item.id), "name" => Crinja::Value.new(item.name), "price" => Crinja::Value.new(item.price)}
+      end
+      view "template.jinja", {"items" => items}
+    end
+  end
+
+  struct TemplateEndpoint
+    include Azu::Endpoint(NoRequest, ItemsPage)
+
+    def call : ItemsPage
+      content_type "text/html"
+      ItemsPage.new
+    end
+  end
+
+  # ItemsPage rendered with the request, as an endpoint's own `view` renders: the request variables are there to read.
+  struct RequestItemsPage
+    include Azu::Response
+    include Azu::Templates::Renderable
+
+    getter context : HTTP::Server::Context
+
+    def initialize(@context : HTTP::Server::Context)
+    end
+
+    def render
+      items = Bench::ITEMS.map do |item|
+        {"id" => Crinja::Value.new(item.id), "name" => Crinja::Value.new(item.name), "price" => Crinja::Value.new(item.price)}
+      end
+      view "template_request.jinja", {"items" => items}
+    end
+  end
+
+  struct RequestTemplateEndpoint
+    include Azu::Endpoint(NoRequest, RequestItemsPage)
+
+    def call : RequestItemsPage
+      content_type "text/html"
+      RequestItemsPage.new(context)
+    end
+  end
+
   class NullIO < IO
     def read(slice : Bytes) : Int32
       0
@@ -91,7 +148,7 @@ module HotPath
   end
 
   # routing.lua's request numbers n, in order: the warmup, then each measured window. n never restarts, so a measured
-  # path is new to the router, which by then holds a full path cache, as under wrk.
+  # path is new to the router, as under wrk.
   def self.routing_windows : Array(Range(Int32, Int32))
     windows = [1..ROUTING_WARMUP_REQUESTS]
     WINDOWS.times do
@@ -162,8 +219,16 @@ module HotPath
   private def self.azu_app : Azu::App
     app = Azu::App.new
     app.config.env = Azu::Environment::Production
+    # As the bench app runs (CRYSTAL_ENV=production): templates parsed once, never reloaded, whatever CRYSTAL_ENV is here
+    app.config.template_hot_reload = false
+    app.config.templates.path = TEMPLATE_DIR
+    app.config.templates.path = __DIR__
+    # An app with CSRF protection, as the bench app: a render with its request issues the token and sets its cookie
+    Azu::Handler::CSRF.default
     app.routes do
       get "/plaintext", PlaintextEndpoint
+      get TEMPLATE_PATH, TemplateEndpoint
+      get REQUEST_TEMPLATE_PATH, RequestTemplateEndpoint
       # They mirror the bench app's router size, which shapes the cost of finding a route
       {% for i in 0...100 %}
         get "/api/v1/resource{{ i }}/:id", ResourceEndpoint
@@ -190,10 +255,19 @@ module HotPath
       if path == "/plaintext"
         context.response.content_type = "text/plain"
         context.response.print BODY
+      elsif path == TEMPLATE_PATH
+        context.response.content_type = "text/html"
+        context.response.print render_template
       elsif path.starts_with?("/api/v1/resource")
         context.response.content_type = "application/json"
         context.response.print({route: "resource", id: path[path.rindex('/').not_nil! + 1..]}.to_json)
       end
     end
+  end
+
+  # benchmark/apps/baseline's render_template.
+  private def self.render_template : String
+    items = Bench::ITEMS
+    ECR.render "#{__DIR__}/../apps/common/template.ecr"
   end
 end

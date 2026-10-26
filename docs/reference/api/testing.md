@@ -193,7 +193,11 @@ client.get(ShowEndpoint, id: 8).body                         # => "8 false"
 ### Cookies and redirects
 
 Cookies set by a response are sent back with the next request (`client.cookies`), until they expire or the
-server deletes them. `Secure` and domains are not modelled. `client.follow_redirects = true` follows up to
+server deletes them. `Secure` and domains are not modelled. Paths work as in a browser (RFC 6265): a cookie set
+without `Path` belongs to the directory of the request that set it, so one set by `GET /auth/login` goes to
+`/auth/...` and not to `/session`, and a name is held once per path. A request that matches several paths of a name
+carries the longer path first; `client.cookies["name"]` and `client.cookies.to_h` give the shortest path's value,
+the one the app reads from such a request. `client.follow_redirects = true` follows up to
 ten redirects (301 and 302 turn a write into a GET, 303 always does, 307 and 308 keep the method) and raises
 `Azu::Testing::TooManyRedirects` beyond that.
 
@@ -299,7 +303,8 @@ close frame and waits for the channel's `on_close`.
 ## Limits
 
 * Redirects to another host are returned, not followed.
-* Cookies ignore `Secure`, `SameSite` and domains; paths are honoured (`/admin` does not match `/administrator`).
+* Cookies ignore `Secure`, `SameSite` and domains; paths are honoured (`/admin` does not match `/administrator`,
+  and a cookie without `Path` stays in the directory of the page that set it).
 * There is no socket: request-target parsing, keep-alive and connection handling belong to `HTTP::Server`
   and are not exercised. Keep a few specs against a real server (`app.server` and `bind_unused_port`).
 * The WebSocket client reads text frames only.

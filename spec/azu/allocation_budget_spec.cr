@@ -2,15 +2,14 @@ require "../spec_helper"
 require "../../benchmark/micro/harness"
 
 # Bytes per request over the baseline handler. Each budget is the whole-suite `crystal spec` measurement plus ~10%,
-# rounded up to a multiple of 8 (measured 784 / 575 / 1328 / 1119, in the order below; a single-file run measures
-# ~100 B less). Re-measure and lower them when a slice saves bytes or a new Crystal shifts stdlib allocations.
-# A single-file run measures less because per-request bytes depend on the compiled program (`Azu::Router::Route`
-# inlines a union of every compiled Routable, so its size grows with the endpoint types in the build): the budgets
-# are calibrated on the whole-suite file list.
-PLAINTEXT_AZU_BUDGET     =  864
-PLAINTEXT_AZU_MIN_BUDGET =  640
-RESOURCE_AZU_BUDGET      = 1464
-RESOURCE_AZU_MIN_BUDGET  = 1232
+# rounded up to a multiple of 8 (measured 447 / 236 / 949 / 734 with the segment tree, in the order below; 784 / 575 /
+# 1328 / 1119 with radix). Re-measure and lower them when a slice saves bytes or a new Crystal shifts stdlib
+# allocations. Per-request bytes can depend on the compiled program, so a single-file run may measure less: the
+# budgets are calibrated on the whole-suite file list.
+PLAINTEXT_AZU_BUDGET     =  496
+PLAINTEXT_AZU_MIN_BUDGET =  264
+RESOURCE_AZU_BUDGET      = 1048
+RESOURCE_AZU_MIN_BUDGET  =  808
 
 private def bytes_over_baseline(stack : HotPath::Stack, path : String) : Float64
   HotPath.measure(stack, path).bytes - HotPath.measure(HotPath::Stack::Baseline, path).bytes
@@ -100,11 +99,11 @@ describe "allocation budget" do
     HotPath.routing_path(997).should eq "/api/v1/resource97/0"
   end
 
-  it "warms the routing scenario past the path cache, then measures only paths new to the router" do
+  it "warms the routing scenario with more than 1000 paths, then measures only paths new to the router" do
     warmup, *measured = HotPath.routing_windows
 
     warmup.begin.should eq 1 # routing.lua increments n before its first request
-    # More paths than the router's path cache holds (Router::PathCache::DEFAULT_MAX_SIZE, 1000), so it is full
+    # More paths than the router's former path cache held (1000), as HotPath::ROUTING_WARMUP_REQUESTS explains
     warmup.map { |n| HotPath.routing_path(n) }.uniq.size.should be > 1000
     measured.size.should eq HotPath::WINDOWS
     HotPath.routing_windows.each_cons_pair { |earlier, later| later.begin.should be > earlier.end }
@@ -142,7 +141,7 @@ describe "allocation budget" do
     pending "measures what a block allocates"
     pending "a fieldless contract on a request without a body costs no more than no contract"
     pending "an endpoint's label costs the same whatever its namespace depth"
-    pending "the router adds nothing beyond its lookup to an endpoint call"
+    pending "the router adds at most 16 B to an endpoint call on a static route"
     pending "Static allocates nothing on a routed path when the public directory does not exist"
   {% else %}
     it "keeps the default stack on /plaintext within its budget over the baseline" do
@@ -174,7 +173,7 @@ describe "allocation budget" do
       bytes = HotPath::Stack.values.to_h { |stack| {stack, HotPath.measure_routing(stack).bytes} }
 
       bytes.each_value { |per_request| per_request.should be > 0 }
-      # A framework costs more than a hand-written dispatch, also while the router's path cache is full
+      # A framework costs more than a hand-written dispatch
       bytes[HotPath::Stack::Azu].should be > bytes[HotPath::Stack::Baseline]
     end
 
@@ -203,12 +202,12 @@ describe "allocation budget" do
       (deep - shallow).should be <= 8
     end
 
-    it "the router adds nothing beyond its lookup to an endpoint call" do
+    it "the router adds at most 16 B to an endpoint call on a static route" do
       endpoint = AllocationBudgetSpec::BareEndpoint.new
       router = Azu::Router.new
       router.get "/plaintext", endpoint
       context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/plaintext"), HTTP::Server::Response.new(HotPath::NullIO.new))
-      # The first call fills the path cache, so the measured ones build no path
+      # The first call sets the X-Azu-Endpoint header, which the measured ones only overwrite
       router.process(context)
 
       through_router = HotPath.bytes_per_call do
@@ -219,10 +218,9 @@ describe "allocation budget" do
         context.response.reset
         endpoint.call(context)
       end
-      lookup = HotPath.bytes_per_call { router.radix.find("/get/plaintext") }
 
-      # What process returns is never read, so it must not be formatted on every request
-      (through_router - endpoint_alone - lookup).should be <= 16
+      # Finding a static route allocates nothing, and what process returns is never read, so it is not formatted
+      (through_router - endpoint_alone).should be <= 16
     end
 
     it "Static allocates nothing on a routed path when the public directory does not exist" do
@@ -233,6 +231,61 @@ describe "allocation budget" do
       static.call(context)
 
       HotPath.bytes_per_call { static.call(context) }.should be < 1
+    end
+  {% end %}
+end
+
+# One render of benchmark/apps/common/template.jinja on the default stack, over the baseline's ECR render, calibrated
+# like the budgets above (whole-suite measurement plus ~10%, rounded up to a multiple of 8; measured 77922).
+TEMPLATE_AZU_BUDGET = 85720
+
+describe "allocation budget of a template render" do
+  it "answers /template with the bench app's HTML on every stack it measures" do
+    # Bench::ITEMS rendered by benchmark/apps/common/template.jinja: the names carry characters that must be escaped
+    items = (1..20).join { |i| %(<li class="item-#{i}">Item #{i} &amp; &lt;co&gt; (#{i * 7})</li>) }
+    html = %(<!DOCTYPE html><html><head><title>Items</title></head><body><h1>Items</h1><ul>#{items}</ul></body></html>)
+
+    HotPath::Stack.each do |stack|
+      response = HotPath.response(stack, "/template")
+
+      response.should start_with("HTTP/1.1 200")
+      response.should contain("Content-Type: text/html")
+      response.should end_with(html)
+    end
+  end
+
+  {% if flag?(:preview_mt) %}
+    pending "keeps the default stack on /template within its budget over the baseline"
+  {% else %}
+    it "keeps the default stack on /template within its budget over the baseline" do
+      bytes_over_baseline(HotPath::Stack::Azu, HotPath::TEMPLATE_PATH).should be <= TEMPLATE_AZU_BUDGET
+    end
+  {% end %}
+end
+
+# What rendering the same page with its request adds on the default stack: the request variables (the template reads
+# one), the CSRF token and its cookie. Calibrated like the budgets above (measured 2506).
+REQUEST_TEMPLATE_AZU_BUDGET = 2760
+
+describe "allocation budget of a template render with its request" do
+  it "answers /template/request with the page, the request variable it reads and the CSRF cookie" do
+    {HotPath::Stack::AzuMin, HotPath::Stack::Azu}.each do |stack|
+      response = HotPath.response(stack, "/template/request")
+
+      response.should start_with("HTTP/1.1 200")
+      response.should contain("Set-Cookie: csrf_token=")
+      response.should contain("<h1>Items</h1><p>GET</p><ul>")
+      response.should end_with("(140)</li></ul></body></html>")
+    end
+  end
+
+  {% if flag?(:preview_mt) %}
+    pending "keeps what the request adds to /template within its budget on the default stack"
+  {% else %}
+    it "keeps what the request adds to /template within its budget on the default stack" do
+      added = HotPath.measure(HotPath::Stack::Azu, "/template/request").bytes - HotPath.measure(HotPath::Stack::Azu, "/template").bytes
+
+      added.should be <= REQUEST_TEMPLATE_AZU_BUDGET
     end
   {% end %}
 end

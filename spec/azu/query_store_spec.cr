@@ -129,6 +129,8 @@ describe "Azu::QueryAnalysis.safe_error" do
       "FOREIGN KEY constraint failed"                                                              => "FOREIGN KEY constraint failed",
       %(ERROR: relation "users" does not exist (SQLSTATE 42P01))                                   => %(relation "users" does not exist),
       %(relation "users" does not exist\nDETAIL: whatever #{CANARY})                               => %(relation "users" does not exist),
+      %(column "c" of relation "t" does not exist)                                                 => %(column "c" of relation "t" does not exist),
+      "CHECK constraint failed: users_age_check"                                                   => "CHECK constraint failed: users_age_check",
     }.each do |message, text|
       safe(message).should eq "Exception: #{text}"
     end
@@ -139,6 +141,15 @@ describe "Azu::QueryAnalysis.safe_error" do
     safe(%(relation "#{CANARY}" does not exist, #{CANARY})).should eq "Exception"
     safe(%(relation "a"b" does not exist)).should eq "Exception"
     safe("no such table: a;b").should eq "Exception"
+  end
+
+  it "bounds the identifier it echoes" do
+    long = "a" * 1_000_000
+    safe(%(relation "#{long}" does not exist)).should eq "Exception"
+    safe("no such table: #{long}").should eq "Exception"
+    safe(%(relation "#{"a" * 128}" does not exist)).bytesize.should be < 200
+    safe(%(relation "#{"a" * 129}" does not exist)).should eq "Exception"
+    safe("CHECK constraint failed: #{long}").bytesize.should be < 100
   end
 
   it "adds the SQLSTATE the exception exposes" do

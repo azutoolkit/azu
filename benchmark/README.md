@@ -71,8 +71,8 @@ One program per framework in `benchmark/apps/<name>/src/app.cr`, built with `cry
   request (and builds a `Crinja::Value` hash per call); the baseline, Kemal and Athena run ECR that the compiler
   turned into straight code. The scenario measures the template systems, not the routers. A compile-time Azu
   variant (`Azu::Component`) is not included yet.
-- In the `routing` scenario Azu's path cache (1000 entries, no eviction) fills at once: the script requests
-  99,700 distinct paths (100 routes x 997 ids), so the scenario measures mostly uncached radix lookups.
+- The `routing` scenario requests 99,700 distinct paths (100 routes x 997 ids). Azu has no path cache since its
+  segment tree replaced radix, so every request is a lookup either way.
 
 Add `--apps` to choose; the manifest is `benchmark/apps/manifest.json`. An app that cannot be built here is
 skipped and said so in the result (`--require-all` turns that into a failure).
@@ -116,7 +116,7 @@ skipped and said so in the result (`--require-all` turns that into a failure).
   directly. `azu-rawdb` removes the ORM from the picture.
 - **JSON**: Azu, Kemal and the baseline call `to_json` and write the string; Athena and Lucky hand a value to
   their serializer. Bodies are identical, the work around them is not.
-- **Routing**: the baseline dispatches by hand. Radix based routers (Azu, Kemal) and Lucky's router are
+- **Routing**: the baseline dispatches by hand. Azu's segment tree, Kemal's radix tree and Lucky's router are
   compared in the `routing` scenario with 100 routes, which is a small table; deep trees and wildcards are not
   covered.
 - **WebSocket**: Azu broadcasts through its `PubSub`; the baseline and Kemal loop over their socket list.
@@ -217,14 +217,18 @@ route in every app; `scripts/bench.sh conformance` tells you which app is missin
 mkdir -p bin && crystal build --release --no-debug benchmark/micro/hot_path.cr -o bin/hot_path && bin/hot_path
 ```
 
-prints one row per stack and scenario (`/plaintext`, one parameterised URL, and `routing (cycling)`, the URLs of
-`routing.lua`, warmed past the router's 1000-entry path cache so every measured path misses it): bytes and nanoseconds
+prints one row per stack and scenario (`/plaintext`, one parameterised URL, `/template`, the bench template rendered
+with `view` and parsed-once Crinja on the Azu stacks and with ECR on `baseline`, `/template/request`, the same page
+rendered with its request on the Azu stacks (it reads one request variable and sets the CSRF cookie), and
+`routing (cycling)`, the URLs of `routing.lua`, warmed with 1200 of them so that every measured path is new to the
+router): bytes and nanoseconds
 per request through the same `HTTP::Server::RequestProcessor` that serves a connection, without a socket or `wrk`.
 `baseline` is a hand-written handler, `azu-min` the router, endpoint and Rescuer, and `azu` the default stack without
 the Logger handler, with Static pointed at a fixed non-existent directory; what they add over `baseline` is the
 framework's cost per request. **Bytes/request is repeatable to about 0.3%** (GC byte counting granularity), and
-`spec/azu/allocation_budget_spec.cr` guards the `/plaintext` and parameterised rows in CI (budgets calibrated on the
-whole-suite build, which measures a little more than a single-file one); the routing row has no CI budget.
+`spec/azu/allocation_budget_spec.cr` guards the `/plaintext` and parameterised rows, the `azu` `/template` row and what
+`/template/request` adds to it in CI (budgets calibrated on the whole-suite build, which measures a little more than a single-file one); the routing row
+has no CI budget.
 **ns/request** is the fastest measured window, timed around request processing only, and moves with the machine:
 a ns difference under about 15% in a single run is noise, so repeat the run and compare the per-row minimums.
 Inputs differ by scenario, so rows of different scenarios are not comparable in ns: compare a row with the same row of

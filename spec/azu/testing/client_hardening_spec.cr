@@ -20,6 +20,17 @@ module TestingHardeningSpec
     end
   end
 
+  CSRF_SECRET = "testing-hardening-csrf"
+
+  # A form page in a directory; its token cookie must reach a form action outside that directory.
+  struct LoginForm
+    include Azu::Routable
+
+    def call(context : HTTP::Server::Context)
+      context.response << Azu::Handler::CSRF.new(secret_key: CSRF_SECRET, secure_cookies: false).token(context)
+    end
+  end
+
   struct Away
     include Azu::Routable
 
@@ -112,6 +123,8 @@ module TestingHardeningSpec
       get "/administrator", Show
       get "/admin/x", Show
       get "/away", Away
+      get "/auth/login", LoginForm
+      post "/session", Show
       get "/ttl", Ttl
       get "/files/*path", FilesEndpoint
       post "/write", WriteOnly
@@ -159,6 +172,15 @@ describe Azu::Testing::Client do
     client.cookies.header_for("/admin").should eq "scoped=1"
     client.cookies.header_for("/admin/x").should eq "scoped=1"
     client.cookies.header_for("/administrator").should be_nil
+  end
+
+  # GET /auth/login then POST /session: a cookie the CSRF handler set without a Path stayed in /auth.
+  it "carries a CSRF cookie from a form page to a form action outside its directory" do
+    handlers = [Azu::Handler::CSRF.new(secret_key: TestingHardeningSpec::CSRF_SECRET, secure_cookies: false)] of HTTP::Handler
+    client = Azu::Testing::Client.new(TestingHardeningSpec.app, handlers)
+    token = client.get("/auth/login").body
+
+    client.post("/session", form: {_csrf: token}).status_code.should eq 200
   end
 
   it "does not follow a redirect to another host" do

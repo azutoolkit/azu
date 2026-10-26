@@ -150,10 +150,14 @@ Bound values often hold passwords and personal data, so the tab keeps them out b
 * **Error text** shows the exception class, its SQLSTATE when the exception has one, and a short text only for messages the
   dashboard recognises from their whole first line, such as `relation "users" does not exist`,
   `duplicate key value violates unique constraint "name"`, `UNIQUE constraint failed: users.email`, `no such table: users`,
-  `Table 'db.users' doesn't exist`, `Unknown column 'x' in 'field list'`, `syntax error` (without the token) and MySQL's
+  `column "c" of relation "t" does not exist`, `CHECK constraint failed: name`, `Table 'db.users' doesn't exist`,
+  `Unknown column 'x' in 'field list'`, `syntax error` (without the token) and MySQL's
   `Duplicate entry for key 'name'` (without the value). The text is rebuilt from the identifiers the message names, and only a plain
-  identifier (`[\w.$]+`) is accepted as one. Every other error, including every message that quotes a value, shows the class and code
-  alone. Recognition is English-only: a localized server shows the class and code. The SQL playground's 422 answer follows the same rule.
+  identifier (`[\w.$]{1,128}`) is accepted as one. Every other error, including every message that quotes a value, shows the class and code
+  alone. An identifier is at most 128 characters, and a `UNIQUE constraint failed` list names at most 32 columns. A value the server treats
+  as an identifier is shown when it looks like one: a PostgreSQL `::regclass`, `nextval($1)` or `to_regclass($1)` cast of a bound value
+  fails with `relation "<value>" does not exist`, and the value appears in that text. Recognition is English-only: a localized server
+  shows the class and code. The SQL playground's 422 answer follows the same rule.
 * **Hand-written SQL is shown as written.** A literal you put into a `schema.exec` string, or build by interpolation, is part of the
   statement text and appears in Recent queries, Slow queries, Query patterns (the pattern view replaces literals with `?`) and
   in the slow-query log line. Bind values instead of interpolating them.

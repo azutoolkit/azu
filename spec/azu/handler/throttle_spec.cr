@@ -285,10 +285,13 @@ describe Azu::Handler::Throttle do
   end
 
   describe "the refusal" do
+    # The refusal page is cached outside development, and an unset CRYSTAL_ENV means development
     around_each do |example|
-      Azu::Handler::Throttle::RefusalPages.clear
-      example.run
-      Azu::Handler::Throttle::RefusalPages.clear
+      with_azu_env(Azu::Environment::Test) do
+        Azu::Handler::Throttle::RefusalPages.clear
+        example.run
+        Azu::Handler::Throttle::RefusalPages.clear
+      end
     end
 
     refuse = ->(accept : String?, remote : String) do
@@ -343,10 +346,13 @@ describe Azu::Handler::Throttle do
   end
 
   describe "the cached HTML refusal" do
+    # The refusal page is cached outside development, and an unset CRYSTAL_ENV means development
     around_each do |example|
-      Azu::Handler::Throttle::RefusalPages.clear
-      example.run
-      Azu::Handler::Throttle::RefusalPages.clear
+      with_azu_env(Azu::Environment::Test) do
+        Azu::Handler::Throttle::RefusalPages.clear
+        example.run
+        Azu::Handler::Throttle::RefusalPages.clear
+      end
     end
 
     html_context = ->(remote : String) do

@@ -72,8 +72,9 @@ describe Azu::RequestContext do
       pending "builds an id in one allocation"
     {% else %}
       it "builds an id in one allocation" do
-        # One String of 34 bytes (`req_` + 13 digits + `_` + 16 hex digits) plus its header: 48 B in the GC
-        HotPath.bytes_per_call { Azu::RequestContext.generate_id }.should be <= 48
+        # One String of 34 bytes (`req_` + 13 digits + `_` + 16 hex digits) plus its header: 48 B in the GC. Boehm counts
+        # a 4 KB block at a time, so a 2000-call window reads up to ~2 B either side; a second allocation adds 16 B or more
+        HotPath.bytes_per_call { Azu::RequestContext.generate_id }.should be <= 56
       end
     {% end %}
 

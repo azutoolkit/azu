@@ -455,7 +455,10 @@ not set, the handler uses a random key that only this process knows (one warning
 with a per-process key are rejected after a restart and by every other server.
 
 `Azu::Handler::CSRF.token(context)` uses `Azu::Handler::CSRF.default`, and so do the template variables
-(`csrf_token`, `csrf_tag`, `csrf_metatag`), the form helpers and an endpoint's `csrf_token`. A second instance
+(`csrf_token`, `csrf_tag`, `csrf_metatag`), the form helpers and an endpoint's `csrf_token`. A second call for the same
+response (on any instance) returns the token already issued for it: the response's CSRF cookie, or the session's with
+`SessionTokenStore`. So every form and meta tag of one page carries the same token; a deleted, expired or other-path
+cookie is replaced. A second instance
 validates those tokens only if it has the same secret, strategy and token store: configure `CSRF.default` (with
 `CSRF.configure`) and put it in the chain, or at least set `CSRF_SECRET` (or `Azu::Handler::CSRF.secret_key = ...`
 before building the other instance). An instance with a different key, or a `SynchronizerToken` instance next to a

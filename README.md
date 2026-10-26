@@ -213,7 +213,7 @@ Features marked *opt-in* need their own `require`. The [full list](docs/explanat
 
 | Area | What you get | Learn more |
 |---|---|---|
-| Routing | Typed endpoints, radix router, `scope`, `mount`, apps as values (`Azu::App`) | [Router](docs/reference/api/router.md), [App](docs/reference/api/app.md) |
+| Routing | Typed endpoints, segment-tree router, `scope`, `mount`, apps as values (`Azu::App`) | [Router](docs/reference/api/router.md), [App](docs/reference/api/app.md) |
 | Contracts | `Azu::Request` with validation rules, typed params, uploads, `422` problem documents | [Request](docs/reference/api/request.md) |
 | Responses | Content negotiation, streaming and server-sent events, error classes and pages | [Response](docs/reference/api/response.md), [Streaming](docs/reference/api/streaming.md) |
 | Real-time | Channels, `PubSub` (memory or Redis), presence, Spark live views | [Channel](docs/reference/api/channel.md), [Presence](docs/reference/api/presence.md), [Spark](docs/explanation/spark-live-views.md) |

@@ -244,6 +244,7 @@ module Azu
       started = Time.instant
       http = server(handlers)
       bring_up(http, handlers)
+      router.freeze # after the declared endpoints were taken, before any request reads the routes
       @started_once = true
       @config.announce_default_environment
       @config.warn_about_bind_host

@@ -33,7 +33,10 @@ module Azu
         config = Azu.current_config
         app = Azu.current_app
         nodelay = config.websocket.tcp_nodelay?
+        # The route's params: by the time the block runs a mount has put its own back on the request
+        params = context.request.path_params?
         response.upgrade do |io|
+          context.request.path_params = params
           TCPNoDelay.apply(io, nodelay)
           Azu.with_scope(app, config) do
             socket = HTTP::WebSocket.new(BoundedProtocol.new(io, @channel.max_message_size))

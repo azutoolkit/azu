@@ -1,12 +1,12 @@
 ---
-description: Typed request and response contracts, radix routing and built-in real-time for Crystal web apps.
+description: Typed request and response contracts, segment-tree routing and built-in real-time for Crystal web apps.
 icon: house
 ---
 
 # Azu Web Framework Overview
 
 {% hint style="info" %}
-Azu is a strongly typed web framework for Crystal. Every endpoint declares the request contract it accepts and the response it returns: the compiler checks the types, and Azu validates each request against its contract before your code runs. Routing is a radix tree, and WebSocket channels, pub/sub, presence and Spark live views are built in.
+Azu is a strongly typed web framework for Crystal. Every endpoint declares the request contract it accepts and the response it returns: the compiler checks the types, and Azu validates each request against its contract before your code runs. Routing is a tree of path segments, and WebSocket channels, pub/sub, presence and Spark live views are built in.
 {% endhint %}
 
 ---
@@ -84,7 +84,7 @@ curl "http://127.0.0.1:3000/hello?name=Ada"  # Hello, Ada!
 |---|---|---|---|
 | **Typed contracts** | `include Azu::Endpoint(Req, Res)` | `call` returns a `Res`. The request accessor, named after its type (`hello_request` for `HelloRequest`), has only the fields that type declares. | Compile time |
 | **Validation** | `validate name, size: 2..30` | A missing or mistyped field answers `400`. A broken rule answers `422` with an [RFC 7807](https://www.rfc-editor.org/rfc/rfc7807) document listing each failing field. Either way `call` never runs. | Every request, before `call` |
-| **Radix routing** | `get "/users/:id"`, or `app.routes { ... }` | Static, `:param` and `*wildcard` segments, plus `scope` and `mount`. Methods and paths must match exactly, and a duplicate route fails at boot. Resolved paths are cached; the cache stops growing at 1000 entries and never evicts. | Boot and every request |
+| **Segment-tree routing** | `get "/users/:id"`, or `app.routes { ... }` | Static, `:param` and `*wildcard` segments, plus `scope` and `mount`. Methods and paths must match exactly, and a duplicate route fails at boot. A static route is found without allocating, and there is no path cache to fill. | Boot and every request |
 | **Spark live views** | `Azu::Spark::Component` with `prop`, `state`, `event def` | The browser can trigger only `event def` methods, and their arguments arrive as the declared types. Joining needs a signed, expiring token. The server sends back only the HTML that changed. | Every event |
 | **Opt-in extras** | `require "azu/dev"`, `"azu/cql"`, `"azu/testing"` | `require "azu"` alone does not load them. Core reaches optional subsystems through `Azu::Instrumentation`, which costs one nil check when nothing subscribes. | Compile time |
 
@@ -96,7 +96,7 @@ Details: [Endpoint](reference/api/endpoint.md), [Request](reference/api/request.
 flowchart TD
     client["Client"] -- HTTP --> server["HTTP::Server"]
     server --> chain["Handler chain<br/>the array given to start, outermost first"]
-    chain --> router{"Radix router<br/>method + path"}
+    chain --> router{"Segment-tree router<br/>method + path"}
     router -- no route --> notfound["404"]
     router -- WebSocket upgrade --> channel["Channel"]
     router --> build{"Build contract"}

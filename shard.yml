@@ -1,18 +1,17 @@
 name: azu
-version: 0.5.129
+version: 0.5.133
 authors:
   - Elias J. Perez <eliasjpr@gmail.com>
 crystal: '>= 1.22.1'
 license: MIT
 dependencies:
-  radix:
-    github: luislavena/radix
   exception_page:
     github: crystal-loot/exception_page
   schema:
     github: azutoolkit/schema
   crinja:
     github: straight-shoota/crinja
+    version: ~> 0.9.0
   redis:
     github: stefanwille/crystal-redis
     version: ~> 2.9.0

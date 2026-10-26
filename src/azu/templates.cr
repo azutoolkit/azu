@@ -1,4 +1,5 @@
 require "crinja"
+require "./templates/crinja_patches"
 require "./helpers"
 
 module Azu
@@ -31,6 +32,7 @@ module Azu
     @compile_lock : Mutex = Mutex.new
     @compile_count : Int32 = 0
     @compiled_strict : Bool = false
+    @helpers_lock : Mutex = Mutex.new
 
     # Azu's own error pages, compiled into the binary. They are the last place the loader looks, so an app that
     # runs from any working directory (or from a container that holds only the binary) always finds them, and a
@@ -95,17 +97,58 @@ module Azu
       end
     end
 
+    # :nodoc:
+    # Crinja's in-memory template cache behind a lock. Renders run on several threads under preview_mt, and a template
+    # the compiled map does not hold (hot reload, other extensions, `compile_ignore`, files added after boot, the
+    # built-in pages) is parsed and stored here by whichever render asks for it first.
+    class SynchronizedCache < Crinja::TemplateCache
+      @cache = Crinja::TemplateCache::InMemory.new
+      @lock = Mutex.new
+
+      def fetch(env, name, file_name, source, &)
+        @lock.synchronize { @cache.fetch(env, name, file_name, source) { yield } }
+      end
+    end
+
+    # :nodoc:
+    # A render's variables as the scope of its Crinja context, taken over instead of copied (rendering with a hash,
+    # Crinja copies it twice: `Crinja.variables`, then into the context's own scope).
+    class Scope < Crinja::Context
+      # `flash` when neither the data, the request nor a global gives one (a render outside a request): empty, so
+      # `flash.notice` renders nothing instead of raising. One shared value, so such a render allocates nothing for it.
+      EMPTY_FLASH = Crinja::Value.new(Hash(String, String).new)
+
+      def initialize(parent : Crinja::Context, variables : Crinja::Variables, @request : Helpers::TemplateContext? = nil)
+        super(parent)
+        @scope = variables
+      end
+
+      # A request variable (`TemplateContext::VARIABLES`) the data does not set is computed when the template first
+      # reads it, then kept. It shadows a global of the same name, as when `view` set them all before rendering.
+      def [](key : String) : Crinja::Value
+        if value = @scope[key]?
+          value
+        elsif (request = @request) && (value = request.template_var(key))
+          @scope[key] = value
+        elsif enclosing = parent
+          value = enclosing[key]
+          value.undefined? && key == "flash" ? EMPTY_FLASH : value
+        else
+          undefined
+        end
+      end
+    end
+
     getter crinja = Crinja.new
     getter path : Array(String)
     getter error_path : String
 
     module Renderable
-      # Renders a template with optional data and the variables of the request being served
-      # (`csrf_token`, `current_path`, `flash`, ...; see `Helpers::TemplateContext`).
+      # Renders a template with optional data and HTTP context awareness.
       #
-      # The request is the type's own `context` (an endpoint), else the one `Azu::RequestContext` holds for
-      # this fiber, so a response rendered by an endpoint sees it too. Values in *data* win. Outside a
-      # request (a job, a spec) there are no request variables and `flash` is empty.
+      # When called from an endpoint with access to HTTP context, this method
+      # automatically injects useful variables like csrf_token, current_path,
+      # flash messages, and more.
       #
       # ```
       # def call : MyResponse
@@ -116,18 +159,15 @@ module Azu
         template_data = Hash(String, Crinja::Value).new
         data.to_h.each { |k, v| template_data[k.to_s] = Crinja::Value.new(v) }
 
+        # The request's variables, each computed when the template reads it: the type's own `context` (an endpoint),
+        # else the request this fiber serves (`Azu::RequestContext`), so a response an endpoint renders sees them too
         ctx = ::Azu::RequestContext.current?.try(&.http_context)
         {% if @type.has_method?(:context) %}
           ctx = (context rescue nil) || ctx
         {% end %}
-        if ctx
-          Helpers::TemplateContext.new(ctx).to_template_vars.each do |key, value|
-            template_data[key] = value unless template_data.has_key?(key)
-          end
-        end
-        template_data["flash"] = Crinja::Value.new(Hash(String, String).new) unless template_data.has_key?("flash")
+        request = ctx ? Helpers::TemplateContext.for_render(ctx) : nil
 
-        Azu.current_config.templates.load(template).render(template_data)
+        Azu.current_config.templates.render_variables(template, template_data, request)
       end
 
       # Renders a template with explicit context injection.
@@ -145,13 +185,9 @@ module Azu
       )
         template_data = Hash(String, Crinja::Value).new
         data.to_h.each { |k, v| template_data[k.to_s] = Crinja::Value.new(v) }
-        template_context = Helpers::TemplateContext.new(http_context)
+        request = Helpers::TemplateContext.for_render(http_context)
 
-        template_context.to_template_vars.each do |key, value|
-          template_data[key] = value unless template_data.has_key?(key)
-        end
-
-        Azu.current_config.templates.load(template).render(template_data)
+        Azu.current_config.templates.render_variables(template, template_data, request)
       end
 
       def page_path
@@ -176,6 +212,7 @@ module Azu
 
     def initialize(@path : Array(String), @error_path : String, hot_reload : Bool? = nil, @compile_ignore : Array(String) = [] of String, autoescape : Bool = true)
       @hot_reload_enabled = hot_reload.nil? ? development_environment? : hot_reload
+      crinja.cache = SynchronizedCache.new
       self.autoescape = autoescape
       initialize_loader
     end
@@ -201,12 +238,31 @@ module Azu
 
     # Azu's own error page `name`, ignoring every directory: what is rendered when an app's `error.html` is broken.
     def builtin(name : String) : Crinja::Template
-      env = @@builtin_lock.synchronize { @builtin_crinja ||= Crinja.new.tap { |crinja| crinja.loader = BuiltinLoader.new(BUILTIN) } }
+      env = @@builtin_lock.synchronize { @builtin_crinja ||= Crinja.new(loader: BuiltinLoader.new(BUILTIN), cache: SynchronizedCache.new) }
       env.get_template(name)
+    end
+
+    # Renders `template` with `data` (nil, a Hash or a NamedTuple). Renders run concurrently: each fiber renders in
+    # its own Crinja context (see templates/crinja_patches.cr). A render starts from the global context even inside
+    # another one (a helper that renders a fragment), so it never sees the outer request's variables: helpers that
+    # render fragments should call this, not `load(name).render(data)`.
+    def render(template : String, data = nil) : String
+      scope = Crinja::Context.new(crinja.global_context)
+      scope.merge!(data) if data
+      load(template).render(scope)
+    end
+
+    # :nodoc:
+    # `render` for variables built for this one render (`view`): it takes `variables` over as the render's scope,
+    # without a copy, and writes to it (a top-level `set`, the request variables the template reads from `request`).
+    def render_variables(template : String, variables : Crinja::Variables, request : Helpers::TemplateContext? = nil) : String
+      load(template).render(Scope.new(crinja.global_context, variables, request))
     end
 
     # With reload on (development) every call may re-read changed files, see `check_for_changes`. Without it the
     # templates are compiled: each one was read and parsed once (`compile`), and this is a hash lookup.
+    # `load(name).render(hash)` is Crinja's own render: inside another render (a helper) it inherits that render's
+    # variables. Render fragments with `render`, which starts from the global context.
     def load(template : String)
       unless @hot_reload_enabled
         loader = @compiled || compile(strict: false)
@@ -462,12 +518,16 @@ module Azu
       end
     end
 
+    # Writes to the environment that renders read, so two fibers never apply at once.
     private def apply_helpers
       revision = Helpers::Registry.revision
       return if revision == @helpers_revision
 
-      Helpers::Registry.apply_to(crinja)
-      @helpers_revision = revision
+      @helpers_lock.synchronize do
+        next if revision == @helpers_revision
+        Helpers::Registry.apply_to(crinja)
+        @helpers_revision = revision
+      end
     end
   end
 end

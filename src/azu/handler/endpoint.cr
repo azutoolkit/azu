@@ -164,9 +164,10 @@ module Azu
 
       {% for method in Azu::Router::RESOURCES %}
       def self.{{method.id}}(path : Azu::Router::Path)
+        # first: a declaration refused once the app serves leaves nothing behind
+        Azu::DeclaredEndpoints.declare(->(router : Azu::Router) { router.{{method.id}}(path, new); nil }, "{{method.id.upcase}} #{path}")
         @@resource = path
         routes << { {{method}}, path }
-        Azu::DeclaredEndpoints.declare(->(router : Azu::Router) { router.{{method.id}}(path, new); nil })
 
         # Register type-safe link helper: link_to_{method}_{resource}
         _register_link_helper_{{method.id}}

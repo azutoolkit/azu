@@ -36,6 +36,20 @@ module API
   end
 end
 
+# Routes a GET the way the server does: the router stores the endpoint's class name in the X-Azu-Endpoint header
+def show(router : Azu::Router, path : String) : Nil
+  context = HTTP::Server::Context.new(HTTP::Request.new("GET", path), HTTP::Server::Response.new(IO::Memory.new))
+  router.process(context)
+
+  # Simulate what the logger would do
+  full_name = context.request.headers["X-Azu-Endpoint"]?
+  simplified_name = full_name.try(&.split("::").last) || "unknown"
+
+  puts "   Full class name: #{full_name}"
+  puts "   Simplified name: #{simplified_name}"
+  puts "   Log would show: GET #{path} Endpoint:#{simplified_name}"
+end
+
 # Demo the endpoint logging functionality
 puts "🎯 Endpoint Class Name Logging Demo"
 puts "=" * 50
@@ -49,46 +63,11 @@ product_endpoint = API::V1::ProductEndpoint.new
 router.get("/users", user_endpoint)
 router.get("/products", product_endpoint)
 
-# Create mock contexts
 puts "\n1. Testing UserEndpoint:"
-user_request = HTTP::Request.new("GET", "/users")
-user_context = HTTP::Server::Context.new(user_request, HTTP::Server::Response.new(IO::Memory.new))
-
-# Simulate router processing
-result = router.radix.find("/get/users")
-if result.found?
-  route = result.payload
-  endpoint_class_name = route.endpoint.class.name
-  user_context.request.headers["X-Azu-Endpoint"] = endpoint_class_name
-
-  # Simulate what the logger would do
-  full_name = user_context.request.headers["X-Azu-Endpoint"]?
-  simplified_name = full_name.try(&.split("::").last) || "unknown"
-
-  puts "   Full class name: #{full_name}"
-  puts "   Simplified name: #{simplified_name}"
-  puts "   Log would show: GET /users Endpoint:#{simplified_name}"
-end
+show(router, "/users")
 
 puts "\n2. Testing API::V1::ProductEndpoint:"
-product_request = HTTP::Request.new("GET", "/products")
-product_context = HTTP::Server::Context.new(product_request, HTTP::Server::Response.new(IO::Memory.new))
-
-# Simulate router processing
-result = router.radix.find("/get/products")
-if result.found?
-  route = result.payload
-  endpoint_class_name = route.endpoint.class.name
-  product_context.request.headers["X-Azu-Endpoint"] = endpoint_class_name
-
-  # Simulate what the logger would do
-  full_name = product_context.request.headers["X-Azu-Endpoint"]?
-  simplified_name = full_name.try(&.split("::").last) || "unknown"
-
-  puts "   Full class name: #{full_name}"
-  puts "   Simplified name: #{simplified_name}"
-  puts "   Log would show: GET /products Endpoint:#{simplified_name}"
-end
+show(router, "/products")
 
 puts "\n3. Simulating actual log output format:"
 puts "   127.0.0.1 ⤑ GET Path:/users Endpoint:UserEndpoint Status:200 Latency:1.23ms"

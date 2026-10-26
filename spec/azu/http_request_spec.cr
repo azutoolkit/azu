@@ -73,6 +73,25 @@ describe "HTTP::Request Extensions" do
       request.path_params.should be(first)
     end
 
+    it "reads as nil through path_params? until written, without allocating" do
+      request = HTTP::Request.new("GET", "/users/5")
+
+      request.path_params?.should be_nil
+      request.@path_params.should be_nil
+      request.path_params = {"id" => "5"}
+      request.path_params?.should eq({"id" => "5"})
+    end
+
+    it "forgets them when nil is written" do
+      request = HTTP::Request.new("GET", "/users/5")
+      request.path_params = {"id" => "5"}
+
+      request.path_params = nil
+
+      request.@path_params.should be_nil
+      request.path_params.should be_empty
+    end
+
     it "keeps a hash written to it" do
       request = HTTP::Request.new("GET", "/users/5")
 

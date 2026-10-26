@@ -43,7 +43,7 @@ src/azu/
 ├── clock.cr            # Azu::Clock: the time source for TTLs, windows and token lifetimes; Clock::Fake + `with_fake_clock` in specs
 ├── app.cr              # Azu::App: an app as a value (config + router + #start/#stop lifecycle), App.default wraps the global CONFIG; `include Azu` is the supported single-app facade over it
 ├── routable.cr         # Azu::Routable: what the router dispatches to (endpoints, upgraders, plain handlers)
-├── router.cr           # Radix-tree routing with path caching
+├── router.cr + router/ # Routing on an in-house segment tree (router/tree.cr); `App#start` freezes the routers
 ├── openapi/            # Azu::OpenAPI: OpenAPI 3.1 document from Endpoint contracts + Handler (docs/reference/api/openapi.md)
 ├── endpoint.cr         # Type-safe request handlers
 ├── request.cr          # Request contracts with validation
@@ -256,8 +256,8 @@ The dev dashboard, performance monitor, profiler and reporter live in `src/azu/d
 
 ### Caching Strategy
 
-- Router path cache: stops adding entries at 1000 (no eviction, no LRU); `path_cache.stats` reports
-  `fill_percent`, not a hit rate
+- Router: no path cache. A static route is found without allocating; a route with parameters allocates only their
+  values and the params hash (`clear_path_cache` is kept and does nothing)
 - No component pooling: components are plain objects created where they are rendered
 - Templates: with `template_hot_reload` off (default outside development/test/pipeline) they are compiled:
   `Azu.prepare` reads and parses every template file once into an immutable name => template map (the Crinja
@@ -268,14 +268,12 @@ The dev dashboard, performance monitor, profiler and reporter live in `src/azu/d
 ### Optimization Checklist
 
 - [ ] Use struct for value objects (stack allocation)
-- [ ] Enable path caching for repeated routes
 - [ ] Use compile-time conditionals for optional features
 
 ## Dependencies
 
 | Shard          | Purpose                  |
 | -------------- | ------------------------ |
-| radix          | High-performance routing |
 | exception_page | Beautiful error pages    |
 | schema         | Type-safe validation     |
 | crinja         | Jinja2 template engine   |

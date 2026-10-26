@@ -35,17 +35,49 @@ module Azu
       getter context : HTTP::Server::Context
       getter request : HTTP::Request
       getter response : HTTP::Server::Response
-      getter params : HTTP::Params
-      getter cookies : HTTP::Cookies
+      # Parsed when first read, like the other values: a render pays only for what its template reads.
+      getter params : HTTP::Params { @request.query_params }
+      getter cookies : HTTP::Cookies { HTTP::Cookies.from_client_headers(@request.headers) }
+
+      # :nodoc:
+      # The variables `view` gives a template rendered with a request: name => how to compute it for a context.
+      TEMPLATE_VARS = {
+        "current_path"  => ->(c : TemplateContext) { Crinja::Value.new(c.current_path) },
+        "current_url"   => ->(c : TemplateContext) { Crinja::Value.new(c.current_url) },
+        "csrf_token"    => ->(c : TemplateContext) { Crinja::Value.new(c.csrf_token) },
+        "csrf_tag"      => ->(c : TemplateContext) { Crinja::Value.new(Crinja::SafeString.new(c.csrf_tag)) },
+        "csrf_metatag"  => ->(c : TemplateContext) { Crinja::Value.new(Crinja::SafeString.new(c.csrf_metatag)) },
+        "flash"         => ->(c : TemplateContext) { Crinja::Value.new(c.flash) },
+        "method"        => ->(c : TemplateContext) { Crinja::Value.new(c.method) },
+        "secure"        => ->(c : TemplateContext) { Crinja::Value.new(c.secure?) },
+        "ajax"          => ->(c : TemplateContext) { Crinja::Value.new(c.ajax?) },
+        "referer"       => ->(c : TemplateContext) { Crinja::Value.new(c.referer || "") },
+        "client_ip"     => ->(c : TemplateContext) { Crinja::Value.new(c.client_ip || "") },
+        "accept_locale" => ->(c : TemplateContext) { Crinja::Value.new(c.accept_language || "en") },
+      }
+
+      # :nodoc:
+      VARIABLES = TEMPLATE_VARS.keys
 
       @flash : Hash(String, String)?
       @session : Hash(String, String)?
+      @csrf_token : String?
 
       def initialize(@context : HTTP::Server::Context)
         @request = @context.request
         @response = @context.response
-        @params = @request.query_params
-        @cookies = HTTP::Cookies.from_client_headers(@request.headers)
+      end
+
+      # The CSRF variables: there only once the app has built a CSRF handler (`Handler::CSRF.in_use?`), so the pages
+      # of an app without CSRF protection set no token cookie and need no `CSRF_SECRET`.
+      CSRF_VARIABLES = {"csrf_token", "csrf_tag", "csrf_metatag"}
+
+      # :nodoc:
+      # The context of one render. With a CSRF handler the token is issued now, so the token cookie is set on every
+      # render whether or not the template prints a token; everything else waits until the template reads it
+      # (`template_var`).
+      def self.for_render(context : HTTP::Server::Context) : TemplateContext
+        new(context).tap { |vars| vars.csrf_token if Handler::CSRF.in_use? }
       end
 
       # Returns the current request path.
@@ -121,13 +153,15 @@ module Azu
         @session ||= extract_session
       end
 
-      # Returns CSRF token for the current request.
+      # Returns CSRF token for the current request: the one already issued for its response (the CSRF cookie, or the
+      # session's with `SessionTokenStore`; an earlier `view` of the same request reuses it), so `csrf_tag` and
+      # `csrf_metatag` carry the same token.
       #
       # ```jinja
       # <input type="hidden" name="_csrf" value="{{ csrf_token }}" />
       # ```
       def csrf_token : String
-        Handler::CSRF.token(@context)
+        @csrf_token ||= Handler::CSRF.token(@context)
       end
 
       # Returns CSRF hidden input tag.
@@ -136,7 +170,7 @@ module Azu
       # {{ csrf_tag }}
       # ```
       def csrf_tag : String
-        Handler::CSRF.tag(@context)
+        Handler::CSRF.default.tag(csrf_token)
       end
 
       # Returns CSRF meta tag for AJAX requests.
@@ -145,7 +179,7 @@ module Azu
       # {{ csrf_metatag }}
       # ```
       def csrf_metatag : String
-        Handler::CSRF.metatag(@context)
+        Handler::CSRF.default.metatag(csrf_token)
       end
 
       # Returns the referer URL.
@@ -193,28 +227,17 @@ module Azu
         end
       end
 
-      # Convert context to a hash for template rendering.
-      #
-      # `csrf_token`, `csrf_tag` and `csrf_metatag` are there only when the app has built a CSRF handler
-      # (`Handler::CSRF.in_use?`); they carry one token, the one this response's cookie holds.
+      # Convert context to a hash for template rendering: every variable `view` gives a template.
       def to_template_vars : Hash(String, Crinja::Value)
-        vars = {
-          "current_path"  => Crinja::Value.new(current_path),
-          "current_url"   => Crinja::Value.new(current_url),
-          "flash"         => Crinja::Value.new(flash),
-          "method"        => Crinja::Value.new(method),
-          "secure"        => Crinja::Value.new(secure?),
-          "ajax"          => Crinja::Value.new(ajax?),
-          "referer"       => Crinja::Value.new(referer || ""),
-          "client_ip"     => Crinja::Value.new(client_ip || ""),
-          "accept_locale" => Crinja::Value.new(accept_language || "en"),
-        }
-        if Handler::CSRF.in_use?
-          vars["csrf_token"] = Crinja::Value.new(csrf_token)
-          vars["csrf_tag"] = Crinja::Value.new(Crinja::SafeString.new(csrf_tag))
-          vars["csrf_metatag"] = Crinja::Value.new(Crinja::SafeString.new(csrf_metatag))
-        end
-        vars
+        vars = Handler::CSRF.in_use? ? TEMPLATE_VARS : TEMPLATE_VARS.reject { |name, _| CSRF_VARIABLES.includes?(name) }
+        vars.transform_values(&.call(self))
+      end
+
+      # :nodoc:
+      # The template variable `name` for this request, nil for a name that is not one of `TEMPLATE_VARS`.
+      def template_var(name : String) : Crinja::Value?
+        return if !Handler::CSRF.in_use? && CSRF_VARIABLES.includes?(name)
+        TEMPLATE_VARS[name]?.try &.call(self)
       end
 
       private def extract_flash : Hash(String, String)

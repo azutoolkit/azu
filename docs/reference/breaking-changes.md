@@ -12,20 +12,15 @@ release to the current API, with old and new code side by side; every release is
 
 ## Next release
 
-**One CSRF token per response (fix).** `CSRF#token` issued a new token, and a new cookie, on every call, so a page that
-printed `csrf_token`, `csrf_tag` and `csrf_metatag` (as every `view_with_context` render did) carried a token that did not
-match its cookie, and its form was refused with `403` under `SignedDoubleSubmit` and `DoubleSubmit`. `CSRF#token` now
-returns the token already set on the response. Nothing needs to be done.
-
 **Responses get the request variables, and CSRF values need a CSRF handler.** A response's `view` had no request: its
 template got no `csrf_token`, `current_path` or other [request variable](templates/helpers.md#request-variables), and
 reading `flash.notice` raised a `500`. `view` now takes the request from `Azu::RequestContext` while a request is served,
-and `flash` is empty outside one, so `view_with_context` is only needed for a request you hold yourself. `csrf_token`,
-`csrf_tag` and `csrf_metatag` are now added only once the app has built an `Azu::Handler::CSRF` (`Handler::CSRF.in_use?`).
-Before, every render with a request minted a token, setting a cookie and, in production without `CSRF_SECRET`, raising
-a `500`. An app that prints CSRF values without the CSRF handler gets empty fields: mount the handler.
-The generated `form_for_*` and `button_to_delete_*` helpers now include the `_csrf` field, so a `csrf_field()` inside them
-can go (a second field with the same token is harmless).
+so `view_with_context` is only needed for a request you hold yourself. `csrf_token`, `csrf_tag` and `csrf_metatag` are now
+there only once the app has built an `Azu::Handler::CSRF` (`Handler::CSRF.in_use?`), and only then does a render issue the
+token and set its cookie. Before, every render with a request did, and in production without `CSRF_SECRET` it raised a `500`.
+An app that prints CSRF values without the CSRF handler gets empty fields: mount the handler. The generated `form_for_*`
+and `button_to_delete_*` helpers now include the `_csrf` field, so a `csrf_field()` inside them can go (a second field with
+the same token is harmless).
 
 **`current_path` and `current_url` are variables, not functions.** The template functions of these names hid the request
 variables, so `{{ current_path }}` printed the function instead of the path. They are gone: write `{{ current_path }}`
@@ -47,6 +42,76 @@ example `application/json; charset`) is a `400` instead of a `500`, with or with
 **`i18n.missing_key_format` is used (fix).** A missing translation always printed `[missing: key]`; the format set in
 `config.i18n.missing_key_format`, `I18N_MISSING_KEY_FORMAT` or `Helpers::I18n.missing_key_format=` was stored and never
 read. It now formats the marker, `%{key}` replaced by the key. The default is the same text as before.
+
+## 0.5.133
+
+**`csrf_tag` and `csrf_metatag` carry the token of `csrf_token` and of the cookie (a fix).** `view` issued a new token for
+each of the three variables and each one replaced the CSRF cookie, so only `csrf_metatag` matched it: a form that printed
+`{{ csrf_token }}` or `{{ csrf_tag }}` was refused with 403 under the default `SignedDoubleSubmit` strategy. Now a render
+issues one token, the cookie holds it, and a second `view` in the same request (a layout and a partial) reuses it. The cookie
+is still set on every `view` with a request, whether or not the template prints a token. The same held for an endpoint's
+`csrf_token`, `csrf_tag` and `csrf_metatag` helpers and for any code calling `Handler::CSRF.token(context)` twice under
+`SignedDoubleSubmit`, `DoubleSubmit`, or the synchronizer token with the cookie store on a request without the cookie: each
+call issued a token and replaced the cookie. Now one response gets one token, the one its cookie holds; a deleted, expired
+or other-path cookie of that name is replaced, not reused.
+
+**Request variables are computed when a template reads them.** `current_path`, `flash`, `csrf_token` and the other
+variables `view` gives a template with a request cost nothing when the template does not print them. `{{ debug() }}` lists
+only the ones the template has read so far, and `Azu.session_adapter`'s `flash` reader runs only for a template that reads
+`flash`.
+
+**Template macros and context-free includes keep no state between renders (security).** A macro was kept on the template,
+which every request shares, with the defaults it evaluated: `{% from "m.jinja" import panel %}` could import the macro an
+earlier request defined, its values included. `{% include "x.jinja" without context %}` rendered in the environment's
+global context, so its `{% set %}` reached every later render. Both now belong to their own render: an imported file's
+macros and top-level variables still reach the importing page (an imported macro can call its file's other macros), and
+an `import` of a plain text template (`m.txt`) no longer turns escaping off for the rest of the page. As in 0.5.120, those
+copied names replace the page's own of the same name (view data, macros defined before the import), so a macro library
+needs names no page uses: see [Import macros](templates/engine.md#import-macros).
+
+**A template a helper renders starts from the global context.** `templates.render(...)`, or `view` without a request,
+called inside another render (a helper that renders a fragment) sees only the globals and the data it is given: not the
+outer page's view data, `csrf_token` or `current_path`. Before, it inherited them, and a fragment cached with
+`Azu.cache.fetch(key) { ... }` could hold one user's values for everyone. Pass what the fragment needs explicitly.
+
+## 0.5.131
+
+**The router finds routes in its own segment tree; the `radix` shard and `Router#radix` are gone.** Routes declared
+as before keep matching as before, with these differences:
+
+- Nested routes of one method work: `get "/posts/:id"` with `get "/posts/:post_id/comments"` used to leave both
+  unreachable (or raise `Radix::Tree::SharedKeyError`); each now matches with its own parameter names.
+- A `:` or `*` inside a segment is literal: `/users:search` matches only that path, where radix read a parameter
+  `search` there.
+- A route's parameters are only its own: radix also returned the parameters of a branch it had tried and left (a
+  glob route got the `id` of a `/files/:id/meta` route).
+- Two routes of one method whose paths differ only by a trailing slash or by their parameter names (`/a/:id` and
+  `/a/:name`) raise `Azu::Router::DuplicateRoute`, where radix accepted both and found the second never (or neither).
+  A wildcard that is not the last segment raises `ArgumentError`.
+- A route path that does not start with `/` raises `ArgumentError` when it is declared. Radix accepted it and matched
+  nothing, so a typo such as `get "files/private/*rest", Deny` next to `get "/files/*path", Download` silently let
+  the broader route serve the private files.
+- `App#start` freezes the router (and the routers of mounted apps) before it listens: adding a route afterwards
+  (`router.get`, `add`, `root`, `ws`, `mount`, `register`) raises `Azu::Router::Frozen`. Declare every route, and call
+  `Azu::Spark.install`, before `start`.
+- `Router#radix` is removed. Code that looked routes up with `router.radix.find("/get/users")` should call
+  `router.process(context)`, or read `router.registered_routes`; `route_info`, `registered_routes` and `Route#resource`
+  are unchanged.
+
+**The router has no path cache.** `Router#path_cache` and its `stats` are gone, and `clear_path_cache` does nothing: the
+router finds routes in a tree of path segments that reads the request path in place (a static route allocates nothing),
+so there is nothing left to cache. Remove calls to `path_cache`; calls to `clear_path_cache` can stay.
+
+## 0.5.130
+
+**The test client's cookies follow the browser's paths (`azu/testing`).** `Azu::Testing::CookieJar` sent a cookie set
+without `Path` to every path, where a browser keeps it for the directory of the request that set it (RFC 6265 default
+path), which is how the CSRF bug above passed the client. Now a cookie set without `Path` on `GET /auth/login` goes to
+`/auth/...` only; a name is held once per path (an expired `Set-Cookie` removes that name and path, `delete(name)`
+every path of it); a request carries longer paths first; and `client.cookies["name"]` / `to_h` give the shortest
+path's value. `CookieJar#absorb` takes the request path as a second argument (default `/`). A spec that now misses a
+cookie had a page that sets it without `Path` in a subdirectory: the app should set `Path` (a browser would not have
+sent it either).
 
 ## 0.5.129
 
@@ -842,6 +907,19 @@ end
 ```
 
 ## Crystal versions
+
+Azu releases from 0.5.124 on require Crystal 1.22.1 or newer (`shard.yml`: `crystal: '>= 1.22.1'`). On an older Crystal,
+`shards install` fails on the version check; pass `--ignore-crystal-version` only if you accept an untested compiler.
+Azu's own CI moved to 1.22.1 because the CQL release it resolved (0.0.798, a development dependency of Azu) does not compile
+on Crystal 1.19.1. Your application resolves CQL from its own `shard.yml`, not from Azu's.
+
+Apps that stay on Crystal 1.19.1 must use Azu 0.5.123 or older and a CQL release that compiles on 1.19.1 (0.0.766 or older,
+or 0.0.879 or newer; 0.0.798 and 0.0.808 do not build). Pin it in your own `shard.yml`, for example
+`cql: '>= 0.0.609, < 0.0.798'`.
+
+### Unreleased (0.6 work)
+
+Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
 
 | Azu Version | Crystal Version |
 |-------------|-----------------|

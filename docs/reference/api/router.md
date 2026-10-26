@@ -4,7 +4,7 @@ description: "`Azu::Router`: declare routes (verbs, `endpoint`, `ws`, `scope`, `
 
 # Router
 
-`Azu::Router` is the radix-tree router at the end of an app's handler chain (`app.router`, the same object as
+`Azu::Router` is the segment-tree router at the end of an app's handler chain (`app.router`, the same object as
 `app.config.router`). It is part of `require "azu"`. It maps the method and path of a request to an `Azu::Routable`
 (an endpoint, a WebSocket channel's upgrader, a mounted app or any `HTTP::Handler`) and calls it. Routes come from an
 app's `routes` block or from the verb macros in endpoint bodies. It is not middleware: the handlers passed to `start`
@@ -64,9 +64,9 @@ without a receiver. Each returns `Nil`.
 | `path_of(endpoint : Routable.class)` | `String?` | The path the type was last registered under on this router, without the mount prefix; nil when this router does not route it |
 | `mounted_as` | `Router::Mount?` | The mount this router's app is served through; nil when it is not mounted. `mount` sets it |
 | `mount_prefix` | `String` | What precedes every path of this router in a URL: the mount paths of every level, `""` when not mounted |
-| `route_info` | `Array(Hash(String, String))` | One hash per route, in declaration order: `"method"`, `"path"`, `"resource"` (the radix key), `"handler"` (the class name, or the channel's), `"description"` |
+| `route_info` | `Array(Hash(String, String))` | One hash per route, in declaration order: `"method"`, `"path"`, `"resource"` (the route key, method and path: `/get/users`), `"handler"` (the class name, or the channel's), `"description"` |
 | `registered_routes` | `Array(Router::Route)` | The routes in declaration order; a `Route` has `endpoint`, `method`, `path` and `resource` |
-| `clear_path_cache` | `Nil` | Empties the [path cache](#path-caching) |
+| `clear_path_cache` | `Nil` | Does nothing: the router keeps no cache (see [Lookup cost](#lookup-cost)) |
 
 `Router::Mount#prefix` is the full path a mount is served under, including the mounts above it, and
 `Router::Mount#child` the mounted app's configuration.
@@ -240,9 +240,20 @@ end
 
 ### Route matching
 
-The radix tree tries static segments before parameters, and parameters before wildcards. With `/users`,
-`/users/:id` and `/users/*rest` declared, `/users` matches the first, `/users/123` the second and
-`/users/123/posts/456` the third. Trailing slashes are ignored: `/users/` matches the route `/users`.
+The router tries static segments before parameters, and parameters before wildcards, and falls back to the next
+branch when one dead-ends. With `/users`, `/users/:id` and `/users/*rest` declared, `/users` matches the first,
+`/users/123` the second and `/users/123/posts/456` the third. Trailing slashes are ignored: `/users/` matches the route
+`/users`.
+
+A segment is a parameter only when it starts with `:` (or a wildcard with `*`, which must be the last segment): in
+`/users:search` or `/files/report-:id` the colon is literal, as in the OpenAPI document. Each route keeps its own
+parameter names, so `/posts/:id` and `/posts/:post_id/comments` can both be declared for one method. A parameter's
+value is the raw segment, not percent-decoded.
+
+Routes are declared before the app serves: `App#start` freezes its router, and the routers of the apps mounted in it,
+before it listens. After that `add`, `root`, `ws`, `mount` and `register` (and the verb methods) raise
+`Azu::Router::Frozen`, so a request never meets a router that is changing. Call `Azu::Spark.install` and the like
+before `start`.
 
 A request is routed only when its method is one of the verbs spelled exactly (`GET`, `POST`, ...: methods are
 case-sensitive) and its path starts with `/`; a WebSocket route is reached only by a `GET` upgrade. Any other request
@@ -284,15 +295,12 @@ problem body; this is `GET /nope` with `Accept: application/json` in production:
 `error_id` differs on every request, and development adds a `backtrace` field. The formats and statuses are listed
 in [Error types](../errors/error-types.md).
 
-### Path caching
+### Lookup cost
 
-The router caches the radix lookup key of the first 1000 distinct method and path pairs. The cache has two levels
-(method, then path), and reads take no lock: a lookup is two hash reads and allocates nothing. Once 1000 entries are
-cached, new paths are not added (there is no eviction). `clear_path_cache` empties it:
-
-```crystal
-Azu::App.default.router.clear_path_cache
-```
+The router keeps no cache. It finds a route by walking a tree of path segments, reading the request path in place: a
+static route allocates nothing, and a route with parameters allocates only their values and the params hash. A path
+with more segments than any route is refused before it is read whole. `clear_path_cache` is kept for the code that
+calls it and does nothing.
 
 `route_info` lists the routes, for tooling:
 
@@ -309,7 +317,7 @@ end
 - **`OPTIONS` runs the `GET` endpoint.** There is no `Allow` header and no `405`: a method a path does not route
   answers `404`.
 - **`root`.** `Router#root` registers `GET /` only (no `HEAD`, no `OPTIONS`), and `path_of` does not know it. A
-  `get "/"` declared after it raises `DuplicateRoute`; `root` after a `get "/"` raises `Radix::Tree::DuplicateError`.
+  `get "/"` declared after it, or `root` after a `get "/"`, raises `DuplicateRoute`.
   Use `get "/", Endpoint` instead.
 - **Not per app:** a class-level `Channel.ws "/path"` registers on `Azu::App.default` when the class is defined (use
   `ws` in `App#routes` for another app), and the template link helpers (`link_to_get_users` and friends) are

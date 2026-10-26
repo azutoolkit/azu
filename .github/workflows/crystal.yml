@@ -248,7 +248,7 @@ jobs:
         run: shards install
 
       - name: Run the concurrency specs with threads
-        run: crystal spec -Dpreview_mt spec/azu/mt_stress_spec.cr spec/azu/app_scope_spec.cr spec/azu/router_path_cache_spec.cr spec/azu/graceful_shutdown_spec.cr
+        run: crystal spec -Dpreview_mt spec/azu/mt_stress_spec.cr spec/azu/app_scope_spec.cr spec/azu/graceful_shutdown_spec.cr
 
   # Every push to master that passes the tests is a release: the job writes the version into shard.yml,
   # commits it straight to master, tags that commit and creates the GitHub release. No version-bump pull
