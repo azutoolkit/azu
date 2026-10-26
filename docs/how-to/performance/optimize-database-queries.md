@@ -1,15 +1,21 @@
-# How to Optimize Database Queries
+---
+description: Improve database performance in an Azu application that uses CQL.
+---
 
-This guide shows you how to improve database performance in an Azu application that uses CQL. To see what your app
-actually runs, `require "azu/cql"`: the dev dashboard's Database tab lists every statement tagged with its request,
-flags slow queries and detects N+1 patterns (see [Database dashboard](../../reference/database-dashboard.md)).
+# Optimize database queries
+
+To see what your app actually runs, `require "azu/cql"`: the dev dashboard's Database tab lists every statement tagged
+with its request, flags slow queries and detects N+1 patterns (see
+[Database dashboard](../../reference/database-dashboard.md)).
 
 Every example is self-contained: it defines the schema and models it needs.
 
-## Use Indexes
+## Use indexes
 
-Add indexes for columns you filter, join and sort on. Indexes declared inside a `table` block are not created, so
-create them in a [migration](../database/run-migrations.md) (or with `schema.alter`):
+Add indexes for columns you filter, join and sort on. Indexes declared inside a `table` block (`index [...]`,
+`index: true`) are created with the table by `build` and `create!` (see
+[Define a schema](../database/define-schema.md#indexes)). To add them to tables that already exist, use a
+[migration](../database/run-migrations.md) (or `schema.alter`):
 
 ```crystal
 require "cql"
@@ -47,7 +53,7 @@ class AddQueryIndexes < CQL::Migration(20240201090000_i64)
 end
 ```
 
-## Analyze Query Plans
+## Analyze query plans
 
 Ask the database how it runs a statement. `EXPLAIN` is a SQL statement like any other, so run it through the connection:
 
@@ -67,19 +73,14 @@ plan = AcmeDB.exec_query do |connection|
 end
 
 puts plan.join("\n")
-
-# Look for:
-# - Seq Scan on a large table (bad)
-# - Index Scan (good)
-# - Index Only Scan (best)
 ```
 
 In development, the dashboard's SQL playground accepts one `EXPLAIN` statement and shows the result without leaving the
 browser. To see the SQL a CQL query will run, call `to_sql_with_params` on it.
 
-## Avoid N+1 Queries
+## Avoid N+1 queries
 
-### The Problem
+### The problem
 
 Reading an association inside a loop runs one query per record:
 
@@ -131,10 +132,10 @@ User.all.each do |user|
 end
 ```
 
-### The Solution
+### The solution
 
-`preload` loads the `has_many` associations of every returned record with one extra query. It works for `has_many`
-only; a `belongs_to` target is best loaded by joining or by fetching the parents with one `where(id: ids)`:
+`preload` loads the named association of every returned record with one extra query (one per chunk of ids when there
+are more ids than the database accepts as parameters). It works for `has_many`, `has_one` and `belongs_to`:
 
 ```crystal
 require "cql"
@@ -184,9 +185,9 @@ User.preload(:posts).all.each do |user|
 end
 
 # belongs_to side: one query for the posts, one for their authors
-posts = Post.limit(50).all
-authors = User.where(id: posts.map(&.user_id).uniq!).all.index_by(&.id!)
-posts.each { |post| puts "#{post.title} by #{authors[post.user_id].name}" }
+Post.limit(50).preload(:user).all.each do |post|
+  puts "#{post.title} by #{post.user.try(&.name)}"
+end
 
 # Or let the database count: one grouped query
 counts = AcmeDB.query
@@ -197,7 +198,7 @@ counts = AcmeDB.query
   .all(as: {Int64, Int64})
 ```
 
-## Select Only Needed Columns
+## Select only needed columns
 
 `select` with symbols loads only those columns, which matters for wide rows and large text or blob columns:
 
@@ -237,7 +238,7 @@ rows.each { |row| puts "#{row.id} #{row.title}" }
 titles = Post.pluck(:title, as: {String})
 ```
 
-## Use Batch Processing
+## Use batch processing
 
 Process large tables in batches instead of loading them whole:
 
@@ -278,7 +279,7 @@ User.find_in_batches(batch_size: 1000) do |batch|
 end
 ```
 
-## Count and Check Existence in the Database
+## Count and check existence in the database
 
 ```crystal
 require "cql"
@@ -325,7 +326,7 @@ average = Order.average(:total)
 largest = Order.maximum(:total)
 ```
 
-## Limit Result Sets
+## Limit result sets
 
 ```crystal
 require "cql"
@@ -357,7 +358,7 @@ recent_posts = Post.order(created_at: :desc).all
 recent_posts = Post.order(created_at: :desc).limit(10).all
 ```
 
-## Batch Writes
+## Batch writes
 
 Single statements beat loops of single-row statements. `update_by` updates all matching rows in one `UPDATE`;
 `schema.insert` takes an array of rows for one multi-row `INSERT`. Neither runs validations or callbacks:
@@ -406,16 +407,19 @@ rows = [
 AcmeDB.insert.into(:users).values(rows).commit
 ```
 
-## Parameters and Prepared Statements
+## Parameters and prepared statements
 
 CQL always binds values as parameters, never interpolating them into the SQL text, so repeated queries share a
 statement and the driver can cache and reuse the prepared statement (crystal-db prepares statements by default).
 
-## Connection Pooling
+## Connection pooling
 
-The pool belongs to the crystal-db connection: set its size with URI parameters (`initial_pool_size`, `max_pool_size`,
-`max_idle_pool_size`, `checkout_timeout` in seconds). With `require "azu/cql"`, `Azu::CQL.schema` fills them from
-`CQL.config.pool` and leaves parameters already in the URL alone:
+A schema made with `CQL::Schema.define` uses crystal-db's pool: set its size with URI parameters (`initial_pool_size`,
+`max_pool_size`, `max_idle_pool_size`, `checkout_timeout` in seconds). With `require "azu/cql"`, `Azu::CQL.schema`
+on a `postgres://` URL uses CQL's own engine pool instead (sized with `pool_size`, `pool_min_size` and
+`checkout_timeout`; crystal-db's names are translated), unless `driver: :db` or `AZU_CQL_DRIVER=db` keeps
+crystal-db's. When its URL comes from `CQL.config`, `Azu::CQL.schema` fills the pool settings from `CQL.config.pool`,
+and parameters already in the URL win (see [Configure production](../deployment/configure-production.md#database-connections)):
 
 ```crystal
 require "cql"
@@ -436,10 +440,11 @@ AcmeDB = CQL::Schema.define(
 end
 ```
 
-A common starting point is `pool_size = (cores * 2) + 1` per process; remember that the database's connection limit is
-shared by every process you run.
+{% hint style="warning" %}
+Each process has its own pool, and the database's connection limit is shared by every process you run.
+{% endhint %}
 
-## Query Caching
+## Query caching
 
 Cache the result of expensive queries with Azu's cache, which stores strings (serialize the result) and takes a
 `ttl`:
@@ -495,7 +500,7 @@ end
 expensive_stats
 ```
 
-## Read Replicas
+## Read replicas
 
 CQL has no replica routing. If you run a replica, define a second schema for it and bind read-only models to that schema;
 writes keep going through the primary models:
@@ -542,9 +547,11 @@ Report.create!(title: "Q3")                    # primary
 ReplicaReport.order(:id).limit(20).all         # replica
 ```
 
+{% hint style="warning" %}
 Replicas lag behind the primary, so read your own writes from the primary.
+{% endhint %}
 
-## Optimize Specific Patterns
+## Optimize specific patterns
 
 ### Pagination
 
@@ -581,80 +588,7 @@ User.after_cursor(last_id, 20)
 User.paginate_by(:name, "Smith", 20)
 ```
 
-### Search
-
-A `LIKE` with a leading wildcard cannot use a normal index. Prefer a prefix match, or the database's full-text search:
-
-```crystal
-require "cql"
-require "pg"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::Postgres, uri: ENV["DATABASE_URL"]) do
-  table :users do
-    primary :id, Int64
-    column :name, String
-  end
-end
-
-class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property name : String
-
-  def initialize(@name : String)
-  end
-end
-
-search_term = "smith"
-
-# Bad: a leading wildcard cannot use an index
-User.where("name LIKE ?", "%#{search_term}%").all
-
-# Better: a prefix match can use a btree index (PostgreSQL needs text_pattern_ops outside the C locale)
-User.where("name LIKE ?", "#{search_term}%").all
-
-# PostgreSQL full-text search
-User.where("to_tsvector('english', name) @@ plainto_tsquery('english', ?)", search_term).all
-```
-
-### Date Ranges
-
-Wrapping an indexed column in a function defeats the index; compare against a range instead:
-
-```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :orders do
-    primary :id, Int64
-    column :total, Float64
-    timestamps
-  end
-end
-
-class Order
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :orders
-
-  property total : Float64
-  property created_at : Time?
-
-  def initialize(@total : Float64)
-  end
-end
-
-date = Time.utc(2024, 3, 1)
-
-# Bad: a function on the indexed column
-Order.where("DATE(created_at) = ?", date.to_s("%Y-%m-%d")).all
-
-# Good: a range
-Order.where("created_at >= ? AND created_at < ?", date.at_beginning_of_day, date.at_beginning_of_day + 1.day).all
-```
-
-## Monitor Query Performance
+## Monitor query performance
 
 Subscribe to CQL's telemetry to be told about slow statements. The callback receives a `CQL::Telemetry::QueryEvent`
 with the SQL, duration, operation and rows affected:
@@ -673,7 +607,7 @@ CQL::Telemetry.subscribe("app.statement_counter") { |_event| statements.add(1) }
 With `require "azu/cql"` the dashboard subscribes the same way and also logs queries slower than
 `database.slow_query_ms` (see [Database dashboard](../../reference/database-dashboard.md)).
 
-## See Also
+## See also
 
 - [Optimize Endpoints](optimize-endpoints.md)
 - [Query Data](../database/query-data.md)

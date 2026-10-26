@@ -1,4 +1,8 @@
-# Channel Reference
+---
+description: "Handle a WebSocket connection with `Azu::Channel`: callbacks, instance methods, origin checks and `Azu::PubSub` topics."
+---
+
+# Channel
 
 `Azu::Channel` handles one WebSocket connection. Azu builds a new instance for every client that
 connects, so instance variables are per connection. Topic broadcasting is provided by
@@ -85,7 +89,9 @@ The route is a `Channel::Upgrader`: it validates the handshake and the `Origin` 
 | `on_close(code, message)` | The client closed the connection, or it was lost. `code` is `HTTP::WebSocket::CloseCode?`. |
 | `on_broadcast(message : PubSub::Message)` | A message was broadcast to a topic this channel subscribed to. Optional. |
 
+{% hint style="warning" %}
 An exception raised from a callback ends the connection; subscriptions are still released.
+{% endhint %}
 
 ## Instance methods
 
@@ -135,12 +141,17 @@ app.routes { ws "/rooms/:room", RoomChannel }
 ## Closing and rejecting
 
 `close` takes an `HTTP::WebSocket::CloseCode` (or an `Int`) and a reason. Use it to refuse a
-connection you cannot authenticate:
+connection you cannot authenticate. This channel refuses every connection while `CHANNEL_TOKEN` is unset, and
+compares the token in constant time:
 
 ```crystal
+require "crypto/subtle"
+
 class SecureChannel < Azu::Channel
   def on_connect
-    unless params["token"]? == ENV.fetch("CHANNEL_TOKEN", "change-me")
+    expected = ENV["CHANNEL_TOKEN"]?.presence
+    given = params["token"]?
+    unless expected && given && Crypto::Subtle.constant_time_compare(given, expected)
       close(HTTP::WebSocket::CloseCode::PolicyViolation, "Unauthorized")
       return
     end
@@ -230,9 +241,9 @@ Azu::PubSub.backend = Azu::PubSub::Redis.new("redis://localhost:6379/0")
 ```
 
 Handlers run on the broadcaster's fiber, so they must be quick: enqueue and return. Subscriptions
-made through `Channel#subscribe` end with the connection. There is no presence tracking in
-Azu; keep your own registry if you need a list of who is connected (see
-[Broadcasting messages](../../how-to/real-time/broadcast-messages.md)).
+made through `Channel#subscribe` end with the connection. For a list of who is connected, use
+[`Azu::Presence`](presence.md): include `Azu::Presence::Tracked` in the channel, and what it tracks ends
+with the connection too (see [Presence in channels](presence.md#channels)).
 
 `Azu::PubSub::Message` has `topic`, `payload` and `json(Type)`, which decodes the payload.
 

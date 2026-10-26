@@ -1,8 +1,10 @@
-# How to Render HTML Templates
+---
+description: Render HTML templates with Azu's Crinja template engine (Jinja2 syntax).
+---
 
-This guide shows you how to render HTML templates using Azu's Crinja template engine (Jinja2 syntax).
+# Render HTML templates
 
-## Basic Template Rendering
+## Basic template rendering
 
 A response renders a template: include `Azu::Templates::Renderable` and call `view` with the template name and the
 data for it. The data keys become template variables:
@@ -36,14 +38,52 @@ end
 hashes). Without a template name it renders the template named after the response type: `Blog::Posts::ShowPage`
 renders `blog/posts/show_page.jinja`.
 
-`view` adds the request-aware variables (`csrf_token`, `current_path`, flash messages, ...) when it is called from an
-endpoint, and the [template helpers](use-template-helpers.md) are always available.
+The [template helpers](../../reference/templates/helpers.md) are always available.
 
-## Template Location
+{% hint style="warning" %}
+The request variables (`csrf_token`, `flash`, `current_path`, ...) are not: `view` adds them only when the type that
+calls it has a `context` method, and a response has none. In a response's `view`, `{{ csrf_field() }}` renders an
+empty token and a template that reads `flash.notice` fails with a `500` (`flash is undefined`).
+{% endhint %}
 
-Azu looks for templates in the directories of `config.templates.path`. **The default is a path relative to the
-working directory the server runs in, not to your project**, so set it explicitly. Applications generated with
-`azu new` keep templates in `public/templates`:
+A page with a form or flash messages takes the endpoint's `context` and renders with
+`view_with_context(template, context, data)`, which adds them:
+
+```crystal
+struct SignupPage
+  include Azu::Response
+  include Azu::Templates::Renderable
+
+  def initialize(@context : HTTP::Server::Context)
+  end
+
+  def render
+    view_with_context "users/new.jinja", @context, {"title" => "Sign up"}
+  end
+end
+
+struct SignupPageEndpoint
+  include Azu::Endpoint(Azu::Request, SignupPage)
+
+  get "/signup"
+
+  def call : SignupPage
+    content_type "text/html"
+    SignupPage.new(context)
+  end
+end
+```
+
+## Template location
+
+Azu looks for templates in the directories of `config.templates.path`.
+
+{% hint style="warning" %}
+**The default is a path relative to the working directory the server runs in, not to your project**, so set it
+explicitly.
+{% endhint %}
+
+Applications generated with `azu new` keep templates in `public/templates`:
 
 ```crystal
 module MyApp
@@ -78,7 +118,7 @@ Use the `.jinja`, `.j2` or `.html` extension: those are the files hot reload wat
 
 A template that cannot be found raises `Crinja::TemplateNotFoundError`.
 
-## Template Syntax
+## Template syntax
 
 Crinja uses Jinja2-style syntax:
 
@@ -108,7 +148,7 @@ already safe and are not escaped again. Templates of other formats (`mail.txt`, 
 `yml`, `sql`, `sh`) are not escaped; `xml`, `rss`, `atom` and `svg` are. `{% autoescape false %}...{% endautoescape %}`
 turns it off for a block. Filters such as `upper`, `truncate`, `replace` and the `~` operator return plain text, so
 markup that went through them is escaped: apply `| safe` last.
-`{{ value | e }}` still works and does not escape twice. To turn the escaping of `.jinja`/`.j2` off for an app, set
+`{{ value | e }}` does not escape twice. To turn the escaping of `.jinja`/`.j2` off for an app, set
 `template_autoescape = false` or `TEMPLATE_AUTOESCAPE=false` (see [Configuration](../../reference/configuration/options.md#templates)).
 
 ## Variables
@@ -284,7 +324,7 @@ Define reusable template functions:
 {# This is a comment and won't be rendered #}
 ```
 
-## Raw Output
+## Raw output
 
 Disable template processing:
 
@@ -294,7 +334,7 @@ Disable template processing:
 {% endraw %}
 ```
 
-## Custom Helpers
+## Custom helpers
 
 Register your own functions and filters before the first render. They are available in every template:
 
@@ -315,9 +355,9 @@ Use in a template:
 {{ "hello" | shout }}
 ```
 
-See [Use Template Helpers](use-template-helpers.md).
+See [Template helpers](../../reference/templates/helpers.md).
 
-## See Also
+## See also
 
 - [Enable Hot Reload](enable-hot-reload.md)
 - [Template helpers reference](../../reference/templates/helpers.md)

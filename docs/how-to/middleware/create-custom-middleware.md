@@ -1,11 +1,14 @@
-# How to Create Custom Middleware
+---
+description: Write your own handlers.
+---
 
-This guide shows how to write your own handlers. A handler is any class that includes `HTTP::Handler` and
-implements `call(context)`; Azu has no base class of its own. Before writing one, check
-[the built-in handlers](../../reference/handlers/built-in.md): request ids, logging, error pages, security
-headers, static files, CORS, CSRF, rate limiting, compression and health checks already exist.
+# Create custom middleware
 
-## Basic Handler
+A handler is any class that includes `HTTP::Handler` and implements `call(context)`; Azu has no base class of its
+own. Before writing one, check [the built-in handlers](../../reference/handlers/built-in.md): request ids, logging,
+error pages, security headers, static files, CORS, CSRF, rate limiting, compression and health checks already exist.
+
+## Basic handler
 
 ```crystal
 class TimingHandler
@@ -25,15 +28,19 @@ end
 `call_next(context)` runs the rest of the chain and the endpoint. Code before it sees the request, code after it
 sees the response.
 
+{% hint style="warning" %}
 A header set after `call_next` is lost once the response has started to leave the server, which happens for a large
-body (a 100 000 byte body lost the header above in a test), a `flush` or a stream. Anything you can decide before
-the endpoint runs belongs before `call_next`; `X-Response-Time` is best effort.
+body, a `flush` or a stream. Anything you can decide before the endpoint runs belongs before `call_next`;
+`X-Response-Time` is best effort.
+{% endhint %}
 
-## Register the Handler
+## Register the handler
 
 Pass the handlers to `start`, outermost first. The router (and with it every endpoint) always comes last, so
-endpoints are not listed:
+endpoints are not listed.
 
+{% tabs %}
+{% tab title="Your own stack" %}
 ```crystal
 module MyApp
   include Azu
@@ -56,7 +63,11 @@ MyApp.start [
 ```
 
 An array you pass replaces the default stack (`RequestId`, `Logger`, `Rescuer`, `SecurityHeaders`, `Static`), so list
-the ones you still want. To extend the default stack instead, build on it:
+the ones you still want.
+{% endtab %}
+
+{% tab title="Extend the default stack" %}
+To extend the default stack instead, build on it:
 
 ```crystal
 module MyApp
@@ -77,8 +88,10 @@ MyApp.start handlers
 ```
 
 `default_handlers` returns new instances each call, because a handler instance can be in one chain only.
+{% endtab %}
+{% endtabs %}
 
-## Authentication Handler
+## Authentication handler
 
 Answer failures by raising an `Azu::Response::Error`: `Rescuer` (keep it **before** this handler in the array)
 renders it as JSON, HTML or text according to the request's `Accept` header, with the right status code:
@@ -113,8 +126,8 @@ end
 ```
 
 In an array: `[RequestId.new, Rescuer.new, TokenAuthHandler.new({"s3cret" => 42_i64})]`. A request without the token
-was answered `401`; with `Authorization: Bearer s3cret` the endpoint saw `X-User-ID: 42`, and a forged `X-User-ID: 1`
-sent without a token was answered `401` too. An endpoint reads the value with
+gets `401`; with `Authorization: Bearer s3cret` the endpoint sees `X-User-ID: 42`, and a forged `X-User-ID: 1` sent
+without a token gets `401` too. An endpoint reads the value with
 `context.request.headers["X-User-ID"]?`.
 
 To answer without `Rescuer`, or with your own body, write the response yourself and return without
@@ -140,7 +153,7 @@ class ApiKeyHandler
 end
 ```
 
-## Use the Built-in Handler First
+## Use the built-in handler first
 
 These are commonly written by hand and exist already:
 
@@ -153,10 +166,12 @@ These are commonly written by hand and exist already:
 | Security headers | `Azu::Handler::SecurityHeaders.new` |
 | A `/health` probe | `Azu::Handler::HealthCheck.new` |
 
+{% hint style="warning" %}
 Compressing in your own handler after `call_next` does not work: `context.response.output` is the connection, not a
 buffer holding the body. `Compression` wraps the output before the rest of the chain runs.
+{% endhint %}
 
-## A Handler with a Block
+## A handler with a block
 
 A handler that decides per request can take a block:
 
@@ -179,7 +194,7 @@ end
 ConditionalHandler.new { |context| context.request.path.starts_with?("/api") }
 ```
 
-## Wrapping Other Handlers
+## Wrapping other handlers
 
 Because a handler is just an object, one handler can run another only for some requests. The wrapped handler
 must be given the rest of the chain:
@@ -204,10 +219,9 @@ end
 OnlyFor.new("/api", Azu::Handler::Throttle.new(interval: 5, duration: 60, threshold: 20, blacklist: [] of String, whitelist: [] of String))
 ```
 
-## Handler Ordering
+## Handler ordering
 
-Order matters; what each position means was checked by running it (see
-[the middleware concept](../../explanation/concepts/middleware.md#ordering-best-practices)):
+Order matters (see [the middleware concept](../../explanation/concepts/middleware.md#ordering-best-practices)):
 
 ```crystal
 module MyApp
@@ -225,7 +239,7 @@ MyApp.start [
 ] of HTTP::Handler
 ```
 
-## Testing a Handler
+## Testing a handler
 
 Serve it on a free port and send real requests through it:
 
@@ -286,7 +300,7 @@ describe StampHandler do
 end
 ```
 
-## See Also
+## See also
 
 - [Add Logging](add-logging.md)
 - [Built-in handlers](../../reference/handlers/built-in.md)

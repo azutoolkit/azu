@@ -1,4 +1,8 @@
-# App Reference
+---
+description: "Run an application as a value with `Azu::App`: start, stop and mount it, and use the `include Azu` facade and the module functions."
+---
+
+# App
 
 `Azu::App` is an application as a value: its own configuration, router, handler chain and lifecycle. Two of them
 can live in one process. `include Azu` is the supported single-app facade over the same class: it drives
@@ -35,6 +39,12 @@ app.start(handlers)                         # the array, exactly as given
 app.start(signals: false, teardown: false)  # embedded in a program (or a spec) that manages both itself
 ```
 
+`default_handlers` is the default stack, in this order: `RequestId`, `Logger` (writing to `config.log`), `Rescuer`,
+`SecurityHeaders` (HSTS when `config.tls?`) and `Static` (files from `public/`, falling through to the router). It
+returns new instances on every call, since a handler belongs to one chain. An array you pass instead is used exactly
+as given and nothing is added to it; its handlers run in the order listed, and the chain ends in the router. Endpoints
+are not handlers: they are reached through the router.
+
 `start(handlers = default_handlers, *, signals = true, teardown = true) : Nil` blocks until the app stops. It does, in order:
 
 1. Builds the server for the handlers (`App#server`) and binds `config.host`:`config.port`, over TLS when `config.tls?`. A bind
@@ -58,20 +68,26 @@ app.start(signals: false, teardown: false)  # embedded in a program (or a spec) 
    the database pools) and the shared Redis pools. These parts are process-wide, which is why one app stopping while
    another still runs leaves them alone.
 
+{% hint style="warning" %}
 **An app starts once.** `start` on a running app raises `Azu::App::AlreadyRunning`; on an app that has stopped, or has
 begun shutting down (`stop`, a signal, `begin_shutdown`), it raises `Azu::App::AlreadyStopped`: a stopped app refuses
 requests for good, so build a new `Azu::App` to serve again. A `start` that failed to bind does not count and can be repeated.
 This holds for `Azu::App.default` too, so `MyApp.start` runs once per process.
+{% endhint %}
 
-| Method | |
-|---|---|
-| `stop(timeout = config.shutdown_timeout) : Bool` | Refuses new requests, closes the server and waits for the requests in flight. `true` when none was dropped. `start` returns afterwards. Safe to call twice |
-| `running? : Bool` | True from `start` until it returns |
-| `address : Socket::IPAddress?` | Where the server listens, once bound; with `config.port = 0` the port the system picked. nil before `start` has bound and after the server has closed |
-| `begin_shutdown`, `draining?`, `drain(timeout)` | The pieces `stop` is made of |
-| `prepare : Nil` | What `start` does before it binds; `Azu.prepare` is `App.default.prepare` |
+| Signature | Returns | Notes |
+|---|---|---|
+| `stop(timeout = config.shutdown_timeout)` | `Bool` | Refuses new requests, closes the server and waits for the requests in flight. `true` when none was dropped. `start` returns afterwards. Safe to call twice |
+| `running?` | `Bool` | True from `start` until it returns |
+| `address` | `Socket::IPAddress?` | Where the server listens, once bound; with `config.port = 0` the port the system picked. nil before `start` has bound and after the server has closed |
+| `begin_shutdown`, `draining?`, `drain(timeout)` | `Nil`, `Bool`, `Bool` | The pieces `stop` is made of |
+| `prepare` | `Nil` | What `start` does before it binds; `Azu.prepare` is `App.default.prepare` |
+| `routes(&)` | `Nil` | Declares the app's routes: the verbs, `ws`, `scope` and `mount` (see [Router](router.md)) |
+| `router` | `Router` | `config.router` |
+| `server(handlers = [] of HTTP::Handler)` | `HTTP::Server` | The app's chain for `handlers` in an `HTTP::Server` you drive yourself: it is not bound or started. `stop` closes the server built last |
+| `default_handlers` | `Array(HTTP::Handler)` | The default stack, new instances on every call |
 
-An app on an ephemeral port, as the specs of Azu run it:
+An app on an ephemeral port:
 
 ```crystal
 require "azu"
@@ -158,6 +174,72 @@ default arguments, so there is one lifecycle and one code path. Its limits are w
 
 Everything on this page works on `Azu::App.default` too (`Azu::App.default.stop`, `.address`, `.running?`).
 
+## The Azu module
+
+`require "azu"` defines the `Azu` module. A module that includes it gets the facade methods, which act on
+`Azu::CONFIG` and `Azu::App.default`. The module functions are called on `Azu` itself, and most of them answer for
+the app serving the current fiber's request. The options `configure` sets are on
+[Configuration options](../configuration/options.md), and the `Azu::Environment` members and their predicates on
+[Environments](../configuration/environments.md).
+
+```crystal
+require "azu"
+
+module MyApp
+  include Azu
+
+  configure do |config|
+    config.port = 8080
+    config.shutdown_timeout = 10.seconds
+  end
+end
+
+MyApp.log.info { "starting in #{MyApp.env}" }
+MyApp.config.router.route_info # the registered routes
+Azu.cache.set("greeting", "hello", ttl: 1.hour)
+Azu.on_shutdown { MyApp.log.info { "stopped" } }
+
+MyApp.start
+```
+
+### Facade methods
+
+| Signature | Returns | Notes |
+|---|---|---|
+| `configure(&)` | the block's value | Yields `Azu::CONFIG`, as the block argument and as the receiver of calls without one |
+| `config` | `Configuration` | `Azu::CONFIG`. `config.router.route_info` lists the registered routes, one `Hash(String, String)` each with `"method"`, `"path"`, `"resource"`, `"handler"` and `"description"` |
+| `env` | `Environment` | `Azu::CONFIG.env`, so `MyApp.env.production?` |
+| `log` | `Log` | `Azu::CONFIG.log`, the logger the framework writes to |
+| `start` | `Nil` | `Azu::App.default.start`: the default handlers, signals trapped, teardown on (see [start](#start)) |
+| `start(handlers : Array(HTTP::Handler))` | `Nil` | `Azu::App.default.start(handlers)`: the array exactly as given |
+
+### Module functions
+
+| Signature | Returns | Notes |
+|---|---|---|
+| `Azu.current_config` | `Configuration` | The configuration of the app serving the current fiber's request, or the one `with_config` set; `Azu::CONFIG` otherwise |
+| `Azu.with_config(config : Configuration, &)` | the block's value | Runs the block with `config` as `current_config` for this fiber. Scopes nest: leaving one restores the configuration that was current before. For tests |
+| `Azu.clear_fiber_configs` | `Nil` | Drops the configuration every fiber set with `with_config` (a fiber's current app stays). For test suites |
+| `Azu.current_app` | `App?` | The app serving the request this fiber handles (a mounted app's requests belong to the app that owns the server); nil outside one |
+| `Azu.with_app(app : App?, &)` | the block's value | Runs the block with `app` as `current_app`; a nil `app` leaves things as they are |
+| `Azu.spawn_scoped(name : String? = nil, &block : ->)` | `Fiber` | `spawn`, but the new fiber keeps the current app and configuration; a plain `spawn` starts with the global ones. For work that outlives the request (timers, WebSocket heartbeats) |
+| `Azu.shutting_down?` | `Bool` | True once the app serving this request has begun shutting down (SIGINT, SIGTERM or `begin_shutdown`) |
+| `Azu.shutdown_signal` | `::Channel(Nil)` | Closed when the app serving this request begins shutting down, for `select when Azu.shutdown_signal.receive?`. Outside an app it never closes |
+| `Azu.mounted_path(endpoint : Routable.class, fallback : String = "")` | `String` | The endpoint's path in the app being served, with the prefix that app is mounted at; `fallback` when the current router does not route the endpoint |
+| `Azu.cache` | `Cache::Manager` | `current_config.cache`: `set(key, value, ttl:)`, `get`, `delete` (see [Cache](cache.md)) |
+| `Azu.setup_logging` | `Nil` | Installs Azu's log format at the `Debug` level for the whole process. Opt-in: neither `require "azu"` nor `start` touches `Log` |
+| `Azu.prepare` | `Nil` | `Azu::App.default.prepare` |
+| `Azu.on_shutdown(&block : ->)` | `Nil` | Registers a hook for `Azu.shutdown`. Hooks run in reverse order of registration; one that raises is logged and does not stop the others |
+| `Azu.shutdown` | `Nil` | Closes Spark connections, the default presence tracker, the PubSub backend, the `on_shutdown` hooks and, last, the shared Redis pools. `start` calls it once the last app has stopped (with `teardown: true`); safe to call again |
+
+### Constants
+
+| Constant | Type | Notes |
+|---|---|---|
+| `Azu::CONFIG` | `Configuration` | The global configuration, built when `azu` is required; `Azu::App.default.config` |
+| `Azu::VERSION` | `String` | The release version, read from `shard.yml` at compile time |
+| `Azu::Validator` | alias | `Schema::Validator`, the base class of a [custom validator](request.md#custom-validators) |
+
 ## Known limitations
 
 - **A signal while `start` is coming up.** `start` registers the app as running, binds the port and only then installs the
@@ -170,9 +252,9 @@ Everything on this page works on `Azu::App.default` too (`Azu::App.default.stop`
   is known). The exemption is inert while the dashboard passes requests on, which is everywhere except development, but
   it stays in the list: a route of your own at the same path is exempt from CSRF checks too.
 
-## See Also
+## See also
 
-- [Core API](core.md)
+- [Configuration options](../configuration/options.md)
 - [Router](router.md)
 - [Environments](../configuration/environments.md)
 - [Testing](testing.md): drive an app in process, without a socket

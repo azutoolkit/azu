@@ -1,6 +1,8 @@
-# Development Setup
+---
+description: How to get a working checkout of Azu, run its specs and checks, and try a change.
+---
 
-How to get a working checkout of Azu, run its specs and checks, and try a change.
+# Development setup
 
 ## Prerequisites
 
@@ -84,7 +86,9 @@ crystal tool format --check --exclude lib --exclude playground/lib   # what CI r
 ameba                              # static analysis (see .ameba.yml)
 ```
 
+{% hint style="info" %}
 [Ameba](https://github.com/crystal-ameba/ameba) is not a dependency of this shard: install it separately.
+{% endhint %}
 
 ## Documentation
 
@@ -115,7 +119,7 @@ something that is not meant to compile (shell output, historical APIs) use anoth
 - **The linker cannot find `sqlite3`:** install the SQLite development package for your system.
 - **Dependencies out of date:** `shards update`.
 
-## Next Steps
+## Next steps
 
 - [Code Standards](standards.md) - Coding standards and guidelines
 - [Roadmap](roadmap.md) - Development roadmap and priorities

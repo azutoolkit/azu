@@ -1,4 +1,8 @@
-# Built-in Handlers Reference
+---
+description: "Every middleware handler Azu ships in `Azu::Handler`: what it does, its options and where it goes in the chain."
+---
+
+# Built-in handlers
 
 Azu ships handlers for the common middleware needs. They are all `HTTP::Handler`s in the `Azu::Handler`
 namespace and are used the same way: build them, put them in the array given to `start`.
@@ -98,10 +102,11 @@ Catches what the handlers after it, the router and the endpoint raise and answer
 
 | Raised | Status |
 |---|---|
-| `Response::NotFound` (also an unrouted path) | 404 |
+| `Response::NotFound` | 404 |
 | `Response::BadRequest` | 400 |
 | `Response::AuthenticationError` | 401 |
 | `Response::AuthorizationError`, `Response::Forbidden` | 403 |
+| `Response::NotAcceptable` | 406 |
 | `Response::TimeoutError` | 408 |
 | `Response::PayloadTooLarge` | 413 |
 | `Response::ValidationError` | 422 |
@@ -111,15 +116,20 @@ Catches what the handlers after it, the router and the endpoint raise and answer
 | any other `Response::Error` | its `status` |
 | any other exception | 500 |
 
-`HTTP::Server::ClientError` (the peer went away) is logged at debug level and not answered. A request that
-breaks its contract raises `Response::ValidationError` before the endpoint's `call` runs; `Rescuer` is what turns
-it into the `422` (without it the client gets Crystal's bare `500`, which was seen by running it).
+`HTTP::Server::ClientError` (the peer went away) is logged at debug level and not answered. `Rescuer` sees only
+what is raised inside an endpoint's `call` and the handlers after it. A request that breaks its contract never
+reaches `call`: the endpoint answers it itself, `400` when the body or a field cannot be read as the contract's
+types and `422` with the failing fields when a validation rule fails, so `Rescuer` never sees it. (A multipart body
+that cannot be parsed at all is read before that check: it is raised, and `Rescuer` answers it with `400`.) The
+router answers an unrouted path with `404` itself, and a negotiated endpoint answers `406` itself.
 
 The body is chosen by the first media type of the `Accept` header: JSON, HTML, XML or plain text, and plain text
-without a header. In development the error includes the request context and HTML clients receive Azu's exception
-page. In any other environment the context is `null` and HTML clients get the `error.html` template, except for an
-unexpected exception, where the client gets a bare `500 Internal Server Error`.
-Without `Rescuer`, an exception reaching Crystal's server becomes that same bare `500` and a stack trace in the log.
+without a header or with `*/*`. In development the error includes the request context and HTML clients receive
+Azu's exception page. In any other environment the context is `null` and HTML clients get the `error.html` template
+(the app's own, or Azu's built-in one), an unexpected exception included: a `500` page titled
+`500 - Internal Server Error` that does not show the exception's message.
+Without `Rescuer`, an exception reaching Crystal's server becomes a bare `text/plain` `500 Internal Server Error`
+and a stack trace in the log.
 
 ## Handler::SecurityHeaders
 
@@ -134,9 +144,12 @@ Azu::Handler::SecurityHeaders.new(
 
 Sets `X-Content-Type-Options: nosniff`, `X-Frame-Options`, `Referrer-Policy`, and, only when asked,
 `Content-Security-Policy` (the string you pass) and `Strict-Transport-Security: max-age=31536000; includeSubDomains`
-(`hsts: true`). A header the application already set is left alone, so one endpoint can loosen a policy. Enable
-HSTS only for sites served over HTTPS; browsers remember it. A value a header cannot carry (a line break, for one)
-raises `ArgumentError` when the handler is built, not on each request.
+(`hsts: true`). A header the application already set is left alone, so one endpoint can loosen a policy. A value a
+header cannot carry (a line break, for one) raises `ArgumentError` when the handler is built, not on each request.
+
+{% hint style="warning" %}
+Enable HSTS only for sites served over HTTPS; browsers remember it.
+{% endhint %}
 
 ## Handler::Static
 
@@ -192,8 +205,8 @@ is sent with every file.
 
 The types are the handler's own table (`Azu::Handler::Static::MIME_TYPES`), **the same on every host**: it never reads the
 operating system's `/etc/mime.types` and does not use the process-wide `MIME` registry. It holds Crystal's built-in
-defaults (`.css .gif .htm .html .jpg .jpeg .js .json .pdf .png .svg .txt .xml .wasm .webp`), the fonts and source maps Azu has
-always served (`.woff .woff2 .ttf .otf .sfnt .collection .map`), and these, so common assets keep working:
+defaults (`.css .gif .htm .html .jpg .jpeg .js .json .pdf .png .svg .txt .xml .wasm .webp`), fonts and source maps
+(`.woff .woff2 .ttf .otf .sfnt .collection .map`), and these:
 
 | Extension | Content-Type |
 | --- | --- |
@@ -217,8 +230,7 @@ A file with no extension is refused, with one exception for ACME HTTP-01 challen
 segment after `/.well-known` starts with a dot and the name does not end in a dot. Deeper paths (`/.well-known/a/b/c`) and
 dot names at any level (`/.well-known/.git/config`, `/.well-known/.env`, `/.well-known/.secrets.json`, even with a
 known extension) are refused, as is an extensionless file anywhere else; `/.well-known/a/b/c.json` and `/.well-known/.x.json`
-are refused too (an earlier release served them), deliberately. Only the root `/.well-known/` counts, whatever the case it
-is written in. An extensionless file there (`apple-app-site-association`, `openid-configuration`) is sent as `text/plain`:
+are refused too. Only the root `/.well-known/` counts, whatever the case it is written in. An extensionless file there (`apple-app-site-association`, `openid-configuration`) is sent as `text/plain`:
 an app that needs JSON names the file `.json` or answers from a route.
 
 Files that are compressed on the fly (when the client accepts it and the file is over 860 bytes) are the text types:
@@ -232,7 +244,7 @@ the type must be a plain `type/subtype`, and two keys that are the same after th
 Azu::Handler::Static.new("public", mime_types: {".heic" => "image/heic", "avifs" => "image/avif-sequence"})
 ```
 
-Behaviour seen by running it:
+Other behavior:
 
 - A file whose name carries a content hash (`app-3f2a9c1b.css`) is sent with
   `public, max-age=31536000, immutable`; every other file with `cache_control` (`public, no-cache` by default).
@@ -287,7 +299,7 @@ Azu::Handler::CORS.new(
 - `max_age : Int32?` - `Access-Control-Max-Age` of preflights.
 - `expose_headers`, `vary` - extra `Access-Control-Expose-Headers` / `Vary` content.
 
-Observed with an allowed origin `https://app.example.com`:
+With the allowed origin `https://app.example.com`:
 
 | Request | Result |
 |---|---|
@@ -297,8 +309,12 @@ Observed with an allowed origin `https://app.example.com`:
 | `OPTIONS` preflight asking for an allowed method and header | `200` with `Access-Control-Allow-Methods`, `-Headers`, `-Max-Age`; the endpoint does not run |
 | preflight asking for a method not in `methods` | `403` |
 
-With `origins: ["*"]` the request's origin is echoed back, so the response carries `Vary: Origin`. Put `CORS` before authentication
-handlers: a preflight carries no credentials, and an authentication handler in front of `CORS` answered it with `401`.
+With `origins: ["*"]` the request's origin is echoed back, so the response carries `Vary: Origin`.
+
+{% hint style="warning" %}
+Put `CORS` before authentication handlers: a preflight carries no credentials, so an authentication handler in front
+of `CORS` answers it with `401`.
+{% endhint %}
 
 ## Handler::CSRF
 
@@ -348,9 +364,14 @@ csrf = Azu::Handler::CSRF.new(
 )
 ```
 
+{% hint style="danger" %}
 The adapter must return the token of the session of *that request*: a single shared session object would give
-every visitor the same token. Put the session handler before `CSRF` in the chain.
-used by `SynchronizerToken` only; `SignedDoubleSubmit` and `DoubleSubmit` are cookie patterns by definition.
+every visitor the same token.
+{% endhint %}
+
+Put the session handler before `CSRF` in the chain.
+The token store is used by `SynchronizerToken` only; `SignedDoubleSubmit` and `DoubleSubmit` are cookie patterns by
+definition.
 Issuing a token without an adapter raises `Azu::SessionAdapter::NotConfigured`; validating a request when the
 adapter or the session is unavailable answers `403`. An empty stored token counts as none.
 
@@ -397,9 +418,8 @@ with a per-process key are rejected after a restart and by every other server.
 
 `Azu::Handler::CSRF.token(context)` uses `Azu::Handler::CSRF.default`. A second instance validates those tokens
 only if it has the same secret: set `CSRF_SECRET` (or `Azu::Handler::CSRF.secret_key = ...` before building it), or put
-`Azu::Handler::CSRF.default` in the chain. Checked by running
-all four combinations: an instance with a different random key answered `403` to a valid token; the same key,
-`200`. The `Secure` flag of the cookie is only set when `X-Forwarded-Proto` is `https`.
+`Azu::Handler::CSRF.default` in the chain. An instance with a different key answers `403` to a valid token. The
+`Secure` flag of the cookie is only set when `X-Forwarded-Proto` is `https`.
 
 ## Handler::Throttle
 
@@ -421,10 +441,12 @@ All five arguments are required.
 - `blacklist` / `whitelist` - addresses that are always refused / never counted.
 
 Clients are identified by the peer address of the connection (not by headers a client controls). A blocked
-client gets `429` with `Retry-After` (seconds left) and an empty body. With `threshold: 3` the fourth request
-in the interval was refused (`429`, `Retry-After: 2` for `duration: 3`) and `stats` reported
-`{tracked_ips: 1, blocked_ips: 1}`. `reset` clears the counters. Behind a proxy every request comes from the
-proxy's address; the limit then applies to all clients together.
+client gets `429` with `Retry-After` (seconds left) and an empty body: with `threshold: 3` the fourth request in the
+interval answers `429`. `stats` returns `{tracked_ips: Int32, blocked_ips: Int32}`, and `reset` clears the counters.
+
+{% hint style="warning" %}
+Behind a proxy every request comes from the proxy's address; the limit then applies to all clients together.
+{% endhint %}
 
 ## Handler::HealthCheck
 
@@ -466,8 +488,8 @@ returns `"es"`; `"pt"` matches `"pt-BR"`, `"en-GB"` matches `"en"`, `"*"` and un
 environment only: elsewhere it passes every request to the next handler, and building it logs a warning
 ([Environments](../configuration/environments.md#what-depends-on-the-environment)).
 
-## See Also
+## See also
 
-- [Core Reference](../api/core.md)
+- [App](../api/app.md)
 - [Handlers concept](../../explanation/concepts/middleware.md)
 - [How to Create Custom Middleware](../../how-to/middleware/create-custom-middleware.md)

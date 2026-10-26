@@ -1,16 +1,20 @@
-# Deploying to Production
+---
+description: Deploy an Azu application to a production environment.
+---
 
-This tutorial teaches you how to deploy an Azu application to a production environment. It uses the `UserAPI`
+# Deploying to production
+
+This tutorial uses the `UserAPI`
 from [Building a User API](building-a-user-api.md), but nothing here depends on it.
 
-## What You'll Learn
+## What you'll learn
 
 By the end of this tutorial, you'll know how to:
 
 - Configure your app for production with environment variables
 - Build an optimized release binary
 - Build a Docker image
-- Run it under systemd or Docker Compose behind Nginx
+- Run it under a process manager, behind a reverse proxy
 - Shut down without dropping requests
 
 ## Prerequisites
@@ -19,7 +23,7 @@ By the end of this tutorial, you'll know how to:
 - Access to a Linux server or cloud platform
 - Basic knowledge of command line and servers
 
-## Step 1: Production Configuration
+## Step 1: Production configuration
 
 Azu reads its settings from the environment, so the same binary runs in every environment. The one that matters most
 is `CRYSTAL_ENV` (`AZU_ENV` is not read): `production` turns template hot reload off, shows the production error pages
@@ -33,12 +37,6 @@ require "azu"
 
 module UserAPI
   include Azu
-
-  configure do |config|
-    config.port = ENV.fetch("PORT", "4000").to_i
-    config.host = ENV.fetch("HOST", "0.0.0.0")
-    config.shutdown_timeout = ENV.fetch("SHUTDOWN_TIMEOUT", "30").to_i.seconds
-  end
 end
 
 if Azu::CONFIG.env.production?
@@ -53,16 +51,18 @@ UserAPI.start [
   Azu::Handler::Logger.new,
   Azu::Handler::Rescuer.new,
   Azu::Handler::SecurityHeaders.new(hsts: Azu::CONFIG.env.production?),
-  Azu::Handler::Static.new(fallthrough: true),
+  Azu::Handler::Static.new,
 ] of HTTP::Handler
 ```
 
-`Static` is created with `fallthrough: true` so that a request for something that is not a file reaches the router (the default, `false`, answers `404` itself). `HealthCheck` answers `GET /health` with `{"status":"ok"}` before the request reaches the router. `hsts: true` sends
-`Strict-Transport-Security`; enable it once the site is served over HTTPS. Requiring `azu` does not set up `Log`:
+Azu reads `PORT`, `HOST` and `SHUTDOWN_TIMEOUT` from the environment itself (Step 3 sets them), so the app does not
+configure them. `Static` passes a request for something that is not a file on to the router (`fallthrough` is `true`
+by default; `fallthrough: false` answers `404` itself). `HealthCheck` answers `GET /health` with `{"status":"ok"}`
+before the request reaches the router. `hsts: true` sends `Strict-Transport-Security`; enable it once the site is served over HTTPS. Requiring `azu` does not set up `Log`:
 you choose the level and backend, as above. See [Configure Production](../how-to/deployment/configure-production.md)
 for every setting.
 
-## Step 2: Build for Production
+## Step 2: Build for production
 
 Create a release build:
 
@@ -73,7 +73,7 @@ ls -lh bin/user_api
 
 `--release` enables optimizations and `--no-debug` leaves out debug information.
 
-## Step 3: Environment Variables
+## Step 3: Environment variables
 
 Keep the settings in the environment of the process, not in the image or the repository. A file for systemd or
 `docker run --env-file` (do not commit it):
@@ -90,13 +90,15 @@ SHUTDOWN_TIMEOUT=30
 
 Secrets (`SPARK_SECRET`, and with an `azu new` application `SESSION_SECRET` and `CSRF_SECRET`) come from your
 platform's secret store. Generate one with `openssl rand -base64 48`. A generated application refuses to start in
-production without them.
+production without `SESSION_SECRET` and `CSRF_SECRET`; without `SPARK_SECRET`, Spark raises the first time it signs
+or verifies a token.
 
-## Step 4: Docker Deployment
+## Step 4: Docker deployment
 
 An application created with `azu new my_app --docker` already has a `Dockerfile` and a `.dockerignore`. Its shape
 (your Crystal version and packages differ) is a build stage and a small runtime stage:
 
+{% code title="Dockerfile" %}
 ```dockerfile
 FROM crystallang/crystal:1.22.1 AS build
 RUN apt-get update \
@@ -124,6 +126,7 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -fsS "http://127.0.0.1:${PORT}/health" || exit 1
 CMD ["./user_api"]
 ```
+{% endcode %}
 
 The secrets are deliberately not part of the image: pass them with `docker run -e` or your orchestrator. The
 packages in the runtime stage depend on the libraries your binary links (`ldd bin/user_api` lists them); let `azu new
@@ -169,150 +172,32 @@ volumes:
   postgres_data:
 ```
 
+{% hint style="warning" %}
 `stop_grace_period` is longer than `SHUTDOWN_TIMEOUT` so that Docker does not kill the process while it drains.
+{% endhint %}
 
-## Step 5: Systemd Service
+## Step 5: Run and stop the process
 
-For a traditional server, create `/etc/systemd/system/user-api.service`:
+Any process manager works (systemd, Docker, your platform's runtime). What Azu needs from it:
 
-```ini
-[Unit]
-Description=User API Application
-After=network.target
+- **The environment from Step 3.** Azu listens on `HOST:PORT`; `HOST` is `0.0.0.0` outside development.
+- **The working directory.** The default `Static` handler serves `./public`, and the template path is relative to
+  the working directory.
+- **`SIGTERM` (or `SIGINT`) to stop.** Azu stops accepting connections, sends every open WebSocket a close frame with
+  code 1001, waits up to `SHUTDOWN_TIMEOUT` seconds (30 by default) for the requests in flight, and exits. Set the
+  process manager's stop timeout (`TimeoutStopSec` in systemd, `stop_grace_period` in Compose) longer than that, so it
+  does not kill the process while it drains. See [Shut down gracefully](../how-to/deployment/graceful-shutdown.md).
+- **A health check on `GET /health`**, answered by `HealthCheck` before the request reaches the router.
+- **Migrations before the new binary starts.** Run them with the Azu CLI (`azu db:migrate`); the application binary
+  does not run them.
 
-[Service]
-Type=simple
-User=appuser
-Group=appuser
-WorkingDirectory=/opt/user-api
-ExecStart=/opt/user-api/bin/user_api
-EnvironmentFile=/opt/user-api/.env
-Restart=always
-RestartSec=5
-TimeoutStopSec=40
+{% hint style="warning" %}
+Behind a reverse proxy that terminates TLS and forwards WebSocket upgrades, Azu sees the proxy's address as the
+client address, which `Throttle` uses to count requests: run `Throttle` only where the peer address is the real
+client.
+{% endhint %}
 
-[Install]
-WantedBy=multi-user.target
-```
-
-`WorkingDirectory` matters: the default `Static` handler serves `./public` and the template path is relative to the
-working directory. Enable and start the service:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now user-api
-sudo systemctl status user-api
-```
-
-systemd stops the service with `SIGTERM`. Azu stops accepting connections, waits for the requests in flight (up to
-`SHUTDOWN_TIMEOUT` seconds) and exits; `TimeoutStopSec` is longer so systemd does not kill it first.
-
-## Step 6: Nginx Reverse Proxy
-
-Terminate TLS in Nginx and forward to the app:
-
-```nginx
-# /etc/nginx/sites-available/user-api
-server {
-    listen 80;
-    server_name api.example.com;
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name api.example.com;
-
-    ssl_certificate /etc/letsencrypt/live/api.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/api.example.com/privkey.pem;
-    ssl_protocols TLSv1.2 TLSv1.3;
-
-    location / {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # WebSocket support
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}
-```
-
-Enable the site and get a certificate:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/user-api /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d api.example.com
-sudo systemctl reload nginx
-```
-
-Azu sees the proxy's address as the client address, which `Throttle` uses to count requests. Run `Throttle` only
-where the peer address is the real client.
-
-## Step 7: Deploy Script
-
-Create `scripts/deploy.sh` on the server. Migrations are run with the Azu CLI (`azu db:migrate`), not by the
-application binary:
-
-```bash
-#!/bin/bash
-set -e
-
-git pull origin main
-shards install --production
-crystal build --release --no-debug src/user_api.cr -o bin/user_api
-
-azu db:migrate
-
-sudo systemctl restart user-api
-
-sleep 5
-curl -fsS http://localhost:4000/health
-```
-
-## Step 8: CI
-
-A pipeline that builds and tests every change, as `azu new` generates it in `.github/workflows/ci.yml`:
-
-```yaml
-name: CI
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    container:
-      image: crystallang/crystal:1.22.1
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install system dependencies
-        run: |
-          apt-get update
-          apt-get install -y libsqlite3-dev libssl-dev
-      - name: Install shards
-        run: shards install --ignore-crystal-version
-      - name: Check formatting
-        run: crystal tool format --check src spec
-      - name: Run specs
-        run: crystal spec
-      - name: Build
-        run: crystal build --release src/user_api.cr -o bin/user_api
-```
-
-Deploying from the pipeline (SSH to the server, push an image to a registry) depends on your platform; keep its
-credentials in the CI secret store.
-
-## Production Checklist
+## Production checklist
 
 Before going live:
 
@@ -324,21 +209,17 @@ Before going live:
 - [ ] Logging configured (`Log.setup`)
 - [ ] Rate limiting where the API is public
 - [ ] The stop timeout of the process manager is longer than `SHUTDOWN_TIMEOUT`
-- [ ] Backups configured
 
-## Key Takeaways
+## Next steps
 
-1. **Build optimized binaries** with `--release`
-2. **Configure through the environment**, with `CRYSTAL_ENV=production`
-3. **Run behind a reverse proxy** (Nginx) that terminates TLS
-4. **Expose `/health`** for the load balancer
-5. **Give the process time to drain**: `SIGTERM` waits for requests in flight
-6. **Keep secrets out of the image**
+{% content-ref url="../how-to/deployment/configure-production.md" %}
+[configure-production.md](../how-to/deployment/configure-production.md)
+{% endcontent-ref %}
 
-## Next Steps
+{% content-ref url="../reference/api/app.md" %}
+[app.md](../reference/api/app.md)
+{% endcontent-ref %}
 
-Congratulations! You've completed the Azu tutorial series. Explore further:
-
-- [How-to Guides](../how-to/deployment/configure-production.md) - Task-specific solutions
-- [API Reference](../reference/api/core.md) - Complete API documentation
-- [Architecture](../explanation/architecture/overview.md) - Deep dive into Azu internals
+{% content-ref url="../explanation/architecture/overview.md" %}
+[overview.md](../explanation/architecture/overview.md)
+{% endcontent-ref %}

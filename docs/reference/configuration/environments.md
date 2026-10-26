@@ -1,10 +1,13 @@
-# Environments Reference
+---
+description: Exactly which Azu behaviours depend on the environment, and how to set and check it.
+---
+
+# Environments
 
 `Azu::Configuration#env` names the environment the application runs in. Azu changes a small, specific set of
-behaviours with it; everything else is configured explicitly. This page lists exactly what depends on the
-environment, as read from the source and checked by running each case.
+behaviours with it; everything else is configured explicitly.
 
-## Environment Enum
+## Environment enum
 
 ```crystal
 require "azu"
@@ -15,9 +18,9 @@ Azu::Environment.values.each { |environment| puts environment }
 `Azu::Environment` has eight members, in this order: `Build`, `Development`, `Test`, `Integration`, `Acceptance`,
 `Pipeline`, `Staging`, `Production`.
 
-## Setting the Environment
+## Setting the environment
 
-### Via Environment Variable
+### Via environment variable
 
 ```bash
 export CRYSTAL_ENV=production
@@ -49,7 +52,7 @@ development is `127.0.0.1`, not `0.0.0.0`: a process that forgot its `CRYSTAL_EN
 - A container that must be reached from outside sets `CRYSTAL_ENV` and `HOST` itself, as the Dockerfile in
   [Deploying to production](../../tutorials/deploying-to-production.md) does.
 
-### Via Configuration
+### Via configuration
 
 ```crystal
 require "azu"
@@ -63,10 +66,12 @@ module MyApp
 end
 ```
 
+{% hint style="info" %}
 Azu does not load `.env` files on its own. Call `Azu::Env.load_all` before `require "azu"` to load them (see [Azu::Env](env.md));
 a variable already in the process environment always wins over a file.
+{% endhint %}
 
-## Checking the Environment
+## Checking the environment
 
 Every member has a predicate, and `in?` takes several:
 
@@ -83,7 +88,7 @@ env.in?(Azu::Environment::Staging, Azu::Environment::Production)
 
 Inside a request, `Azu.current_config.env` is the environment of the app serving it.
 
-## What Depends on the Environment
+## What depends on the environment
 
 | Behaviour | Development | Test | Pipeline | Staging, Production | Others |
 |---|---|---|---|---|---|
@@ -102,8 +107,7 @@ Notes on the rows:
 - `TEMPLATE_HOT_RELOAD=true|false` overrides the default in every environment.
 - In development, `Rescuer` includes the request context (headers, params, process environment) in the error and
   HTML clients get an exception page. Elsewhere the context is `null` and HTML clients get the `error.html`
-  template (seen for a 404). An HTML client whose request raised an unexpected exception currently gets the bare
-  text `500 Internal Server Error` instead, because that template fails to render with the request context.
+  template, for an unexpected exception too: a `500` page that does not show the exception's message.
 - Spark signs its page tokens with `SPARK_SECRET` (or `Azu::Spark.configure { |c| c.secret = ... }`). Without one,
   development and the other environments generate a random secret per process; in `Staging` and `Production`
   the first use raises `Azu::Spark::ConfigurationError`.
@@ -167,7 +171,7 @@ end
 To serve requests against an app of your own, build it with `Azu::App.new(config)` and
 `app.server(handlers)`; see [How to Test Endpoints](../../how-to/testing/test-endpoints.md).
 
-## Staging and Production
+## Staging and production
 
 ```crystal
 require "azu"
@@ -186,28 +190,38 @@ end
 
 Set `CRYSTAL_ENV=production` in the process environment, `SPARK_SECRET` if you use Spark, and `SSL_CERT` / `SSL_KEY`
 if Azu terminates TLS itself (a TLS-terminating proxy instead needs `SecurityHeaders.new(hsts: true)` in your own
-handler array). Behind a proxy, `Throttle` sees the proxy's address for every request.
+handler array).
 
-## Environment Files
+{% hint style="warning" %}
+Behind a proxy, `Throttle` sees the proxy's address for every request.
+{% endhint %}
+
+## Environment files
 
 Keep one set of variables per environment and load it with your process manager. For example with Docker:
 
+{% code title="production.env" %}
 ```bash
 # production.env (never commit)
 CRYSTAL_ENV=production
 PORT=8080
 HOST=0.0.0.0
-SPARK_SECRET=change-me
+# paste a generated value after the = (left empty, Spark refuses to sign tokens in production)
+SPARK_SECRET=
 CACHE_STORE=redis
 CACHE_REDIS_URL=redis://redis:6379/0
 DATABASE_URL=postgres://user:pass@host/db
 ```
+{% endcode %}
 
 ```bash
 docker run --env-file production.env myapp
 ```
 
-## Per-App Environments
+Generate the secret once per deployment, with `openssl rand -hex 32` or
+`crystal eval 'require "random/secure"; puts Random::Secure.hex(32)'`, and never reuse a value from an example.
+
+## Per-app environments
 
 Two apps in one process can run in different environments, because each has its own configuration:
 
@@ -225,7 +239,7 @@ public_site.routes do
 end
 ```
 
-## See Also
+## See also
 
 - [Configuration Options](options.md)
-- [Core Reference](../api/core.md)
+- [The Azu module](../api/app.md#the-azu-module)

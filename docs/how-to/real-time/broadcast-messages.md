@@ -1,7 +1,8 @@
-# How to Broadcast Messages
+---
+description: Channels and Spark components exchange messages through topics of `Azu::PubSub`.
+---
 
-Channels and Spark components exchange messages through topics of `Azu::PubSub`. This guide shows the
-common broadcasting patterns.
+# Broadcast messages
 
 ## Basic broadcasting
 
@@ -233,8 +234,10 @@ spawn(name: "clock") do
 end
 ```
 
+{% hint style="warning" %}
 Handlers run on the broadcaster's fiber, so a slow subscriber slows the broadcaster down. Keep
-`on_broadcast` quick.
+`on_broadcast` quick. Azu does not throttle or batch broadcasts: guard a noisy producer yourself.
+{% endhint %}
 
 ## Several servers
 
@@ -247,67 +250,6 @@ Azu::PubSub.backend = Azu::PubSub::Redis.new(ENV.fetch("REDIS_URL", "redis://loc
 
 Nothing connects until the first subscribe or broadcast, and the listener reconnects with backoff when
 Redis goes away.
-
-## Rate limiting
-
-Azu does not throttle broadcasts for you. A small guard in front of the broadcast is enough to protect
-subscribers from a noisy producer:
-
-```crystal
-class Throttled
-  def initialize(@topic : String, @interval : Time::Span)
-    @last = Time.instant - @interval
-    @lock = Mutex.new
-  end
-
-  # Broadcasts unless the previous broadcast was less than the interval ago.
-  def broadcast(payload : String) : Bool
-    allowed = @lock.synchronize do
-      now = Time.instant
-      next false if now - @last < @interval
-      @last = now
-      true
-    end
-    Azu::PubSub.broadcast(@topic, payload) if allowed
-    allowed
-  end
-end
-
-prices = Throttled.new("prices", 250.milliseconds)
-prices.broadcast({symbol: "CR", price: 41.5}.to_json)
-```
-
-## Batching
-
-To send many small updates as one message, collect them and flush on an interval:
-
-```crystal
-class Batcher
-  def initialize(@topic : String, @interval : Time::Span = 100.milliseconds)
-    @pending = [] of String
-    @lock = Mutex.new
-    spawn(name: "batcher") do
-      loop do
-        sleep @interval
-        flush
-      end
-    end
-  end
-
-  def push(item : String) : Nil
-    @lock.synchronize { @pending << item }
-  end
-
-  private def flush : Nil
-    items = @lock.synchronize { @pending.dup.tap { @pending.clear } }
-    Azu::PubSub.broadcast(@topic, items) unless items.empty?
-  end
-end
-
-batcher = Batcher.new("ticks")
-batcher.push("a")
-batcher.push("b")
-```
 
 ## See also
 

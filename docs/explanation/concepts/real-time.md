@@ -1,7 +1,8 @@
-# Understanding Real-Time Features
+---
+description: "How Azu does real-time communication: WebSocket channels for your own message protocol, the PubSub bus that connects them, and Spark live components for server-rendered UI."
+---
 
-This page explains how Azu does real-time communication: WebSocket channels for your own message
-protocol, the PubSub bus that connects them, and Spark live components for server-rendered UI.
+# Real-time
 
 ## Why real-time?
 
@@ -55,13 +56,13 @@ end
 
 ### Channel lifecycle
 
-```text
-HTTP upgrade request
-   -> Origin check (403 for a foreign origin)
-   -> 101 Switching Protocols
-   -> on_connect
-   -> on_message / on_binary / on_ping / on_pong ...   (per frame)
-   -> on_close                                         (also when the peer vanishes)
+```mermaid
+flowchart TD
+    upgrade["HTTP upgrade request"] --> origin["Origin check<br/>(403 for a foreign origin)"]
+    origin --> switching["101 Switching Protocols"]
+    switching --> connect["on_connect"]
+    connect --> frames["on_message / on_binary / on_ping / on_pong ...<br/>(per frame)"]
+    frames --> closed["on_close<br/>(also when the peer vanishes)"]
 ```
 
 The server pings every `websocket.ping_interval` (30 seconds by default) so dead peers are noticed,
@@ -85,7 +86,9 @@ end
 subscription.cancel
 ```
 
+{% hint style="warning" %}
 Handlers run on the broadcaster's fiber, so they must be quick: enqueue and return.
+{% endhint %}
 
 ### Rooms
 
@@ -149,28 +152,27 @@ def notify(user_id : Int64, text : String) : Nil
 end
 ```
 
+{% hint style="danger" %}
 In a real application, take the user id from a verified session or token, never from a parameter the
 client controls (see Authentication below).
+{% endhint %}
 
 ### Presence
 
-Azu has no presence feature. If you need "who is online", keep a registry yourself and guard it with a
-mutex, because channels run on many fibers:
+`Azu::Presence` answers "who is in this topic right now?", across processes. Include
+`Azu::Presence::Tracked` in a channel and what it tracks is untracked when the socket ends, however it ends
+(close frame, dropped peer, a handler that raised). Joins and leaves are published as diffs through PubSub,
+and `presence_updates` forwards them to the socket:
 
 ```crystal
-class PresenceChannel < Azu::Channel
-  ONLINE = Hash(String, Int32).new(0)
-  LOCK   = Mutex.new
-
-  def self.online : Array(String)
-    LOCK.synchronize { ONLINE.keys }
-  end
+class RoomChannel < Azu::Channel
+  include Azu::Presence::Tracked
 
   def on_connect
-    name = params["name"]? || "anonymous"
-    LOCK.synchronize { ONLINE[name] += 1 }
-    subscribe "presence"
-    broadcast "presence", {type: "online", users: self.class.online}.to_json
+    user = params["user"]? || "anonymous"
+    presence_updates("room:1") # joins and leaves reach this socket as JSON, its own join included
+    track_presence("room:1", user, {device: params["device"]?})
+    send({type: "online", users: Azu::Presence.list("room:1").keys}.to_json)
   end
 
   def on_message(message : String)
@@ -186,18 +188,16 @@ class PresenceChannel < Azu::Channel
   end
 
   def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
-    name = params["name"]? || "anonymous"
-    LOCK.synchronize do
-      ONLINE[name] -= 1
-      ONLINE.delete(name) if ONLINE[name] <= 0
-    end
-    broadcast "presence", {type: "online", users: self.class.online}.to_json
   end
 end
 ```
 
-This registry lives in one process. With several servers each would know only its own users; keep the
-registry in a shared store such as Redis in that case.
+As with the user id above, take `user` from a verified session or token in a real application (see
+Authentication below). A user with several sockets is one key with several entries, and counts as
+departed only when the last one closes. The default store keeps presence in one process; with several
+servers, give every node `Azu::Presence::Store::Redis` and the Redis PubSub backend (see
+[Real-time across processes](../../how-to/deployment/scale-horizontally.md#real-time-across-processes)). Every option is in the
+[Presence reference](../../reference/api/presence.md).
 
 ## Message protocol
 
@@ -244,14 +244,16 @@ end
 The browser side:
 
 ```javascript
-const ws = new WebSocket("ws://localhost:3000/chat");
+const ws = new WebSocket("ws://localhost:4000/chat");
 
 ws.onopen = () => ws.send(JSON.stringify({ type: "say", body: "hello" }));
 ws.onmessage = (event) => handle(JSON.parse(event.data));
 ```
 
+{% hint style="warning" %}
 An exception that escapes a callback ends that connection, so rescue what you can recover from and
 answer with an error message as above.
+{% endhint %}
 
 ## Authentication
 
@@ -286,7 +288,9 @@ class AccountChannel < Azu::Channel
 
   # Replace with your own verification (a signed token, a session lookup, ...).
   private def authenticate(token : String?) : String?
-    "alice" if token == ENV.fetch("CHANNEL_TOKEN", "change-me")
+    expected = ENV["CHANNEL_TOKEN"]?.presence
+    return unless expected && token # refuse every connection while CHANNEL_TOKEN is unset
+    "alice" if Crypto::Subtle.constant_time_compare(token, expected)
   end
 end
 ```
@@ -305,10 +309,10 @@ Azu::PubSub.backend = Azu::PubSub::Redis.new(ENV.fetch("REDIS_URL", "redis://loc
 ```
 
 Channels and Spark components need no change. What stays per process is whatever you keep in your own
-variables (the presence registry above, for example). WebSockets are sticky to the server that accepted
-them. On shutdown every open channel socket is sent a close frame with code 1001 (going away) and waited for
-within `shutdown_timeout`, and Spark connections are closed with a "service restart" code, so the browser
-reconnects to another process (see [Shut Down Gracefully](../../how-to/deployment/graceful-shutdown.md)).
+variables, and presence until it uses `Azu::Presence::Store::Redis`. WebSockets are sticky to the server
+that accepted them. On shutdown every open channel socket is sent a close frame with code 1001 (going
+away) and waited for within `shutdown_timeout`, and Spark connections are closed with a "service restart"
+code, so the browser reconnects to another process (see [Shut Down Gracefully](../../how-to/deployment/graceful-shutdown.md)).
 
 ## See also
 

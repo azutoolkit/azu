@@ -1,8 +1,10 @@
-# How to Enable Hot Reload
+---
+description: See template changes without restarting the server during development.
+---
 
-This guide shows you how to see template changes without restarting the server during development.
+# Enable hot reload
 
-## Enable Hot Reload
+## Enable hot reload
 
 Hot reload is on by default when `CRYSTAL_ENV` is `development`, `test` or `pipeline` and off otherwise
 (`TEMPLATE_HOT_RELOAD=true` or `false` overrides it). To set it in code:
@@ -18,10 +20,12 @@ module MyApp
 end
 ```
 
+{% hint style="warning" %}
 `config.templates` is built on first use from `template_hot_reload` and the template path, so set both before the
 first render, at boot.
+{% endhint %}
 
-## How It Works
+## How it works
 
 With hot reload on, at most once per second a template render checks the modification times of the `*.html`,
 `*.jinja` and `*.j2` files below the template directories (and Azu's own error pages). When one is new or changed,
@@ -36,7 +40,7 @@ passes to a template, need a restart in both modes. A file below the template di
 (a vendored `index.html`) stops the boot as well; list it in `template_compile_ignore` (see
 [Configuration](../../reference/configuration/options.md#templates)).
 
-## Development vs Production
+## Development vs production
 
 ```crystal
 module MyApp
@@ -53,43 +57,18 @@ module MyApp
 end
 ```
 
-## File Watching
+## Rebuild on code changes
 
-To restart the server when Crystal code changes, use a file watcher.
+Crystal code changes need a rebuild: `azu dev` from the [azu CLI](https://github.com/azutoolkit/azu_cli) rebuilds and
+restarts the app when the code changes.
 
-### Using Watchexec
-
-```bash
-# Install watchexec
-brew install watchexec  # macOS
-# or
-cargo install watchexec-cli
-
-# Restart when Crystal code changes; template edits need no restart
-watchexec -r -e cr crystal run src/app.cr
-```
-
-### Using entr
-
-```bash
-# Install entr
-brew install entr  # macOS
-
-# Watch and restart
-find src -name "*.cr" | entr -r crystal run src/app.cr
-```
-
-Azu CLI applications have `azu serve` for the same purpose.
-
-## Browser Auto-Refresh
+## Browser auto-refresh
 
 Reload the page when a template changes with a small development-only channel. A background fiber polls the
 template files and broadcasts to every connected browser through `Azu::PubSub`:
 
 ```crystal
 class LiveReloadChannel < Azu::Channel
-  ws "/livereload"
-
   def on_connect
     subscribe "livereload"
   end
@@ -128,7 +107,10 @@ class LiveReloadChannel < Azu::Channel
   end
 end
 
-LiveReloadChannel.watch("./public/templates") if Azu::CONFIG.env.development?
+if Azu::CONFIG.env.development?
+  LiveReloadChannel.ws "/livereload"
+  LiveReloadChannel.watch("./public/templates")
+end
 ```
 
 Client-side script, included in your layout in development only:
@@ -144,43 +126,21 @@ Client-side script, included in your layout in development only:
 </script>
 ```
 
-The channel writes every broadcast to the socket as it is, so the browser receives the string `reload`. Register the
-channel only in development: a channel exposes a route in every environment.
+The channel writes every broadcast to the socket as it is, so the browser receives the string `reload`.
 
-## Sentry for Crystal
-
-Sentry rebuilds and restarts the app when files change:
-
-```yaml
-# .sentry.yml
-info: true
-src: src
-output_name: app
-watch:
-  - ./src/**/*.cr
-run: ./app
-build: crystal build src/app.cr -o app
-```
-
-```bash
-sentry
-```
+{% hint style="warning" %}
+Register the channel only in development: a channel exposes a route in every environment.
+{% endhint %}
 
 ## Troubleshooting
 
-### Changes Not Reflecting
+### Changes not reflecting
 
 1. Check that the template path is the directory you are editing. The default path is relative to the working
    directory the server was started in (see [Render HTML Templates](render-html-templates.md#template-location)).
 2. Check that the file name matches what `view` asks for, including the extension.
 3. A change to Crystal code, including the hash passed to `view`, needs a rebuild.
 
-### Slow Performance
-
-1. Reduce the number of watched files.
-2. Use a more specific watch pattern.
-3. Use browser caching for assets.
-
-## See Also
+## See also
 
 - [Render HTML Templates](render-html-templates.md)
