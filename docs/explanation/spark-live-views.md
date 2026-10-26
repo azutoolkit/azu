@@ -104,10 +104,9 @@ connection state, round trips, patch timings and delivery counters, redacted whe
 A big patch is mostly repeated markup. A browser that can inflate gzip (`DecompressionStream`) says so
 when it joins, and from then on the server sends diffs of 1 KB and more as a single gzipped binary
 frame, when that is smaller: about a quarter of the bytes for a typical table or list. Everything is
-decided per connection, so older clients and browsers without the API keep getting plain text frames,
-byte for byte as before. The client applies frames strictly in the order they arrived, caps what a
-frame may inflate to (1 MiB) while it streams, and falls back to plain frames if one ever fails to
-decode. The threshold is `Azu::Spark.config.compress_threshold` (`0` turns it off). Why this is done in
+decided per connection, so older clients and browsers without the API keep getting plain text frames.
+The client applies frames strictly in the order they arrived, caps what a frame may inflate to (1 MiB)
+while it streams, and falls back to plain frames if one ever fails to decode. The threshold is `Azu::Spark.config.compress_threshold` (`0` turns it off). Why this is done in
 Spark and not with the WebSocket `permessage-deflate` extension (Crystal's standard library does not
 implement it), and how to see it in DevTools, is in
 [the client reference](../reference/spark-client.md#compressed-frames).
@@ -137,7 +136,8 @@ field are in [the client reference](../reference/spark-client.md#events-and-deli
 ## Security model
 
 - **Origin check.** Browser upgrades from a foreign origin are refused with 403. Extra origins go
-  in `Azu::Spark.config.allowed_origins` (`SPARK_ALLOWED_ORIGINS`).
+  in `Azu::Spark.config.allowed_origins` (`SPARK_ALLOWED_ORIGINS`), on top of the channels'
+  `WEBSOCKET_ALLOWED_ORIGINS`. Behind a proxy that rewrites `Host`, list the public origin there.
 - **Signed join token.** `Spark.render` signs the component id, type, props and session claims
   with `config.secret`. A component can only be joined with a valid, unexpired token
   (`token_ttl`). Spark reads the secret from `SPARK_SECRET`. Without it, production and staging raise
@@ -162,25 +162,3 @@ field are in [the client reference](../reference/spark-client.md#events-and-deli
   `require-trusted-types-for 'script'; trusted-types azu-spark` (see
   [the client reference](../reference/spark-client.md#content-security-policy-and-trusted-types)). Serve the
   socket over `wss` in production: an unencrypted connection could be rewritten in transit.
-
-## Breaking changes
-
-This release replaces the previous Preact/jQuery based Spark.
-
-- `Azu::Spark` is now a module. `ComponentRegistry`, `Spark.javascript_tag`, the `live-*`
-  attribute protocol and the `spark_tag()` / `live_click` / `live_change` / `live_input` /
-  `live_value` template helpers are removed. Use `Azu::Spark.script_tag` and the binding macros.
-- `Azu::Component` is reduced to a static `Markup` component: `mount`, `every`, `on_event` and
-  `refresh` are removed. Stateful, interactive components now inherit from
-  `Azu::Spark::Component`.
-- Channels reject cross-origin browser upgrades by default (403). Behind a proxy that rewrites
-  `Host`, set `WEBSOCKET_ALLOWED_ORIGINS` to the public origin(s).
-- Messages over 1 MB close the connection (`CloseCode::MessageTooBig`), and the server pings every
-  30 seconds (`websocket.ping_interval`).
-- `Channel#initialize` now sets up mutexes: subclasses that override it must call `super`.
-- New `Channel` methods (`context`, `params`, `headers`, `send`, `close`, `subscribe`,
-  `broadcast`) may clash with methods of the same name in subclasses.
-- `Router#ws` registers `Channel::Upgrader`, so `Route#endpoint` and `route_info["handler"]`
-  change.
-- `Azu.start` traps `TERM` as well as `INT` and calls `Azu.shutdown`.
-- `Markup`: `disabled: false` is omitted and `disabled: true` renders as a bare attribute.

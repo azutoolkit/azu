@@ -1,6 +1,6 @@
 # Getting started
 
-In about 15 minutes you will build a small Azu app from an empty directory: one endpoint whose contract is validated before your code runs, an HTML page that links to it, a test, and the development dashboard. You type every file, and every step has been run.
+In about 15 minutes you will build a small Azu app from an empty directory: one endpoint whose contract is validated before your code runs, an HTML page that links to it, a test, and the development dashboard. You type every file.
 
 You need [Crystal](https://crystal-lang.org/install/) 1.19.1 or newer and a terminal.
 
@@ -251,7 +251,7 @@ Restart and open <http://127.0.0.1:4000/dev-dashboard>.
 
 `default_handlers` is the stack `Hello.start` uses on its own: request id, request logging, error pages, security headers and static files from `public/`. Passing your own array replaces it, which is why this step starts from the default list.
 
-## Where next
+## Next steps
 
 - Add a database: [Working with databases](working-with-databases.md).
 - Build a full JSON API: [Building a user API](building-a-user-api.md).

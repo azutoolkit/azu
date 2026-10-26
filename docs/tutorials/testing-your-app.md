@@ -282,36 +282,7 @@ describe CreateUserRequest do
 end
 ```
 
-## Step 4: Testing Business Logic
-
-Code that is not tied to HTTP, such as the services you extract from endpoints, is tested like any
-Crystal code, without a server. Keeping logic out of endpoints is what makes this possible.
-
-```crystal
-require "spec"
-
-class Discount
-  def self.apply(price : Float64, percent : Int32) : Float64
-    raise ArgumentError.new("percent must be between 0 and 100") unless 0 <= percent <= 100
-    (price * (100 - percent) / 100).round(2)
-  end
-end
-
-describe Discount do
-  it "applies a percentage" do
-    Discount.apply(80.0, 25).should eq 60.0
-  end
-
-  it "rejects an impossible percentage" do
-    expect_raises(ArgumentError, /between 0 and 100/) { Discount.apply(10.0, 150) }
-  end
-end
-```
-
-Specs for the database layer are ordinary specs too: point CQL at an in-memory SQLite database and reset
-the tables in `before_each`. [Working with Databases](working-with-databases.md) shows the setup.
-
-## Step 5: Testing WebSocket Channels
+## Step 4: Testing WebSocket Channels
 
 A channel is tested over a real socket, which exercises the handshake and your callbacks together. Register
 the channel on a fresh `Azu::App` so the spec is isolated:
@@ -421,7 +392,7 @@ Wait for messages with `receive` (which times out) rather than sleeping, and ass
 a short timeout. [How to test WebSockets](../how-to/testing/test-websockets.md) covers authentication,
 origin checks and the Spark wire protocol.
 
-## Step 6: Testing Live Components
+## Step 5: Testing Live Components
 
 `Azu::Spark::Testing` mounts a component with a real session and no socket, so you test state, events and
 rendering directly:
@@ -469,7 +440,7 @@ describe Counter do
 end
 ```
 
-## Step 7: Integration Tests
+## Step 6: Integration Tests
 
 An integration spec drives several requests through the same stack `Azu.start` builds. Use
 `app.default_handlers` for the full default chain (request id, logging, error pages, security headers,
@@ -526,7 +497,7 @@ end
 up to the timeout, for the requests in flight and for those sockets to close, as a graceful shutdown does (see
 [Shut down gracefully](../how-to/deployment/graceful-shutdown.md)).
 
-## Step 8: Running Tests
+## Step 7: Running Tests
 
 ```bash
 crystal spec                              # everything
@@ -552,54 +523,12 @@ spec/
 
 ## Best Practices
 
-1. **Test one thing per example** and name it after the behaviour.
-2. **Start servers on a free port** (`bind_unused_port`) so specs can run side by side, and close them in `ensure`.
-3. **Never sleep to wait for something**; wait on a `Channel` with a timeout.
-4. **Reset shared state** (module variables, the database, PubSub subscriptions) in `before_each`.
-5. **Keep logic out of endpoints** so most specs need no server.
-6. **Don't call real external services**; put them behind a class you can replace in the spec.
-
-## Key Concepts Learned
-
-### Test structure
-
-```crystal
-require "spec"
-
-describe String do
-  describe "#upcase" do
-    it "uppercases every letter" do
-      # arrange
-      name = "ada"
-      # act
-      result = name.upcase
-      # assert
-      result.should eq "ADA"
-    end
-  end
-end
-```
-
-### Common assertions
-
-```crystal
-require "spec"
-
-describe "assertions" do
-  it "covers the usual cases" do
-    (1 + 1).should eq 2
-    true.should be_true
-    nil.should be_nil
-    "x".should_not be_nil
-    [1, 2, 3].should contain 2
-    expect_raises(ArgumentError) { raise ArgumentError.new("boom") }
-  end
-end
-```
+1. **Start servers on a free port** (`bind_unused_port`) so specs can run side by side, and close them in `ensure`.
+2. **Never sleep to wait for something**; wait on a `Channel` with a timeout.
+3. **Reset shared state** (module variables, the database, PubSub subscriptions) in `before_each`.
+4. **Keep logic out of endpoints** so most specs need no server.
 
 ## Next Steps
-
-You've learned to test your Azu application. Continue with:
 
 - [How to test endpoints](../how-to/testing/test-endpoints.md) - more endpoint scenarios
 - [How to test WebSockets](../how-to/testing/test-websockets.md) - authentication, origin checks, wire protocol

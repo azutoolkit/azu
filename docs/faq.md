@@ -131,7 +131,6 @@ A: Compile your application and deploy the binary, or a Docker image built from 
 
 ```bash
 crystal build --release --no-debug src/my_app.cr
-scp my_app user@server:/opt/myapp/
 ```
 
 See [Deploy to Production](tutorials/deploying-to-production.md) and
@@ -354,23 +353,6 @@ See [Handle File Uploads](how-to/file-handling/handle-file-uploads.md).
    do not run in parallel on one thread, so a long CPU-bound loop in an endpoint delays every other request on
    that thread.
 
-3. Time a section of code:
-
-```crystal
-struct SlowEndpoint
-  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
-
-  get "/slow"
-
-  def call : Azu::Response::Empty
-    started = Time.instant
-    sleep 10.milliseconds
-    Log.for("slow").info { "took #{(Time.instant - started).total_milliseconds.round(1)}ms" }
-    Azu::Response::Empty.new
-  end
-end
-```
-
 See [Optimize Endpoints](how-to/performance/optimize-endpoints.md) and
 [Optimize Database Queries](how-to/performance/optimize-database-queries.md).
 
@@ -473,23 +455,6 @@ struct InspectEndpoint
 end
 ```
 
-### Use Crystal's Built-in Debugging
-
-`pp` and `p` are in the prelude:
-
-```crystal
-struct DebugEndpoint
-  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
-
-  get "/debug"
-
-  def call : Azu::Response::Empty
-    pp params.to_h
-    Azu::Response::Empty.new
-  end
-end
-```
-
 ### Test Individual Components
 
 A request contract can be built from a parameter string, the same way the router builds it:
@@ -517,36 +482,8 @@ puts request.name
 
 ### Profile Your Application
 
-```crystal
-require "benchmark"
-
-time = Benchmark.realtime do
-  # Your code here
-  1000.times { "x" * 100 }
-end
-
-puts "took #{time.total_milliseconds}ms"
-```
-
 For a running development server, `require "azu/dev"` adds the profiler and dashboard (see
 [Monitor performance](how-to/performance/monitor-performance.md)).
-
-### Monitor Memory Usage
-
-```bash
-# Resident memory of the running process (the RSS column)
-ps aux | grep my_app
-```
-
-Inside the process, `GC.stats` reports the heap the garbage collector manages:
-
-```crystal
-stats = GC.stats
-puts "heap: #{stats.heap_size} bytes, free: #{stats.free_bytes} bytes"
-```
-
-`crystal run --stats` and `crystal build --stats` report statistics of the compiler (time and memory per
-compile stage), not the memory your application uses.
 
 ## Getting Help
 
@@ -565,7 +502,3 @@ When reporting issues, include:
 3. **Minimal reproduction case**
 4. **Error messages and stack traces**
 5. **Environment details** (OS, deployment method)
-
----
-
-**Still need help?** Open an issue at [github.com/azutoolkit/azu/issues](https://github.com/azutoolkit/azu/issues).

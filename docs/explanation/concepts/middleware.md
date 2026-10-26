@@ -58,9 +58,10 @@ With `TraceHandler.new("A", steps)` followed by `TraceHandler.new("B", steps)`, 
 ### Headers after `call_next`
 
 A response head is sent the moment the body starts to leave the server: when a response is large, flushed or
-streamed. `TimingHandler` above sets its header after `call_next`, which works for a small response and was seen
-to silently lose the header for a 100 000 byte body. Set headers you can compute up front (a request id, a
-security header) before `call_next`, and treat headers computed afterwards, like a timing, as best effort.
+streamed. `TimingHandler` above sets its header after `call_next`, which works for a small response and silently
+loses the header once the body reaches 32 KiB (the size of the standard library's output buffer). Set headers you can
+compute up front (a request id, a security header) before `call_next`, and treat headers computed afterwards, like a
+timing, as best effort.
 
 ## Handler Chain
 
@@ -182,8 +183,6 @@ class ApiKeyHandler
 end
 ```
 
-Running this in front of a counting handler with an unauthenticated request left the counter at zero.
-
 ## Handler vs Endpoint
 
 ### When to Use Handlers
@@ -261,12 +260,12 @@ end
 
 ## Ordering Best Practices
 
-Order is behaviour. What was verified by running each order against an in-process server:
+Order is behaviour:
 
 - **`Rescuer` only catches what is thrown inside it.** A handler placed before `Rescuer` that raises
-  `Azu::Response::Forbidden` produced the bare `500 Internal Server Error` of the standard library; placed after
-  it, the same error became a `403` with Azu's error body.
-- **`Logger` outside `Rescuer` logs the final status.** The log line of a request that raised said `Status: 500`.
+  `Azu::Response::Forbidden` produces the bare `500 Internal Server Error` of the standard library; placed after
+  it, the same error becomes a `403` with Azu's error body.
+- **`Logger` outside `Rescuer` logs the final status.** The log line of a request that raised says `Status: 500`.
   Inside `Rescuer` it would see the exception instead.
 - **`RequestId` first** so everything after it (logs, error pages, `Azu::RequestContext`) carries the id. A
   request id sent by the client is kept; otherwise one is generated.

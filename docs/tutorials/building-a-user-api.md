@@ -380,39 +380,6 @@ Response (`422`, a problem document):
 A body that cannot be parsed into the contract at all (for example `"age": "x"`) answers `400`. Registering a second
 user with the same email raises `ValidationError` from the endpoint and also answers `422`.
 
-## Key Concepts Learned
-
-### Type-Safe Contracts
-
-Every endpoint declares exactly what it accepts and returns:
-
-```text
-include Azu::Endpoint(CreateUserRequest, UserResponse)
-```
-
-### Automatic Validation
-
-Request contracts are validated before your `call` runs, and a failure never reaches it:
-
-```text
-validate name, size: 2..50
-```
-
-### Structured Error Responses
-
-A request that breaks its contract is answered by the endpoint itself; errors raised in `call` are rendered by
-`Rescuer`. Both use the error's status code and the format the `Accept` header asks for: problem JSON, JSON, HTML,
-XML or text.
-
-### Route Parameters
-
-Access URL segments with `params`:
-
-```text
-get "/users/:id"
-# params["id"] contains the value
-```
-
 ## Project Structure
 
 ```text
@@ -428,13 +395,7 @@ from `src/user_api.cr`.
 
 ## Next Steps
 
-You've built a complete REST API. Continue learning with:
-
 - [Adding WebSockets](adding-websockets.md) - Add real-time notifications
 - [Working with Databases](working-with-databases.md) - Replace in-memory storage with PostgreSQL
 - [Testing Your App](testing-your-app.md) - Write tests for your endpoints
 - [Deploying to Production](deploying-to-production.md)
-
----
-
-**Your API is ready!** You now understand how to build type-safe, validated REST APIs with Azu.

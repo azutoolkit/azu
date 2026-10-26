@@ -1,7 +1,6 @@
 # Architecture overview
 
-This document explains the high-level architecture of Azu and how its parts work together. Everything stated here
-is a property of the code in this repository; where a number appears, the page says how it was measured.
+How the parts of Azu fit together: the app, the handler chain, the router, endpoints and the real-time layer.
 
 ## Design Philosophy
 
@@ -223,7 +222,7 @@ Two directories are opt-in and are not loaded by `require "azu"`: `azu/cql` (the
 ## Performance
 
 What the code does for speed (the router, the handlers, the cache) and what it measurably costs is on one page:
-[Performance Design](performance-design.md). It lists only numbers that were measured there, with the method.
+[Performance Design](performance-design.md).
 
 ## See Also
 

@@ -1,8 +1,7 @@
 # Request lifecycle
 
-This document follows an HTTP request through an Azu application, from the socket to the response. Every step
-below was observed by running a real request through an in-process server; the program at the end prints the
-order.
+An HTTP request passes through an Azu application in eight stages, from the socket to the response. The program in
+[Watching the lifecycle](#watching-the-lifecycle) prints the order.
 
 ## Overview
 
@@ -62,7 +61,7 @@ After the last handler the app's router takes the request. `Router#process`
 
 1. applies the method override: a `POST` may ask to be handled as `PUT`, `PATCH` or `DELETE` with an
    `X-HTTP-Method-Override` header, a `_method` query parameter or a `_method` field of a urlencoded form (a `POST`
-   with `X-HTTP-Method-Override: DELETE` reached the `DELETE` endpoint; an override to `GET` is ignored),
+   with `X-HTTP-Method-Override: DELETE` reaches the `DELETE` endpoint; an override to `GET` is ignored),
 2. looks the method and path up in a radix tree (the `radix` shard); WebSocket upgrades are looked up under a `/ws` prefix,
 3. answers an unmatched request itself with a `404` error response in the format of the `Accept` header, without
    raising, and logs the miss from the `Router` source,
@@ -153,8 +152,9 @@ that logs or measures work on behalf of the request.
 
 The endpoint writes what `render` returns to `context.response`. Set the content type in `call` with
 `content_type`, the status with `status` and headers with `header`. A small body stays buffered until the
-endpoint returns. A large one (100 000 bytes in a test) starts leaving as it is written, after which the head
-(status and headers) can no longer change, so a handler's header set after `call_next` is lost.
+endpoint returns. A body of 32 KiB or more (the size of the standard library's output buffer) starts leaving as it
+is written, after which the head (status and headers) can no longer change, so a handler's header set after
+`call_next` is lost.
 
 ## Stage 8: Handler Chain, in Reverse
 
@@ -297,8 +297,7 @@ See the [channel reference](../../reference/api/channel.md).
 
 ## What Costs Time
 
-Where the time of a request goes is measured, not estimated, in
-[Performance Design](performance-design.md#measured).
+[Performance Design](performance-design.md#measured) gives the time routing and a loopback request take.
 
 ## See Also
 

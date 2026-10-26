@@ -1,8 +1,7 @@
 # Performance design
 
-This document describes what Azu does to keep requests cheap, what it does not do, and how to measure your own
-application. It contains only properties that were read in the source or measured, and says how each number was
-obtained.
+Azu keeps the work per request small. This page shows what it does for that, what it does not do, and how to measure
+your own application.
 
 ## What Azu Builds On
 
@@ -38,8 +37,7 @@ parameters are therefore cached per distinct path, not per route.
   own, for a request without a `Content-Type`.
 - **Endpoints are copied per call.** The router holds one endpoint value per route and every request runs on a copy
   of it, so the instance variables `call` sets (the context, the params) belong to that request: a `struct`
-  endpoint is copied by value, a `class` endpoint is copied with `dup`. Three simultaneous requests to a class
-  endpoint that sleeps in `call` each see their own params. The `dup` of a class is one heap allocation per
+  endpoint is copied by value, a `class` endpoint is copied with `dup`. The `dup` of a class is one heap allocation per
   request (48 bytes for an endpoint with no instance variables of its own) that the copy of a struct does not make.
 - **Handlers are created once.** The handler array is built at startup and every request goes through the same
   instances, so handler state is shared by all requests (use `Atomic` or `Mutex`).
@@ -88,9 +86,8 @@ earlier. The upload, cache cleanup and heartbeat tasks are fibers of the same pr
 
 ## Measured
 
-Numbers below come from `crystal run --release` (Crystal 1.22.0) on a 4-core virtual machine that was running other
-containers at the same time, so treat them as an order of magnitude, not as a benchmark of Azu on dedicated
-hardware. The program is this one; it was run three times (the first time as an earlier copy of the same loops):
+The numbers below come from this program, built with `crystal run --release` (Crystal 1.22.0) on a shared 4-core
+virtual machine. Treat them as an order of magnitude, not as a benchmark of Azu on dedicated hardware:
 
 ```crystal
 require "azu"
@@ -221,16 +218,6 @@ slow queries and N+1 patterns (see [Database dashboard](../../reference/database
 Without `require "azu/dev"` none of this is loaded: core calls `Azu::Instrumentation`, which costs a nil check until
 something subscribes.
 
-## Profiling
-
-Build with `--release` before measuring anything, and use the profiler of your platform on the binary:
-
-```bash
-crystal build --release src/app.cr -o app
-perf record -g ./app
-perf report
-```
-
 ## Practical Rules
 
 1. **Declare endpoints as `struct`s**: a `class` endpoint is as safe, but its per-request copy is a heap allocation
@@ -238,8 +225,7 @@ perf report
 2. **Paginate and limit** what an endpoint reads; the work of an endpoint is usually its database access, which the
    dashboard's database tab shows per request.
 3. **Cache rendered or computed values** with `Azu.cache.fetch`, and give every entry a TTL.
-4. **Build strings with `String.build`** instead of `+=` in loops.
-5. **Keep CPU-bound work out of request fibers.**
+4. **Keep CPU-bound work out of request fibers.**
 
 ## See Also
 

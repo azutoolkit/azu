@@ -293,32 +293,7 @@ sleep 200.milliseconds
 socket.close
 ```
 
-## Key Concepts Learned
-
-### Channel lifecycle
-
-```text
-on_connect -> on_message / on_binary / on_ping / on_pong (per frame) -> on_close
-```
-
-### Broadcasting patterns
-
-- **To everyone subscribed to a topic, from a channel:** `broadcast "notifications", message`.
-- **From anywhere in the application:** `Azu::PubSub.broadcast("notifications", {type: "user_created"})`.
-- **To one room:** make the room part of the topic name, `broadcast "chat:#{room}", message`.
-
-### Message protocol
-
-Use a `type` field to route messages:
-
-```json
-{"type": "message", "user": "a1b2", "text": "Hello!"}
-{"type": "joined", "user": "a1b2"}
-```
-
 ## Next Steps
-
-You've added real-time features to your API. Continue learning with:
 
 - [Working with Databases](working-with-databases.md) - Persist data
 - [Building Live Components](building-live-components.md) - Server-rendered UI that updates live

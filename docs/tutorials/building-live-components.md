@@ -394,23 +394,6 @@ end
 `view.broadcast(topic, payload)` delivers a PubSub message to the mounted component and `view.send_info`
 sends it a message; both return after the component has handled them.
 
-## Key Concepts Learned
-
-### Component structure
-
-- `prop` for inputs, `state` for server-owned values, `mountable` to render from a page.
-- `mount`, `handle_info` and `unmount` for the lifecycle; `render` for the HTML.
-
-### Events
-
-- Only `event def` methods can be triggered from the browser, with typed parameters.
-- Bindings (`spark_click`, `spark_submit`, `spark_change`, ...) wire DOM events to them.
-
-### Updates
-
-- Assigning state re-renders the component; the server sends the new HTML of the components that
-  changed and the client morphs the DOM.
-
 ## Best Practices
 
 1. Keep state small; derive what you can in `render`.
