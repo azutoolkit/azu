@@ -1,0 +1,23 @@
+class Azu::Templates
+  # Turns the templates below `dir` (from the project root, as with ECR) into a `CompiledSet` at build time.
+  macro compile(dir)
+    {{ run("../template_compiler/process", dir) }}
+  end
+
+  record CompiledSet, templates : Hash(String, {String, Proc(IO, Crinja, Nil)}) # name => {source, render proc}
+
+  # Renders with its compiled proc. Immutable and shared: a render's state is in the fiber's `env.context`.
+  class CompiledTemplate < Crinja::Template
+    def initialize(source : String, @body : Proc(IO, Crinja, Nil), env : Crinja, name : String, filename : String)
+      super(source, env, name, filename, run_parser: false)
+    end
+
+    def render(io : IO, env : Crinja)
+      env.context.autoescape = env.config.autoescape?(filename) # as Crinja's renderer does
+      @body.call(io, env)
+    rescue e : Crinja::Error
+      e.template ||= self
+      raise e
+    end
+  end
+end

@@ -1,5 +1,6 @@
 require "crinja"
 require "./templates/crinja_patches"
+require "./templates/compiled"
 require "./helpers"
 
 module Azu
@@ -85,6 +86,15 @@ module Azu
     @[Deprecated("Use `preload_ignore=`.")]
     def compile_ignore=(patterns : Array(String))
       self.preload_ignore = patterns
+    end
+
+    # Templates compiled into the binary (`Templates.compile`): preloading uses them instead of parsing the files.
+    def compiled=(set : CompiledSet)
+      @preload_lock.synchronize do
+        @compiled = set
+        @preloaded = nil
+        crinja.loader = @loader.not_nil!
+      end
     end
 
     # :nodoc:
@@ -406,7 +416,8 @@ module Azu
 
     # False when the file was not preloaded.
     private def parse_into(templates, name : String, file : String, strict : Bool) : Bool
-      templates[name] = Crinja::Template.new(File.read(file), crinja, name, file)
+      compiled = @compiled.try(&.templates[name]?)
+      templates[name] = compiled ? CompiledTemplate.new(*compiled, crinja, name, file) : Crinja::Template.new(File.read(file), crinja, name, file)
       true
     rescue ex : Exception
       if BUILTIN.has_key?(name)
