@@ -953,3 +953,67 @@ class VerbEndpoint
     VerbResponse.new(title ? "handled by #{@verb} (title=#{title})" : "handled by #{@verb}")
   end
 end
+
+describe Azu::Router do
+  describe "OPTIONS" do
+    router = Azu::Router.new
+    router.get "/items", VerbEndpoint.new("get")
+    router.post "/items", VerbEndpoint.new("post")
+    router.get "/items/:id", VerbEndpoint.new("get")
+    router.delete "/items/:id", VerbEndpoint.new("delete")
+    router.get "/custom", VerbEndpoint.new("get")
+    router.options "/custom", VerbEndpoint.new("options")
+    router.ws "/live", TestChannel
+
+    options = ->(path : String) do
+      io = IO::Memory.new
+      context = HTTP::Server::Context.new(HTTP::Request.new("OPTIONS", path), HTTP::Server::Response.new(io))
+      router.process(context)
+      context.response.close
+      {context.response.status_code, context.response.headers["Allow"]?, io.to_s}
+    end
+
+    it "answers 204 with the methods the path routes in Allow, without running an endpoint" do
+      status, allow, raw = options.call("/items")
+      status.should eq 204
+      allow.should eq "GET, HEAD, POST, OPTIONS"
+      raw.should_not contain "handled by"
+    end
+
+    it "lists the methods of a path with parameters" do
+      status, allow, _ = options.call("/items/7")
+      status.should eq 204
+      allow.should eq "GET, HEAD, DELETE, OPTIONS"
+    end
+
+    it "runs an options route declared next to a get" do
+      _, _, raw = options.call("/custom")
+      raw.should contain "handled by options"
+    end
+
+    it "answers 404 for a path no method routes" do
+      status, allow, _ = options.call("/nothing")
+      status.should eq 404
+      allow.should be_nil
+    end
+
+    it "lists the methods of a mounted app's path from that app's routes" do
+      child = Azu::App.new
+      child.router.get "/report", VerbEndpoint.new("get")
+      parent = Azu::Router.new
+      parent.mount child.config, at: "/admin"
+      io = IO::Memory.new
+      context = HTTP::Server::Context.new(HTTP::Request.new("OPTIONS", "/admin/report"), HTTP::Server::Response.new(io))
+      parent.process(context)
+      context.response.close
+      context.response.status_code.should eq 204
+      context.response.headers["Allow"]?.should eq "GET, HEAD, OPTIONS"
+    end
+
+    it "does not list the WebSocket upgrade as a method" do
+      status, allow, _ = options.call("/live")
+      status.should eq 204
+      allow.should eq "GET, OPTIONS"
+    end
+  end
+end

@@ -285,7 +285,7 @@ private WS    = Azu::Method::WebSocket
 private NONE  = {} of String => String
 
 # Routes as the specs declare them: a method is a Router#add, a verb (or "root", "mount") calls Router's method of that
-# name, so `get` adds HEAD and OPTIONS too and a mount adds its two routes for every method.
+# name, so `get` adds HEAD too and a mount adds its two routes for every method.
 private BENCH = [{"get", "/plaintext"}, {"get", "/json"}, {"get", "/template"}] +
                 (0...100).map { |i| {"get", "/api/v1/resource#{i}/:id"} } +
                 [{"get", "/db/item/:id"}, {"get", "/db/items"}, {WS, "/ws"}]
@@ -304,7 +304,7 @@ private EXPECTED = [
   {ROOTED, GET, "/", {"/get/", NONE}}, {ROOTED, GET, "//", {"/get/", NONE}},
   {ROOTED, HEAD, "/plain/", {"/head/plain", NONE}}, {ROOTED, POST, "/plain", nil},
   {BENCH, GET, "/api/v1/resource57/123", {"/get/api/v1/resource57/:id", {"id" => "123"}}},
-  {BENCH, OPTIONS, "/api/v1/resource57/123/", {"/options/api/v1/resource57/:id", {"id" => "123"}}},
+  {BENCH, OPTIONS, "/api/v1/resource57/123/", nil}, # `get` adds no OPTIONS route: Router#process answers it with Allow
   {BENCH, GET, "/api/v1/resource57", nil}, {BENCH, GET, "/api/v1/resource57/123/x", nil},
   {BENCH, GET, "/db/items", {"/get/db/items", NONE}}, {BENCH, GET, "/db/item", nil},
   {BENCH, WS, "/ws", {"/ws/ws", NONE}}, {BENCH, GET, "/ws", nil}, {BENCH, GET, "/s" * 40, nil},

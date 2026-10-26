@@ -12,6 +12,14 @@ release to the current API, with old and new code side by side; every release is
 
 ## Next release
 
+**`OPTIONS` answers with `Allow` instead of running the `GET` endpoint.** `get` registered an `OPTIONS` route to its own
+endpoint, so an `OPTIONS` request ran the `GET` action and got its body. `get` now registers `GET` and `HEAD` only, and
+the router answers an `OPTIONS` itself: `204` with `Allow` listing the methods the path routes (`GET, HEAD, POST,
+OPTIONS`), or `404` for a path that routes none. An `options` route you declare still runs, and declaring one on the
+path of a `get` no longer raises `DuplicateRoute`. CORS preflights are unchanged: `Handler::CORS` answers them first.
+
+## 0.6.2
+
 **`HEAD` responses carry no body.** A `HEAD` to a `get` route sent the `GET` body, which a client reusing the
 connection read as the start of its next response. The body is now counted and discarded: the response has the `GET`
 status and headers, and a `Content-Length` for the body it would send, even where the `GET` is chunked (a large body,

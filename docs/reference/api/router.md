@@ -44,7 +44,7 @@ without a receiver. Each returns `Nil`.
 
 | Signature | Notes |
 |---|---|
-| `get(path, endpoint)`, `post`, `put`, `patch`, `delete`, `options`, `head`, `connect`, `trace` | `endpoint` is an `Azu::Routable` instance, or a class the builder instantiates with `new`. `get` also registers `HEAD` and `OPTIONS` (see [HTTP methods](#http-methods)) |
+| `get(path, endpoint)`, `post`, `put`, `patch`, `delete`, `options`, `head`, `connect`, `trace` | `endpoint` is an `Azu::Routable` instance, or a class the builder instantiates with `new`. `get` also registers `HEAD` (see [HTTP methods](#http-methods)) |
 | `endpoint(type)` | Registers every route the verb macros declared in `type`, below the builder's prefix. Raises `ArgumentError` ("... declares no routes") for a type that declares none |
 | `ws(path, channel)` | A WebSocket route to an `Azu::Channel` class |
 | `scope(prefix, &)` | Prefixes every route, mount and scope declared in the block. Scopes nest; inside one, `"/"` is the scope's own path |
@@ -75,7 +75,7 @@ without a receiver. Each returns `Nil`.
 
 | Error | Raised when |
 |---|---|
-| `Azu::Router::DuplicateRoute` | A method and path is declared twice, including the `HEAD` and `OPTIONS` a `get` adds and the paths of a mount |
+| `Azu::Router::DuplicateRoute` | A method and path is declared twice, including the `HEAD` a `get` adds and the paths of a mount |
 | `ArgumentError` | `mount` at a path that does not start with `/` or is `/`; an app mounted a second time; `endpoint` of a type without routes; `register` with an unknown verb |
 
 ## Behavior
@@ -263,7 +263,7 @@ answers `404`.
 
 | Method | Builder method and macro | Registers |
 |---|---|---|
-| GET | `get` | `GET`, `HEAD` and `OPTIONS`, all to the same endpoint |
+| GET | `get` | `GET` and `HEAD`, to the same endpoint |
 | POST | `post` | `POST` |
 | PUT | `put` | `PUT` |
 | PATCH | `patch` | `PATCH` |
@@ -273,11 +273,13 @@ answers `404`.
 | CONNECT | `connect` | `CONNECT` |
 | TRACE | `trace` | `TRACE` |
 
-A `HEAD` or `OPTIONS` request to a `get` route runs the endpoint as a `GET` does. `OPTIONS` gets the `GET` response;
-`HEAD` gets its status and headers with no body, and a `Content-Length` that counts the bytes the `GET` would send,
+A `HEAD` request to a `get` route runs the endpoint as a `GET` does, and gets its status and headers with no body, and a `Content-Length` that counts the bytes the `GET` would send,
 compressed when `Handler::Compression` compresses the `GET` (unless the endpoint set one, the status is `204`, `304` or
-`1xx`, or the response streams: `Stream` and `EventStream` answer `Transfer-Encoding: chunked`). Declaring `head` or `options` on the path of a `get` route raises `DuplicateRoute`,
-in either order. A CORS preflight is answered by `Handler::CORS` before the router (see
+`1xx`, or the response streams: `Stream` and `EventStream` answer `Transfer-Encoding: chunked`). Declaring `head` on the path of a `get` route raises `DuplicateRoute`, in either order.
+
+An `OPTIONS` request runs the `options` route of its path when one is declared. Otherwise the router answers it itself,
+without running an endpoint: `204` with an `Allow` header naming the methods the path routes, `OPTIONS` last (for
+example `Allow: GET, HEAD, POST, OPTIONS`), or `404` when the path routes none. A WebSocket route counts as `GET`. A CORS preflight is answered by `Handler::CORS` before the router (see
 [Built-in handlers](../handlers/built-in.md)).
 
 HTML forms can only `GET` or `POST`, so a `POST` may ask to be handled as `PUT`, `PATCH` or `DELETE` with a `_method`
@@ -314,9 +316,9 @@ end
 
 ## Limits
 
-- **`OPTIONS` runs the `GET` endpoint.** There is no `Allow` header and no `405`: a method a path does not route
-  answers `404`.
-- **`root`.** `Router#root` registers `GET /` only (no `HEAD`, no `OPTIONS`), and `path_of` does not know it. A
+- **No `405`.** A method a path does not route answers `404`, without an `Allow` header; only `OPTIONS` lists the
+  methods.
+- **`root`.** `Router#root` registers `GET /` only (no `HEAD`), and `path_of` does not know it. A
   `get "/"` declared after it, or `root` after a `get "/"`, raises `DuplicateRoute`.
   Use `get "/", Endpoint` instead.
 - **Not per app:** a class-level `Channel.ws "/path"` registers on `Azu::App.default` when the class is defined (use
