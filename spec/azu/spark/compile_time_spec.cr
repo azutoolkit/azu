@@ -118,7 +118,9 @@ private CASES = {
 # Compiles *source* and returns the compiler's complaint, or nil when it compiled.
 private def compile_error(source : String) : String?
   path = File.join(Dir.tempdir, "azu_spark_compile_#{Random::Secure.hex(6)}.cr")
-  library = Path[File.expand_path("../../../src/azu", __DIR__)].relative_to(Dir.tempdir)
+  library = Path[File.expand_path("../../../src/azu", __DIR__)].relative_to(Dir.tempdir).to_s
+  # A checkout below the temp directory gives a path without `../`: without `./` Crystal would look for a shard
+  library = "./#{library}" unless library.starts_with?('.')
   File.write(path, %(require "#{library}"\n#{source}))
   output = IO::Memory.new
   status = Process.run("crystal", ["build", "--no-codegen", "--no-color", path], output: output, error: output)
