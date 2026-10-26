@@ -393,17 +393,22 @@ gets `403 CSRF token validation failed`. Paths that start with an entry of `skip
 
 Where the form token is looked for, and how much of the body is read for it:
 
-- A token in the `X-CSRF-TOKEN` header is checked first and the body is not touched. Without the token cookie
-  the request is refused before its body is read.
+- A token in the `X-CSRF-TOKEN` header is checked first and the body is not touched. Without a token cookie, or (with
+  the default `SignedDoubleSubmit`) with one this handler did not sign, the request is refused before its body is read.
 - `application/x-www-form-urlencoded` (the media type is matched whatever its case): the body is read up to
-  `upload.max_file_size` (`UPLOAD_MAX_FILE_SIZE`, 10 MB by default) and parsed for the field. A `Content-Length`
-  over the limit, or a body (chunked, say) that turns out longer, is answered with `413 Payload Too Large` and
-  `Connection: close`, after reading at most the limit plus one byte.
-- `multipart/form-data`: only the first 64 KB (`CSRF::MULTIPART_SCAN_LIMIT`) are read. **The `_csrf` field must come
-  before the first file part** (a part with a `filename`) and end within those 64 KB; put `csrf_field()` at the top of
-  the form. A token after a file, after 64 KB, in a part whose `name` or `filename` is repeated, or in a request
-  without a `boundary` is not found, and the request is refused with `403`. The size of a multipart body is not
-  checked here: `upload.max_file_size` applies to each file, which the endpoint enforces as it parses.
+  `max_form_size` (1 MB by default; `upload.max_file_size` when that is smaller) and parsed for the field. A
+  `Content-Length` over the limit, or a body (chunked, say) that turns out longer, is answered with
+  `413 Payload Too Large` and `Connection: close`, after reading at most the limit plus one byte. Raise `max_form_size`
+  for forms that post more, such as a large textarea.
+- `multipart/form-data`: the parts are walked once, front to back, over the first 64 KB (`CSRF::MULTIPART_SCAN_LIMIT`)
+  at most, reading only as far as needed (a client that sends the token part and then stalls is not waited for).
+  **The `_csrf` field must be one of the first 64 parts, before the first file part, and end within those 64 KB.** A
+  part with a `filename` is a file part, and that includes the empty file input a browser sends as
+  `filename=""` when nothing is chosen. Put `csrf_field()` at the top of the form, above every file input. A token after
+  a file, past 64 parts or 64 KB, in a part whose `name` or `filename` is repeated, or in a request without a
+  `boundary` is not found, and the request is refused with `403`. The size of a multipart body is **not** checked by
+  `CSRF`, and the framework does not bound it as a whole: `upload.max_file_size` is checked for each file as the endpoint
+  parses it. Limit the total in the proxy (`client_max_body_size`) until the framework does.
 - In every case the endpoint still reads the whole body afterwards, as it was sent. The query parameter is the last
   place tried.
 

@@ -12,6 +12,16 @@ release to the current API, with old and new code side by side; every release is
 
 ## Next release
 
+**`CSRF` walks a multipart body in one pass, and reads at most 1 MB of a form.** The search for `_csrf` in a multipart body
+cost more than the body's size for a body of thousands of tiny parts (seconds of CPU for a request with any cookie); it now
+looks at each byte a bounded number of times, gives up after 64 parts, and a `csrf_token` cookie that is not a token the
+`SignedDoubleSubmit` handler signed is refused before any body is read. A urlencoded body is read up to the new
+`max_form_size` (1 MB by default) and a larger one answers `413`. **A browser sends an empty file input as a part with
+`filename=""`: it counts as a file part, so `_csrf` must come before it.** Put `csrf_field()` at the top of every form,
+above its file inputs (the scaffolds' upload forms too), or send the `X-CSRF-TOKEN` header. A form with more than 64
+fields before `_csrf`, or with `_csrf` after the first 64 KB, is refused with `403` where the 0.6.1 behaviour was already
+to refuse it after a file. The multipart total size is not bounded by `CSRF`; see the built-in handler reference.
+
 **`HEAD` responses carry no body.** A `HEAD` to a `get` route sent the `GET` body, which a client reusing the
 connection read as the start of its next response. The body is now counted and discarded: the response has the `GET`
 status and headers, and a `Content-Length` for the body it would send, even where the `GET` is chunked (a large body,
