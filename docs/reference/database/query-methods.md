@@ -4,9 +4,10 @@ description: "Every CQL model query method: retrieval, filtering, ordering, limi
 
 # Query methods
 
-A model class (or a `QueryBuilder`) answers all of them; methods that add
-conditions return a new `QueryBuilder`, so they chain. Nothing runs until a method that returns records or a value is
-called. Each group of examples below is a complete program.
+These are the query methods of a CQL model (`CQL::ActiveRecord::Model`, from the CQL shard: `require "cql"`). A model
+class (or a `QueryBuilder`) answers all of them; methods that add conditions return a new `QueryBuilder`, so they
+chain. Nothing runs until a method that returns records or a value is called. Each group of examples below is a
+complete program. Schemas, models and transactions are on [CQL API](cql-api.md).
 
 
 ## Retrieval methods
@@ -647,5 +648,6 @@ User.where(active: true)
 
 ## See also
 
-- [CQL API Reference](cql-api.md)
-- [How to Query Data](../../how-to/database/query-data.md)
+- [CQL API](cql-api.md)
+- [Query data](../../how-to/database/query-data.md)
+- [CQL bridge](../api/cql-bridge.md)

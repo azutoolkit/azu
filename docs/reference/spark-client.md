@@ -6,9 +6,8 @@ description: "The browser half of Spark: serving the script, the connection life
 
 `azu_spark.js` is the browser half of [Spark](../explanation/spark-live-views.md). It has no
 dependencies, needs no build step in your application and is served by it, never by a CDN, so the script
-in the browser always speaks the protocol of the server it came from.
-
-## Serving
+in the browser always speaks the protocol of the server it came from. It ships inside Azu (`require "azu"`); there
+is no npm package to install. The server's settings are on [Spark configuration](configuration/spark.md).
 
 `Azu::Spark.install` mounts the script at `Azu::Spark.config.assets_path`. The URL carries a content
 hash (`?v=...`): with the matching hash the response is cacheable for a year (`immutable`), without
@@ -27,7 +26,80 @@ the observability counters, the live region and the decoder of compressed frames
 model). Options go on the tag as `data-spark-*` attributes (see [Hidden tabs](#hidden-tabs),
 [Accessibility](#accessibility)).
 
-## Connection lifecycle
+## API
+
+### Client API
+
+<!-- skip -->
+```javascript
+Spark.on("state", ({ from, to, reason, attempts }) => {}); // see Observability
+Spark.on("open", ({ attempts }) => {});            // connected and greeted
+Spark.on("close", ({ code, reason }) => {});       // 1012 = server restart, 4000 = heartbeat timeout
+Spark.on("reconnect", ({ delay, attempts }) => {}); // a reconnect is scheduled in `delay` ms
+Spark.on("error", ({ code, message }) => {});      // protocol errors, "queue_full", "stale_event"
+Spark.on("event_dropped", ({ event, reason }) => {}); // an event will never be delivered
+Spark.off("open", handler);
+Spark.status;     // "connecting" | "connected" | "reconnecting" | "disconnected"
+Spark.queued;     // events waiting to be sent
+Spark.unacked;    // events sent and not yet answered
+Spark.connect();  // start again after Spark.disconnect()
+Spark.disconnect();
+Spark.stats();    // a snapshot of counters, see Observability
+Spark.configure({ hiddenIdle: 60000, live: true, debug: false, text: { stale: "Veraltet" } });
+```
+
+`Spark` is an alias of `AzuSpark`. The same occasions are dispatched as DOM events on `document`
+(`spark:open`, `spark:close`, `spark:reconnect`, `spark:error`, `spark:queued`, `spark:event_dropped`) and the page status
+is mirrored in `<html data-spark-status="...">`, which stylesheets can use.
+
+### Observability
+
+`Spark.on(name, fn)` subscribes to the events below (and to the ones above); `Spark.off` removes the
+handler. The same occasions are dispatched as `spark:<name>` DOM events (a `CustomEvent`, `detail`
+holds the object shown) on `document`. The first four are **telemetry**: they cost a few integer
+increments while nobody listens, because the detail object and the DOM event are only made for a
+name somebody subscribed to with `Spark.on` (a plain `addEventListener("spark:rtt", ...)` hears
+nothing unless some `Spark.on("rtt", ...)` or debug tracing is active).
+
+| Event | `detail` | When |
+| --- | --- | --- |
+| `state` | `{ from, to, reason, attempts }` | every change of the connection state (`idle`, `connecting`, `joining`, `open`, `closing`, `backoff`, `offline`, `hidden-idle`, `stopped`); `reason` names the machine event that caused it (`hello`, `closed`, `dead`, `hide_idle`, `visible`, ...) |
+| `reconnect` | `{ delay, attempts }` | a reconnect is scheduled in `delay` ms; `attempts` counts the failed attempts so far (always emitted, with `backoff`) |
+| `rtt` | `{ ms, p50 }` | a heartbeat was answered: its round trip and the median of the last 16 |
+| `timing` | `{ patches, ms }` | one animation frame applied `patches` patches in `ms` milliseconds |
+| `delivery` | `{ phase, event, eid }` | an event was `sent` for the first time, `resent` after a reconnect, `acked` (answered), or `dropped` |
+| `event_dropped` | `{ event, reason }` | an event will never be delivered (always emitted) |
+
+`Spark.stats()` returns a fresh snapshot object (cheap, no listener needed). TypeScript users get
+the types of `window.AzuSpark` from `js/azu-spark-global.d.ts` (`import "azu-spark-global"`, or
+add it to `files`), next to the generated `azu-spark.d.ts` (`SparkStats`, `SparkOptions`,
+`SparkTelemetry`):
+
+<!-- skip -->
+```javascript
+Spark.stats();
+// {
+//   state: "open", attempts: 0,
+//   rtt: { last: 12.4, p50: 11.8 },           // null until a heartbeat was answered
+//   queue: { waiting: 0, unacked: 1 },        // waiting to be sent / sent and not answered
+//   bytes: { in: 18342, out: 2210 },          // UTF-16 units of the text frames: bytes for ASCII, fewer for other text
+//   patches: { applied: 41 },
+//   delivery: { sent: 12, resent: 1, acked: 12, dropped: 0 },
+//   reconnects: 1                             // reconnects scheduled since the page loaded
+// }
+```
+
+**Debug tracing.** `localStorage.setItem("azu-spark:debug", "1")` (then reload) or
+`Spark.configure({ debug: true })` prints every event as `console.debug("[azu-spark]", name, detail)`
+and also turns the telemetry events on. The detail is **redacted**: numbers and booleans are shown,
+strings only for the keys `from`, `to`, `reason`, `code`, `event` and `phase` (states, reasons,
+error codes, event names); every other value (error messages, payloads, tokens, snapshots, HTML)
+shows as `"<string>"` or `"<object>"`. Events that the server pushes to a component carry the
+application's data and are never traced. Nothing is traced by default.
+
+## Behavior
+
+### Connection lifecycle
 
 The connection is always in exactly one of nine states. `next(state, event)` in `js/azu-spark.js`
 is a pure function from a state and an event to the next state and the effects to run; a small
@@ -110,7 +182,7 @@ stateDiagram-v2
   fate: it is sent again with its number and the server applies it once (see
   [Events and delivery](#events-and-delivery)).
 
-## Hidden tabs
+### Hidden tabs
 
 A browser throttles the timers of a background tab (down to one run a minute), so its heartbeat
 cannot be relied on, and a tab nobody looks at still holds a socket, a mounted component tree and
@@ -145,7 +217,9 @@ a lost connection, so persisted state survives (see [Rehydration](#rehydration))
   warning or error log, its components are unmounted and their subscriptions released, exactly as
   for any other close.
 
-## Events and delivery
+### Events and delivery
+
+How the client turns DOM events into frames, and what it guarantees about their delivery (its limits are under [Limits](#limits)).
 
 ### Event attributes
 
@@ -272,25 +346,7 @@ A queued event keeps the `gen` it was made with (a value merged into a waiting e
 one's). If the root is rejoined before the event is sent and got a new generation, the event is refused
 with `stale_event` and dropped; that is the intended outcome, not a bug.
 
-### Limits
-
-- At most 50 events wait or are unacknowledged (`queueMax`); beyond that the oldest is dropped, reported as
-  `spark:event_dropped` (reason `queue_full`) and as the `queue_full` error.
-- `event_dropped` means the client forgot the event, **not** that the server did not apply it: a dropped
-  `queue_full` or `disconnect` event may have been applied (and its effect may arrive in a later diff).
-  The oldest event is dropped first, sent or waiting.
-- An event older than 60 s when it could be sent is dropped (`expired`).
-- A numbered event refused by the rate limiter is answered with `rate_limited` carrying its `id` and `ack`;
-  the client forgets it (`event_dropped`, reason `rate_limited`). The limiter still counts it. It is not resent: a
-  coalesced value event that is refused (say the last keystroke of a burst) is lost until the control changes again.
-- A compressed frame inflates to at most 1 MiB, see [Compressed frames](#compressed-frames).
-- A frame above `max_message_size` is refused by the client (`too_large`) and, if it gets to the server,
-  closes the connection. The rate limit (`events_per_second`, `event_burst`) counts a resent
-  event like any other. Event numbers add about 10 bytes to a frame.
-- `event_dropped` reasons: `queue_full`, `expired`, `disconnect` (an at-most-once event in flight),
-  `stale`, `rate_limited`, `stopped` (`Spark.disconnect()`).
-
-## Compressed frames
+### Compressed frames
 
 A diff that replaces a big component is mostly repeated markup, and it compresses about four to one (the diffs
 of a 150-row report table: 12.1 KB as text, 3.0 KB compressed).
@@ -366,76 +422,7 @@ a compressed one is listed as "Binary Message" with its (small) length. The join
 run `delete window.DecompressionStream` in a script that runs before the page's and reload: the join
 announces nothing and every frame is text.
 
-## Client API
-
-<!-- skip -->
-```javascript
-Spark.on("state", ({ from, to, reason, attempts }) => {}); // see Observability
-Spark.on("open", ({ attempts }) => {});            // connected and greeted
-Spark.on("close", ({ code, reason }) => {});       // 1012 = server restart, 4000 = heartbeat timeout
-Spark.on("reconnect", ({ delay, attempts }) => {}); // a reconnect is scheduled in `delay` ms
-Spark.on("error", ({ code, message }) => {});      // protocol errors, "queue_full", "stale_event"
-Spark.on("event_dropped", ({ event, reason }) => {}); // an event will never be delivered
-Spark.off("open", handler);
-Spark.status;     // "connecting" | "connected" | "reconnecting" | "disconnected"
-Spark.queued;     // events waiting to be sent
-Spark.unacked;    // events sent and not yet answered
-Spark.connect();  // start again after Spark.disconnect()
-Spark.disconnect();
-Spark.stats();    // a snapshot of counters, see Observability
-Spark.configure({ hiddenIdle: 60000, live: true, debug: false, text: { stale: "Veraltet" } });
-```
-
-`Spark` is an alias of `AzuSpark`. The same occasions are dispatched as DOM events on `document`
-(`spark:open`, `spark:close`, `spark:reconnect`, `spark:error`, `spark:queued`, `spark:event_dropped`) and the page status
-is mirrored in `<html data-spark-status="...">`, which stylesheets can use.
-
-## Observability
-
-`Spark.on(name, fn)` subscribes to the events below (and to the ones above); `Spark.off` removes the
-handler. The same occasions are dispatched as `spark:<name>` DOM events (a `CustomEvent`, `detail`
-holds the object shown) on `document`. The first four are **telemetry**: they cost a few integer
-increments while nobody listens, because the detail object and the DOM event are only made for a
-name somebody subscribed to with `Spark.on` (a plain `addEventListener("spark:rtt", ...)` hears
-nothing unless some `Spark.on("rtt", ...)` or debug tracing is active).
-
-| Event | `detail` | When |
-| --- | --- | --- |
-| `state` | `{ from, to, reason, attempts }` | every change of the connection state (`idle`, `connecting`, `joining`, `open`, `closing`, `backoff`, `offline`, `hidden-idle`, `stopped`); `reason` names the machine event that caused it (`hello`, `closed`, `dead`, `hide_idle`, `visible`, ...) |
-| `reconnect` | `{ delay, attempts }` | a reconnect is scheduled in `delay` ms; `attempts` counts the failed attempts so far (always emitted, with `backoff`) |
-| `rtt` | `{ ms, p50 }` | a heartbeat was answered: its round trip and the median of the last 16 |
-| `timing` | `{ patches, ms }` | one animation frame applied `patches` patches in `ms` milliseconds |
-| `delivery` | `{ phase, event, eid }` | an event was `sent` for the first time, `resent` after a reconnect, `acked` (answered), or `dropped` |
-| `event_dropped` | `{ event, reason }` | an event will never be delivered (always emitted) |
-
-`Spark.stats()` returns a fresh snapshot object (cheap, no listener needed). TypeScript users get
-the types of `window.AzuSpark` from `js/azu-spark-global.d.ts` (`import "azu-spark-global"`, or
-add it to `files`), next to the generated `azu-spark.d.ts` (`SparkStats`, `SparkOptions`,
-`SparkTelemetry`):
-
-<!-- skip -->
-```javascript
-Spark.stats();
-// {
-//   state: "open", attempts: 0,
-//   rtt: { last: 12.4, p50: 11.8 },           // null until a heartbeat was answered
-//   queue: { waiting: 0, unacked: 1 },        // waiting to be sent / sent and not answered
-//   bytes: { in: 18342, out: 2210 },          // UTF-16 units of the text frames: bytes for ASCII, fewer for other text
-//   patches: { applied: 41 },
-//   delivery: { sent: 12, resent: 1, acked: 12, dropped: 0 },
-//   reconnects: 1                             // reconnects scheduled since the page loaded
-// }
-```
-
-**Debug tracing.** `localStorage.setItem("azu-spark:debug", "1")` (then reload) or
-`Spark.configure({ debug: true })` prints every event as `console.debug("[azu-spark]", name, detail)`
-and also turns the telemetry events on. The detail is **redacted**: numbers and booleans are shown,
-strings only for the keys `from`, `to`, `reason`, `code`, `event` and `phase` (states, reasons,
-error codes, event names); every other value (error messages, payloads, tokens, snapshots, HTML)
-shows as `"<string>"` or `"<object>"`. Events that the server pushes to a component carry the
-application's data and are never traced. Nothing is traced by default.
-
-## Accessibility
+### Accessibility
 
 **Live region.** Connection trouble is announced to assistive technology through one polite live
 region. It is created on the first announcement (`role="status"`, `aria-live="polite"`,
@@ -500,7 +487,7 @@ sets a transition, so there is nothing to switch off for `prefers-reduced-motion
 you add with `spark-optimistic-class` are your CSS; guard their transitions with
 `@media (prefers-reduced-motion: reduce)`.
 
-## Patch semantics
+### Patch semantics
 
 The server sends the new inner HTML of a component and the client edits the live DOM into it; it
 never assigns `innerHTML` to a live node. Patches that arrive within one frame are applied together
@@ -576,7 +563,7 @@ then loses the attribute: post to your own origin and redirect instead. `<style>
 stripped: a style can reach the page through `@import` and attribute selectors, so keep untrusted
 text out of styles and set `style-src` (and `connect-src`/`img-src`) in your CSP.
 
-## Content-Security-Policy and Trusted Types
+### Content-Security-Policy and Trusted Types
 
 The client works under a strict policy with no inline script and no `eval`:
 
@@ -599,7 +586,7 @@ Azu::Handler::SecurityHeaders.new(
 )
 ```
 
-## Rehydration
+### Rehydration
 
 Components declare what must survive a reconnect with `persist: true`. Whenever persisted state
 changes, the server sends a signed *snapshot* of the page with the next diff; the client keeps the
@@ -667,3 +654,30 @@ Azu::Spark.configure do |config|
   config.snapshot_ttl = 30.minutes
 end
 ```
+
+## Limits
+
+Event delivery:
+
+- At most 50 events wait or are unacknowledged (`queueMax`); beyond that the oldest is dropped, reported as
+  `spark:event_dropped` (reason `queue_full`) and as the `queue_full` error.
+- `event_dropped` means the client forgot the event, **not** that the server did not apply it: a dropped
+  `queue_full` or `disconnect` event may have been applied (and its effect may arrive in a later diff).
+  The oldest event is dropped first, sent or waiting.
+- An event older than 60 s when it could be sent is dropped (`expired`).
+- A numbered event refused by the rate limiter is answered with `rate_limited` carrying its `id` and `ack`;
+  the client forgets it (`event_dropped`, reason `rate_limited`). The limiter still counts it. It is not resent: a
+  coalesced value event that is refused (say the last keystroke of a burst) is lost until the control changes again.
+- A compressed frame inflates to at most 1 MiB, see [Compressed frames](#compressed-frames).
+- A frame above `max_message_size` is refused by the client (`too_large`) and, if it gets to the server,
+  closes the connection. The rate limit (`events_per_second`, `event_burst`) counts a resent
+  event like any other. Event numbers add about 10 bytes to a frame.
+- `event_dropped` reasons: `queue_full`, `expired`, `disconnect` (an at-most-once event in flight),
+  `stale`, `rate_limited`, `stopped` (`Spark.disconnect()`).
+
+## See also
+
+- [Spark live views](../explanation/spark-live-views.md)
+- [Component](api/component.md)
+- [Spark configuration](configuration/spark.md)
+- [Spark benchmarks](spark-benchmarks.md)

@@ -8,11 +8,10 @@ Two responses keep the connection open and write the body in pieces: `Azu::Respo
 chunked body, and `Azu::Response::EventStream` for [server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html)
 (`text/event-stream`). Both are ordinary response types of an `Azu::Endpoint`, flush after every write,
 send `Cache-Control: no-cache` and `X-Accel-Buffering: no` (so nginx does not buffer them), answer
-`HEAD` with the headers only, and end quietly when the client goes away.
+`HEAD` with the headers only, and end quietly when the client goes away. They come with `require "azu"`. Neither
+reads from the client: for two-way messages use a [channel](channel.md).
 
-## Event streams
-
-The block runs in its own fiber and sends events to the `Source` it is given:
+The block of an event stream runs in its own fiber and sends events to the `Source` it is given:
 
 ```crystal
 require "azu"
@@ -32,6 +31,10 @@ struct ClockEndpoint
   end
 end
 ```
+
+## API
+
+### Event streams
 
 An `Event` has `data`, `event`, `id` and `retry`. Data with several lines is written as one `data:` line
 per line, as the specification requires; `Event.json(value)` uses the JSON of a value as data. A line
@@ -89,36 +92,7 @@ end
 
 `retry:` tells the client how long to wait before it reconnects.
 
-### When a stream ends
-
-* the block returns;
-* a write fails because the client closed the connection. Noticing takes a write, so an idle stream
-  notices at the next heartbeat: a `: heartbeat` comment is sent after every `heartbeat` (15 seconds by
-  default) without an event, which also keeps proxies from closing an idle connection;
-* the app begins shutting down (`Azu.shutting_down?`, `Azu.shutdown_signal`), so a stream never holds the
-  drain until `shutdown_timeout`. The client sees the connection close and reconnects, to the next instance.
-
-The `Source` is closed in every case: `open?` is `false`, `send` and `sleep` return `false`, and the
-producer fiber ends once the block returns. `on_close { ... }` on the response runs when the stream is over
-(for releasing a subscription, say). A block that blocks on something other than the `Source` (a socket
-read) is only noticed when it comes back.
-
-An exception in the block is logged, an `event: error` is sent, and the stream ends; the client's
-`EventSource` reconnects, as it does after any end of stream, so a producer that fails at once will be
-retried at the client's `retry` interval.
-
-### Limits
-
-* A vanished client is noticed by a failing write, so it can take up to two heartbeats (the first write
-  after the close may still succeed) before the producer is told to stop and `on_close` runs. Lower
-  `heartbeat` to notice sooner.
-* A producer blocked on a channel of its own is not interrupted when the stream ends; read it with
-  `events.forward(channel)` or `select` on it together with `events.sleep`, or it stays until the channel
-  delivers.
-* Azu does not cap concurrent streams: each holds a connection and two fibers. Limit them in the endpoint
-  (a counter, or `Handler::Throttle`) if clients are not trusted.
-
-## Plain streams
+### Plain streams
 
 ```crystal
 require "azu"
@@ -143,7 +117,44 @@ headers are sent is logged and ends the body; before that it propagates to the e
 download in flight is allowed to finish within `shutdown_timeout`); a long running block checks
 `Azu.shutting_down?` itself.
 
-## Compression
+## Behavior
+
+### When a stream ends
+
+* the block returns;
+* a write fails because the client closed the connection. Noticing takes a write, so an idle stream
+  notices at the next heartbeat: a `: heartbeat` comment is sent after every `heartbeat` (15 seconds by
+  default) without an event, which also keeps proxies from closing an idle connection;
+* the app begins shutting down (`Azu.shutting_down?`, `Azu.shutdown_signal`), so a stream never holds the
+  drain until `shutdown_timeout`. The client sees the connection close and reconnects, to the next instance.
+
+The `Source` is closed in every case: `open?` is `false`, `send` and `sleep` return `false`, and the
+producer fiber ends once the block returns. `on_close { ... }` on the response runs when the stream is over
+(for releasing a subscription, say). A block that blocks on something other than the `Source` (a socket
+read) is only noticed when it comes back.
+
+An exception in the block is logged, an `event: error` is sent, and the stream ends; the client's
+`EventSource` reconnects, as it does after any end of stream, so a producer that fails at once will be
+retried at the client's `retry` interval.
+
+### Compression
 
 `Azu::Handler::Compression` leaves `text/event-stream` responses alone: compressing them would hold
 events back until the compressor's buffer fills. Other streams are compressed and flushed per write.
+
+## Limits
+
+* A vanished client is noticed by a failing write, so it can take up to two heartbeats (the first write
+  after the close may still succeed) before the producer is told to stop and `on_close` runs. Lower
+  `heartbeat` to notice sooner.
+* A producer blocked on a channel of its own is not interrupted when the stream ends; read it with
+  `events.forward(channel)` or `select` on it together with `events.sleep`, or it stays until the channel
+  delivers.
+* Azu does not cap concurrent streams: each holds a connection and two fibers. Limit them in the endpoint
+  (a counter, or `Handler::Throttle`) if clients are not trusted.
+
+## See also
+
+- [Response](response.md)
+- [Channel](channel.md)
+- [Shut down gracefully](../../how-to/deployment/graceful-shutdown.md)

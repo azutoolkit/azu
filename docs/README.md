@@ -197,6 +197,7 @@ Also: [Examples](examples.md) (runnable apps in `playground/`) · [Everything in
 | Area | Guides |
 |---|---|
 | Endpoints | [Create an endpoint](how-to/endpoints/create-endpoint.md) · [Handle parameters](how-to/endpoints/handle-parameters.md) (path, query, form, JSON) · [Return different formats](how-to/endpoints/return-different-formats.md) |
+| Apps and APIs | [Mount an app under a prefix](how-to/apps/mount-an-app.md) · [Run several apps in one process](how-to/apps/run-several-apps.md) · [Publish your OpenAPI document](how-to/api/publish-openapi.md) |
 | Validation | [Validate requests](how-to/validation/validate-requests.md) · [Handle validation errors](how-to/validation/handle-validation-errors.md) |
 | Files | [Handle file uploads](how-to/file-handling/handle-file-uploads.md) · [Validate file types](how-to/file-handling/validate-file-types.md) |
 | Errors | [Handle errors gracefully](how-to/errors/handle-errors-gracefully.md) · [Create custom errors](how-to/errors/create-custom-errors.md) |
@@ -214,12 +215,12 @@ Also: [Examples](examples.md) (runnable apps in `playground/`) · [Everything in
 
 | Area | Pages |
 |---|---|
-| Core API | [App](reference/api/app.md) · [Router](reference/api/router.md) · [Endpoint](reference/api/endpoint.md) · [Request](reference/api/request.md) · [Response](reference/api/response.md) |
+| Core API | [App](reference/api/app.md) · [Router](reference/api/router.md) · [Handler pipeline](reference/api/handler-pipeline.md) · [Session adapter](reference/api/session-adapter.md) · [Endpoint](reference/api/endpoint.md) · [Request](reference/api/request.md) · [Response](reference/api/response.md) |
 | HTTP | [Content negotiation](reference/api/content-negotiation.md) · [Streaming and SSE](reference/api/streaming.md) · [OpenAPI](reference/api/openapi.md) · [Built-in handlers](reference/handlers/built-in.md) · [Error types](reference/errors/error-types.md) |
-| Real-time | [Channel](reference/api/channel.md) · [Presence](reference/api/presence.md) · [Component](reference/api/component.md) · [Spark client and reconnects](reference/spark-client.md) · [Spark benchmarks](reference/spark-benchmarks.md) |
-| Configuration | [Configuration options](reference/configuration/options.md) · [Environments](reference/configuration/environments.md) · [`Azu::Env`](reference/configuration/env.md) |
-| Templates | [Template engine](reference/templates/engine.md) · [Template helpers](reference/templates/helpers.md) |
-| Data and caching | [Cache](reference/api/cache.md) · [Redis](reference/api/redis.md) · [CQL bridge](reference/api/cql-bridge.md) · [Database dashboard](reference/database-dashboard.md) · [CQL API](reference/database/cql-api.md) · [Query methods](reference/database/query-methods.md) · [Validations](reference/database/validations.md) |
+| Real-time | [Channel](reference/api/channel.md) · [PubSub](reference/api/pubsub.md) · [Presence](reference/api/presence.md) · [Component](reference/api/component.md) · [Spark client and reconnects](reference/spark-client.md) · [Spark benchmarks](reference/spark-benchmarks.md) |
+| Configuration | [Configuration options](reference/configuration/options.md) · [Spark configuration](reference/configuration/spark.md) · [Environments](reference/configuration/environments.md) · [`Azu::Env`](reference/configuration/env.md) |
+| Templates | [Templates and Renderable](reference/templates/renderable.md) · [Template engine](reference/templates/engine.md) · [Template helpers](reference/templates/helpers.md) |
+| Data and caching | [Cache](reference/api/cache.md) · [Redis](reference/api/redis.md) · [Instrumentation](reference/api/instrumentation.md) · [Clock](reference/api/clock.md) · [CQL bridge](reference/api/cql-bridge.md) · [Database dashboard](reference/database-dashboard.md) · [CQL API](reference/database/cql-api.md) · [Query methods](reference/database/query-methods.md) · [Validations](reference/database/validations.md) |
 | Testing | [Testing](reference/api/testing.md) |
 | Development | [Dev tools](reference/dev/azu-dev.md) (`azu/dev`) · [Database dashboard](reference/database-dashboard.md) |
 | Releases | [Breaking changes](reference/breaking-changes.md): what changed in each version and how to adapt |
@@ -229,7 +230,7 @@ Also: [Examples](examples.md) (runnable apps in `playground/`) · [Everything in
 | Topic | Pages |
 |---|---|
 | The whole box | [Everything in the box](explanation/features.md) |
-| Architecture | [Architecture overview](explanation/architecture/overview.md) · [Request lifecycle](explanation/architecture/request-lifecycle.md) · [Type safety](explanation/architecture/type-safety.md) · [Performance design](explanation/architecture/performance-design.md) |
+| Architecture | [Architecture overview](explanation/architecture/overview.md) · [Apps, configuration and scope](explanation/architecture/apps-and-scope.md) · [Request lifecycle](explanation/architecture/request-lifecycle.md) · [Type safety](explanation/architecture/type-safety.md) · [Performance design](explanation/architecture/performance-design.md) |
 | Building blocks | [Endpoints](explanation/concepts/endpoints.md) · [Contracts](explanation/concepts/contracts.md) · [Middleware](explanation/concepts/middleware.md) · [Real-time](explanation/concepts/real-time.md) · [Components](explanation/concepts/components.md) · [Spark live views](explanation/spark-live-views.md) |
 
 ## Contributing

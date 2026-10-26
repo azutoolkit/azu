@@ -87,7 +87,9 @@ handlers = [
 server = app.server(handlers)
 ```
 
-## Request to model
+## API
+
+### Request to model
 
 `request.to_model(Person)` and `Person.from_request(request)` build the model with the constructor it declares:
 
@@ -132,7 +134,7 @@ struct UpdateProfile
 end
 ```
 
-## Model to response
+### Model to response
 
 `include Azu::CQL::FromModel` gives `Response.from(model)`: the response's constructor arguments are read from the
 model readers of the same name, with the conversions above (so `created_at : Time?` fills a `String?`). A response
@@ -140,33 +142,7 @@ whose only constructor takes the model itself (`initialize(record)`) has nothing
 declare `initialize(@id : Int64?, @name : String, ...)` or keep your own constructor. `map_from User, except:, rename:`
 customizes it like `map_to`.
 
-## One validation vocabulary
-
-CQL models and Azu requests use the same macro shape, `validate attribute, predicate: value, message: "..."`, and
-the same names for the common predicates, so a rule copies between them:
-
-| Predicate | Azu request (schema shard) | CQL model |
-| --- | --- | --- |
-| `presence`, `required`, `eq`, `in`, `exclude`, `match`, `size` (Int or Range) | yes | yes |
-| `gt`, `gte`, `lt`, `lte` (numbers, `Time`) | yes | yes |
-| `confirmation`, `accept` | no | yes |
-| `message:` | one message for the attribute | one message for the attribute |
-
-Differences that cannot be reconciled without changing the shards (the schema shard has no `confirmation` or
-`accept`, and neither side has validation contexts: CQL's `validate` accepts `on:`, but a model that uses it does not
-compile; the schema shard's `gt`/`gte`/`lt`/`lte` take `Int`, `Float` and `Time`): CQL predicates return false for `nil` (so a
-nilable attribute fails `size`/`match` instead of raising), the schema shard's do not (use a non-nilable request
-field); and `{min:, max:}` size options exist in neither, use a Range (`size: 2..50`). Both report errors as
-`{field : Symbol, message : String}`.
-
-Because of that, one adapter serves both:
-
-* `model.valid_or_422!` runs the model's validations and returns the model, or raises `Azu::Response::ValidationError`
-  (422, a problem document, `application/problem+json` when the client's `Accept` names it and `application/json` otherwise, `errors` keyed by field). Raise it from an endpoint, or let the `Rescuer` render it.
-* `Azu::CQL.unprocessable(errors)` builds that error from any enumerable of errors, and from the exceptions CQL raises
-  itself (`CQL::RecordInvalid`, `CQL::ValidationError`, and the validation error `save` raises).
-
-## `Azu::CQL::Middleware`
+### `Azu::CQL::Middleware`
 
 A plain `HTTP::Handler` for `App#server([...])` / `App#default_handlers`:
 
@@ -204,3 +180,38 @@ before re-raising, so the `Rescuer`'s error page is not appended to a success bo
 Crystal does once the body exceeds its output buffer (about 8 KB), cannot be taken back: for large bodies the client
 may see the success status and a truncated reply.
 {% endhint %}
+
+## Behavior
+
+### One validation vocabulary
+
+CQL models and Azu requests use the same macro shape, `validate attribute, predicate: value, message: "..."`, and
+the same names for the common predicates, so a rule copies between them:
+
+| Predicate | Azu request (schema shard) | CQL model |
+| --- | --- | --- |
+| `presence`, `required`, `eq`, `in`, `exclude`, `match`, `size` (Int or Range) | yes | yes |
+| `gt`, `gte`, `lt`, `lte` (numbers, `Time`) | yes | yes |
+| `confirmation`, `accept` | no | yes |
+| `message:` | one message for the attribute | one message for the attribute |
+
+Differences that cannot be reconciled without changing the shards (the schema shard has no `confirmation` or
+`accept`, and neither side has validation contexts: CQL's `validate` accepts `on:`, but a model that uses it does not
+compile; the schema shard's `gt`/`gte`/`lt`/`lte` take `Int`, `Float` and `Time`): CQL predicates return false for `nil` (so a
+nilable attribute fails `size`/`match` instead of raising), the schema shard's do not (use a non-nilable request
+field); and `{min:, max:}` size options exist in neither, use a Range (`size: 2..50`). Both report errors as
+`{field : Symbol, message : String}`.
+
+Because of that, one adapter serves both:
+
+* `model.valid_or_422!` runs the model's validations and returns the model, or raises `Azu::Response::ValidationError`
+  (422, a problem document, `application/problem+json` when the client's `Accept` names it and `application/json` otherwise, `errors` keyed by field). Raise it from an endpoint, or let the `Rescuer` render it.
+* `Azu::CQL.unprocessable(errors)` builds that error from any enumerable of errors, and from the exceptions CQL raises
+  itself (`CQL::RecordInvalid`, `CQL::ValidationError`, and the validation error `save` raises).
+
+## See also
+
+- [Database dashboard](../database-dashboard.md)
+- [CQL API](../database/cql-api.md)
+- [Handle transactions](../../how-to/database/handle-transactions.md)
+- [Request](request.md)

@@ -4,17 +4,19 @@ description: "Static HTML with `Azu::Component` and live, server-rendered views 
 
 # Component
 
-Azu has two kinds of components:
+Azu has two kinds of components, and both come with `require "azu"`:
 
 - **`Azu::Component`** is a static piece of HTML written with the `Azu::Markup` DSL. It renders once.
 - **`Azu::Spark::Component`** is a live component. Its state lives on the server, the browser sends
   events over a WebSocket, and the server pushes the HTML that changed. See
   [Spark live views](../../explanation/spark-live-views.md) for the architecture.
 
-## Azu::Component
+Neither is a template: a component builds its HTML in Crystal. For Jinja templates see
+[Templates and Renderable](../templates/renderable.md).
 
 Include the module, describe the markup in `content`, call `render` to get a `String`.
 
+<!-- prelude -->
 ```crystal
 class Greeting
   include Azu::Component
@@ -33,6 +35,10 @@ end
 Greeting.new("Azu").render
 # => "<div class='greeting'><h1>Hello Azu</h1><p>Welcome back.</p></div>"
 ```
+
+## API
+
+### Azu::Component
 
 Text is HTML-escaped. `raw(html)` writes markup unescaped, `text(string)` writes escaped text.
 Attributes are named arguments; `true` renders a bare boolean attribute (`disabled: true`) and `false`
@@ -59,17 +65,6 @@ SignupForm.new.render
 A static component can be returned from an endpoint response:
 
 ```crystal
-class Greeting
-  include Azu::Component
-
-  def initialize(@name : String)
-  end
-
-  def content
-    h1 "Hello #{@name}"
-  end
-end
-
 struct GreetingResponse
   include Azu::Response
 
@@ -93,11 +88,12 @@ struct GreetingEndpoint
 end
 ```
 
-## Azu::Spark::Component
+### Azu::Spark::Component
 
 Inherit directly from `Azu::Spark::Component` (declarations are not inherited through intermediate
 component classes), declare the inputs and state, and implement `render`.
 
+<!-- prelude -->
 ```crystal
 class Counter < Azu::Spark::Component
   mountable
@@ -277,21 +273,6 @@ end
 ### Rendering from a page
 
 ```crystal
-class Counter < Azu::Spark::Component
-  mountable
-
-  prop label : String = "Clicks"
-  state count : Int32 = 0
-
-  event def increment(by : Int32 = 1) : Nil
-    self.count += by
-  end
-
-  def render
-    h2 "#{label}: #{count}"
-  end
-end
-
 # once, at boot (tokens are signed with SPARK_SECRET: set it in production and staging)
 Azu::Spark.install
 
@@ -302,17 +283,8 @@ Azu::Spark.script_tag
 Azu::Spark.render(Counter, label: "Visits", session: {"user_id" => "42"})
 ```
 
-`Azu::Spark.render` signs the component id, type, props and session claims with `config.secret`, which Spark
-reads from `SPARK_SECRET`. Without it, development and test use a random per-process secret, and in production and
-staging `Spark.install` raises `Azu::Spark::ConfigurationError` at boot, before it registers a route. Props are checked
-at compile time.
-
-### Configuration
-
-`Azu::CONFIG.spark` (`Azu::Spark.config`) exposes `path`, `assets_path`, `secret`, `token_ttl`,
-`allowed_origins`, `max_message_size`, `compress_threshold`, `max_components`, `events_per_second`, `event_burst`,
-`heartbeat_interval`, `idle_timeout`, `snapshot_ttl` and `max_snapshot_size`. Each is read from a `SPARK_*`
-environment variable: see [Configuration options](../configuration/options.md#spark).
+`Azu::Spark.render` signs the component id, type, props and session claims with the Spark secret (see
+[The secret](../configuration/spark.md#the-secret)). Props are checked at compile time.
 
 ### Testing
 
@@ -320,22 +292,6 @@ environment variable: see [Configuration options](../configuration/options.md#sp
 
 ```crystal
 require "spec"
-
-class Counter < Azu::Spark::Component
-  mountable
-
-  prop label : String = "Clicks"
-  state count : Int32 = 0
-
-  event def increment(by : Int32 = 1) : Nil
-    self.count += by
-  end
-
-  def render
-    h2 "#{label}: #{count}"
-  end
-end
-
 
 describe Counter do
   it "counts" do
@@ -348,10 +304,15 @@ describe Counter do
 end
 ```
 
-See [Testing WebSockets](../../how-to/testing/test-websockets.md) for the connection level.
+See [Test WebSockets](../../how-to/testing/test-websockets.md) for the connection level.
+
+## Options
+
+Spark's settings (`Azu::Spark.config`) are on [Spark configuration](../configuration/spark.md).
 
 ## See also
 
-- [Channel Reference](channel.md)
-- [Building live components](../../how-to/real-time/build-live-component.md)
+- [Channel](channel.md)
+- [Build a live component](../../how-to/real-time/build-live-component.md)
 - [Spark live views](../../explanation/spark-live-views.md)
+- [Spark configuration](../configuration/spark.md)

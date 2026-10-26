@@ -14,8 +14,6 @@ Nothing in the suite touches the framework. It is not part of `crystal spec`, an
 checks do not run it.
 {% endhint %}
 
-## Running it
-
 ```sh
 scripts/bench_spark.sh                      # sizes, client and server, short mode
 scripts/bench_spark.sh --suite client       # one suite: sizes, client, server
@@ -23,12 +21,16 @@ scripts/bench_spark.sh --mode full          # more repetitions, for a quiet mach
 scripts/bench_spark.sh --compare base.json  # run, then diff against an earlier result
 ```
 
+## Options
+
 The client suite needs node 22 with `playwright` and chromium (point `PLAYWRIGHT_MODULE` and
 `CHROMIUM_PATH` at them); the server suite needs a Crystal compiler (`BENCH_CRYSTAL`). A suite whose tool is
 missing is skipped with a message, or fails when `BENCH_REQUIRED=1`. The runner writes a JSON result file
 (and a Markdown rendering) into `benchmark/spark/results/`.
 
-## What is measured
+## Behavior
+
+### What is measured
 
 **Sizes.** Raw, gzip -9 and brotli bytes of the shipped `azu_spark.js` at every commit that changed it, so
 a regression is visible next to the change that caused it. These are exact numbers with no noise. A spec
@@ -70,7 +72,7 @@ process:
 - *micro*: `Benchmark.ips` for `Session#accept`, `Protocol.reply` and `diff` with and without `ack`, and
   `Inbound.from_json` with and without `eid`, as nanoseconds per operation.
 
-## The comparison arms
+### The comparison arms
 
 Client numbers are compared against two baselines:
 
@@ -87,7 +89,7 @@ micro metrics take fewer (3 to 6 cycles or processes), so their `cv` is a rough 
 checks that the page ended in the state the patch described, that Spark arms kept focus, value and caret,
 and that the last event frame carried the final input value; a failed check fails the run.
 
-## Reading a result
+### Reading a result
 
 Each metric reports a median, a p95 and a coefficient of variation (`cv`) of the per-repetition medians.
 Trust a difference only when it is larger than the `cv`. Compare ratios between arms of the same run, not
@@ -95,7 +97,7 @@ numbers between machines or between runs: on a shared machine two runs of identi
 tens of percent in a median, while the ratios between interleaved arms stay close. The environment block records the CPU, node, chromium and Crystal versions
 and the load average before and after, so a result taken on a busy box can be recognised as one.
 
-## Comparing two runs
+### Comparing two runs
 
 ```sh
 node benchmark/spark/compare.mjs base.json candidate.json --threshold 15
@@ -107,8 +109,14 @@ failure, unless `--fail-on-noisy` is given; so are differences in CPU, core coun
 run that started under load, and metrics that exist on one side only. Run the baseline and the candidate
 on the same machine, back to back.
 
-## In CI
+### In CI
 
 `.github/workflows/spark-bench.yml` runs nightly and on demand. It is opt-in and not a required check.
 With `baseline_ref` set, one job measures that ref and the current one on the same runner and prints the
 comparison; the JSON files are uploaded as a workflow artifact.
+
+## See also
+
+- [Spark JavaScript client](spark-client.md)
+- [Spark live views](../explanation/spark-live-views.md)
+- [The benchmark suite](https://github.com/azutoolkit/azu/blob/master/benchmark/spark/README.md)

@@ -4,18 +4,20 @@ description: Azu's built-in error types, the status each one answers with, and t
 
 # Error types
 
-## Base error class
-
-### Azu::Response::Error
-
-Base class for all HTTP errors. It is an `Exception` and an `Azu::Response`. Raise it from an endpoint and
-`Azu::Handler::Rescuer` writes it to the client with its status.
+Every HTTP error Azu writes is an `Azu::Response::Error`: an `Exception` that is also an `Azu::Response`. Raise it
+from an endpoint and `Azu::Handler::Rescuer` writes it to the client with its status, in the format the `Accept`
+header asks for. The classes come with `require "azu"`. This page lists them, their statuses and the body they are
+written as; it does not cover exceptions that are not `Response::Error`s, which `Rescuer` answers with a `500`.
 
 ```crystal
 error = Azu::Response::Error.new("Payment failed", HTTP::Status::BAD_REQUEST, ["card declined"])
 error.status_code # => 400
 error.title       # => "Payment failed"
 ```
+
+## API
+
+### Azu::Response::Error
 
 **Properties:**
 - `status : HTTP::Status` - HTTP status (`status_code` is the number)
@@ -26,8 +28,6 @@ error.title       # => "Payment failed"
 - `context : ErrorContext?` - Additional context
 - `error_id : String` - Unique id of this error, sent as `X-Error-ID`
 - `fingerprint : String` - Stable hash of class, title, detail and source, sent as `X-Error-Fingerprint`
-
-## Client errors (4xx)
 
 ### BadRequest (400)
 
@@ -143,8 +143,6 @@ raise Azu::Response::RateLimitError.new(60)
 
 **Usage:** Rate limiting
 
-## Server errors (5xx)
-
 ### DatabaseError (500)
 
 ```crystal
@@ -164,7 +162,7 @@ raise Azu::Response::ExternalServiceError.new("Payments", "Payment gateway error
 
 **Usage:** Proxy/gateway errors, failing third-party APIs
 
-## Statuses without a class
+### Statuses without a class
 
 There is no class for 405, 409, 410, 501, 503 and 504. Build an `Azu::Response::Error` with the status, or define a
 subclass (see [Creating Custom Errors](#creating-custom-errors)):
@@ -176,7 +174,7 @@ raise Azu::Response::Error.new("Service Unavailable", HTTP::Status::SERVICE_UNAV
 
 Inside an endpoint, `error("Email already registered", 409)` builds the same object.
 
-## ErrorContext
+### ErrorContext
 
 `Azu::ErrorContext` carries request details for debugging. Every field is optional.
 
@@ -191,7 +189,7 @@ raise Azu::Response::Forbidden.new(context)
 `ErrorContext.from_http_context(context, request_id)` fills the request fields from an `HTTP::Server::Context`.
 Context is shown to clients only in the development environment.
 
-## Creating custom errors
+### Creating custom errors
 
 Subclass `Azu::Response::Error`, pass the title, status and messages to `super`, and set `detail` for the explanation:
 
@@ -220,7 +218,9 @@ end
 raise InsufficientFundsError.new(100.0, 25.0)
 ```
 
-## Error response format
+## Behavior
+
+### Error response format
 
 `Rescuer` (and the router, for an unrouted path, and the endpoint, for a broken contract) writes an error in the
 format the first entry of the `Accept` header asks for: HTML (an error page), JSON, XML or plain text. With no
@@ -249,7 +249,7 @@ of a broken request contract uses, and it is the same for every JSON client (see
   `ErrorId`, `Fingerprint`, `Context`, `Backtrace`, `Timestamp`) as `application/json`, for validation failures and for
   every other error.
 
-## HTTP status codes summary
+### HTTP status codes summary
 
 | Code | Name | Class |
 |------|------|-------|
@@ -267,5 +267,7 @@ of a broken request contract uses, and it is the same for every JSON client (see
 
 ## See also
 
-- [How to Handle Errors Gracefully](../../how-to/errors/handle-errors-gracefully.md)
-- [How to Create Custom Errors](../../how-to/errors/create-custom-errors.md)
+- [Handle errors gracefully](../../how-to/errors/handle-errors-gracefully.md)
+- [Create custom errors](../../how-to/errors/create-custom-errors.md)
+- [Built-in handlers: Rescuer](../handlers/built-in.md#handlerrescuer)
+- [Response](../api/response.md)

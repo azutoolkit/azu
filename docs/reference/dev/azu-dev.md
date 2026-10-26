@@ -198,7 +198,7 @@ warnings follow `PERFORMANCE_SLOW_REQUEST_THRESHOLD` and `PERFORMANCE_MEMORY_THR
 - **Access.** The page has no login of its own. In development Azu binds `127.0.0.1` unless `HOST` or `config.host`
   says otherwise; `start` logs a warning when `CRYSTAL_ENV` is unset and the server listens on another address.
 - **CSRF.** Building the dashboard adds `{path}/sql` to `Handler::CSRF.exempt`, in every environment (see
-  [App](../api/app.md#known-limitations)).
+  [App](../api/app.md#limits)).
 - **Periodic reports** run only when `Azu::CONFIG.env` is development; elsewhere `start_periodic_reporting` does nothing.
 
 ## Limits

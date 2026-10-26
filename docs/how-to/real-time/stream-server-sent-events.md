@@ -248,5 +248,5 @@ serve the app on a port (`app.server(...).bind_unused_port`) and read the stream
 ## See also
 
 - [Streaming and server-sent events](../../reference/api/streaming.md)
-- [Channel: Azu::PubSub](../../reference/api/channel.md#azupubsub)
+- [PubSub](../../reference/api/pubsub.md)
 - [Real-time](../../explanation/concepts/real-time.md)

@@ -4,7 +4,11 @@ description: "Azu's built-in template helpers: forms, links, endpoint URLs, asse
 
 # Template helpers
 
-## Quick reference
+Azu registers these filters and functions on the Crinja environment of every template, with
+`Azu::Helpers::Registry`, so a `.jinja` page can call them without an import. They come with `require "azu"`, and
+[`Azu::Helpers`](#custom-helpers) adds your own. They are not Crystal methods: endpoints and responses build URLs with
+`Endpoint.path` and HTML with `Azu::Markup` instead. How templates are found and rendered is on
+[Templates and Renderable](renderable.md).
 
 ```jinja
 {# Forms #}
@@ -333,7 +337,15 @@ Filter that checks if a path matches the current page:
 {% if "/" | is_current_page %}
   <span class="active">Home</span>
 {% endif %}
+{% if "/users" | is_current_page(exact=false) %}...{% endif %}  {# true on /users/5 too #}
 ```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `exact` | bool | `true` | Exact match vs prefix match |
+
+The filter is also registered as `current_page?`, but Crinja cannot parse a name that ends in `?`
+(`TemplateSyntaxError: Not implemented expression value`), so templates use `is_current_page`.
 
 {% hint style="warning" %}
 `is_current_page` and `active_class` compare with the [request variable](#request-variables) `current_path`.
@@ -591,6 +603,44 @@ Generates a complete delete form with a submit button (only for DELETE endpoints
 #}
 ```
 
+### {resource}_path
+
+Every endpoint also registers a filter that prints its path. The filter ignores the value it is applied to and
+fills `:id` from its `id` argument:
+
+```jinja
+{{ "" | user_path(id=5) }}          {# /users/5 #}
+{{ "" | posts_show_path(id="hello") }} {# /posts/hello, for Blog::Posts::ShowEndpoint #}
+```
+
+Without `id` the `:id` segment is left empty (`/users/`). The filter survives `Azu::Helpers::Registry.reset!`.
+
+In Crystal, `Endpoint.path(**params)` builds the same path, with the prefix of the app it is mounted in; each
+argument replaces the path parameter of its name:
+
+```crystal
+struct UserPage
+  include Azu::Response
+
+  def render
+    ""
+  end
+end
+
+struct ShowUserEndpoint
+  include Azu::Endpoint(Azu::Request, UserPage)
+
+  get "/users/:id"
+
+  def call : UserPage
+    UserPage.new
+  end
+end
+
+ShowUserEndpoint.path(id: 5) # => "/users/5"
+ShowUserEndpoint.path        # => "/users/:id"
+```
+
 ### Helper naming convention
 
 The helper name is derived from the endpoint class name:
@@ -681,6 +731,43 @@ Generates a favicon link:
 {{ favicon_tag("favicon.ico") }}
 ```
 
+### preload_tag
+
+Function that generates a `<link rel="preload">`:
+
+```jinja
+{{ preload_tag("fonts/inter.woff2", as="font", type="font/woff2") }}
+{# <link rel="preload" href="/assets/fonts/inter.woff2" as="font" type="font/woff2" crossorigin="anonymous" /> #}
+{{ preload_tag("app.css", as="style") }}
+{# <link rel="preload" href="/assets/app.css" as="style" /> #}
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `href` | string | `""` | Asset path; an `http(s)://` or `/` URL is kept as it is, anything else gets the asset prefix |
+| `as` | string | `""` | The `as` attribute (`font`, `style`, `script`, `image`, ...) |
+| `type` | string | `nil` | MIME type |
+| `crossorigin` | any | `nil` | Any true value gives `crossorigin="anonymous"` (a string such as `"use-credentials"` too); `as="font"` gets it without asking |
+
+### inline_svg
+
+Function that prints the content of an SVG file, so CSS can style it:
+
+```jinja
+{{ inline_svg("icons/check.svg", class="icon", title="Done") }}
+{# <svg class="icon" viewBox="0 0 24 24"><title>Done</title><path d="M0 0"/></svg> #}
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `path` | string | `""` | File below `public/assets/` of the working directory; a path that starts with `/` is read as it is, from the file system |
+| `class`, `id`, `width`, `height` | string | `nil` | Added to the `<svg>` tag |
+| `title` | string | `nil` | A `<title>` inserted after the first tag, for screen readers |
+
+The file is read on every render. A file that cannot be read prints
+`<svg class="svg-placeholder"><text>SVG not found: icons/missing.svg</text></svg>`. The file's content is not
+escaped: inline only SVG files you ship, never a path that comes from a request.
+
 ---
 
 ## Date helpers
@@ -730,6 +817,26 @@ Filter that converts seconds to human-readable duration:
 {{ 150 | distance_of_time }}    {# 2 minutes #}
 {{ 7200 | distance_of_time }}   {# 2 hours #}
 ```
+
+### distance_of_time_between
+
+Function that describes the time between two moments in the same words:
+
+```jinja
+{{ distance_of_time_between(from_time="2026-01-01", to_time="2026-03-01") }}  {# 1 month #}
+{{ distance_of_time_between(from_time=1767225600, to_time=1767229200) }}    {# 1 hour #}
+{{ distance_of_time_between(from_time=post.published_at) }}                  {# from then until now #}
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `from_time` | time, int or string | now | Start |
+| `to_time` | time, int or string | now | End |
+
+A `Time` is used as it is, an integer (or a string of digits) is a unix timestamp, and another string is read as a
+`YYYY-MM-DD` date: a time of day after the date is ignored. A string that is not a date counts as now. The order
+does not matter. Words go up to years: `seconds`, `minutes`, `hours`, `days`, `weeks`, `months` (30 days), `years`
+(365 days).
 
 ---
 
@@ -792,6 +899,16 @@ Filter that formats large numbers with words:
 {{ 1234567890 | number_to_human }}          {# 1.2 billion #}
 {{ 1234 | number_to_human(precision=2) }}   {# 1.23 thousand #}
 ```
+
+### ordinal
+
+Filter that adds the English ordinal suffix:
+
+```jinja
+{{ 1 | ordinal }} {{ 2 | ordinal }} {{ 3 | ordinal }} {{ 11 | ordinal }} {{ 22 | ordinal }}  {# 1st 2nd 3rd 11th 22nd #}
+```
+
+A value that is not a number prints `0th`.
 
 ---
 
@@ -867,6 +984,43 @@ Filter that converts URLs and emails to links:
 {{ text | auto_link }}
 {# "Visit https://example.com" → "Visit <a href="...">...</a>" #}
 ```
+
+### urlize
+
+Filter that turns `http://`, `https://` and `www.` addresses into links, and escapes the rest of the text. It
+replaces Crinja's own `urlize`, which escapes nothing and links any `scheme://`:
+
+```jinja
+{{ "Docs at https://example.com/docs and www.crystal-lang.org" | urlize }}
+{# Docs at <a href="https://example.com/docs" rel="noopener">https://example.com/docs</a> and
+   <a href="http://www.crystal-lang.org" rel="noopener">www.crystal-lang.org</a> #}
+{{ "see https://example.com/a/very/long/path" | urlize(trim_url_limit=20, nofollow=true, target="_blank") }}
+{# see <a href="https://example.com/a/very/long/path" rel="nofollow noopener" target="_blank">https://example.co...</a> #}
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `trim_url_limit` | int | `nil` | Shortens the text of a link of this length or longer to `trim_url_limit - 2` characters and `...` |
+| `nofollow` | bool | `false` | Adds `nofollow` to `rel` |
+| `target` | string | `nil` | The `target` attribute |
+| `rel` | string | `nil` | More `rel` values; `noopener` is always added |
+
+Text that is already safe (`| safe`) is not escaped again; its tags are copied as they are, and text inside an
+existing `<a>` is not linked twice.
+
+### cycle
+
+Function that returns its values in turn, one per call:
+
+```jinja
+{{ cycle(values=["odd", "even"]) }} {{ cycle(values=["odd", "even"]) }} {{ cycle(values=["odd", "even"]) }}
+{# odd even odd #}
+```
+
+{% hint style="warning" %}
+Inside a `for` loop `cycle` returns the first value on every iteration: the position it keeps does not outlive one
+pass of the loop body. Use Jinja's `loop.cycle("odd", "even")` there.
+{% endhint %}
 
 ### content_tag
 
@@ -1048,8 +1202,66 @@ Returns the `id` of a component object (or its string form).
 
 ---
 
+## Custom helpers
+
+`Azu::Helpers` registers helpers of your own in the same registry. Each macro takes a name, or a named tuple of
+default arguments and a name; the block runs on every call and returns the value to print:
+
+```crystal
+require "azu"
+
+Azu::Helpers.function :current_year do
+  Time.utc.year.to_s
+end
+
+Azu::Helpers.function({name: "World"}, :greet) do
+  "Hello, #{arguments["name"]}!"
+end
+
+Azu::Helpers.filter({times: 1}, :shout) do
+  target.to_s.upcase + "!" * arguments["times"].to_i
+end
+
+Azu::Helpers.test :blank do
+  target.to_s.strip.empty?
+end
+
+Azu::Helpers.global :app_name, "My Application"
+```
+
+```jinja
+{{ greet() }} {{ greet(name="Ada") }}      {# Hello, World! Hello, Ada! #}
+{{ "hi" | shout }} {{ "hi" | shout(times=3) }}  {# HI! HI!!! #}
+{% if title is blank %}Untitled{% endif %}
+<title>{{ app_name }}</title>
+```
+
+| Macro | Template use | The block sees |
+|---|---|---|
+| `Azu::Helpers.function(name)` / `function(defaults, name)` | `{{ name(arg=value) }}` | `arguments`, `env` |
+| `Azu::Helpers.filter(name)` / `filter(defaults, name)` | `{{ value \| name(arg=value) }}` | `target` (the value), `arguments`, `env` |
+| `Azu::Helpers.test(name)` / `test(defaults, name)` | `{% if value is name %}` | `target`, `arguments`, `env` |
+| `Azu::Helpers.global(name, value)` | `{{ name }}` | (a value, not a block) |
+
+An argument is read by name with `arguments["name"]`, which is a `Crinja::Value`; arguments not named in the
+defaults are ignored. A name registered twice keeps the last registration, but the built-in helpers are registered
+again whenever a template set builds its loader (when `config.templates` is first used, on `path=` and on a hot
+reload), so a helper of your own cannot take the name of a built-in one.
+
+`Azu::Helpers::Registry` holds the registrations (`register_filter`, `register_function`, `register_test`,
+`register_global`, and `filters`, `functions`, `tests`, `globals`, `has_filter?`, ... to read them). Templates apply
+them on their next `load` whenever the registry has changed, so a helper registered after boot still reaches every
+template. `Registry.reset!` (for specs) removes every registration except the endpoints' `{resource}_path` filters.
+
+## Limits
+
+- Helpers are process-wide: every app in the process, and every template, sees the same set.
+- The date helpers (`time_ago`, `relative_time`, `distance_of_time_between`) read the system clock, not
+  `Azu::Clock`.
+
 ## See also
 
-- [Template Engine](engine.md)
-- [How to Render HTML Templates](../../how-to/templates/render-html-templates.md)
+- [Templates and Renderable](renderable.md)
+- [Template engine](engine.md)
+- [Render HTML templates](../../how-to/templates/render-html-templates.md)
 - [i18n options](../configuration/options.md#i18n)

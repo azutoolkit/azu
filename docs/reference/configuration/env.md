@@ -4,8 +4,10 @@ description: "The one place an application reads its environment: `.env` files, 
 
 # Azu::Env
 
-`Azu::Env` uses only the standard library, so `require "azu/env"` works on its own, and nothing happens when it is
-required. Files are read only when you call `load` or `load_all`.
+`Azu::Env` is where an application reads its environment: it loads `.env` files, reads typed values and guards
+secrets. It uses only the standard library, so `require "azu/env"` works on its own, and nothing happens when it is
+required. Files are read only when you call `load` or `load_all`. It does not set Azu's options: those are read
+by `Azu::Configuration` (see [Configuration options](options.md)).
 
 ```crystal
 require "azu/env"
@@ -20,7 +22,9 @@ port = Azu::Env.int("PORT", 4000)
 csrf_secret = Azu::Env.secret("CSRF_SECRET")
 ```
 
-## Loading files
+## API
+
+### Loading files
 
 | Call | What it does |
 | --- | --- |
@@ -39,6 +43,58 @@ So a container that injects real values is unaffected by a `.env` baked into the
 makes the file win over the process environment; use it in tooling, not in an application.
 `CRYSTAL_ENV` itself may be set in `.env` or `.env.local`; the process value wins unless it is blank (blank counts as
 unset for `CRYSTAL_ENV`, as `Env.environment` treats it).
+
+### Reading values
+
+A blank value counts as unset.
+
+| Call | Returns |
+| --- | --- |
+| `fetch?(name)` | `String?` |
+| `fetch(name)` / `fetch(name, default)` | `String`; without a default raises `MissingError` |
+| `bool(name)` / `bool(name, default)` | `true/false/1/0/yes/no/on/off`, any case |
+| `int(name)` / `int(name, default)` | `Int32` |
+| `url(name)` / `url(name, default)` | `URI` (needs a scheme) |
+| `environment` / `production?` | `CRYSTAL_ENV` lowercased, `development` when unset |
+
+Errors name the variable and never its value: `PORT is not an integer`, `DATABASE_URL is not a URL`.
+
+### Boot checks and secrets
+
+`Azu::Env.required(*names)` raises one `Azu::Env::MissingError` listing every missing name
+(`DATABASE_URL, CSRF_SECRET are not set`); `error.names` has them as an array.
+
+`Azu::Env.secret(name)` is the guard the generated applications use: the variable when set; a random value
+outside production (the same value for the life of the process, so two readers of one name agree); an
+`Azu::Env::MissingError` (`CSRF_SECRET is not set`) in production.
+
+{% hint style="warning" %}
+**The random fallback is per process.** Two processes, or one process after a restart, get different values, so signed
+cookies, CSRF tokens and sessions stop validating. `secret` logs one warning per name when it falls back; set the
+variable in `.env` in development.
+{% endhint %}
+
+{% hint style="warning" %}
+**Only `production` is strict by default.** Staging gets random secrets unless you list it: set
+`AZU_STRICT_ENVS=production,staging` or `Azu::Env.strict_environments = ["production", "staging"]` (`nil` restores
+the default), and `secret` raises there too.
+{% endhint %}
+
+```crystal
+require "azu"
+
+Azu::Handler::CSRF.configure do |csrf|
+  csrf.secret_key = Azu::Env.secret("CSRF_SECRET")
+end
+```
+
+### Logging
+
+`Azu::Env.redact(name, value)` returns `[FILTERED]` for names that look like secrets (`SECRET`, `PASSWORD`,
+`TOKEN`, `PRIVATE`, `CREDENTIAL`, `*KEY`, `COOKIE`, `AUTH`, `DSN`, `SALT`, `SIGNING`) and hides the password inside a URL;
+`Azu::Env.redacted(hash)` does it for a hash. Use them whenever you print variables.
+
+## Behavior
 
 ### File format
 
@@ -93,58 +149,14 @@ agreeing on one list matters more than the convenience. Set them in the real env
 shell), or load the file with `unsafe: true` when you know the file is yours. Per-request time zones and locales belong
 in the application (`Azu::Helpers::I18n`, `Time::Location`), not in the process environment.
 
-## Reading values
-
-A blank value counts as unset.
-
-| Call | Returns |
-| --- | --- |
-| `fetch?(name)` | `String?` |
-| `fetch(name)` / `fetch(name, default)` | `String`; without a default raises `MissingError` |
-| `bool(name)` / `bool(name, default)` | `true/false/1/0/yes/no/on/off`, any case |
-| `int(name)` / `int(name, default)` | `Int32` |
-| `url(name)` / `url(name, default)` | `URI` (needs a scheme) |
-| `environment` / `production?` | `CRYSTAL_ENV` lowercased, `development` when unset |
-
-Errors name the variable and never its value: `PORT is not an integer`, `DATABASE_URL is not a URL`.
-
-## Boot checks and secrets
-
-`Azu::Env.required(*names)` raises one `Azu::Env::MissingError` listing every missing name
-(`DATABASE_URL, CSRF_SECRET are not set`); `error.names` has them as an array.
-
-`Azu::Env.secret(name)` is the guard the generated applications use: the variable when set; a random value
-outside production (the same value for the life of the process, so two readers of one name agree); an
-`Azu::Env::MissingError` (`CSRF_SECRET is not set`) in production.
-
-{% hint style="warning" %}
-**The random fallback is per process.** Two processes, or one process after a restart, get different values, so signed
-cookies, CSRF tokens and sessions stop validating. `secret` logs one warning per name when it falls back; set the
-variable in `.env` in development.
-{% endhint %}
-
-{% hint style="warning" %}
-**Only `production` is strict by default.** Staging gets random secrets unless you list it: set
-`AZU_STRICT_ENVS=production,staging` or `Azu::Env.strict_environments = ["production", "staging"]` (`nil` restores
-the default), and `secret` raises there too.
-{% endhint %}
-
-```crystal
-require "azu"
-
-Azu::Handler::CSRF.configure do |csrf|
-  csrf.secret_key = Azu::Env.secret("CSRF_SECRET")
-end
-```
-
-## Logging
-
-`Azu::Env.redact(name, value)` returns `[FILTERED]` for names that look like secrets (`SECRET`, `PASSWORD`,
-`TOKEN`, `PRIVATE`, `CREDENTIAL`, `*KEY`, `COOKIE`, `AUTH`, `DSN`, `SALT`, `SIGNING`) and hides the password inside a URL;
-`Azu::Env.redacted(hash)` does it for a hash. Use them whenever you print variables.
-
-## What Azu reads through it
+### What Azu reads through it
 
 `Azu::Configuration` reads `PORT`, `HOST`, `CRYSTAL_ENV` and `DATABASE_URL` (the deprecated
 `config.database.uri`) with `Env`, so an invalid `PORT` fails with a message naming it. The generated
 applications of `azu new` load `.env` at boot and read `CSRF_SECRET` / `SESSION_SECRET` with `Env.secret`.
+
+## See also
+
+- [Configuration options](options.md)
+- [Environments](environments.md)
+- [Configure production](../../how-to/deployment/configure-production.md)

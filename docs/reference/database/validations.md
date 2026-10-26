@@ -4,9 +4,11 @@ description: "The rules, messages, custom validators and lifecycle of CQL model 
 
 # Database validations
 
-For validating HTTP input see the [Request Reference](../api/request.md); the two systems are independent.
+`CQL::ActiveRecord::Validations` checks a model's attributes before `save` writes them. It belongs to the CQL shard
+(`require "cql"`), and every model that includes `CQL::ActiveRecord::Model` has it. It does not validate HTTP input:
+that is the job of [request contracts](../api/request.md), and the two systems are independent.
 
-## Validation macro
+## API
 
 ### validate
 
@@ -28,7 +30,7 @@ Rules are evaluated in the order written. A rule that fails adds one `Error` wit
 An unknown rule name stops compilation: `unsupported predicate ... Supported predicates: eq, exclude, gt, gte, in, lt, lte,
 match, size, presence, required, confirmation, accept.`
 
-## Validation rules
+### Validation rules
 
 | Rule | Passes when | Default message |
 | --- | --- | --- |
@@ -121,7 +123,7 @@ account = Account.new("Al", "al", "al@example.com", "abc123", 30, 5.0, "user", "
 account.valid?   # => false (terms not accepted, password missing)
 ```
 
-## Custom messages
+### Custom messages
 
 `message:` replaces the default text for every rule in the same `validate` call. Split the rules over separate calls to
 give each its own message:
@@ -155,7 +157,7 @@ end
 Person.new("a@example.com", 0).errors.map(&.message)   # => ["must be positive"]
 ```
 
-## Custom validators
+### Custom validators
 
 For anything the rules cannot say (uniqueness, optional values, cross-field checks, context-dependent rules) subclass
 `CQL::ActiveRecord::Validations::CustomValidator`, return the failures from `valid?` and attach it with `use`. The
@@ -215,7 +217,7 @@ end
 Order.new("A-1", 10.0, 20.0).errors.map(&.message)   # => ["cannot exceed the total"]
 ```
 
-## Checking validity
+### Checking validity
 
 ### valid?
 
@@ -273,7 +275,9 @@ record; `save` returns `false` only when a callback returns `false`.
 The class-level `create!(**fields)`, `update!`, `update_by`, `update_all` and the bulk deletes do not validate.
 {% endhint %}
 
-## Validation lifecycle
+## Behavior
+
+### Validation lifecycle
 
 `save` (and `save!`) performs, in order:
 
@@ -327,6 +331,6 @@ User.new(" Ada ", " ADA@EXAMPLE.COM ").save
 
 ## See also
 
-- [CQL API Reference](cql-api.md)
+- [CQL API](cql-api.md)
 - [Create models](../../how-to/database/create-models.md#model-with-validations)
 - [Validate requests](../../how-to/validation/validate-requests.md)

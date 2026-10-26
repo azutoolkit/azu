@@ -44,6 +44,10 @@ a multipart body it could not parse, or one over `upload.max_file_size`, answere
 chain. The endpoint now answers `400` and `413` itself, like a contract violation. A malformed `Content-Type` header (for
 example `application/json; charset`) is a `400` instead of a `500`, with or without `Rescuer`.
 
+**`i18n.missing_key_format` is used (fix).** A missing translation always printed `[missing: key]`; the format set in
+`config.i18n.missing_key_format`, `I18N_MISSING_KEY_FORMAT` or `Helpers::I18n.missing_key_format=` was stored and never
+read. It now formats the marker, `%{key}` replaced by the key. The default is the same text as before.
+
 ## 0.5.129
 
 **The CSRF cookie is sent to every path (fix).** `Handler::CSRF` set its token cookie without a `Path`, so browsers kept it

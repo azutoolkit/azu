@@ -4,12 +4,11 @@ description: Generate an OpenAPI 3.1 document from your endpoint contracts, serv
 
 # OpenAPI
 
-`Azu::OpenAPI` generates an [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0) document from the
-`Endpoint(Request, Response)` contracts of an app and can serve it. The request and response types are
-the source of truth, so the document cannot drift from the code. It is part of `require "azu"`; nothing
-is built until you ask for the document.
-
-## Quick start
+`Azu::OpenAPI` builds an [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0) document from the
+`Endpoint(Request, Response)` contracts of an app, and `Azu::OpenAPI::Handler` serves it. The request and response
+types are the source of truth, so the document cannot drift from the code. It is part of `require "azu"`; nothing is
+built until you ask for the document. It writes JSON and serves no documentation page, and it is not the
+`azu openapi:export` command of the Azu CLI (see [Limits](#limits)).
 
 ```crystal
 require "azu"
@@ -67,11 +66,33 @@ handler = Azu::OpenAPI::Handler.new(app, info: info)
 server = app.server([*app.default_handlers, handler] of HTTP::Handler)
 ```
 
-## What the document contains
+## API
 
-`Azu::OpenAPI.document(app, info, servers = [])` returns an `Azu::OpenAPI::Document`. `#to_json` gives the
-JSON text (`pretty: true` indents it) and `#to_h` the structure. Keys are sorted, so the same app yields
-the same bytes and a document can be compared or committed.
+| Signature | Returns | Notes |
+| --- | --- | --- |
+| `Azu::OpenAPI.document(app : App, info : Info, servers : Array(Server) = [] of Server)` | `Document` | A snapshot of the routes `app` has when it is called, mounted apps included |
+| `Document#to_json(pretty : Bool = false)` | `String` | Keys sorted, so the same app yields the same bytes; `pretty` indents by two spaces |
+| `Document#to_h` | `OpenAPI::Map` | The document's own map, not a copy: a change to it shows in `to_json` |
+| `Document.new(root : Map)` | `Document` | A document around a map |
+| `Azu::OpenAPI.encode(value : Value, pretty : Bool = false)` | `String` | JSON with sorted keys, for any `Value` |
+| `Azu::OpenAPI::Info.new(title : String, version : String, description : String? = nil)` | `Info` | The `info` object |
+| `Azu::OpenAPI::Server.new(url : String, description : String? = nil)` | `Server` | One entry of `servers`; none are written when the array is empty |
+
+`Azu::OpenAPI::Map` is `Hash(String, Value)`, and `Azu::OpenAPI::Value` is
+`String | Int64 | Float64 | Bool | Nil | Array(Value) | Hash(String, Value)`.
+
+`Azu::OpenAPI::Handler.new(app, *, info, path = "/openapi.json", servers = [] of Server)`:
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `app` | `App` | | The app the document describes |
+| `info` | `Info` | | The `info` object |
+| `path` | `String` | `"/openapi.json"` | Where the document is served; a trailing slash is dropped, and `"/"` serves it at the root |
+| `servers` | `Array(Server)` | `[] of Server` | The `servers` entries |
+
+## Behavior
+
+### What the document contains
 
 - **Paths.** One operation per route that leads to an `Azu::Endpoint`. `:id` and `*path` become `{id}` and
   `{path}` and are declared as required path parameters, typed from the request field of the same name
@@ -85,27 +106,28 @@ the same bytes and a document can be compared or committed.
   that are not in the path are query parameters. For `POST`, `PUT` and `PATCH` they are a `requestBody`
   offered as `application/json` and as `application/x-www-form-urlencoded`, because Azu parses both.
   The two differ where Azu's parsing does. A JSON body is read alone: the path and the query string are
-  not added to it (they only replace a key the body already has, see [Params](endpoint.md#params)), so a field named like a path parameter is also in the JSON schema (and required
-  there if the request requires it) as well as being declared as a path parameter. A form is read together
-  with the path and the query string, so the form schema leaves path-named fields out. The keys follow
-  the parser: `@[JSON::Field(key:)]` renames a field in the JSON body only; query parameters and form
-  fields always use the variable name.
+  not added to it (they only replace a key the body already has, see [Params](endpoint.md#params)), so a field named
+  like a path parameter is also in the JSON schema (and required there if the request requires it) as well as being
+  declared as a path parameter. A form is read together with the path and the query string, so the form schema leaves
+  path-named fields out. The keys follow the parser: `@[JSON::Field(key:)]` renames a field in the JSON body only;
+  query parameters and form fields always use the variable name.
 - **Response.** If the response type includes `JSON::Serializable` the `200` response carries its schema
-  as `application/json`.
+  as `application/json`. A `Response::Negotiable` lists every media type it renders, with the schema under
+  `application/json` and `{"type": "string"}` under the others.
 - **Errors.** An operation with request fields adds `400` and `422`; one with a path parameter adds `404`.
   They reference shared `components`: `Azu.ValidationProblem` is the RFC 7807 problem body (listed as
-  `application/problem+json` and `application/json`) that `Response::ValidationError` writes, and `Azu.Error` is the problem body (listed as `application/problem+json` and `application/json`) the other `Response::Error`
-  classes write for a client that accepts JSON (`type`, `title`, `status`, `detail`, `errors`, `error_id`, and
-  `instance` when the error knows the path). The document follows the `error_format` the app has when it is built: with
-  `Legacy` the 400, 404 and 422 are `application/json`, and `Azu.LegacyValidationError` and `Azu.LegacyError`
-  (the PascalCase bodies, `Status` being the underscored `HTTP::Status` member name) replace the problem schemas.
+  `application/problem+json` and `application/json`) that `Response::ValidationError` writes, and `Azu.Error` is the
+  problem body (listed as `application/problem+json` and `application/json`) the other `Response::Error` classes write
+  for a client that accepts JSON (`type`, `title`, `status`, `detail`, `errors`, `error_id`, and `instance` when the
+  error knows the path). The document follows the `error_format` the app has when it is built: with `Legacy` the 400,
+  404 and 422 are `application/json`, and `Azu.LegacyValidationError` and `Azu.LegacyError` (the PascalCase bodies,
+  `Status` being the underscored `HTTP::Status` member name) replace the problem schemas.
 - **Components.** Every `JSON::Serializable` type becomes a named schema under `components.schemas`, named
   after its type (`Shop::Address` is `Shop.Address`; a generic `Page(Shop::User)` is `Page.Shop.User`, since
   component names allow only letters, digits, `.`, `-` and `_`) and referenced with `$ref`. Recursive
   types work. `operationId` uses the same naming.
-- Security schemes, summaries and descriptions are left out: Azu cannot read them from the code.
 
-## Types
+### Types
 
 | Crystal | JSON Schema |
 | --- | --- |
@@ -126,7 +148,7 @@ the same bytes and a document can be compared or committed.
 A field is required unless its type is nilable or it has a default value, or a `presence` or `required`
 validation says it must be there.
 
-## Validations become constraints
+### Validations become constraints
 
 The options of `validate` are read from the request type:
 
@@ -150,22 +172,19 @@ inline flags or other group extensions, POSIX classes (`[[:alpha:]]`) or Crystal
 `\R`, `\p{..}` and the like) is left out rather than written wrongly. Crystal's `^` and `$` also match at
 line breaks, which an ECMA-262 pattern without the `m` flag does not, so a multi-line value can differ.
 
-## Serving the document
+### Serving the document
 
-`Azu::OpenAPI::Handler.new(app, info:, path: "/openapi.json", servers: [])` is an opt-in `HTTP::Handler`
-like `Handler::HealthCheck`: it answers `GET` and `HEAD` at `path` with JSON and passes every other
-request on. The document is built by the first request and kept, so routes added after that do not
-show up. There is no documentation UI; point Swagger UI, Redoc or any other tool at the URL.
+`Azu::OpenAPI::Handler` is an opt-in `HTTP::Handler` like `Handler::HealthCheck`: it answers `GET` and `HEAD` at its
+path with `application/json` and a `Content-Length` (no body for `HEAD`), and passes every other request on. The
+document is built by the first request and kept, so routes added after that do not show up: build a new handler to
+pick them up. It describes the `App` it is given, nothing else.
 
 {% hint style="warning" %}
 Pass the handler after the default ones, as above: a server built from `[handler]` alone has no request id, error
 pages or security headers.
 {% endhint %}
 
-The handler describes the `App` it is given, nothing else, and its cache never invalidates: build a new
-handler to pick up routes added later. `path: "/"` serves the document at the root.
-
-## Securing the document
+### Securing the document
 
 The document is a map of your application: every route, the names of its parameters, the validation rules
 and the mounted apps. Treat it like source code you would show to a client.
@@ -177,13 +196,17 @@ and the mounted apps. Treat it like source code you would show to a client.
 
 ## Limits
 
+- **Not generated:** summaries and descriptions of operations and parameters, security schemes and requirements,
+  examples, and a success status other than `200` (an endpoint's status is set while it runs, so the document cannot
+  know about a `201` or `204`). Azu cannot read them from the code; add them by editing `to_h` (see
+  [Publish your OpenAPI document](../../how-to/api/publish-openapi.md#add-what-azu-does-not-generate)).
+- **JSON only, no page.** There is no YAML writer (`JSON.parse(document.to_json).to_yaml`, with `require "yaml"`,
+  converts it and keeps the key order) and no documentation UI; point Swagger UI, Redoc or any other tool at the URL.
 - A response that is not `JSON::Serializable` has no schema, and neither has a request that is the bare
   `Azu::Request`: nothing says what they carry. Wrong or missing is better than invented.
 - A `render` that does not write the type's own `to_json` makes the document wrong; Azu cannot check it.
 - Hand written `Routable` and `HTTP::Handler` routes have no operation and are left out. So are WebSocket
   channels.
-- The status of a successful response is assumed to be `200`: an endpoint's status is set while it runs,
-  so the document cannot know about a `201` or `204`.
 - Query parameters of `POST`, `PUT` and `PATCH` are not described. Azu reads them only for form bodies
   (merged into the form), not for JSON ones.
 - `@[JSON::Field(ignore:)]` and `@[URI::Params::Field(ignore:)]` leave a field out. A field with
@@ -194,3 +217,19 @@ and the mounted apps. Treat it like source code you would show to a client.
 - An explicit JSON `null` for a nilable field is accepted by Azu but not advertised in the schema.
 - The routes are read when the document is built. Endpoints declared with the verb macros (`get "/path"`
   inside an endpoint) are registered on `Azu::App.default`, so pass that app.
+
+{% hint style="info" %}
+**`azu openapi:export` is a different generator.** The command of the [Azu CLI](https://github.com/azutoolkit/azu_cli)
+(`--output`, `--format yaml|json`, `--project`, `--version`) does not compile the app: it reads
+`src/endpoints/**/*_endpoint.cr` with regular expressions. It finds verb macros in structs whose name ends in
+`Endpoint`, so routes declared in `routes`, `scope` or `mount` are missing; it keeps `:id` in paths instead of
+`{id}`, writes a fixed `http://localhost:3000` server and reads no validations. `Azu::OpenAPI` describes the routes
+the app has.
+{% endhint %}
+
+## See also
+
+- [Publish your OpenAPI document](../../how-to/api/publish-openapi.md)
+- [Endpoint](endpoint.md)
+- [Request](request.md)
+- [Contracts](../../explanation/concepts/contracts.md)
