@@ -237,6 +237,16 @@ describe Azu::Router do
       expect_raises(Azu::Router::Frozen) { child.router.get "/late", RoutableStruct.new }
       router.registered_routes.map(&.path).should_not contain "/late"
     end
+
+    it "freezes once, also a router mounted on itself" do
+      app = Azu::App.new
+      app.routes { mount app, at: "/self" }
+
+      app.router.frozen?.should be_false
+      app.router.freeze
+      app.router.freeze
+      app.router.frozen?.should be_true
+    end
   end
 
   describe "complex routing scenarios" do

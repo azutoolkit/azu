@@ -82,8 +82,13 @@ module Azu
     # Takes no more routes. `App#start` calls it before it listens, so the tree and the registry are never changed
     # while requests read them; the routers of mounted apps are frozen with this one.
     def freeze : Nil
-      @frozen.set(true)
+      return if @frozen.swap(true) # once: a mount cycle, or a router mounted on itself, ends here
       @mounts.each(&.child.router.freeze)
+    end
+
+    # True once `freeze` ran.
+    def frozen? : Bool
+      @frozen.get
     end
 
     {% for method in RESOURCES %}
