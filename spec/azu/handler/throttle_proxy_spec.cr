@@ -3,6 +3,17 @@ require "../../support/integration_helpers"
 
 include IntegrationHelpers
 
+# The server accepts connections: a plain Fiber.yield does not promise that on a loaded machine.
+private def wait_until_listening(address : Socket::IPAddress) : Nil
+  200.times do
+    TCPSocket.new(address.address, address.port).close
+    return
+  rescue Socket::ConnectError
+    sleep 10.milliseconds
+  end
+  raise "the spec server did not start"
+end
+
 private alias CA = Azu::Handler::ClientAddress
 
 private def throttle(threshold = 1, trusted = [] of String, **options) : Azu::Handler::Throttle
@@ -28,7 +39,7 @@ private def serve(trusted : Array(String), &)
   server = HTTP::Server.new([handler] of HTTP::Handler) { |context| context.response.print "OK" }
   address = server.bind_unused_port("127.0.0.1")
   spawn { server.listen }
-  Fiber.yield
+  wait_until_listening(address)
   begin
     yield address
   ensure
@@ -104,7 +115,7 @@ describe Azu::Handler::ClientAddress do
   describe ".client" do
     trusted = CA::Networks.parse(["10.0.0.0/8", "fd00::/8"])
     client = ->(peer : String, lines : Array(String)?) {
-      CA.to_s(CA.client(CA.parse(peer).not_nil!, lines, trusted))
+      CA.client(CA.parse(peer).not_nil!, lines, trusted).try { |address| CA.to_s(address) }
     }
 
     it "is the peer when it is not trusted, whatever the header says" do
@@ -127,31 +138,31 @@ describe Azu::Handler::ClientAddress do
       client.call("::ffff:10.0.0.1", ["1.1.1.1"]).should eq "1.1.1.1"
     end
 
-    it "is the peer when there is no header, an empty one, or only trusted hops" do
+    it "is the peer when there is no header or an empty one, and nil when the hops name no client" do
       client.call("10.0.0.1", nil).should eq "10.0.0.1"
       client.call("10.0.0.1", [""]).should eq "10.0.0.1"
-      client.call("10.0.0.1", ["10.0.0.2, fd00::5"]).should eq "10.0.0.1"
+      client.call("10.0.0.1", ["10.0.0.2, fd00::5"]).should be_nil
     end
 
-    it "is the peer when a hop it has to read is garbage, even if a good one stands further left" do
-      client.call("10.0.0.1", ["1.1.1.1, garbage"]).should eq "10.0.0.1"
-      client.call("10.0.0.1", ["1.1.1.1, , 10.0.0.2"]).should eq "10.0.0.1"
-      client.call("10.0.0.1", ["1.1.1.1,"]).should eq "10.0.0.1"
-      client.call("10.0.0.1", ["unknown"]).should eq "10.0.0.1"
+    it "is nil when a hop it has to read is garbage, even if a good one stands further left" do
+      client.call("10.0.0.1", ["1.1.1.1, garbage"]).should be_nil
+      client.call("10.0.0.1", ["1.1.1.1, , 10.0.0.2"]).should be_nil
+      client.call("10.0.0.1", ["1.1.1.1,"]).should be_nil
+      client.call("10.0.0.1", ["unknown"]).should be_nil
     end
 
     it "does not read past a client's garbage to its left" do
       client.call("10.0.0.1", ["bogus, 2.2.2.2"]).should eq "2.2.2.2"
     end
 
-    it "does not believe a chain longer than it reads" do
+    it "does not believe a chain longer than it reads (nil) and reads a long chain that ends early" do
       client.call("10.0.0.1", [(["10.0.0.2"] * 40).join(", ") + ", 1.1.1.1"]).should eq "1.1.1.1"
-      client.call("10.0.0.1", ["1.1.1.1, " + (["10.0.0.2"] * 40).join(", ")]).should eq "10.0.0.1"
-      client.call("10.0.0.1", [(["10.0.0.2"] * 1000).join(", ")]).should eq "10.0.0.1"
+      client.call("10.0.0.1", ["1.1.1.1, " + (["10.0.0.2"] * 40).join(", ")]).should be_nil
+      client.call("10.0.0.1", [(["10.0.0.2"] * 1000).join(", ")]).should be_nil
     end
 
     it "is the peer without any trusted proxy" do
-      CA.to_s(CA.client(CA.parse("10.0.0.1").not_nil!, ["1.1.1.1"], CA::Networks.parse([] of String))).should eq "10.0.0.1"
+      CA.to_s(CA.client(CA.parse("10.0.0.1").not_nil!, ["1.1.1.1"], CA::Networks.parse([] of String)).not_nil!).should eq "10.0.0.1"
     end
   end
 
@@ -221,12 +232,28 @@ describe Azu::Handler::Throttle do
       status(handler, "10.0.0.1", ["[2001:db8::1]:80"]).should eq 429
     end
 
-    it "falls back to the proxy for garbage, and an IPv6 proxy works as well" do
+    it "counts a header that names no client apart from the proxy's own requests, so a health check is not blocked by it" do
       handler = throttle(trusted: ["fd00::/8", "10.0.0.1"])
       status(handler, "fd00::1", ["bogus"]).should eq 200
-      status(handler, "fd00::2", ["bogus"]).should eq 429 # same /64 as the proxy
+      status(handler, "fd00::2", ["bogus"]).should eq 429 # same /64, same unresolved bucket
+      status(handler, "fd00::2").should eq 200            # no header at all: the proxy itself
       status(handler, "fd00::3", ["1.1.1.1"]).should eq 200
       status(handler, "fd00::3", ["1.1.1.1"]).should eq 429
+    end
+
+    it "lets an attacker behind the proxy fill only the unresolved bucket" do
+      handler = throttle(trusted: ["10.0.0.1"], threshold: 2)
+      statuses = 5.times.map { status(handler, "10.0.0.1", [(["10.0.0.1"] * 3).join(", ")]) }.to_a
+      statuses.should eq [200, 200, 429, 429, 429]
+      status(handler, "10.0.0.1").should eq 200
+      status(handler, "10.0.0.1", ["1.1.1.1"]).should eq 200
+    end
+
+    it "refuses a catch-all block, in any spelling, and still accepts a broad one" do
+      ["0.0.0.0/0", "::/0", "1.2.3.4/0", "::ffff:0.0.0.0/0", " 0.0.0.0/0 "].each do |entry|
+        expect_raises(ArgumentError, /every address/) { throttle(trusted: [entry]) }
+      end
+      throttle(trusted: ["10.0.0.0/8", "0.0.0.0/1", "::/1"])
     end
 
     it "reads the header lines of a request as one list" do
@@ -350,6 +377,50 @@ describe Azu::Handler::Throttle do
         [socket_status.call(["9.9.9.9", "1.1.1.1"]), socket_status.call(["8.8.8.8", "1.1.1.1"])]
       end
       statuses.should eq [200, 429]
+    end
+  end
+
+  describe "black and white lists" do
+    it "take CIDR blocks of both families, and match IPv6 clients by address" do
+      handler = throttle(threshold: 100, whitelist: ["10.0.0.0/8", "2001:db8::/32"], blacklist: ["192.168.0.0/16", "fe80::1"])
+      status(handler, "10.9.9.9").should eq 200
+      status(handler, "2001:db8:5::1").should eq 200
+      status(handler, "192.168.4.4").should eq 429
+      status(handler, "fe80::1").should eq 429
+      status(handler, "fe80::2").should eq 200
+    end
+
+    it "refuse an entry that is not an address or block when the handler is built" do
+      ["unknown", "evil.example", "1.2.3.4:80", "10.0.0.0/33", "", "*"].each do |entry|
+        expect_raises(ArgumentError, /whitelist/) { throttle(whitelist: [entry]) }
+        expect_raises(ArgumentError, /blacklist/) { throttle(blacklist: [entry]) }
+      end
+    end
+  end
+
+  describe "a table full of blocked clients" do
+    it "admits new clients in constant time, evicting the oldest unblocked one" do
+      count = 50_000
+      handler = Azu::Handler::Throttle.new(interval: 600, duration: 600, threshold: 1, blacklist: [] of String, whitelist: [] of String, max_clients: count + 100)
+      handler.next = ->(context : HTTP::Server::Context) { context.response.print "OK" }
+      count.times { |n| 2.times { status(handler, "20.#{n // 65_536}.#{(n // 256) % 256}.#{n % 256}") } }
+      handler.stats.should eq({tracked_ips: count, blocked_ips: count})
+
+      started = Time.instant
+      5_000.times { |n| status(handler, "30.#{n // 65_536}.#{(n // 256) % 256}.#{n % 256}") }
+      elapsed = Time.instant - started
+
+      handler.stats[:tracked_ips].should eq count + 100
+      handler.stats[:blocked_ips].should eq count
+      # A scan of the blocked clients per newcomer costs 2 ms each here (10 s for the loop); O(1) takes about 20 ms.
+      elapsed.should be < 2.seconds
+    end
+
+    it "gives up the block that ends first, in constant time, when every client is blocked" do
+      handler = Azu::Handler::Throttle.new(interval: 600, duration: 600, threshold: 0, blacklist: [] of String, whitelist: [] of String, max_clients: 3)
+      handler.next = ->(context : HTTP::Server::Context) { context.response.print "OK" }
+      %w(1.0.0.1 1.0.0.2 1.0.0.3 1.0.0.4).each { |ip| status(handler, ip).should eq 429 }
+      handler.stats.should eq({tracked_ips: 3, blocked_ips: 3})
     end
   end
 end

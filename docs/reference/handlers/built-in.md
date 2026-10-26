@@ -542,12 +542,12 @@ The first five arguments are required.
 - `interval` - seconds in which `threshold` requests are allowed per client address.
 - `threshold` - requests allowed within `interval`; the next one blocks the client.
 - `duration` - seconds a blocked client stays blocked.
-- `blacklist` / `whitelist` - addresses that are always refused / never counted.
+- `blacklist` / `whitelist` - addresses and CIDR blocks that are always refused / never counted.
 - `log : ::Log?` - where blocks, releases and refusals are logged (at most 10 refusals a second, then one line
   counting the rest). Without one, the log of the app serving the request.
 - `trusted_proxies : Array(String)` - the reverse proxies in front of the app, as exact IPv4 or IPv6 addresses and CIDR
-  blocks (`"10.0.0.0/8"`, `"fd00::/8"`, `"203.0.113.7"`, `"::1"`); an entry that is neither raises `ArgumentError`. Empty by
-  default: the client is the address of the connection, as before.
+  blocks (`"10.0.0.0/8"`, `"fd00::/8"`, `"203.0.113.7"`, `"::1"`); an entry that is neither, or a catch-all block, raises
+  `ArgumentError`. Empty by default: the client is the address of the connection, as before.
 - `ipv6_prefix : Int32` - IPv6 clients are counted by their first N bits, 64 by default: a subscriber owns a whole /64
   and could otherwise dodge the limit, and fill the table, by rotating the rest.
 - `max_clients : Int32` - the most clients tracked at once, 100 000 by default.
@@ -582,23 +582,59 @@ Azu::Handler::Throttle.new(
   address that is not trusted is the client (a proxy appends the address it saw; whatever stands left of that was
   written by the client). The left-most address is never used.
 - Entries may carry whitespace, a port (`1.2.3.4:5678`, `[2001:db8::1]:443`) or be IPv4-mapped (`::ffff:1.2.3.4`, the
-  same client as `1.2.3.4`). An entry that is not an address (`unknown`, a name, a zone id, a bad port, leading zeros),
-  a chain with only trusted hops and a chain over 32 hops all give the proxy's own address, never a guess.
-- `blacklist` and `whitelist` are matched against the client so found, in any spelling of the address (`::ffff:1.2.3.4`
-  is `1.2.3.4`). Whitelisting a proxy therefore does not whitelist its clients.
-- The proxy must overwrite or append to `X-Forwarded-For` (nginx `proxy_add_x_forwarded_for`, Envoy
-  `xff_num_trusted_hops`), not pass the client's value through unchanged as the last hop.
+  same client as `1.2.3.4`). A header that names no client (an entry that is not an address such as `unknown`, a
+  name, a zone id, a bad port or leading zeros; a chain with only trusted hops; a chain over 32 hops) is never guessed
+  at: the request is counted under the proxy's address with `!forwarded` added, a bucket of its own. A request
+  that carries no header at all (the proxy's own health check) stays under the proxy's address. So whoever makes a
+  proxy forward garbage fills and blocks only that bucket, and cannot get the proxy's own requests refused.
+- `blacklist` and `whitelist` take addresses and CIDR blocks of both families (an entry that is neither raises
+  `ArgumentError` when the handler is built) and are matched against the client so found, in any spelling of the
+  address. Whitelisting a proxy therefore does not whitelist its clients; to exempt the load balancer's health checks
+  whitelist the balancer's address (requests without `X-Forwarded-For` are the balancer itself) or answer them
+  before `Throttle`, as `HealthCheck` does.
+- A catch-all entry in `trusted_proxies` (`0.0.0.0/0`, `::/0`, or any `/0`) raises `ArgumentError`: it would make every
+  client a proxy and the header theirs to write. List only ranges that clients cannot reach directly.
+- A server listening on a UNIX socket has no peer address to compare: `trusted_proxies` never matches there, the
+  header is ignored and every client is counted as one. Listen on TCP (loopback is enough: `"127.0.0.1"`, `"::1"`),
+  or rate-limit in the proxy.
+
+How the proxies append the address:
+
+| Proxy | What to configure | What to trust |
+|---|---|---|
+| nginx | `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` | the address nginx connects from (`127.0.0.1` on the same host) |
+| AWS Application Load Balancer | nothing: it appends the peer address | the subnets of the load balancer's network interfaces, not the VPC at large |
+| Cloudflare in front of your own proxy | keep the header | your own proxy **and** Cloudflare's published ranges |
+| Envoy / HAProxy | `xff_num_trusted_hops` / `option forwardfor` | the proxy's own address |
+
+Cloudflare's ranges change: take them from Cloudflare's published list when you deploy and refresh them on a schedule;
+the framework does not ship them. Never trust a range that clients can reach directly (a public address, an open
+security group), because a request from there may carry any `X-Forwarded-For`. The proxy must append to or
+replace the header, not pass the client's value on as the last hop.
 
 `Handler::IpSpoofing` is a different check, not a source of the client: it refuses a request whose `X-Client-IP` or
 `X-Real-IP` is not in its own `X-Forwarded-For`. It does not decide who the client is and it trusts nothing; `Throttle`
 does not use it, and it can stand in front of `Throttle` to drop requests whose forwarding headers contradict each other.
 
+#### IPv6 and `ipv6_prefix`
+
+A client is counted by the first `ipv6_prefix` bits of its address (64 by default): one subscriber, one cloud instance
+or one hosting account usually holds a whole /64 and can use any address in it, so counting single addresses would let
+it dodge the limit and fill the table. Lower it (`56`, `48`) when attackers come from networks that hand out a /56 or
+/48 per customer; raise it (`128`) only for a network where unrelated clients share a /64 (some VPC subnets and shared
+hosting), at the price of the dodge above. IPv4 clients are always counted by address.
+
 #### Memory
 
-The table of clients is swept for trackers whose window and block have ended on a request, at most once a second (no
-fiber, on `Azu::Clock`). Past `max_clients` the oldest trackers that are not blocked are dropped to admit a new client,
-and only when every tracked client is blocked, the oldest block. A flood of addresses can therefore not grow the table,
-and it cannot evict the block of an address that is being refused while unblocked trackers exist.
+The table of clients is swept for trackers whose window has ended, and for blocks that have ended, on a request, at most
+once a second (no fiber, on `Azu::Clock`); a sweep of a full table takes a few milliseconds. Clients inside their window
+and blocked clients are kept in two tables, each in the order clients entered it, so making room is O(1) however many
+clients are blocked. Past `max_clients` a new client takes the place of the client first seen longest ago that is not
+blocked; only when every tracked client is blocked does it take the place of the block that ends first. A
+flood of addresses therefore cannot grow the table, and it cannot lift a block while an unblocked tracker exists. The
+price is that a flood of more than `max_clients` distinct clients (one attacker with a /48, say) pushes the others'
+counters out and they start from zero: raise `max_clients` where that matters, and lower `ipv6_prefix` for such
+attackers. Each tracked client costs roughly 100 bytes.
 
 ### Handler::HealthCheck
 
