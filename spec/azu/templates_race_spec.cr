@@ -111,4 +111,15 @@ describe "Azu::Templates between requests" do
       TemplatesRaceSpec::Page.new("later.jinja").render.should eq "b:"
     end
   end
+
+  it "starts a render a helper makes from the global context, not from the outer request's" do
+    # A fragment a helper renders may be cached and served to everyone (`Azu.cache.fetch(key) { ... }`)
+    with_compiled_templates({"page.jinja" => "{{ race_fragment() }}", "frag.jinja" => "[{{ secret }}]"}) do |config|
+      templates = config.templates
+      fragment = Crinja.function { templates.render("frag.jinja") + TemplatesRaceSpec::Page.new("frag.jinja").render }
+      Azu::Helpers::Registry.register_function(:race_fragment, fragment)
+
+      TemplatesRaceSpec::Page.new("page.jinja", {"secret" => "OUTER"}).render.should eq "[][]"
+    end
+  end
 end

@@ -224,16 +224,19 @@ module Azu
     end
 
     # Renders `template` with `data` (nil, a Hash or a NamedTuple). Renders run concurrently: each fiber renders in
-    # its own Crinja context (see templates/crinja_patches.cr).
+    # its own Crinja context (see templates/crinja_patches.cr). A render starts from the global context even inside
+    # another one (a helper that renders a fragment), so it never sees the outer request's variables.
     def render(template : String, data = nil) : String
-      load(template).render(data)
+      scope = Crinja::Context.new(crinja.global_context)
+      scope.merge!(data) if data
+      load(template).render(scope)
     end
 
     # :nodoc:
     # `render` for variables built for this one render (`view`): it takes `variables` over as the render's scope,
     # without a copy, and writes to it (a top-level `set`, the request variables the template reads from `request`).
     def render_variables(template : String, variables : Crinja::Variables, request : Helpers::TemplateContext? = nil) : String
-      load(template).render(Scope.new(crinja.context, variables, request))
+      load(template).render(Scope.new(crinja.global_context, variables, request))
     end
 
     # With reload on (development) every call may re-read changed files, see `check_for_changes`. Without it the
