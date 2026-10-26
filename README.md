@@ -255,7 +255,7 @@ The raw snapshot is committed: [report](benchmark/snapshots/2026-10-25-v0.5.119-
 - **New here?** [Getting started](docs/tutorials/getting-started.md), then [Building a user API](docs/tutorials/building-a-user-api.md).
 - **Doing a task?** [How-to guides](docs/README.md#how-to-guides).
 - **Looking something up?** [Reference](docs/README.md#reference).
-- **Want the why?** [Explanation](docs/README.md#explanation), starting with [Everything in the box](docs/explanation/features.md).
+- **Want the why?** [Concepts](docs/README.md#concepts), starting with [Everything in the box](docs/explanation/features.md).
 - **Upgrading?** [Migrate to 0.6](docs/how-to/migrate-to-0.6.md) and [breaking changes](docs/reference/breaking-changes.md).
 
 ## Status and compatibility
