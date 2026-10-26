@@ -158,7 +158,7 @@ module Azu
         context, _ = context_for("GET", "/", merge_headers(nil), nil)
         token = scoped { csrf.token(context) }
         context.response.cookies.add_response_headers(context.response.headers)
-        @cookies.absorb(context.response.headers)
+        @cookies.absorb(context.response.headers, context.request.path)
         @csrf = {csrf.header_name, token}
         self
       end
@@ -273,7 +273,7 @@ module Azu
         context.response.close
         io.rewind
         parsed = HTTP::Client::Response.from_io(io, ignore_body: method == "HEAD")
-        @cookies.absorb(parsed.headers)
+        @cookies.absorb(parsed.headers, context.request.path)
         Response.new(parsed.status, parsed.headers, parsed.body, error)
       end
 

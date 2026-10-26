@@ -355,6 +355,15 @@ token, and is refused on `POST /session` as before, until the cookie expires or 
 `SessionTokenStore` sets no cookie and is not affected. To drop the old cookies at once, give the handler a new
 `cookie_name:`; forms rendered before the deploy are then refused once.
 
+**The test client's cookies follow the browser's paths (`azu/testing`).** `Azu::Testing::CookieJar` sent a cookie set
+without `Path` to every path, where a browser keeps it for the directory of the request that set it (RFC 6265 default
+path), which is how the CSRF bug above passed the client. Now a cookie set without `Path` on `GET /auth/login` goes to
+`/auth/...` only; a name is held once per path (an expired `Set-Cookie` removes that name and path, `delete(name)`
+every path of it); a request carries longer paths first; and `client.cookies["name"]` / `to_h` give the shortest
+path's value. `CookieJar#absorb` takes the request path as a second argument (default `/`). A spec that now misses a
+cookie had a page that sets it without `Path` in a subdirectory: the app should set `Path` (a browser would not have
+sent it either).
+
 **Routes can belong to an app** (additive; the endpoint macros keep registering on `Azu::App.default`). The
 macros now record their routes on the endpoint type (`.routes`) and `App.default` registers them lazily, the first
 time its router is read, instead of when the class body runs; `Router::Builder#endpoint(Type)` registers a type on any
