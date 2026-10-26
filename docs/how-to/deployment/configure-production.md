@@ -24,7 +24,8 @@ PORT=4000
 | `TEMPLATE_HOT_RELOAD` | on in `development`, `test`, `pipeline` | re-read changed template files |
 | `TEMPLATES_PATH` | see [templates](../templates/render-html-templates.md) | comma separated template directories |
 | `SHUTDOWN_TIMEOUT` | `30` | seconds to wait for requests in flight on SIGTERM |
-| `UPLOAD_MAX_FILE_SIZE` | `10485760` | bytes allowed per uploaded file and per request body |
+| `UPLOAD_MAX_FILE_SIZE` | `10485760` | bytes allowed per uploaded file, multipart text field, urlencoded body and JSON body |
+| `UPLOAD_MAX_REQUEST_SIZE`, `UPLOAD_MAX_PARTS`, `UPLOAD_MAX_FILES` | `67108864`, `100`, `20` | bytes, parts and files allowed in one multipart request |
 | `SSL_CERT`, `SSL_KEY` | empty | PEM files; TLS is on when both are set |
 | `CACHE_STORE`, `CACHE_REDIS_URL` | `memory`, | see [Redis cache](../caching/setup-redis-cache.md) |
 | `SPARK_SECRET` | | signing secret for Spark live views, required in staging and production |
