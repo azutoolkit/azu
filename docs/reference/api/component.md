@@ -286,8 +286,7 @@ class Counter < Azu::Spark::Component
   end
 end
 
-# once, at boot
-Azu::Spark.configure { |c| c.secret = ENV.fetch("SPARK_SECRET", "development-only") }
+# once, at boot (tokens are signed with SPARK_SECRET: set it in production and staging)
 Azu::Spark.install
 
 # in a layout
@@ -297,15 +296,17 @@ Azu::Spark.script_tag
 Azu::Spark.render(Counter, label: "Visits", session: {"user_id" => "42"})
 ```
 
-`Azu::Spark.render` signs the component id, type, props and session claims with `config.secret`
-(required in production and staging). Props are checked at compile time.
+`Azu::Spark.render` signs the component id, type, props and session claims with `config.secret`, which Spark
+reads from `SPARK_SECRET`. Without it, development and test use a random per-process secret, and production and
+staging raise `Azu::Spark::ConfigurationError` the first time a token is signed or verified (not at boot:
+`Spark.install` does not read the secret). Props are checked at compile time.
 
 ### Configuration
 
 `Azu::CONFIG.spark` (`Azu::Spark.config`) exposes `path`, `assets_path`, `secret`, `token_ttl`,
-`allowed_origins`, `max_message_size`, `max_components`, `events_per_second`, `event_burst`,
-`heartbeat_interval`, `idle_timeout` and `max_snapshot_size`. Most can also be set through
-`SPARK_*` environment variables.
+`allowed_origins`, `max_message_size`, `compress_threshold`, `max_components`, `events_per_second`, `event_burst`,
+`heartbeat_interval`, `idle_timeout`, `snapshot_ttl` and `max_snapshot_size`. Each is read from a `SPARK_*`
+environment variable: see [Configuration options](../configuration/options.md#spark).
 
 ### Testing
 

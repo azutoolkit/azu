@@ -260,8 +260,15 @@ end
 ### Not Found
 
 When no route matches, the router answers `404` with an `Azu::Response::NotFound`, rendered as HTML, JSON, XML or
-plain text according to the `Accept` header. The JSON body has the `Status`, `Title`, `Detail` and `Source` (the
-path) fields.
+plain text according to the first `Accept` entry (plain text with no `Accept` or `*/*`). A JSON client gets the
+problem body; this is `GET /nope` with `Accept: application/json` in production:
+
+```json
+{"type":"about:blank","title":"Not Found","status":404,"detail":"The server can't find the requested resource.","errors":[],"error_id":"e971adacb1def55a7b6661fa0433c959","instance":"/nope"}
+```
+
+`error_id` differs on every request, and development adds a `backtrace` field. The formats and statuses are listed
+in [Error types](../errors/error-types.md).
 
 A request is routed only when its method is one of the verbs spelled exactly (`GET`, `POST`, ...: methods are
 case-sensitive) and its path starts with `/`; a WebSocket route is reached only by a `GET` upgrade. Any other request

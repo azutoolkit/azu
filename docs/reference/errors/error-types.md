@@ -76,7 +76,8 @@ Resource not found. The argument is the path, which is kept in `source`.
 raise Azu::Response::NotFound.new("/users/123")
 ```
 
-**Usage:** Resource doesn't exist. The router raises it for paths no route matches.
+**Usage:** Resource doesn't exist. The router answers paths no route matches with it (it writes the error itself,
+without raising it).
 
 ### TimeoutError (408)
 
@@ -94,7 +95,9 @@ raise Azu::Response::PayloadTooLarge.new
 
 ### ValidationError (422)
 
-Validation error with the failing fields. The router raises it for you when a request breaks its contract.
+Validation error with the failing fields. When a request breaks a validation rule of its contract, the endpoint
+answers this `422` itself before `call` runs, so neither `Rescuer` nor the router is involved and a handler that
+rescues `ValidationError` never sees it. Raise it yourself inside `call` for checks the contract cannot express.
 
 ```crystal
 raise Azu::Response::ValidationError.new({
@@ -217,8 +220,9 @@ raise InsufficientFundsError.new(100.0, 25.0)
 
 ## Error Response Format
 
-`Rescuer` (and the router, for an unrouted path) writes an error in the format the `Accept` header asks for: HTML (an
-error page), JSON, XML or plain text. The JSON body is an RFC 7807 problem document, the same shape the `422`
+`Rescuer` (and the router, for an unrouted path, and the endpoint, for a broken contract) writes an error in the
+format the first entry of the `Accept` header asks for: HTML (an error page), JSON, XML or plain text. With no
+`Accept`, or `*/*`, the body is plain text. The JSON body is an RFC 7807 problem document, the same shape the `422`
 of a broken request contract uses, and it is the same for every JSON client (see the `Content-Type` note below):
 
 ```json
@@ -251,6 +255,7 @@ of a broken request contract uses, and it is the same for every JSON client (see
 | 401 | Unauthorized | `AuthenticationError` |
 | 403 | Forbidden | `AuthorizationError`, `Forbidden` |
 | 404 | Not Found | `NotFound` |
+| 406 | Not Acceptable | `NotAcceptable` |
 | 408 | Request Timeout | `TimeoutError` |
 | 413 | Payload Too Large | `PayloadTooLarge` |
 | 422 | Unprocessable Entity | `ValidationError` |

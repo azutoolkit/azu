@@ -37,7 +37,7 @@ end
 | `port` | `Int32` | `PORT` or `4000` | HTTP server port |
 | `host` | `String` | `HOST`, else `"127.0.0.1"` in development and `"0.0.0.0"` elsewhere | Bind address |
 | `env` | `Azu::Environment` | `CRYSTAL_ENV` or `Development` | Environment mode |
-| `template_hot_reload` | `Bool` | `true` in development, test and pipeline | Reload templates on change |
+| `template_hot_reload?` (set with `template_hot_reload=`) | `Bool` | `TEMPLATE_HOT_RELOAD`, else `true` in development, test and pipeline | Reload templates on change |
 | `log` | `Log` | `Log.for("Azu")` | Logger used by the framework |
 | `cache` | `Azu::Cache::Manager` | memory store | Cache manager (see [cache](#cache)) |
 | `shutdown_timeout` | `Time::Span` | `SHUTDOWN_TIMEOUT` or `30` seconds | How long a stopping server waits for requests in flight |
@@ -105,8 +105,8 @@ end
 
 MyApp.start [
   Azu::Handler::RequestId.new,
-  Azu::Handler::Rescuer.new,
   Azu::Handler::Logger.new,
+  Azu::Handler::Rescuer.new,
 ] of HTTP::Handler
 ```
 

@@ -135,12 +135,17 @@ app.routes { ws "/rooms/:room", RoomChannel }
 ## Closing and rejecting
 
 `close` takes an `HTTP::WebSocket::CloseCode` (or an `Int`) and a reason. Use it to refuse a
-connection you cannot authenticate:
+connection you cannot authenticate. This channel refuses every connection while `CHANNEL_TOKEN` is unset, and
+compares the token in constant time:
 
 ```crystal
+require "crypto/subtle"
+
 class SecureChannel < Azu::Channel
   def on_connect
-    unless params["token"]? == ENV.fetch("CHANNEL_TOKEN", "change-me")
+    expected = ENV["CHANNEL_TOKEN"]?.presence
+    given = params["token"]?
+    unless expected && given && Crypto::Subtle.constant_time_compare(given, expected)
       close(HTTP::WebSocket::CloseCode::PolicyViolation, "Unauthorized")
       return
     end

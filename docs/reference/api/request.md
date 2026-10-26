@@ -306,8 +306,11 @@ The contract is built once per call from:
 - JSON body (`application/json`), with `from_json`
 - Form data (`application/x-www-form-urlencoded`) and the query string, with `from_www_form`
 
-A request that breaks its validations never reaches `call`: the router answers `422` (see
-[Response Reference](response.md#validationerror)). A body that cannot be parsed into the request type answers `400`.
+A request that breaks its contract never reaches `call`: the endpoint answers it itself, with `400` when the body
+or a field cannot be read as the contract's types and `422` with the failing fields when a validation rule fails (see
+[Response Reference](response.md#validationerror)). Neither `Rescuer` nor the router answers these, so a handler
+that rescues `Azu::Response::ValidationError` never sees them; handlers around the endpoint still see the final
+status code.
 
 ## File Uploads
 

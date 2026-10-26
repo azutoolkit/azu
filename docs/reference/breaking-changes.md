@@ -558,7 +558,7 @@ end
 ```
 
 **Migration:**
-1. Add request type as first parameter (use `EmptyRequest` for no body)
+1. Add request type as first parameter (use `Azu::Request` for no body)
 2. Add response type as second parameter
 3. Add return type annotation to `call`
 
@@ -685,13 +685,11 @@ end
 
 ### Deprecated in 0.5.x
 
-- `Azu::Handler::Base#next` - Use `call_next(context)` instead
 - Implicit request types - Always specify request type parameter
 
 ### Removed in 0.5.x
 
 - `Azu::Endpoint` without type parameters
-- `Azu.start` without handler array
 
 ## Migration Tools
 
@@ -715,6 +713,6 @@ crystal build --warnings=all src/app.cr
 
 If you encounter issues during migration:
 
-1. Check the [GitHub Issues](https://github.com/azutopia/azu/issues)
-2. Review the [CHANGELOG](https://github.com/azutopia/azu/blob/master/CHANGELOG.md)
+1. Check the [GitHub Issues](https://github.com/azutoolkit/azu/issues)
+2. Review the [release notes](https://github.com/azutoolkit/azu/releases)
 3. Ask in the [Crystal Forum](https://forum.crystal-lang.org/)

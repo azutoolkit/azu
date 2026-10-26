@@ -40,8 +40,16 @@ end
 
 ## Built-in Response Types
 
-Azu ships one response type for endpoints that send no body. Everything else is a response struct of your own
-that includes `Azu::Response`; set the content type in the endpoint with `content_type`.
+Azu ships these response types:
+
+- `Azu::Response::Empty`, for an endpoint that sends no body (below);
+- the `Azu::Response::Negotiable` module, which renders one response as HTML, JSON, XML or text by the `Accept`
+  header, and answers `Azu::Response::NotAcceptable` (406) when none fits: see [Content negotiation](content-negotiation.md);
+- `Azu::Response::Stream` and `Azu::Response::EventStream`, which write a chunked body or server-sent events while
+  the endpoint runs: see [Streaming and server-sent events](streaming.md).
+
+Anything else is a response struct of your own that includes `Azu::Response`; set the content type in the endpoint
+with `content_type`.
 
 ### JSON, text and HTML
 
@@ -150,6 +158,7 @@ error.detail      # => "Payment failed"
 | `AuthorizationError` | 403 | Insufficient permissions |
 | `Forbidden` | 403 | Access denied (an `AuthorizationError`) |
 | `NotFound` | 404 | Resource not found |
+| `NotAcceptable` | 406 | The client accepts none of the formats a [negotiated response](content-negotiation.md) renders (the body lists them in `supported`) |
 | `TimeoutError` | 408 | Request timeout |
 | `PayloadTooLarge` | 413 | Request body too large |
 | `ValidationError` | 422 | Request contract broken |
@@ -178,8 +187,10 @@ end
 
 ### ValidationError
 
-Answers `422` with the failing fields. The router raises it for you when a request breaks its contract, and
-you can raise it yourself for checks the contract cannot express.
+Answers `422` with the failing fields. When a request breaks a validation rule of its contract, the endpoint
+answers this `422` itself before `call` runs (neither `Rescuer` nor the router is involved, and a handler that
+rescues `ValidationError` never sees it). Raise it yourself inside `call` for checks the contract cannot express;
+`Rescuer` renders that one.
 
 ```crystal
 raise Azu::Response::ValidationError.new({

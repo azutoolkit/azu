@@ -212,8 +212,27 @@ the upgrade, whatever server hosts the channel; the TLS listener `Azu.start` bui
 accepts (the TCP socket under TLS is out of reach at the upgrade). Ordinary HTTP connections on a plain listener are
 not touched. A server you bind to TLS yourself can use `Azu.bind_tls(server, host, port, context, reuse_port, true)`.
 
-Spark live views have their own `spark` section (`SPARK_*` variables, `Azu::Spark.configure`), described in
-[Spark live views](../../explanation/spark-live-views.md).
+### Spark
+
+Spark live views have their own `spark` section (`Azu::CONFIG.spark`, also `Azu::Spark.config` and
+`Azu::Spark.configure`), described in [Spark live views](../../explanation/spark-live-views.md):
+
+| Option | Type | Default | Environment | Meaning |
+|---|---|---|---|---|
+| `spark.secret` | `String` | a random per-process value in every environment but `production` and `staging`, which raise `Azu::Spark::ConfigurationError` the first time a token is signed or verified | `SPARK_SECRET` | Key that signs join tokens and state snapshots |
+| `spark.path` | `String` | `"/spark"` | `SPARK_PATH` | URL the WebSocket is served from |
+| `spark.assets_path` | `String` | `"/_spark/azu_spark.js"` | `SPARK_ASSETS_PATH` | URL the client script is served from |
+| `spark.token_ttl` | `Time::Span` | 24 hours | `SPARK_TOKEN_TTL` (seconds) | How long a rendered page may wait before joining |
+| `spark.allowed_origins` | `Array(String)` | `[]` (own origin only) | `SPARK_ALLOWED_ORIGINS` (comma separated, `"*"` accepts any) | Origins accepted besides the page's own |
+| `spark.max_message_size` | `Int32` | 65536 | `SPARK_MAX_MESSAGE_SIZE` (bytes) | Largest accepted client frame |
+| `spark.compress_threshold` | `Int32` | 1024 | `SPARK_COMPRESS_THRESHOLD` (bytes, `0` turns it off) | Smallest diff frame sent gzipped to a client that announced `gzip` |
+| `spark.max_components` | `Int32` | 200 | `SPARK_MAX_COMPONENTS` | Components (roots and children) one connection may own |
+| `spark.events_per_second` | `Float64` | 30.0 | `SPARK_EVENTS_PER_SECOND` | Sustained events per second a connection may send |
+| `spark.event_burst` | `Int32` | 60 | `SPARK_EVENT_BURST` | Events a connection may send at once |
+| `spark.heartbeat_interval` | `Time::Span` | 20 seconds | `SPARK_HEARTBEAT_INTERVAL` (seconds) | Time between client heartbeats |
+| `spark.idle_timeout` | `Time::Span` | 60 seconds | `SPARK_IDLE_TIMEOUT` (seconds) | A connection silent this long is closed |
+| `spark.snapshot_ttl` | `Time::Span` | 1 hour | `SPARK_SNAPSHOT_TTL` (seconds) | How long a state snapshot may wait for its reconnect |
+| `spark.max_snapshot_size` | `Int32` | 4096 | `SPARK_MAX_SNAPSHOT_SIZE` (bytes) | Largest signed state snapshot handed to the client |
 
 ## Cache
 
@@ -303,8 +322,9 @@ what the server runs. `router` is the app's `Azu::Router`.
 
 ## Environment Variables
 
-Every variable Azu reads is in the tables above, plus the `REDIS_*` variables of
-[`Azu::Redis::Config.from_env`](../api/redis.md#config). `REDIS_URL` is the fallback of `PUBSUB_REDIS_URL` and
+Every variable Azu reads is in the tables on this page, plus the `REDIS_*` variables of
+[`Azu::Redis::Config.from_env`](../api/redis.md#config) and the `PUBSUB_REDIS_URL` and `PRESENCE_REDIS_URL` of PubSub
+and Presence. `REDIS_URL` is the fallback of `PUBSUB_REDIS_URL` and
 `PRESENCE_REDIS_URL`, and deliberately not of `CACHE_REDIS_URL` (a Redis cache has no default URL). `AZU_ENV` and `SECRET_KEY` are not read: the signing secret of Spark
 live views is `SPARK_SECRET`.
 
@@ -313,9 +333,20 @@ live views is `SPARK_SECRET`.
 | `CRYSTAL_ENV` | `env` |
 | `PORT`, `HOST`, `PORT_REUSE`, `SHUTDOWN_TIMEOUT` | `port`, `host`, `port_reuse?`, `shutdown_timeout` |
 | `SSL_CERT`, `SSL_KEY`, `SSL_CA`, `SSL_MODE` | TLS |
-| `TEMPLATE_HOT_RELOAD`, `TEMPLATES_PATH`, `ERROR_TEMPLATE` | templates |
+| `TEMPLATE_HOT_RELOAD`, `TEMPLATE_AUTOESCAPE`, `TEMPLATE_COMPILE_IGNORE`, `TEMPLATES_PATH`, `ERROR_TEMPLATE` | templates |
 | `CACHE_*` | `cache_config` |
-| `UPLOAD_*`, `WEBSOCKET_*`, `I18N_*`, `ASSETS_*`, `AZU_DB_*`, `DATABASE_URL`, `SPARK_*` | the matching section |
+| `UPLOAD_*`, `WEBSOCKET_*`, `I18N_*`, `ASSETS_*`, `AZU_DB_*`, `AZU_CQL_DRIVER`, `DATABASE_URL`, `SPARK_*` | the matching section |
+| `PERFORMANCE_MONITORING`, `PERFORMANCE_PROFILING`, `PERFORMANCE_MEMORY_MONITORING` | performance tooling (`azu/dev`) |
+
+These are read outside `Azu::Configuration`:
+
+| Variable | Type | Default | Meaning |
+|---|---|---|---|
+| `AZU_STRICT_ENVS` | comma separated environment names | `production` | Environments in which [`Azu::Env.secret`](env.md) raises `Azu::Env::MissingError` for an unset secret instead of using a random per-process value (`Azu::Env.strict_environments=` overrides it) |
+| `CSRF_SECRET` | `String` | `Azu::Env.secret("CSRF_SECRET")`: random per process, `Azu::Env::MissingError` in the strict environments | Key `Handler::CSRF` signs its tokens with when it is given none |
+| `KUBERNETES_SERVICE_HOST` | `String` | unset | Any non-blank value marks the process as containerised (`container?`), as `/.dockerenv` and `/run/.containerenv` do: `App#start` then warns when the server listens on a loopback address |
+| `PERFORMANCE_SLOW_REQUEST_THRESHOLD` | `Float64` (milliseconds) | `1000` | `Handler::PerformanceMonitor` (`azu/dev`) logs a warning for a request that takes longer |
+| `PERFORMANCE_MEMORY_THRESHOLD` | `Int64` (bytes) | `10485760` (10 MB) | `Handler::PerformanceMonitor` (`azu/dev`) logs a warning for a request whose memory use grows by more |
 
 ## Per-Environment Configuration
 
@@ -328,8 +359,6 @@ module MyApp
   include Azu
 
   configure do |config|
-    config.port = ENV.fetch("PORT", "4000").to_i
-
     case config.env
     when .production?
       config.template_hot_reload = false

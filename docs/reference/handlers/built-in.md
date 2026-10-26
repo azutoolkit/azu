@@ -98,10 +98,11 @@ Catches what the handlers after it, the router and the endpoint raise and answer
 
 | Raised | Status |
 |---|---|
-| `Response::NotFound` (also an unrouted path) | 404 |
+| `Response::NotFound` | 404 |
 | `Response::BadRequest` | 400 |
 | `Response::AuthenticationError` | 401 |
 | `Response::AuthorizationError`, `Response::Forbidden` | 403 |
+| `Response::NotAcceptable` | 406 |
 | `Response::TimeoutError` | 408 |
 | `Response::PayloadTooLarge` | 413 |
 | `Response::ValidationError` | 422 |
@@ -111,15 +112,20 @@ Catches what the handlers after it, the router and the endpoint raise and answer
 | any other `Response::Error` | its `status` |
 | any other exception | 500 |
 
-`HTTP::Server::ClientError` (the peer went away) is logged at debug level and not answered. A request that
-breaks its contract raises `Response::ValidationError` before the endpoint's `call` runs; `Rescuer` is what turns
-it into the `422` (without it the client gets Crystal's bare `500`, which was seen by running it).
+`HTTP::Server::ClientError` (the peer went away) is logged at debug level and not answered. `Rescuer` sees only
+what is raised inside an endpoint's `call` and the handlers after it. A request that breaks its contract never
+reaches `call`: the endpoint answers it itself, `400` when the body or a field cannot be read as the contract's
+types and `422` with the failing fields when a validation rule fails, so `Rescuer` never sees it. (A multipart body
+that cannot be parsed at all is read before that check: it is raised, and `Rescuer` answers it with `400`.) The
+router answers an unrouted path with `404` itself, and a negotiated endpoint answers `406` itself.
 
 The body is chosen by the first media type of the `Accept` header: JSON, HTML, XML or plain text, and plain text
-without a header. In development the error includes the request context and HTML clients receive Azu's exception
-page. In any other environment the context is `null` and HTML clients get the `error.html` template, except for an
-unexpected exception, where the client gets a bare `500 Internal Server Error`.
-Without `Rescuer`, an exception reaching Crystal's server becomes that same bare `500` and a stack trace in the log.
+without a header or with `*/*`. In development the error includes the request context and HTML clients receive
+Azu's exception page. In any other environment the context is `null` and HTML clients get the `error.html` template
+(the app's own, or Azu's built-in one), an unexpected exception included: a `500` page titled
+`500 - Internal Server Error` that does not show the exception's message.
+Without `Rescuer`, an exception reaching Crystal's server becomes a bare `text/plain` `500 Internal Server Error`
+and a stack trace in the log.
 
 ## Handler::SecurityHeaders
 
@@ -340,7 +346,8 @@ csrf = Azu::Handler::CSRF.new(
 
 The adapter must return the token of the session of *that request*: a single shared session object would give
 every visitor the same token. Put the session handler before `CSRF` in the chain.
-used by `SynchronizerToken` only; `SignedDoubleSubmit` and `DoubleSubmit` are cookie patterns by definition.
+The token store is used by `SynchronizerToken` only; `SignedDoubleSubmit` and `DoubleSubmit` are cookie patterns by
+definition.
 Issuing a token without an adapter raises `Azu::SessionAdapter::NotConfigured`; validating a request when the
 adapter or the session is unavailable answers `403`. An empty stored token counts as none.
 

@@ -102,8 +102,7 @@ Notes on the rows:
 - `TEMPLATE_HOT_RELOAD=true|false` overrides the default in every environment.
 - In development, `Rescuer` includes the request context (headers, params, process environment) in the error and
   HTML clients get an exception page. Elsewhere the context is `null` and HTML clients get the `error.html`
-  template (seen for a 404). An HTML client whose request raised an unexpected exception currently gets the bare
-  text `500 Internal Server Error` instead, because that template fails to render with the request context.
+  template, for an unexpected exception too: a `500` page that does not show the exception's message.
 - Spark signs its page tokens with `SPARK_SECRET` (or `Azu::Spark.configure { |c| c.secret = ... }`). Without one,
   development and the other environments generate a random secret per process; in `Staging` and `Production`
   the first use raises `Azu::Spark::ConfigurationError`.
@@ -197,7 +196,8 @@ Keep one set of variables per environment and load it with your process manager.
 CRYSTAL_ENV=production
 PORT=8080
 HOST=0.0.0.0
-SPARK_SECRET=change-me
+# paste a generated value after the = (left empty, Spark refuses to sign tokens in production)
+SPARK_SECRET=
 CACHE_STORE=redis
 CACHE_REDIS_URL=redis://redis:6379/0
 DATABASE_URL=postgres://user:pass@host/db
@@ -206,6 +206,9 @@ DATABASE_URL=postgres://user:pass@host/db
 ```bash
 docker run --env-file production.env myapp
 ```
+
+Generate the secret once per deployment, with `openssl rand -hex 32` or
+`crystal eval 'require "random/secure"; puts Random::Secure.hex(32)'`, and never reuse a value from an example.
 
 ## Per-App Environments
 

@@ -65,8 +65,9 @@ puts store.size             # => 2
 - `cleanup_interval : Time::Span` - how often a background fiber drops expired entries (default 5 minutes).
   Expired entries are also never returned, whatever the interval.
 
-`stats` returns `size`, `max_size`, `memory_usage_mb` and `hit_rate`; `hit_rate` is the fill level of the store
-(`size / max_size * 100`), not a measured hit rate.
+`stats` returns `size`, `max_size`, `memory_usage_mb` and `hit_rate`; `hit_rate` is the share of `get` lookups
+that found a live entry (`hits / (hits + misses) * 100`, 0.0 before the first lookup). An expired entry counts as
+a miss, and `exists?` is not counted.
 
 ### RedisStore
 
