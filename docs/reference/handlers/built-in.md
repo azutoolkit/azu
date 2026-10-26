@@ -531,6 +531,9 @@ Azu::Handler::Throttle.new(
   blacklist: [] of String,
   whitelist: [] of String,
   log: Log.for("throttle"),
+  trusted_proxies: ["10.0.0.0/8", "::1"],
+  ipv6_prefix: 64,
+  max_clients: 100_000,
 )
 ```
 
@@ -542,6 +545,12 @@ The first five arguments are required.
 - `blacklist` / `whitelist` - addresses that are always refused / never counted.
 - `log : ::Log?` - where blocks, releases and refusals are logged (at most 10 refusals a second, then one line
   counting the rest). Without one, the log of the app serving the request.
+- `trusted_proxies : Array(String)` - the reverse proxies in front of the app, as exact IPv4 or IPv6 addresses and CIDR
+  blocks (`"10.0.0.0/8"`, `"fd00::/8"`, `"203.0.113.7"`, `"::1"`); an entry that is neither raises `ArgumentError`. Empty by
+  default: the client is the address of the connection, as before.
+- `ipv6_prefix : Int32` - IPv6 clients are counted by their first N bits, 64 by default: a subscriber owns a whole /64
+  and could otherwise dodge the limit, and fill the table, by rotating the rest.
+- `max_clients : Int32` - the most clients tracked at once, 100 000 by default.
 
 Clients are identified by the peer address of the connection (not by headers a client controls). A blocked
 client gets `429` with `Retry-After` (seconds left) and the body of a `Response::RateLimitError`, chosen by `Accept`
@@ -554,9 +563,42 @@ Outside development, the HTML page of a refusal is rendered once a second for ea
 and served to every client refused in that second, with the same `X-Error-ID`. A custom `error.html` must therefore
 not depend on the request (no path, user or token in it): what it renders for one client is shown to others.
 
-{% hint style="warning" %}
-Behind a proxy every request comes from the proxy's address; the limit then applies to all clients together.
-{% endhint %}
+#### Behind a reverse proxy
+
+Without `trusted_proxies`, every request behind a proxy comes from the proxy's address and the limit applies to all
+clients together. List the proxies and `Throttle` reads `X-Forwarded-For` for the requests that come from them:
+
+```crystal
+Azu::Handler::Throttle.new(
+  interval: 5, duration: 900, threshold: 100,
+  blacklist: [] of String, whitelist: [] of String,
+  trusted_proxies: ["10.0.0.0/8"],
+)
+```
+
+- Only when the connection's peer is a trusted proxy is the header read; from any other peer it is ignored, so a client
+  cannot pick its key by sending it.
+- All `X-Forwarded-For` lines are read as one list, in order, from the **right**: past the trusted proxies, the first
+  address that is not trusted is the client (a proxy appends the address it saw; whatever stands left of that was
+  written by the client). The left-most address is never used.
+- Entries may carry whitespace, a port (`1.2.3.4:5678`, `[2001:db8::1]:443`) or be IPv4-mapped (`::ffff:1.2.3.4`, the
+  same client as `1.2.3.4`). An entry that is not an address (`unknown`, a name, a zone id, a bad port, leading zeros),
+  a chain with only trusted hops and a chain over 32 hops all give the proxy's own address, never a guess.
+- `blacklist` and `whitelist` are matched against the client so found, in any spelling of the address (`::ffff:1.2.3.4`
+  is `1.2.3.4`). Whitelisting a proxy therefore does not whitelist its clients.
+- The proxy must overwrite or append to `X-Forwarded-For` (nginx `proxy_add_x_forwarded_for`, Envoy
+  `xff_num_trusted_hops`), not pass the client's value through unchanged as the last hop.
+
+`Handler::IpSpoofing` is a different check, not a source of the client: it refuses a request whose `X-Client-IP` or
+`X-Real-IP` is not in its own `X-Forwarded-For`. It does not decide who the client is and it trusts nothing; `Throttle`
+does not use it, and it can stand in front of `Throttle` to drop requests whose forwarding headers contradict each other.
+
+#### Memory
+
+The table of clients is swept for trackers whose window and block have ended on a request, at most once a second (no
+fiber, on `Azu::Clock`). Past `max_clients` the oldest trackers that are not blocked are dropped to admit a new client,
+and only when every tracked client is blocked, the oldest block. A flood of addresses can therefore not grow the table,
+and it cannot evict the block of an address that is being refused while unblocked trackers exist.
 
 ### Handler::HealthCheck
 
@@ -579,7 +621,8 @@ Azu::Handler::IpSpoofing.new
 ```
 
 Refuses with `403` a request whose `X-Client-IP` or `X-Real-IP` header names an address that is not in its
-`X-Forwarded-For` list. Requests without `X-Forwarded-For` pass.
+`X-Forwarded-For` list. Requests without `X-Forwarded-For` pass. It is a consistency check: who the client is behind a
+proxy is decided by [`Throttle`'s `trusted_proxies`](#handlerthrottle), not here.
 
 ### Handler::Locale
 
