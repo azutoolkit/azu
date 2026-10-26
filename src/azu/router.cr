@@ -145,6 +145,7 @@ module Azu
     end
 
     def process(context : HTTP::Server::Context)
+      HeadOutput.wrap(context)
       method_override(context)
       request = context.request
       match = route_method(context).try { |method| @tree.find(method, request.path) }

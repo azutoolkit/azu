@@ -63,7 +63,9 @@ module Azu
       end
 
       private def discard_success(context : HTTP::Server::Context) : Nil
-        context.response.reset unless context.response.wrote_headers?
+        return if context.response.wrote_headers?
+        context.response.reset
+        HeadOutput.wrap(context) # reset puts back the original output, which would send a HEAD's error page
       end
 
       private def schema : ::CQL::Schema
