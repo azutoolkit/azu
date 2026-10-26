@@ -30,6 +30,7 @@ module Azu
     @helpers_revision : UInt64? = nil
     @builtin_crinja : Crinja?
     @preloaded : PreloadedLoader?
+    @compiled : CompiledSet?
     @preload_lock : Mutex = Mutex.new
     @preload_count : Int32 = 0
     @preloaded_strict : Bool = false
@@ -416,8 +417,10 @@ module Azu
 
     # False when the file was not preloaded.
     private def parse_into(templates, name : String, file : String, strict : Bool) : Bool
-      compiled = @compiled.try(&.templates[name]?)
-      templates[name] = compiled ? CompiledTemplate.new(*compiled, crinja, name, file) : Crinja::Template.new(File.read(file), crinja, name, file)
+      source = File.read(file)
+      # only the very file it was compiled from (not a namesake, not an edit), and only where the newline rule matches
+      compiled = @compiled.try(&.templates[name]?).try { |entry| entry if entry[0] == source && !crinja.config.keep_trailing_newline }
+      templates[name] = compiled ? CompiledTemplate.new(*compiled, crinja, name, file) : Crinja::Template.new(source, crinja, name, file)
       true
     rescue ex : Exception
       if BUILTIN.has_key?(name)
