@@ -1,20 +1,141 @@
-# Ameba configuration file for Azu web framework
-# This file configures which linter rules to enable/disable
+# Ameba configuration for Azu. CI runs `crystal run lib/ameba/bin/ameba.cr -- ./src`.
+#
+# The Excluded lists below the complexity rule are a baseline: the files that broke a rule when Ameba was added
+# to CI. New code follows every rule; remove a file from a list when it is fixed.
 
-# Exclude specific files from cyclomatic complexity checks
-# These methods are complex but functional and don't need refactoring at this time
+Version: "1.7.0"
+
+# Methods over the limit that are complex but work, and are not refactored now
 Metrics/CyclomaticComplexity:
   Description: Disallows methods with a cyclomatic complexity higher than `MaxComplexity`
   MaxComplexity: 10
   Excluded:
     - playground/endpoints/demo_reporting_endpoint.cr
     - playground/examples/cache_metrics_demo.cr
+    - src/azu/dev/dev_dashboard.cr
+    - src/azu/dev/dev_dashboard_component.cr
     - src/azu/dev/performance_monitor.cr
     - src/azu/dev/performance_reporter.cr
-    - src/azu/dev/dev_dashboard_component.cr
-    - src/azu/helpers/builtin/form_helpers.cr
+    - src/azu/helpers/builtin/asset_helpers.cr
     - src/azu/helpers/builtin/date_helpers.cr
+    - src/azu/helpers/builtin/form_helpers.cr
     - src/azu/helpers/builtin/number_helpers.cr
     - src/azu/helpers/i18n.cr
+    - src/azu/helpers/util.cr
   Enabled: true
   Severity: Warning
+
+Lint/AssignmentInCallArgument:
+  Excluded:
+    - src/azu/spark/connection.cr
+
+Lint/NotNil:
+  Excluded:
+    - src/azu/cql/adapter.cr
+    - src/azu/templates.cr
+
+Lint/UnusedRescueVariable:
+  Excluded:
+    - src/azu/dev/dev_dashboard.cr
+    - src/azu/error.cr
+    - src/azu/handler/csrf.cr
+    - src/azu/router.cr
+    - src/azu/spark/catalog.cr
+    - src/azu/spark/params.cr
+    - src/azu/spark/token.cr
+
+Lint/UselessAssign:
+  Excluded:
+    - src/azu/cache.cr
+
+Lint/WhitespaceAroundMacroExpression:
+  Excluded:
+    - src/azu/handler/endpoint.cr
+    - src/azu/openapi/schema.cr
+    - src/azu/router.cr
+    - src/azu/router/builder.cr
+
+Naming/BlockParameterName:
+  Excluded:
+    - src/azu/pub_sub/redis.cr
+    - src/azu/version.cr
+
+Naming/QueryBoolMethods:
+  Excluded:
+    - src/azu/query_store.cr
+
+Performance/ChainedCallWithNoBang:
+  Excluded:
+    - src/azu/spark/session.cr
+    - src/azu/vary.cr
+
+Performance/CompactAfterMap:
+  Excluded:
+    - src/azu/markup.cr
+
+Style/HeredocIndent:
+  Excluded:
+    - src/azu/dev/performance_reporter.cr
+    - src/azu/response.cr
+
+Style/MultilineCurlyBlock:
+  Excluded:
+    - src/azu/cache.cr
+    - src/azu/dev/performance_reporter.cr
+    - src/azu/log_format.cr
+    - src/azu/params.cr
+
+Style/NegatedConditionsInUnless:
+  Excluded:
+    - src/azu/env.cr
+    - src/azu/query_store.cr
+    - src/azu/spark/socket.cr
+
+Style/PercentLiteralDelimiters:
+  Excluded:
+    - src/azu/cql/cql.cr
+    - src/azu/cql/driver.cr
+    - src/azu/cql/instrumentor.cr
+    - src/azu/handler/cors.cr
+    - src/azu/handler/csrf.cr
+    - src/azu/handler/endpoint.cr
+    - src/azu/handler/static.cr
+    - src/azu/markup.cr
+    - src/azu/openapi/schema.cr
+    - src/azu/router.cr
+    - src/azu/spark/bindings.cr
+    - src/azu/spark/coercion.cr
+    - src/azu/templates.cr
+
+Style/RedundantBegin:
+  Excluded:
+    - src/azu/dev/development_tools.cr
+    - src/azu/log_format.cr
+    - src/azu/templates.cr
+
+Style/RedundantNilInControlExpression:
+  Excluded:
+    - src/azu/cache.cr
+    - src/azu/dev/performance_metrics.cr
+    - src/azu/error.cr
+    - src/azu/handler/csrf.cr
+    - src/azu/handler_pipeline.cr
+    - src/azu/http_request.cr
+
+Style/RedundantSelf:
+  Excluded:
+    - src/azu/environment.cr
+
+Style/VerboseBlock:
+  Excluded:
+    - src/azu/pub_sub/subscribers.cr
+    - src/azu/spark/protocol.cr
+    - src/azu/templates.cr
+    - src/azu/vary.cr
+    - src/azu/version.cr
+
+Style/VerboseNilType:
+  Excluded:
+    - src/azu/cache.cr
+    - src/azu/http_request.cr
+    - src/azu/openapi/value.cr

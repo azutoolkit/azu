@@ -24,7 +24,7 @@ crystal spec --tag focus    # Run focused tests
 # Lint & Format
 crystal tool format         # Format code
 crystal tool format --check # Check formatting (CI)
-ameba                       # Run static analysis
+crystal run lib/ameba/bin/ameba.cr -- ./src  # Static analysis, as CI's Lint step runs it
 
 # Documentation
 crystal docs                # Generate API documentation
@@ -283,7 +283,8 @@ The dev dashboard, performance monitor, profiler and reporter live in `src/azu/d
 
 ## CI/CD Notes
 
-- **Linter:** Ameba with max cyclomatic complexity of 10
+- **Linter:** Ameba (`ameba ~> 1.7.0`, a development dependency) on `src/` in the `test` job, max cyclomatic complexity
+  10; `.ameba.yml` excludes, per rule, the files that broke it when the step was added (a baseline to shrink)
 - **Container:** crystallang/crystal:1.22.1
 - **Services:** Redis required for cache tests
 - **Excluded from complexity:** dev/ (performance_monitor, performance_reporter, dev_dashboard_component), demo_reporting

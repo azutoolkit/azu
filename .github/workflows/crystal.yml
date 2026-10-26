@@ -100,6 +100,10 @@ jobs:
       - name: Check code style
         run: crystal tool format --check --exclude lib --exclude playground/lib
 
+      # .ameba.yml records the findings that predate this step; new code passes every rule.
+      - name: Lint
+        run: crystal run lib/ameba/bin/ameba.cr -- --no-color -f progress ./src
+
       # Every spec file, not a hand-picked list: a file that is not listed here is a file that is
       # never run. spec/azu_spec.cr drives a prebuilt binary and is left out (it is stale).
       - name: Run all specs
