@@ -88,3 +88,5 @@ docs/reference/api/testing.md
 docs/reference/api/presence.md
 docs/how-to/deployment/scale-out-realtime.md
 docs/reference/spark-client.md
+docs/how-to/jobs/background-jobs.md
+docs/how-to/performance/monitor-performance.md
