@@ -1,8 +1,11 @@
+---
+description: A live component keeps its state on the server.
+---
+
 # Build a live component
 
-A live component keeps its state on the server. The browser sends events over a WebSocket, the server
-renders again and sends back only the HTML that changed. For the ideas behind it read
-[Components](../../explanation/concepts/components.md); for every option see the
+The browser sends events over a WebSocket, the server renders again and sends back only the HTML that changed.
+For the ideas behind it read [Components](../../explanation/concepts/components.md); for every option see the
 [Component Reference](../../reference/api/component.md).
 
 ## A basic live component
@@ -96,11 +99,16 @@ end
 ```
 
 `Azu::Spark.install` registers the WebSocket route (`/spark`) and the client script
-(`/_spark/azu_spark.js`) on the router, so no CDN or inline script is involved. Spark reads the secret
-that signs the join tokens from `SPARK_SECRET` itself, so set `SPARK_SECRET` in production and staging.
-Without it, development and test use a random per-process secret (tokens do not survive a restart), and
-production and staging raise `Azu::Spark::ConfigurationError` the first time a token is signed or verified,
-not at boot. Props given to `Spark.render` are checked at compile time against the `prop` declarations.
+(`/_spark/azu_spark.js`) on the router, so no CDN or inline script is involved.
+
+{% hint style="warning" %}
+Spark reads the secret that signs the join tokens from `SPARK_SECRET` itself, so set `SPARK_SECRET` in production
+and staging. Without it, development and test use a random per-process secret (tokens do not survive a restart), and
+production and staging raise `Azu::Spark::ConfigurationError` the first time a token is signed or verified, not at
+boot.
+{% endhint %}
+
+Props given to `Spark.render` are checked at compile time against the `prop` declarations.
 
 Without JavaScript the page still shows the initial HTML; with it, every click updates the component.
 
@@ -266,8 +274,11 @@ class Table < Azu::Spark::Component
 end
 ```
 
-Toggling a row re-renders that row only; the table and the other rows are not sent again. Give each
-child a stable key (an id, not the index of a list that can reorder).
+Toggling a row re-renders that row only; the table and the other rows are not sent again.
+
+{% hint style="warning" %}
+Give each child a stable key (an id, not the index of a list that can reorder).
+{% endhint %}
 
 ## Errors
 

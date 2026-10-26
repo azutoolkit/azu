@@ -1,11 +1,13 @@
-# Return different formats
+---
+description: Return JSON, HTML, text, and other response formats.
+---
 
-Return JSON, HTML, text, and other response formats.
+# Return different formats
 
 An endpoint returns a response object, and the body is whatever the response's `render` returns. The format
 is chosen by the content type the endpoint sets with `content_type`.
 
-## JSON Response
+## JSON response
 
 Return JSON data:
 
@@ -36,7 +38,7 @@ struct JsonEndpoint
 end
 ```
 
-### Serializing an Object
+### Serializing an object
 
 A response can include `JSON::Serializable` and render itself:
 
@@ -70,7 +72,7 @@ struct UserResponse
 end
 ```
 
-## Text Response
+## Text response
 
 Return plain text:
 
@@ -98,7 +100,7 @@ struct TextEndpoint
 end
 ```
 
-## HTML Response
+## HTML response
 
 Return HTML content:
 
@@ -132,7 +134,7 @@ struct HtmlEndpoint
 end
 ```
 
-### Using Templates
+### Using templates
 
 Include `Azu::Templates::Renderable` in the response and call `view` with a template name and data. Templates are
 read from the configured templates path:
@@ -165,7 +167,7 @@ struct TemplateEndpoint
 end
 ```
 
-## Empty Response
+## Empty response
 
 Return no content (204):
 
@@ -184,7 +186,7 @@ struct DeleteEndpoint
 end
 ```
 
-## Content Negotiation
+## Content negotiation
 
 Let the `Accept` header pick the format with `Azu::Response::Negotiable`. Define the `render_html`, `render_json`,
 `render_xml` or `render_text` methods you need; the response sends the matching `Content-Type` and `Vary: Accept`:
@@ -230,7 +232,7 @@ request without `Accept`, or with `*/*`, gets JSON because of `prefer :json`. A 
 Errors raised from an endpoint are negotiated for you: `Azu::Handler::Rescuer` renders them as HTML, JSON, XML
 or plain text according to `Accept`.
 
-## Setting Headers
+## Setting headers
 
 Add custom response headers with `header key, value`:
 
@@ -258,7 +260,7 @@ struct CachedEndpoint
 end
 ```
 
-## Redirect Response
+## Redirect response
 
 Redirect to another URL. `redirect` sets the status and the `Location` header and returns `Azu::Response::Empty`:
 
@@ -284,7 +286,7 @@ struct PermanentlyMovedEndpoint
 end
 ```
 
-## File Download
+## File download
 
 Return a file for download. Let the response read the file, and keep the name inside the directory with
 `File.basename`:
@@ -318,7 +320,7 @@ struct DownloadEndpoint
 end
 ```
 
-## See Also
+## See also
 
 - [Create an Endpoint](create-endpoint.md)
 - [Render HTML Templates](../templates/render-html-templates.md)

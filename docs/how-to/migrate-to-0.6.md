@@ -1,15 +1,20 @@
+---
+description: "0.6 makes an application a value: `Azu::App` owns a configuration and a router, and nothing starts when you `require \"azu\"`."
+---
+
 # Migrate to 0.6
 
-0.6 makes an application a value: `Azu::App` owns a configuration and a router, and nothing starts
-when you `require "azu"`. The global shim (`include Azu`, `configure`, `Azu::CONFIG`, the endpoint
-verb macros) is a supported single-app facade: it drives `Azu::App.default`, logs no warning and is not
-scheduled for removal. It keeps one global configuration, so a process has one facade app; move to
-`Azu::App` when you need a second app, a configuration that is not global, or an app you start from code.
-The full list of behaviour changes is in [breaking changes](../reference/breaking-changes.md).
+The global shim (`include Azu`, `configure`, `Azu::CONFIG`, the endpoint verb macros) is a supported single-app
+facade: it drives `Azu::App.default`, logs no warning and is not scheduled for removal. It keeps one global
+configuration, so a process has one facade app; move to `Azu::App` when you need a second app, a configuration that
+is not global, or an app you start from code. The full list of behaviour changes is in
+[breaking changes](../reference/breaking-changes.md).
 
 ## Configuration
 
-Before, one global configuration:
+{% tabs %}
+{% tab title="Before" %}
+One global configuration:
 
 ```crystal
 require "azu"
@@ -22,8 +27,10 @@ module MyApp
   end
 end
 ```
+{% endtab %}
 
-After, a configuration that belongs to an app:
+{% tab title="After" %}
+A configuration that belongs to an app:
 
 ```crystal
 require "azu"
@@ -32,6 +39,8 @@ app = Azu::App.new
 app.config.port = 3000
 app.config.env = Azu::Environment::Production
 ```
+{% endtab %}
+{% endtabs %}
 
 Code that runs while a request is handled finds the serving app's configuration with
 `Azu.current_config`; use it instead of reading `Azu::CONFIG`.
@@ -77,10 +86,12 @@ app.routes do
 end
 ```
 
+{% hint style="warning" %}
 The verb macros (`get "/"` inside an endpoint) keep registering on `Azu::App.default`, because an
 endpoint type is not tied to an app. That is a known limit of 0.6: use `app.routes` for any app that
 is not the default one. `Channel.ws` is global in the same way, while `ws` inside `app.routes` is
 per app.
+{% endhint %}
 
 A second app can be mounted below a prefix with its own configuration:
 
@@ -96,9 +107,15 @@ end
 
 ## Handlers
 
-Pass the handlers when you build the server; an array is used exactly as given. `app.server` without an argument
-serves the router with no handlers in front of it: no request id, logging or error pages. Only `start` without an
-argument uses the default stack, `app.default_handlers` (`RequestId, Logger, Rescuer, SecurityHeaders, Static`).
+Pass the handlers when you build the server; an array is used exactly as given.
+
+{% hint style="warning" %}
+`app.server` without an argument serves the router with no handlers in front of it: no request id, logging or error
+pages.
+{% endhint %}
+
+Only `start` without an argument uses the default stack, `app.default_handlers` (`RequestId, Logger, Rescuer,
+SecurityHeaders, Static`).
 
 ```crystal
 require "azu"

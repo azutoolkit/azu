@@ -1,12 +1,16 @@
+---
+description: Create CQL models that map to your database tables.
+---
+
 # Create models
 
-Create CQL models that map to your database tables. A model is a class that includes
-`CQL::ActiveRecord::Model(PrimaryKeyType)` and points at a table of a [schema](define-schema.md) with `db_context`.
+A model is a class that includes `CQL::ActiveRecord::Model(PrimaryKeyType)` and points at a table of a
+[schema](define-schema.md) with `db_context`.
 
 Every example is self-contained: it defines the schema it needs first. In an application the schema lives in
 `src/db/schema.cr` and the models `require` it.
 
-## Basic Model
+## Basic model
 
 Declare one property per column. `DB::Serializable` fills the properties from the result set, so names and types must
 match the table; nullable columns are `T?`:
@@ -51,7 +55,7 @@ type in the `include` (`Int64`, `Int32` or `UUID`); it must match the `primary` 
 
 To check at boot that every property matches its column, run the app with `CQL_VALIDATE_SCHEMA_MAPPINGS=1`.
 
-## Model with Validations
+## Model with validations
 
 Model rules protect the table. Checks on incoming HTTP data belong to the request contract (see
 [Validate requests](../validation/validate-requests.md)); a request that passes its contract can still build a record
@@ -154,8 +158,12 @@ save_or_422(User.new("Alice", "alice@example.com"))
 ```
 
 `save` raises `CQL::ActiveRecord::Validations::ValidationError` for an invalid record and returns `false` only when a
-callback halts it. The uniqueness check races: two requests can pass it at the same time, so the `unique: true`
-column is the last line of defence; rescue the database error it raises as well.
+callback halts it.
+
+{% hint style="warning" %}
+The uniqueness check races: two requests can pass it at the same time, so the `unique: true` column is the last line
+of defence; rescue the database error it raises as well.
+{% endhint %}
 
 ## Associations
 
@@ -237,7 +245,7 @@ Pass `foreign_key:` on `has_many` and `has_one`: without it CQL guesses `<model_
 only enforces foreign keys when `PRAGMA foreign_keys = ON`). `preload` works for `has_many`, `has_one` and
 `belongs_to`.
 
-### Many to Many
+### Many to many
 
 `many_to_many` goes through a join model:
 
@@ -351,9 +359,14 @@ user.save
 puts user.normalized_email           # => "alice@example.com"
 ```
 
-Callbacks run for `save` (instance) and `delete!`. `User.create!(...)` and `update!` write directly and skip both
-validations and callbacks; use `User.new(...).save` when you need them. To normalize values before they are
-validated, use `before_validation`; the
+Callbacks run for `save` (instance) and `delete!`.
+
+{% hint style="warning" %}
+`User.create!(...)` and `update!` write directly and skip both validations and callbacks; use `User.new(...).save`
+when you need them.
+{% endhint %}
+
+To normalize values before they are validated, use `before_validation`; the
 [validation lifecycle](../../reference/database/validations.md#validation-lifecycle) gives the order.
 
 ## Scopes
@@ -396,7 +409,7 @@ Post.published.recent.all
 Post.by_user(1_i64).published.limit(5).all
 ```
 
-## Custom Methods
+## Custom methods
 
 Add behaviour with ordinary methods. Properties that are not columns need `@[DB::Field(ignore: true)]`:
 
@@ -465,7 +478,7 @@ user.authenticate("secret")
 user.recent_posts(3)
 ```
 
-## JSON Serialization
+## JSON serialization
 
 Include `JSON::Serializable` next to the model and ignore sensitive fields:
 
@@ -504,7 +517,7 @@ User.new("Alice", "alice@example.com").to_json
 Inside an Azu endpoint you usually return a response object built from the model instead of serializing the model
 directly; see [Working with Databases](../../tutorials/working-with-databases.md).
 
-## See Also
+## See also
 
 - [Define Schema](define-schema.md)
 - [Query Data](query-data.md)

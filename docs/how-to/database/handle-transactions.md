@@ -1,10 +1,12 @@
-# Handle transactions
+---
+description: Use database transactions with CQL for atomic operations.
+---
 
-Use database transactions with CQL for atomic operations.
+# Handle transactions
 
 Every example defines the schema and models it uses; in an application they live in their own files.
 
-## Basic Transaction
+## Basic transaction
 
 `schema.transaction` (or `Model.transaction`, which uses the model's schema) opens a transaction, commits when the block
 returns and rolls back when it raises. Queries inside the block run on the transaction's connection automatically:
@@ -44,7 +46,7 @@ end
 
 If any statement raises, every change in the block is rolled back and the exception propagates.
 
-## Transaction with Return Value
+## Transaction with return value
 
 The block's value is the value of the call:
 
@@ -80,7 +82,7 @@ user.try { |created| puts created.id }
 
 The result is `nil` when the block rolled back through `DB::Rollback` (below), so the type is a union with `Nil`.
 
-## Manual Rollback
+## Manual rollback
 
 Raise `DB::Rollback` to roll back and leave the block quietly: the transaction is rolled back, nothing propagates and
 the call returns `nil`. Calling `tx.rollback` also rolls back, but execution continues until the block ends:
@@ -118,7 +120,7 @@ end
 import("Alice", "alice@example.com", dry_run: true)
 ```
 
-## Error Handling
+## Error handling
 
 Exceptions leave the transaction rolled back and reach your `rescue`, so rescue around the `transaction` call, not
 inside it. Records saved with `save`/`save!` raise `CQL::ActiveRecord::Validations::ValidationError` when invalid;
@@ -163,7 +165,7 @@ rescue ex : DB::Error
 end
 ```
 
-## Nested Transactions (Savepoints)
+## Nested transactions (savepoints)
 
 Pass the outer transaction to `Model.transaction` to open a savepoint. A failure inside only undoes the inner block:
 
@@ -207,7 +209,7 @@ AcmeDB.transaction do |outer|
 end
 ```
 
-## Isolation Levels and Read-Only Transactions
+## Isolation levels and read-only transactions
 
 CQL's `transaction` takes no options. To change the isolation level or make a transaction read-only, issue the
 statement as the first thing inside the block on the transaction's connection:
@@ -232,7 +234,7 @@ end
 
 The statements are PostgreSQL syntax.
 
-## Locking Records
+## Locking records
 
 PostgreSQL, CockroachDB and MySQL support row locks; SQLite raises `CQL::DialectError` when SQL with a lock is
 generated, because it serializes writers instead. `QueryBuilder` has no `lock` method, so reach the underlying query
@@ -274,7 +276,7 @@ AcmeDB.transaction do
 end
 ```
 
-## Transfer Example
+## Transfer example
 
 A complete money transfer. Lock both rows in a fixed order (lowest id first) so two opposite transfers cannot deadlock:
 
@@ -347,7 +349,7 @@ end
 transfer(1_i64, 2_i64, 25.0)
 ```
 
-## Batch Operations
+## Batch operations
 
 Commit in chunks so a large import does not hold one huge transaction:
 
@@ -387,7 +389,7 @@ end
 import_users([{"name" => "Alice", "email" => "alice@example.com"}])
 ```
 
-## After-Commit Work
+## After-commit work
 
 CQL has no `after_commit` or `after_rollback` callbacks. Do the follow-up work after `transaction` returns, so it only
 runs when the transaction committed:
@@ -426,13 +428,13 @@ end
 place_order(42.0)
 ```
 
-## Transactions and the Dashboard
+## Transactions and the dashboard
 
 With `require "azu/cql"`, every transaction appears in the dev dashboard's Database tab with its duration and outcome,
 and `Azu::CQL.transaction(schema) { ... }` is a thin wrapper over `schema.transaction`. See
 [Database dashboard](../../reference/database-dashboard.md).
 
-## See Also
+## See also
 
 - [Query Data](query-data.md)
 - [Create Models](create-models.md)

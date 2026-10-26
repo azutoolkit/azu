@@ -1,10 +1,18 @@
+---
+description: Enqueue work from an endpoint and process it in a separate worker process.
+---
+
 # Run background jobs
 
-You will enqueue work from an endpoint and process it in a separate worker process. Azu has no job queue of its own; [JoobQ](https://github.com/azutoolkit/joobq) is a separate shard that keeps jobs in Redis, so **you need a Redis server** for this guide (Redis is optional for Azu itself). `azu new` includes JoobQ by default, and `--no-joobq` leaves it out.
+Azu has no job queue of its own; [JoobQ](https://github.com/azutoolkit/joobq) is a separate shard that keeps jobs in Redis, so **you need a Redis server** for this guide (Redis is optional for Azu itself). `azu new` includes JoobQ by default, and `--no-joobq` leaves it out.
 
+{% hint style="info" %}
 The code below uses the JoobQ 0.4.2 API. Check [JoobQ's README](https://github.com/azutoolkit/joobq) for the version you install.
+{% endhint %}
 
-## Add JoobQ
+{% stepper %}
+{% step %}
+#### Add JoobQ
 
 ```yaml
 dependencies:
@@ -16,8 +24,10 @@ dependencies:
 ```
 
 JoobQ reads its Redis connection from the environment (`REDIS_HOST`, `REDIS_PORT`, `REDIS_POOL_SIZE`, `REDIS_PASS`, see its README).
+{% endstep %}
 
-## Define a job and a queue
+{% step %}
+#### Define a job and a queue
 
 A job is a struct that includes `JoobQ::Job`, with the data it needs and a `perform` method. `queue "default", 2, EmailJob` starts two workers for that queue.
 
@@ -51,8 +61,10 @@ end
 ```
 
 Generated projects keep the same settings in `config/joobq.<environment>.yml` and load them with `JoobQ.initialize_config_with(:file, path)`; see `src/initializers/joobq.cr` there.
+{% endstep %}
 
-## Enqueue from an endpoint
+{% step %}
+#### Enqueue from an endpoint
 
 `enqueue` puts the job on the queue now, `enqueue_at` delays it by a time span, and `schedule(every:)` repeats it.
 
@@ -93,8 +105,10 @@ end
 ```
 
 Recurring jobs are set up once, at boot, not per request: `EmailJob.schedule(every: 1.day, email_address: "team@example.com", subject: "Daily digest")`.
+{% endstep %}
 
-## Run the worker
+{% step %}
+#### Run the worker
 
 Run the workers in their own process. `JoobQ.forge` starts the queues and then blocks:
 
@@ -111,4 +125,6 @@ crystal run src/server.cr   # the web process
 crystal run worker.cr       # the worker process
 ```
 
-In a generated project `azu jobs:worker` does the second step.
+In a generated project `azu jobs:worker` replaces the second command.
+{% endstep %}
+{% endstepper %}

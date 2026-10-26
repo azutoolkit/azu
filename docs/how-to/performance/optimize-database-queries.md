@@ -1,12 +1,16 @@
+---
+description: Improve database performance in an Azu application that uses CQL.
+---
+
 # Optimize database queries
 
-Improve database performance in an Azu application that uses CQL. To see what your app actually runs,
-`require "azu/cql"`: the dev dashboard's Database tab lists every statement tagged with its request, flags slow
-queries and detects N+1 patterns (see [Database dashboard](../../reference/database-dashboard.md)).
+To see what your app actually runs, `require "azu/cql"`: the dev dashboard's Database tab lists every statement tagged
+with its request, flags slow queries and detects N+1 patterns (see
+[Database dashboard](../../reference/database-dashboard.md)).
 
 Every example is self-contained: it defines the schema and models it needs.
 
-## Use Indexes
+## Use indexes
 
 Add indexes for columns you filter, join and sort on. Indexes declared inside a `table` block (`index [...]`,
 `index: true`) are created with the table by `build` and `create!` (see
@@ -49,7 +53,7 @@ class AddQueryIndexes < CQL::Migration(20240201090000_i64)
 end
 ```
 
-## Analyze Query Plans
+## Analyze query plans
 
 Ask the database how it runs a statement. `EXPLAIN` is a SQL statement like any other, so run it through the connection:
 
@@ -74,9 +78,9 @@ puts plan.join("\n")
 In development, the dashboard's SQL playground accepts one `EXPLAIN` statement and shows the result without leaving the
 browser. To see the SQL a CQL query will run, call `to_sql_with_params` on it.
 
-## Avoid N+1 Queries
+## Avoid N+1 queries
 
-### The Problem
+### The problem
 
 Reading an association inside a loop runs one query per record:
 
@@ -128,7 +132,7 @@ User.all.each do |user|
 end
 ```
 
-### The Solution
+### The solution
 
 `preload` loads the named association of every returned record with one extra query (one per chunk of ids when there
 are more ids than the database accepts as parameters). It works for `has_many`, `has_one` and `belongs_to`:
@@ -194,7 +198,7 @@ counts = AcmeDB.query
   .all(as: {Int64, Int64})
 ```
 
-## Select Only Needed Columns
+## Select only needed columns
 
 `select` with symbols loads only those columns, which matters for wide rows and large text or blob columns:
 
@@ -234,7 +238,7 @@ rows.each { |row| puts "#{row.id} #{row.title}" }
 titles = Post.pluck(:title, as: {String})
 ```
 
-## Use Batch Processing
+## Use batch processing
 
 Process large tables in batches instead of loading them whole:
 
@@ -275,7 +279,7 @@ User.find_in_batches(batch_size: 1000) do |batch|
 end
 ```
 
-## Count and Check Existence in the Database
+## Count and check existence in the database
 
 ```crystal
 require "cql"
@@ -322,7 +326,7 @@ average = Order.average(:total)
 largest = Order.maximum(:total)
 ```
 
-## Limit Result Sets
+## Limit result sets
 
 ```crystal
 require "cql"
@@ -354,7 +358,7 @@ recent_posts = Post.order(created_at: :desc).all
 recent_posts = Post.order(created_at: :desc).limit(10).all
 ```
 
-## Batch Writes
+## Batch writes
 
 Single statements beat loops of single-row statements. `update_by` updates all matching rows in one `UPDATE`;
 `schema.insert` takes an array of rows for one multi-row `INSERT`. Neither runs validations or callbacks:
@@ -403,12 +407,12 @@ rows = [
 AcmeDB.insert.into(:users).values(rows).commit
 ```
 
-## Parameters and Prepared Statements
+## Parameters and prepared statements
 
 CQL always binds values as parameters, never interpolating them into the SQL text, so repeated queries share a
 statement and the driver can cache and reuse the prepared statement (crystal-db prepares statements by default).
 
-## Connection Pooling
+## Connection pooling
 
 A schema made with `CQL::Schema.define` uses crystal-db's pool: set its size with URI parameters (`initial_pool_size`,
 `max_pool_size`, `max_idle_pool_size`, `checkout_timeout` in seconds). With `require "azu/cql"`, `Azu::CQL.schema`
@@ -436,9 +440,11 @@ AcmeDB = CQL::Schema.define(
 end
 ```
 
+{% hint style="warning" %}
 Each process has its own pool, and the database's connection limit is shared by every process you run.
+{% endhint %}
 
-## Query Caching
+## Query caching
 
 Cache the result of expensive queries with Azu's cache, which stores strings (serialize the result) and takes a
 `ttl`:
@@ -494,7 +500,7 @@ end
 expensive_stats
 ```
 
-## Read Replicas
+## Read replicas
 
 CQL has no replica routing. If you run a replica, define a second schema for it and bind read-only models to that schema;
 writes keep going through the primary models:
@@ -541,9 +547,11 @@ Report.create!(title: "Q3")                    # primary
 ReplicaReport.order(:id).limit(20).all         # replica
 ```
 
+{% hint style="warning" %}
 Replicas lag behind the primary, so read your own writes from the primary.
+{% endhint %}
 
-## Optimize Specific Patterns
+## Optimize specific patterns
 
 ### Pagination
 
@@ -580,7 +588,7 @@ User.after_cursor(last_id, 20)
 User.paginate_by(:name, "Smith", 20)
 ```
 
-## Monitor Query Performance
+## Monitor query performance
 
 Subscribe to CQL's telemetry to be told about slow statements. The callback receives a `CQL::Telemetry::QueryEvent`
 with the SQL, duration, operation and rows affected:
@@ -599,7 +607,7 @@ CQL::Telemetry.subscribe("app.statement_counter") { |_event| statements.add(1) }
 With `require "azu/cql"` the dashboard subscribes the same way and also logs queries slower than
 `database.slow_query_ms` (see [Database dashboard](../../reference/database-dashboard.md)).
 
-## See Also
+## See also
 
 - [Optimize Endpoints](optimize-endpoints.md)
 - [Query Data](../database/query-data.md)

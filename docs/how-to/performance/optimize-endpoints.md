@@ -1,9 +1,13 @@
+---
+description: Make Azu endpoints faster.
+---
+
 # Optimize endpoints
 
-Make Azu endpoints faster. For what the framework itself costs and how to measure it, see
+For what the framework itself costs and how to measure it, see
 [Performance Design](../../explanation/architecture/performance-design.md).
 
-## Declare Endpoints as Structs
+## Declare endpoints as structs
 
 The router keeps one endpoint value per route, and each request works on its own copy: a `struct` is copied on
 dispatch, and a `class` is `dup`ed before `call`. So the params and context `call` sees are its own either way, even
@@ -36,7 +40,7 @@ struct EchoEndpoint
 end
 ```
 
-## Cache Computed Responses
+## Cache computed responses
 
 `Azu.cache.fetch` runs the block on a miss and stores the result; many simultaneous misses of one key compute it
 once. Cache the rendered body:
@@ -77,7 +81,7 @@ Include everything that changes the answer in the key (page, locale, filters), a
 `Azu.cache.delete` where the data is written. The cache is in memory by default; see
 [Set Up Memory Cache](../caching/setup-memory-cache.md).
 
-## HTTP Caching Headers
+## HTTP caching headers
 
 Let clients and proxies reuse responses: send `Cache-Control` and an `ETag`, and answer `304 Not Modified`, without a
 body, when the client already has the current version:
@@ -122,7 +126,7 @@ A repeated request with `If-None-Match` set to the `ETag` gets `304` with an emp
 `public/`, `Azu::Handler::Static` already does this (weak `ETag`, `Cache-Control: public, no-cache` and, for names
 with a content hash such as `app-3f2a9c1b.css`, `max-age=31536000, immutable`).
 
-## Compress Responses
+## Compress responses
 
 Put `Azu::Handler::Compression` after `Static` in the handler array. It gzips or deflates responses for clients that
 send `Accept-Encoding`:
@@ -142,9 +146,12 @@ MyApp.start [
 ] of HTTP::Handler
 ```
 
-Do not write a handler that compresses by reading `context.response.output` after `call_next`; that is not where the body is.
+{% hint style="warning" %}
+Do not write a handler that compresses by reading `context.response.output` after `call_next`; that is not where the
+body is.
+{% endhint %}
 
-## Stream Large Responses
+## Stream large responses
 
 An endpoint can write to `context.response` itself and flush as it goes; with no `Content-Length` the server sends the
 body chunked. Return `Azu::Response::Empty` so nothing more is written:
@@ -179,7 +186,7 @@ flight until it finishes, which `shutdown_timeout` waits for. End the loop when 
 wait on `Azu.shutdown_signal`) so a stop does not wait for it; see
 [Shut Down Gracefully](../deployment/graceful-shutdown.md).
 
-## Do Not Block Requests on Slow Side Work
+## Do not block requests on slow side work
 
 Work the client does not wait for (analytics, emails) can run after you answer. Start it in a fiber that rescues its
 own errors, and use `Azu.spawn_scoped` so the fiber keeps this app's configuration:
@@ -214,9 +221,11 @@ struct TrackedSignupEndpoint
 end
 ```
 
+{% hint style="warning" %}
 For work that must not be lost when the process stops, use a job queue; a fiber dies with the process.
+{% endhint %}
 
-## Time Limits
+## Time limits
 
 Crystal has no request timeout setting in Azu. Bound a slow call with `select` and `timeout`, and raise
 `Azu::Response::TimeoutError` so `Rescuer` answers `408`:
@@ -268,7 +277,7 @@ Do not guess where time goes. With `require "azu/dev"`, `Azu::Handler::Performan
 request and `Azu::Instrumentation.on_cache` every cache operation; see
 [Performance Design](../../explanation/architecture/performance-design.md#measuring-your-application).
 
-## See Also
+## See also
 
 - [Performance Design](../../explanation/architecture/performance-design.md)
 - [Optimize Database Queries](optimize-database-queries.md)

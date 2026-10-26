@@ -1,6 +1,16 @@
+---
+description: Turn on request, cache and component metrics and read them in the dev dashboard.
+---
+
 # Monitor performance in development
 
-You will turn on request, cache and component metrics and read them in the dev dashboard. This is development tooling, not production monitoring.
+{% hint style="warning" %}
+This is development tooling, not production monitoring.
+{% endhint %}
+
+{% stepper %}
+{% step %}
+#### Load `azu/dev`
 
 The dashboard, the performance monitor, the profiler and the memory leak detector are not part of `require "azu"`. Add them with one line; an app that does not need them does not load them.
 
@@ -8,8 +18,10 @@ The dashboard, the performance monitor, the profiler and the memory leak detecto
 require "azu"
 require "azu/dev" # Handler::DevDashboard, Handler::PerformanceMonitor, PerformanceMetrics, DevelopmentTools, ...
 ```
+{% endstep %}
 
-## Switch metrics on
+{% step %}
+#### Switch metrics on
 
 With `azu/dev` loaded nothing is recorded until monitoring is on:
 
@@ -22,8 +34,10 @@ export PERFORMANCE_MEMORY_MONITORING=true
 ```
 
 Building with `PERFORMANCE_MONITORING=true` or `--define=performance_monitoring` also makes `require "azu"` load `azu/dev`.
+{% endstep %}
 
-## Add the handlers
+{% step %}
+#### Add the handlers
 
 ```crystal
 require "azu"
@@ -43,6 +57,8 @@ MyApp.start handlers
 ```
 
 `default_handlers` is the stack `start` uses on its own (request id, logging, error pages, security headers, static files); the monitor and the dashboard go in front of it. Put the shared monitor from `config.performance_monitor` in the chain: the dashboard and the code below read that instance, so a `Handler::PerformanceMonitor.new` of your own would record numbers that neither of them shows. `DevDashboard` serves only when the environment is development, whatever the list says. Open `/dev-dashboard`.
+{% endstep %}
+{% endstepper %}
 
 ## What you get
 

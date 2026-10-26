@@ -1,8 +1,10 @@
+---
+description: Create type-safe HTTP endpoints in Azu.
+---
+
 # Create an endpoint
 
-Create type-safe HTTP endpoints in Azu.
-
-## Basic Endpoint
+## Basic endpoint
 
 Create an endpoint by including `Azu::Endpoint` with request and response types. `Azu::Request` stands for
 "no request body to validate":
@@ -31,7 +33,7 @@ struct HelloEndpoint
 end
 ```
 
-## Endpoint with JSON Response
+## Endpoint with JSON response
 
 ```crystal
 struct User
@@ -76,7 +78,7 @@ struct UserEndpoint
 end
 ```
 
-## HTTP Method Macros
+## HTTP method macros
 
 Use macros to declare the HTTP method. Each endpoint declares one route:
 
@@ -139,9 +141,9 @@ struct DeletePost
 end
 ```
 
-## Accessing Request Data
+## Accessing request data
 
-### Route Parameters
+### Route parameters
 
 ```crystal
 struct PostEndpoint
@@ -157,7 +159,7 @@ struct PostEndpoint
 end
 ```
 
-### Query Parameters
+### Query parameters
 
 ```crystal
 struct SearchEndpoint
@@ -173,7 +175,7 @@ struct SearchEndpoint
 end
 ```
 
-### Request Headers
+### Request headers
 
 ```crystal
 struct HeadersEndpoint
@@ -189,7 +191,7 @@ struct HeadersEndpoint
 end
 ```
 
-## Setting Response Status
+## Setting response status
 
 ```crystal
 struct CreatedResponse
@@ -212,8 +214,10 @@ struct CreateUserEndpoint
 end
 ```
 
-## Registering Endpoints
+## Registering endpoints
 
+{% tabs %}
+{% tab title="Verb macro" %}
 A verb macro (`get`, `post`, ...) registers the endpoint when the type is defined, so there is nothing to add to the
 handler chain: endpoints are reached through the router, and `start` serves them.
 
@@ -228,7 +232,9 @@ MyApp.start [
   Azu::Handler::Rescuer.new,
 ] of HTTP::Handler
 ```
+{% endtab %}
 
+{% tab title="App routes" %}
 To keep the routes of an app in one place instead, declare them on the app. The endpoint then needs no verb macro:
 
 ```crystal
@@ -248,8 +254,10 @@ app.routes do
   end
 end
 ```
+{% endtab %}
+{% endtabs %}
 
-## See Also
+## See also
 
 - [Handle Parameters](handle-parameters.md)
 - [Return Different Formats](return-different-formats.md)

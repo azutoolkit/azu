@@ -1,14 +1,21 @@
+---
+description: Containerize your Azu application and run it with Docker.
+---
+
 # Deploy with Docker
 
-Containerize your Azu application and run it with Docker.
-
+{% hint style="info" %}
 A project generated with `azu new --docker` by the [azu CLI](https://github.com/azutoolkit/azu_cli) already has a
 multi-stage `Dockerfile` and a `.dockerignore`.
+{% endhint %}
 
-## Basic Dockerfile
+{% stepper %}
+{% step %}
+#### Basic Dockerfile
 
 Create a multi-stage Dockerfile:
 
+{% code title="Dockerfile" %}
 ```dockerfile
 # Build stage
 FROM crystallang/crystal:1.19.1-alpine AS builder
@@ -52,11 +59,15 @@ ENV PORT=8080
 
 CMD ["./app"]
 ```
+{% endcode %}
+{% endstep %}
 
-## .dockerignore
+{% step %}
+#### .dockerignore
 
 Create a `.dockerignore` file:
 
+{% code title=".dockerignore" %}
 ```
 .git
 .github
@@ -71,8 +82,11 @@ bin/
 lib/
 .crystal/
 ```
+{% endcode %}
+{% endstep %}
 
-## Build and Run
+{% step %}
+#### Build and run
 
 ```bash
 # Build the image
@@ -90,19 +104,29 @@ docker run -p 8080:8080 --env-file .env.production myapp:latest
 ```
 
 The cache reads `CACHE_STORE` and `CACHE_REDIS_URL`, not `REDIS_URL`; see
-[Set up a Redis cache](../caching/setup-redis-cache.md). Development binds `127.0.0.1` by default, which is
-unreachable from outside the container: set `HOST=0.0.0.0` when you run with `CRYSTAL_ENV=development`.
+[Set up a Redis cache](../caching/setup-redis-cache.md).
 
-## Health Checks
+{% hint style="warning" %}
+Development binds `127.0.0.1` by default, which is unreachable from outside the container: set `HOST=0.0.0.0` when
+you run with `CRYSTAL_ENV=development`.
+{% endhint %}
+{% endstep %}
+
+{% step %}
+#### Health checks
 
 Add health check to Dockerfile:
 
+{% code title="Dockerfile" %}
 ```dockerfile
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
   CMD wget -q --spider http://localhost:8080/health || exit 1
 ```
+{% endcode %}
+{% endstep %}
+{% endstepper %}
 
-## See Also
+## See also
 
 - [Configure Production](configure-production.md)
 - [Scale Horizontally](scale-horizontally.md)

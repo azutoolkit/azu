@@ -1,8 +1,10 @@
+---
+description: See template changes without restarting the server during development.
+---
+
 # Enable hot reload
 
-See template changes without restarting the server during development.
-
-## Enable Hot Reload
+## Enable hot reload
 
 Hot reload is on by default when `CRYSTAL_ENV` is `development`, `test` or `pipeline` and off otherwise
 (`TEMPLATE_HOT_RELOAD=true` or `false` overrides it). To set it in code:
@@ -18,10 +20,12 @@ module MyApp
 end
 ```
 
+{% hint style="warning" %}
 `config.templates` is built on first use from `template_hot_reload` and the template path, so set both before the
 first render, at boot.
+{% endhint %}
 
-## How It Works
+## How it works
 
 With hot reload on, at most once per second a template render checks the modification times of the `*.html`,
 `*.jinja` and `*.j2` files below the template directories (and Azu's own error pages). When one is new or changed,
@@ -36,7 +40,7 @@ passes to a template, need a restart in both modes. A file below the template di
 (a vendored `index.html`) stops the boot as well; list it in `template_compile_ignore` (see
 [Configuration](../../reference/configuration/options.md#templates)).
 
-## Development vs Production
+## Development vs production
 
 ```crystal
 module MyApp
@@ -58,7 +62,7 @@ end
 Crystal code changes need a rebuild: `azu dev` from the [azu CLI](https://github.com/azutoolkit/azu_cli) rebuilds and
 restarts the app when the code changes.
 
-## Browser Auto-Refresh
+## Browser auto-refresh
 
 Reload the page when a template changes with a small development-only channel. A background fiber polls the
 template files and broadcasts to every connected browser through `Azu::PubSub`:
@@ -122,18 +126,21 @@ Client-side script, included in your layout in development only:
 </script>
 ```
 
-The channel writes every broadcast to the socket as it is, so the browser receives the string `reload`. Register the
-channel only in development: a channel exposes a route in every environment.
+The channel writes every broadcast to the socket as it is, so the browser receives the string `reload`.
+
+{% hint style="warning" %}
+Register the channel only in development: a channel exposes a route in every environment.
+{% endhint %}
 
 ## Troubleshooting
 
-### Changes Not Reflecting
+### Changes not reflecting
 
 1. Check that the template path is the directory you are editing. The default path is relative to the working
    directory the server was started in (see [Render HTML Templates](render-html-templates.md#template-location)).
 2. Check that the file name matches what `view` asks for, including the extension.
 3. A change to Crystal code, including the hash passed to `view`, needs a rebuild.
 
-## See Also
+## See also
 
 - [Render HTML Templates](render-html-templates.md)

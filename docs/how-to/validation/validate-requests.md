@@ -1,8 +1,10 @@
+---
+description: Add validation to your request contracts.
+---
+
 # Validate requests
 
-Add validation to your request contracts.
-
-## Basic Validation
+## Basic validation
 
 Add the `validate` macro to your request struct:
 
@@ -25,7 +27,7 @@ end
 Validation is enforced before your endpoint runs: a request that breaks its contract is answered with `422` and the
 failing fields, and `call` never sees it.
 
-## Validation Rules
+## Validation rules
 
 Every rule takes the field name, the rule and the expected value, and an optional `message:` that replaces the default
 message (`Invalid field: <name>`).
@@ -91,9 +93,12 @@ end
 
 ### Comparisons
 
-Validate numbers with `gt`, `gte`, `lt`, `lte` and `eq`. Put all the rules of one field in one `validate` call: a second
-`validate` for the same field replaces the first, so `validate age, gt: 0` followed by `validate age, lt: 150` checks
-only `lt: 150`.
+Validate numbers with `gt`, `gte`, `lt`, `lte` and `eq`.
+
+{% hint style="warning" %}
+Put all the rules of one field in one `validate` call: a second `validate` for the same field replaces the first, so
+`validate age, gt: 0` followed by `validate age, lt: 150` checks only `lt: 150`.
+{% endhint %}
 
 ```crystal
 struct OrderLineRequest
@@ -150,7 +155,7 @@ struct UsernameRequest
 end
 ```
 
-## Combining Validations
+## Combining validations
 
 Apply multiple rules to one field. All of them are checked, and each failing rule adds an error:
 
@@ -171,7 +176,7 @@ struct RegistrationRequest
 end
 ```
 
-## Custom Validation
+## Custom validation
 
 For rules that need code, subclass `Schema::Validator`, return the errors from `valid?`, and register it with `use`.
 The validator receives the request as `@record`:
@@ -214,7 +219,7 @@ class OrderValidator < Schema::Validator
 end
 ```
 
-## Conditional Validation
+## Conditional validation
 
 Validate based on conditions inside a validator:
 
@@ -251,7 +256,7 @@ class PaymentValidator < Schema::Validator
 end
 ```
 
-## Using Validated Requests in Endpoints
+## Using validated requests in endpoints
 
 ```crystal
 struct CreateUserRequest
@@ -291,7 +296,7 @@ struct CreateUserEndpoint
 end
 ```
 
-## See Also
+## See also
 
 - [Handle Validation Errors](handle-validation-errors.md)
 - [Database validations](../../reference/database/validations.md)

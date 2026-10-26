@@ -1,9 +1,10 @@
+---
+description: "Run several Azu processes behind one load balancer: keep shared state out of the process, give every process the same secrets, and let real-time traffic cross processes through Redis."
+---
+
 # Scale horizontally
 
-Run several Azu processes behind one load balancer: keep shared state out of the process, give every process the
-same secrets, and let real-time traffic cross processes through Redis.
-
-## Stateless Design
+## Stateless design
 
 Each process has its own memory: a second instance does not see a hash, a counter or a default `Azu.cache` entry
 that the first one filled. Keep anything that must be shared in the database, or in a shared cache (see
@@ -27,7 +28,7 @@ Things that are per process in Azu:
   without it), so set the same `CSRF_SECRET` everywhere;
 - the Spark signing secret: set the same `SPARK_SECRET` everywhere.
 
-## Session Storage
+## Session storage
 
 A session is a random id in a cookie that points at data in a shared store. With a shared cache:
 
@@ -49,7 +50,7 @@ class SessionStore
 end
 ```
 
-## Load Balancer Configuration
+## Load balancer configuration
 
 Any load balancer works. Point its health check at
 [`Azu::Handler::HealthCheck`](../../reference/handlers/built-in.md#handlerhealthcheck), and pass the `Upgrade` and
@@ -58,7 +59,7 @@ proxy's address; [`Handler::Throttle`](../../reference/handlers/built-in.md#hand
 [`Handler::IpSpoofing`](../../reference/handlers/built-in.md#handleripspoofing) state what that means for rate limits
 and forwarded headers.
 
-## Graceful Rollouts
+## Graceful rollouts
 
 On `SIGTERM` an instance stops accepting connections and waits for requests in flight, up to
 `SHUTDOWN_TIMEOUT` seconds (30 by default), before it exits. Set the grace period of the orchestrator above it
@@ -128,13 +129,15 @@ Azu::PubSub.broadcast("notifications", {text: "Deploy finished"})
   pool of at most 2 connections that the publisher and the presence store share when built from the same URL (see
   [Redis](../../reference/api/redis.md)). Subscriber handlers run on the listener's fiber, so keep them short.
 
+{% hint style="warning" %}
 Broadcasts published while a node's subscriber reconnects are lost;
 [Presence](../../reference/api/presence.md#guarantees) lists what holds after a dropped connection, a Redis outage or
 a crashed node. See also [Broadcast messages](../real-time/broadcast-messages.md).
+{% endhint %}
 
-## Database Scaling
+## Database scaling
 
-### Read Replicas
+### Read replicas
 
 Define one schema per database and point read-only work at the replica:
 
@@ -177,14 +180,16 @@ class ReadOnlyUser
 end
 ```
 
+{% hint style="warning" %}
 A replica lags behind the primary, so read your own writes from the primary.
+{% endhint %}
 
-### Connection Pooling
+### Connection pooling
 
 Each process opens its own database pool (the pool options go in the database URL, see
 [Adapters](../../reference/database/cql-api.md#adapters)), so the connections add up across processes.
 
-## Cache Scaling
+## Cache scaling
 
 The memory cache is per process. Select the Redis store through the environment (see
 [Redis cache](../caching/setup-redis-cache.md)):
@@ -194,7 +199,7 @@ CACHE_STORE=redis
 CACHE_REDIS_URL=redis://redis.example.com:6379/0
 ```
 
-## Monitoring at Scale
+## Monitoring at scale
 
 `RequestId` (part of the default stack) tags every request with an id that the `Logger` line and error pages carry.
 Log the instance once at boot so a line can be traced to its host:
@@ -207,7 +212,7 @@ end
 MyApp.log.info { "instance #{ENV.fetch("HOSTNAME", "unknown")} version #{ENV.fetch("APP_VERSION", "unknown")}" }
 ```
 
-## See Also
+## See also
 
 - [Configure Production](configure-production.md)
 - [Deploy with Docker](deploy-with-docker.md)

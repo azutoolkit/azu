@@ -1,6 +1,8 @@
-# Broadcast messages
+---
+description: Channels and Spark components exchange messages through topics of `Azu::PubSub`.
+---
 
-Channels and Spark components exchange messages through topics of `Azu::PubSub`.
+# Broadcast messages
 
 ## Basic broadcasting
 
@@ -232,8 +234,10 @@ spawn(name: "clock") do
 end
 ```
 
+{% hint style="warning" %}
 Handlers run on the broadcaster's fiber, so a slow subscriber slows the broadcaster down. Keep
 `on_broadcast` quick. Azu does not throttle or batch broadcasts: guard a noisy producer yourself.
+{% endhint %}
 
 ## Several servers
 

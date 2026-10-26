@@ -1,8 +1,10 @@
+---
+description: Render HTML templates with Azu's Crinja template engine (Jinja2 syntax).
+---
+
 # Render HTML templates
 
-Render HTML templates with Azu's Crinja template engine (Jinja2 syntax).
-
-## Basic Template Rendering
+## Basic template rendering
 
 A response renders a template: include `Azu::Templates::Renderable` and call `view` with the template name and the
 data for it. The data keys become template variables:
@@ -36,11 +38,16 @@ end
 hashes). Without a template name it renders the template named after the response type: `Blog::Posts::ShowPage`
 renders `blog/posts/show_page.jinja`.
 
-The [template helpers](../../reference/templates/helpers.md) are always available. The request variables (`csrf_token`, `flash`,
-`current_path`, ...) are not: `view` adds them only when the type that calls it has a `context` method, and a response
-has none. In a response's `view`, `{{ csrf_field() }}` renders an empty token and a template that reads `flash.notice`
-fails with a `500` (`flash is undefined`). A page with a form or flash messages takes the endpoint's `context` and
-renders with `view_with_context(template, context, data)`, which adds them:
+The [template helpers](../../reference/templates/helpers.md) are always available.
+
+{% hint style="warning" %}
+The request variables (`csrf_token`, `flash`, `current_path`, ...) are not: `view` adds them only when the type that
+calls it has a `context` method, and a response has none. In a response's `view`, `{{ csrf_field() }}` renders an
+empty token and a template that reads `flash.notice` fails with a `500` (`flash is undefined`).
+{% endhint %}
+
+A page with a form or flash messages takes the endpoint's `context` and renders with
+`view_with_context(template, context, data)`, which adds them:
 
 ```crystal
 struct SignupPage
@@ -67,11 +74,16 @@ struct SignupPageEndpoint
 end
 ```
 
-## Template Location
+## Template location
 
-Azu looks for templates in the directories of `config.templates.path`. **The default is a path relative to the
-working directory the server runs in, not to your project**, so set it explicitly. Applications generated with
-`azu new` keep templates in `public/templates`:
+Azu looks for templates in the directories of `config.templates.path`.
+
+{% hint style="warning" %}
+**The default is a path relative to the working directory the server runs in, not to your project**, so set it
+explicitly.
+{% endhint %}
+
+Applications generated with `azu new` keep templates in `public/templates`:
 
 ```crystal
 module MyApp
@@ -106,7 +118,7 @@ Use the `.jinja`, `.j2` or `.html` extension: those are the files hot reload wat
 
 A template that cannot be found raises `Crinja::TemplateNotFoundError`.
 
-## Template Syntax
+## Template syntax
 
 Crinja uses Jinja2-style syntax:
 
@@ -312,7 +324,7 @@ Define reusable template functions:
 {# This is a comment and won't be rendered #}
 ```
 
-## Raw Output
+## Raw output
 
 Disable template processing:
 
@@ -322,7 +334,7 @@ Disable template processing:
 {% endraw %}
 ```
 
-## Custom Helpers
+## Custom helpers
 
 Register your own functions and filters before the first render. They are available in every template:
 
@@ -345,7 +357,7 @@ Use in a template:
 
 See [Template helpers](../../reference/templates/helpers.md).
 
-## See Also
+## See also
 
 - [Enable Hot Reload](enable-hot-reload.md)
 - [Template helpers reference](../../reference/templates/helpers.md)

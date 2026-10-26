@@ -1,12 +1,16 @@
+---
+description: Query data with CQL models.
+---
+
 # Query data
 
-Query data with CQL models. Every example is self-contained: it defines the schema and the models it needs. In an
-application they live in their own files (see [Create Models](create-models.md)).
+Every example is self-contained: it defines the schema and the models it needs. In an application they live in their
+own files (see [Create Models](create-models.md)).
 
 Model queries return a `QueryBuilder`. Every method that adds a condition returns a new builder, so queries chain, and
 nothing touches the database until you ask for records (`all`, `first`, `count`, ...).
 
-## Finding Records
+## Finding records
 
 `find` and `find?` return the record or `nil`; `find!` and `find_by!` raise `DB::NoResultsError` when nothing matches.
 `first` and `last` order by the primary key unless you order the query yourself; `first!` and `last!` raise:
@@ -61,7 +65,7 @@ last_user = User.last
 oldest = User.order(created_at: :asc).first
 ```
 
-## Filtering with Where
+## Filtering with where
 
 Keyword arguments are combined with `AND`, and an array value becomes an `IN` list. A string with `?` placeholders (or
 `:name` placeholders with keyword arguments) is bound as parameters, never interpolated. The block form gives you the
@@ -135,7 +139,7 @@ users = User
 `where(deleted_at: nil)` produces `WHERE users.deleted_at IS NULL`, the same check as the block form
 `deleted_at.null` and the SQL fragment above.
 
-## Ordering, Limits and Pagination
+## Ordering, limits and pagination
 
 `order` takes symbols (ascending) or keyword arguments with a direction. The argument is a column name, not a SQL
 expression. `User.page(2, 20)` returns the second page of 20 records and `User.per_page(20)` the first;
@@ -189,7 +193,7 @@ next_page = User.after_cursor(100_i64, 20)   # ids greater than 100, ordered by 
 by_age = User.paginate_by(:age, 30, 20)      # age greater than 30
 ```
 
-## Selecting Columns
+## Selecting columns
 
 `select` with symbols returns lightweight rows holding only those columns. `pluck` returns column values directly; name
 the Crystal types with `as:` when you pluck several columns:
@@ -297,7 +301,7 @@ busy_roles = AcmeDB.query
   .all(as: {String, Int64})
 ```
 
-## Joins, Associations and Scopes
+## Joins, associations and scopes
 
 `joins` and `left_joins` take an association name declared with `belongs_to` or `has_many`; the join condition comes
 from the foreign key and the query still returns the model it started from. An association is a collection you can read
@@ -377,7 +381,7 @@ Post.by_author(1_i64).published.limit(5).all
 Post.published.popular.count
 ```
 
-## Eager Loading
+## Eager loading
 
 Reading an association per record runs one query per record (the N+1 problem). `preload` loads the named association
 of all records with one extra query. It works for `has_many`, `has_one` and `belongs_to`:
@@ -517,10 +521,15 @@ rows = AcmeDB.exec_query do |connection|
 end
 ```
 
-## Existence, Batches and Bulk Changes
+## Existence, batches and bulk changes
 
-`find_each` and `find_in_batches` walk a large table without loading it at once. `update_by`, `update_all` and
-`delete_by!` run one statement; `update_all` without a condition changes every row, and none of them run callbacks.
+`find_each` and `find_in_batches` walk a large table without loading it at once.
+
+{% hint style="warning" %}
+`update_by`, `update_all` and `delete_by!` run one statement; `update_all` without a condition changes every row, and
+none of them run callbacks.
+{% endhint %}
+
 `delete_all` on a query loads the records and calls `delete!` on each, so their callbacks run:
 
 ```crystal
@@ -576,7 +585,7 @@ User.delete_by!(role: "banned")
 User.where(active: false).delete_all
 ```
 
-## See Also
+## See also
 
 - [Create Models](create-models.md)
 - [Handle Transactions](handle-transactions.md)

@@ -1,13 +1,19 @@
+---
+description: Validate uploaded file types for security.
+---
+
 # Validate file types
 
-Validate uploaded file types for security. Everything the client sends about a file is untrusted: the file name and
-the `Content-Type` of the part are chosen by the client. The only evidence you can check yourself is the content.
+{% hint style="warning" %}
+Everything the client sends about a file is untrusted: the file name and the `Content-Type` of the part are chosen by
+the client. The only evidence you can check yourself is the content.
+{% endhint %}
 
 Uploaded files arrive in `params.files` as `Azu::Params::Multipart::File` objects, already written to a temp file
 (see [Handle File Uploads](handle-file-uploads.md)). The size limit is enforced before your endpoint runs:
 set `config.upload.max_file_size`.
 
-## Basic Extension Validation
+## Basic extension validation
 
 Check file extensions:
 
@@ -26,7 +32,7 @@ module FileValidator
 end
 ```
 
-## Content-Type Validation
+## Content-Type validation
 
 The declared content type must agree with the extension. This catches mistakes, not attacks, because the client
 writes both:
@@ -49,13 +55,13 @@ def valid_content_type?(upload : Azu::Params::Multipart::File) : Bool
 end
 ```
 
-## Magic Number Validation
+## Magic number validation
 
 Check the file signature (magic number), the first bytes of the content, for the true file type. Read from the temp file
 and rewind so that the file can be read again afterwards. The `MagicNumber` module is the first part of the example in
 the next section.
 
-## Comprehensive File Validation
+## Comprehensive file validation
 
 Combine the checks. A failure raises `Azu::Response::ValidationError`, which `Azu::Handler::Rescuer` answers with `422`
 and the field name. The endpoint validates, then keeps the file under a name you chose, and removes the temp file on
@@ -164,6 +170,6 @@ A file that is too large never gets to the endpoint: it is refused with `413` wh
 smaller limit for one endpoint, check `upload.size` and raise `Azu::Response::PayloadTooLarge`. The temp file has a
 path (`upload.temp_path`), so an external virus scanner can read it before you keep the file.
 
-## See Also
+## See also
 
 - [Handle File Uploads](handle-file-uploads.md)

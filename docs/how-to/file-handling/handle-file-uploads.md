@@ -1,6 +1,8 @@
-# Handle file uploads
+---
+description: Accept and process file uploads in Azu.
+---
 
-Accept and process file uploads in Azu.
+# Handle file uploads
 
 ## How uploads work
 
@@ -27,7 +29,7 @@ An uploaded file offers:
 | `temp_path : String` | its path |
 | `cleanup` | closes and deletes the temp file |
 
-## Basic File Upload
+## Basic file upload
 
 ```crystal
 require "uuid"
@@ -64,12 +66,17 @@ struct UploadEndpoint
 end
 ```
 
-`error("File is required")` builds a `400` response error. Always call `cleanup` once you are done with the temp file
-(`ensure` does it on every path). A background task also deletes `azu_upload_*` files older than
-`config.upload.max_temp_age` (24 hours) every `cleanup_interval` (1 hour), but it is a safety net. It removes only
-temp files: the files you copy out (to `uploads/` above) are yours to expire.
+`error("File is required")` builds a `400` response error.
 
-## HTML Form
+{% hint style="warning" %}
+Always call `cleanup` once you are done with the temp file (`ensure` does it on every path).
+{% endhint %}
+
+A background task also deletes `azu_upload_*` files older than `config.upload.max_temp_age` (24 hours) every
+`cleanup_interval` (1 hour), but it is a safety net. It removes only temp files: the files you copy out (to
+`uploads/` above) are yours to expire.
+
+## HTML form
 
 ```html
 <form action="/upload" method="POST" enctype="multipart/form-data">
@@ -79,7 +86,7 @@ temp files: the files you copy out (to `uploads/` above) are yours to expire.
 </form>
 ```
 
-## Multiple File Uploads
+## Multiple file uploads
 
 `params.files` is keyed by field name, so one field name holds one file: if several parts share a name, the last
 one wins, and the temp file of the replaced one is left for the background cleanup. Give each file input its own name (`photo1`, `photo2`) and iterate:
@@ -118,7 +125,7 @@ struct MultiUploadEndpoint
 end
 ```
 
-## File Size Limits
+## File size limits
 
 The limit is part of the upload configuration. It applies to each file as it is streamed, so an oversized file is
 stopped after `max_file_size` bytes and its temp file is removed:
@@ -138,9 +145,13 @@ end
 `UPLOAD_MAX_TEMP_AGE` (seconds) set the same from the environment. Put a limit on the request in your reverse proxy
 too (`client_max_body_size` in Nginx), so that the bytes never reach the application.
 
-## Secure File Handling
+## Secure file handling
 
-Never use the client's file name as a path. Pick the stored name yourself and keep only a vetted extension:
+{% hint style="danger" %}
+Never use the client's file name as a path.
+{% endhint %}
+
+Pick the stored name yourself and keep only a vetted extension:
 
 ```crystal
 require "uuid"
@@ -163,12 +174,12 @@ end
 
 See [Validate File Types](validate-file-types.md) for checking the content, not only the name.
 
-## Cloud Storage Upload
+## Cloud storage upload
 
 Azu does not ship a storage client. Use the client of your storage service and give it the temp file as an `IO`
 (`upload.file`) so the content is streamed instead of read into memory, then call `upload.cleanup`.
 
-## See Also
+## See also
 
 - [Validate File Types](validate-file-types.md)
 - [Handle Parameters](../endpoints/handle-parameters.md)

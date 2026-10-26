@@ -1,12 +1,14 @@
-# Run migrations
+---
+description: Create and run database migrations with CQL.
+---
 
-Create and run database migrations with CQL.
+# Run migrations
 
 A migration is a class that subclasses `CQL::Migration(version)`, where the version is a unique integer, usually a
 timestamp (`YYYYMMDDHHMMSS`). Defining the class registers it with `CQL::Migrator`, which applies migrations in version
 order and records each one in the `cql_schema_migrations` table. The migration receives the schema as `schema`.
 
-## Creating a Migration
+## Creating a migration
 
 Declare the table on the schema, then create it. Declaring it first is what makes `schema.users` available:
 
@@ -39,12 +41,12 @@ end
 (`index [...]`, `index: true`; see [Define Schema](define-schema.md#indexes)); `drop!` runs `DROP TABLE`.
 `create_index` inside `schema.alter`, as above, adds an index to a table that already exists.
 
-## Migration Operations
+## Migration operations
 
 Changes to existing tables go through `schema.alter`. Each call inside the block is turned into SQL and run in one
 transaction when the block ends.
 
-### Create Table
+### Create table
 
 ```crystal
 require "cql"
@@ -70,7 +72,7 @@ class CreatePosts < CQL::Migration(20240116090000_i64)
 end
 ```
 
-### Add Column
+### Add column
 
 `add_column` columns are nullable unless you pass `null: false` with a `default:`:
 
@@ -94,7 +96,7 @@ class AddBioAndAgeToUsers < CQL::Migration(20240117090000_i64)
 end
 ```
 
-### Remove Column
+### Remove column
 
 ```crystal
 require "cql"
@@ -114,7 +116,7 @@ class RemoveLegacyFieldFromUsers < CQL::Migration(20240118090000_i64)
 end
 ```
 
-### Rename Column
+### Rename column
 
 ```crystal
 require "cql"
@@ -134,7 +136,7 @@ class RenameUsersNameToFullName < CQL::Migration(20240119090000_i64)
 end
 ```
 
-### Change Column Type
+### Change column type
 
 `change_column` takes the column name and its new type. SQLite cannot alter a column and raises
 `CQL::SQLiteUnsupportedFeatureError` (with the table-rebuild workaround in its message); PostgreSQL and MySQL support it:
@@ -157,7 +159,7 @@ class WidenPostsViews < CQL::Migration(20240120090000_i64)
 end
 ```
 
-### Create Index
+### Create index
 
 `create_index` takes an index name, the columns and `unique:`; `drop_index` takes the name:
 
@@ -181,7 +183,7 @@ class AddPostIndexes < CQL::Migration(20240121090000_i64)
 end
 ```
 
-### Add Foreign Key
+### Add foreign key
 
 SQLite can only declare foreign keys in `CREATE TABLE`; adding or dropping one afterwards raises. Use this on
 PostgreSQL or MySQL:
@@ -204,7 +206,7 @@ class AddAuthorToPosts < CQL::Migration(20240122090000_i64)
 end
 ```
 
-### Rename Table
+### Rename table
 
 ```crystal
 require "cql"
@@ -224,7 +226,7 @@ class RenamePostsToArticles < CQL::Migration(20240123090000_i64)
 end
 ```
 
-### Drop Table
+### Drop table
 
 ```crystal
 require "cql"
@@ -244,7 +246,7 @@ class DropLegacyData < CQL::Migration(20240124090000_i64)
 end
 ```
 
-## Running Migrations
+## Running migrations
 
 `CQL::Migrator` is created from the schema. `schema.migrator(config)` is shorthand for `CQL::Migrator.new(schema, config)`.
 Require the migration files before running it, because each class registers itself when it is defined.
@@ -286,10 +288,11 @@ migrator.print_pending_migrations
 migrator.print_applied_migrations
 ```
 
-### Run from the Command Line
+### Run from the command line
 
 A small task file keeps the commands in your project (`crystal run src/tasks/db.cr -- migrate`):
 
+{% code title="src/tasks/db.cr" %}
 ```crystal
 require "cql"
 require "sqlite3"
@@ -338,6 +341,7 @@ else
   puts "Usage: crystal run src/tasks/db.cr -- [migrate|rollback [steps]|redo|status|reset]"
 end
 ```
+{% endcode %}
 
 The Azu CLI (`azu db:migrate`, `azu db:rollback`, `azu db:status`) wraps the same migrator; see the CLI's own
 documentation for its options.
@@ -382,7 +386,7 @@ migrator.down                         # roll back everything
 `migrator.last` returns the most recent migration class, and `migrator.pending_migrations` /
 `migrator.applied_migrations` return the lists without printing them.
 
-## Schema File Synchronisation
+## Schema file synchronisation
 
 By default (`auto_sync: true`) the migrator regenerates a schema file after running migrations, from the live
 database. Configure where it writes and what it is called:
@@ -418,12 +422,16 @@ config = CQL::MigratorConfig.new(
 AppDB.migrator(config).up
 ```
 
+The default path is `src/schemas/app_schema.cr`.
+
+{% hint style="danger" %}
 The generated file contains the database URI, so keep credentials out of it (read them from the environment) or turn
-`auto_sync` off. The default path is `src/schemas/app_schema.cr`.
+`auto_sync` off.
+{% endhint %}
 
-## Migration Best Practices
+## Migration best practices
 
-### Version Numbers
+### Version numbers
 
 Use a timestamp so migrations from different branches do not collide. The version is the `Migration(...)` argument,
 the file name is only for humans:
@@ -436,7 +444,7 @@ src/db/migrations/
 └── 20240121090000_add_post_indexes.cr
 ```
 
-### Reversible Migrations
+### Reversible migrations
 
 Always implement both `up` and `down`:
 
@@ -458,7 +466,7 @@ class AddRoleToUsers < CQL::Migration(20240125090000_i64)
 end
 ```
 
-### Data Migrations
+### Data migrations
 
 `schema.exec` runs one SQL string without parameters. To bind values, use the connection with `exec_query`:
 
@@ -483,7 +491,7 @@ class BackfillUserSlugs < CQL::Migration(20240126090000_i64)
 end
 ```
 
-### Batch Updates
+### Batch updates
 
 For large tables update in batches, binding the values through the connection:
 
@@ -518,7 +526,7 @@ class AddWordCountToPosts < CQL::Migration(20240127090000_i64)
 end
 ```
 
-## See Also
+## See also
 
 - [Define Schema](define-schema.md)
 - [Create Models](create-models.md)

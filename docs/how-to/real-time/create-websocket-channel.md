@@ -1,6 +1,8 @@
-# Create a WebSocket channel
+---
+description: Accept WebSocket connections with `Azu::Channel`.
+---
 
-Accept WebSocket connections with `Azu::Channel`.
+# Create a WebSocket channel
 
 ## Basic channel
 
@@ -69,6 +71,8 @@ end
 
 ## Connect a client
 
+{% tabs %}
+{% tab title="Browser" %}
 From a browser:
 
 ```javascript
@@ -78,7 +82,9 @@ socket.onopen = () => socket.send("hello");
 socket.onmessage = (event) => console.log(JSON.parse(event.data));
 socket.onclose = (event) => console.log("closed", event.code, event.reason);
 ```
+{% endtab %}
 
+{% tab title="Crystal" %}
 From Crystal, for a script or a test, use `HTTP::WebSocket`:
 
 ```crystal
@@ -92,10 +98,14 @@ socket.send "hello"
 sleep 100.milliseconds
 socket.close
 ```
+{% endtab %}
+{% endtabs %}
 
+{% hint style="warning" %}
 A browser sends an `Origin` header and Azu refuses the upgrade (403) unless it is the application's own
 origin or listed in `Azu::CONFIG.websocket.allowed_origins`. Clients without an `Origin` header, such as
 the Crystal client above, are accepted.
+{% endhint %}
 
 ## Handle different message types
 
@@ -262,8 +272,11 @@ end
 ```
 
 `authenticate` refuses every connection while `CHANNEL_TOKEN` is unset, and compares in constant time so the
-response time does not reveal how much of the token matched. `on_message` checks `@user` again because a
-client can send frames before the close handshake completes.
+response time does not reveal how much of the token matched.
+
+{% hint style="danger" %}
+`on_message` checks `@user` again because a client can send frames before the close handshake completes.
+{% endhint %}
 
 ## Rooms
 

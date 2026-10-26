@@ -1,8 +1,10 @@
+---
+description: Extract and work with request parameters.
+---
+
 # Handle parameters
 
-Extract and work with request parameters.
-
-## Route Parameters
+## Route parameters
 
 Define route parameters with a colon prefix:
 
@@ -22,7 +24,7 @@ end
 
 `params["id"]` raises `KeyError` when the parameter is missing; `params["id"]?` returns `nil` instead.
 
-### Multiple Route Parameters
+### Multiple route parameters
 
 ```crystal
 struct ShowPostEndpoint
@@ -38,7 +40,7 @@ struct ShowPostEndpoint
 end
 ```
 
-## Query Parameters
+## Query parameters
 
 Access query string parameters:
 
@@ -62,8 +64,10 @@ end
 what the URL addresses (`POST /users/5` with `id=1` in the body reads `5`). Use `params.query`,
 `params.path` and `params.form` to read one source only, and `params.fetch_all("tag")` for a repeated key.
 
-## Request Body (JSON)
+## Request body
 
+{% tabs %}
+{% tab title="JSON" %}
 Use request contracts to parse JSON bodies. The contract is parsed once per call, and a request that breaks its
 validations is answered with `422` before `call` runs:
 
@@ -105,9 +109,9 @@ struct CreateUserEndpoint
   end
 end
 ```
+{% endtab %}
 
-## Form Data
-
+{% tab title="Form data" %}
 The same contract reads URL-encoded form submissions. Fields are matched by name, and the query string is part
 of the same input:
 
@@ -135,8 +139,10 @@ struct FormEndpoint
   end
 end
 ```
+{% endtab %}
+{% endtabs %}
 
-## File Uploads
+## File uploads
 
 Uploaded files are not part of the contract. Read them from `params.files`:
 
@@ -176,10 +182,14 @@ struct HeadersEndpoint
 end
 ```
 
-## Type Conversion
+## Type conversion
 
-Convert string parameters to types. Use the `?` variants when the input is not trusted: `to_i64` raises on text
-that is not a number, which would be answered with a 500.
+Convert string parameters to types.
+
+{% hint style="warning" %}
+Use the `?` variants when the input is not trusted: `to_i64` raises on text that is not a number, which would be
+answered with a 500.
+{% endhint %}
 
 ```crystal
 enum Status
@@ -210,7 +220,7 @@ end
 A request contract does the conversion for you: a field typed `Int32` or `Bool` is parsed from the form or JSON input,
 and input that cannot be converted is answered with a `400`.
 
-## Default Values
+## Default values
 
 Provide defaults for optional parameters:
 
@@ -230,7 +240,7 @@ struct ListEndpoint
 end
 ```
 
-## See Also
+## See also
 
 - [Validate Requests](../validation/validate-requests.md)
 - [Handle File Uploads](../file-handling/handle-file-uploads.md)

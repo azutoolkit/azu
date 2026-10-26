@@ -1,8 +1,10 @@
+---
+description: Catch, format, log and report errors in your Azu application.
+---
+
 # Handle errors gracefully
 
-Catch, format, log and report errors in your Azu application.
-
-## Built-in Error Handling
+## Built-in error handling
 
 Azu provides a Rescuer handler for catching exceptions. It renders an `Azu::Response::Error` with its own status and
 turns any other exception into a `500`, in the format the `Accept` header asks for (HTML, JSON, XML or plain text).
@@ -19,7 +21,7 @@ MyApp.start [
 ] of HTTP::Handler
 ```
 
-## HTTP Error Responses
+## HTTP error responses
 
 Use built-in error responses:
 
@@ -59,7 +61,7 @@ Available error responses:
 See the [Error Types Reference](../../reference/errors/error-types.md) for all of them, and for statuses that have no class
 of their own.
 
-## Custom Error Handler
+## Custom error handler
 
 Create a handler that answers errors in your own format. A handler is an `HTTP::Handler`: it calls `call_next` and
 rescues what the rest of the chain raises. Put it after `Rescuer` to see errors first, or instead of it to own the
@@ -110,7 +112,7 @@ class ErrorHandler
 end
 ```
 
-## Endpoint-Level Error Handling
+## Endpoint-level error handling
 
 Handle errors within endpoints:
 
@@ -172,7 +174,7 @@ end
 When an endpoint can answer with more than one response type, declare the union as its response type, as above.
 For failures, raising an `Azu::Response::Error` subclass is usually simpler: the status and body come from the error.
 
-## Error Response Format
+## Error response format
 
 Create a consistent error response:
 
@@ -198,7 +200,7 @@ struct ApiErrorResponse
 end
 ```
 
-## Logging Errors
+## Logging errors
 
 Log errors with context:
 
@@ -232,7 +234,7 @@ end
 
 Put it after `Rescuer` in the handler list so it sees the exception before `Rescuer` turns it into a response.
 
-## Error Monitoring
+## Error monitoring
 
 Send errors to external monitoring. The `ExternalTracker` module below stands in for your tracker's SDK (Sentry,
 Honeybadger, ...):
@@ -264,6 +266,6 @@ class ErrorReporter
 end
 ```
 
-## See Also
+## See also
 
 - [Create Custom Errors](create-custom-errors.md)

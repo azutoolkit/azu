@@ -1,14 +1,19 @@
+---
+description: Test `Azu::Channel`s and Spark live components.
+---
+
 # Test WebSockets
 
-Test `Azu::Channel`s and Spark live components. Channels are tested over a real socket: an in-process
-`HTTP::Server` on a free port and `HTTP::WebSocket` as the client. That exercises the handshake, the origin
-check, your callbacks and the PubSub wiring together. Components can also be tested without any socket through
-`Azu::Spark::Testing`.
+Channels are tested over a real socket: an in-process `HTTP::Server` on a free port and `HTTP::WebSocket` as the
+client. That exercises the handshake, the origin check, your callbacks and the PubSub wiring together. Components
+can also be tested without any socket through `Azu::Spark::Testing`.
 
+{% hint style="info" %}
 Specs normally use `Azu::Testing::Client#connect` (see [Testing](../../reference/api/testing.md#websocket)),
 which performs the handshake through the app and exchanges frames over in-process pipes. The `WsClient` below,
 which you keep in `spec/spec_helper.cr`, connects to a real port instead, which also exercises `HTTP::Server`'s
 socket and connection handling.
+{% endhint %}
 
 ## A client for specs
 

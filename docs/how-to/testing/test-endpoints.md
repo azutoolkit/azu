@@ -1,12 +1,17 @@
+---
+description: "Write specs for Azu endpoints with the tools Crystal and Azu already provide: an in-process `HTTP::Server` bound to a free port, and `HTTP::Client`."
+---
+
 # Test endpoints
 
-Write specs for Azu endpoints with the tools Crystal and Azu already provide: an in-process `HTTP::Server`
-bound to a free port, and `HTTP::Client`. The requests go through the real handler chain, the router, the
-request contract and the response, exactly as in production.
+The requests go through the real handler chain, the router, the request contract and the response, exactly as in
+production.
 
+{% hint style="info" %}
 Specs normally use `Azu::Testing::Client` (see [Testing](../../reference/api/testing.md)), which sends requests
 through the same chain without opening a socket. The `serve` helper below, which you keep in `spec/spec_helper.cr`,
 serves the app on a real port instead, which also exercises `HTTP::Server`'s socket and connection handling.
+{% endhint %}
 
 ## Basic test setup
 

@@ -1,3 +1,7 @@
+---
+description: Azu reads sessions through `Azu::SessionAdapter`, which the `session` shard fills.
+---
+
 # Use sessions
 
 Azu has no session store of its own. It reads sessions through a small seam, `Azu::SessionAdapter`, and the
@@ -30,9 +34,13 @@ end
 ```
 
 `Session::Web.use_store` adds the typed `context.session` and `context.flash` to `HTTP::Server::Context`.
-`SESSION_SECRET` is required in production. Put `Session::SessionHandler(UserSession).new(Session.session)`
-in the handler list before the router; it saves the session just before the response starts
-(`Session::CommitOnWrite`), so a streamed response keeps its cookie.
+
+{% hint style="warning" %}
+`SESSION_SECRET` is required in production.
+{% endhint %}
+
+Put `Session::SessionHandler(UserSession).new(Session.session)` in the handler list before the router; it saves the
+session just before the response starts (`Session::CommitOnWrite`), so a streamed response keeps its cookie.
 
 ## Connect the template helpers and CSRF
 
@@ -122,8 +130,10 @@ Use the store with `Azu::Handler::CSRF.new(strategy: Azu::Handler::CSRF::Strateg
 token_store: Azu::Handler::CSRF::SessionTokenStore.new)`, placed **after** `Session::SessionHandler` in the
 handler chain. If the session is missing or unreadable, the request is refused with 403.
 
+{% hint style="warning" %}
 `context.session` and `context.flash` work only in the request's own fiber, behind the session handler. A
 WebSocket channel or a `spawn`ed fiber has no session and gets `Session::Web::MissingSession`.
+{% endhint %}
 
 ## See also
 

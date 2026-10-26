@@ -1,8 +1,10 @@
+---
+description: Handle and respond to validation errors in your Azu application.
+---
+
 # Handle validation errors
 
-Handle and respond to validation errors in your Azu application.
-
-## Automatic Error Handling
+## Automatic error handling
 
 Azu validates the request contract before your endpoint runs. A request that breaks it never reaches `call`: the
 endpoint answers it itself with a `422` that lists the failing fields:
@@ -47,7 +49,7 @@ end
 A body that cannot be parsed into the request type at all (for example a missing field that has no default) is
 answered with `400` instead.
 
-## Default Error Response
+## Default error response
 
 When validation fails, the status is `422 Unprocessable Entity` and the format of the body follows the first entry of
 the request's `Accept` header. A client that asks for JSON gets a problem document, sent as `application/problem+json`
@@ -73,7 +75,7 @@ gets a `text/plain` body.
 `config.error_format = Azu::ErrorFormat::Legacy` selects the legacy body (`FieldErrors`, `ErrorId`, `Fingerprint`, ...)
 instead; see [Migrate to 0.6](../migrate-to-0.6.md#contracts-answer-422).
 
-## Custom Error Responses
+## Custom error responses
 
 Create a custom error response format by building it from the `Schema::Error`s of a request. A request that breaks
 its contract always gets the body above, so return a response like this one from an endpoint that validates by hand
@@ -100,7 +102,7 @@ struct ValidationErrorResponse
 end
 ```
 
-## Manual Validation Handling
+## Manual validation handling
 
 An endpoint whose request type has validations never runs for invalid input, so an endpoint that answers invalid
 input itself (for example by showing a form again) declares the bare `Azu::Request` and validates a form object
@@ -142,7 +144,7 @@ struct SignupEndpoint
 end
 ```
 
-## Domain Errors
+## Domain errors
 
 Failures that only the application can detect, such as a duplicate email, are raised as a `ValidationError` too, so
 clients get the same body:
@@ -166,7 +168,7 @@ end
 A `Hash(String, Array(String))` of field errors works as well:
 `Azu::Response::ValidationError.new({"email" => ["is invalid"]})`.
 
-## Custom Error Handler
+## Custom error handler
 
 A handler sees only the errors raised inside `call`, such as the domain error above. A request that breaks its
 contract never reaches `call`: the endpoint answers it itself, with `400` when the body or a field cannot be read as the
@@ -210,7 +212,7 @@ With it, `POST /register` with `email=ada@example.com` gets
 `{"error":"Validation Failed","details":{"email":["has already been taken"]}}`, while a `POST /users` that breaks
 `CreateUserRequest` still gets the problem document above.
 
-## Collecting All Errors
+## Collecting all errors
 
 Every rule is checked, so all validation errors are collected, not just the first one:
 
@@ -235,7 +237,7 @@ end
 MultiFieldRequest.new.errors.map(&.field).uniq! # => [:name, :email, :password]
 ```
 
-## Displaying Errors to Users
+## Displaying errors to users
 
 For HTML responses, pass errors to templates. Include `Azu::Templates::Renderable` in the response and call `view`:
 
@@ -327,7 +329,7 @@ class LocalizedNameValidator < Schema::Validator
 end
 ```
 
-## See Also
+## See also
 
 - [Validate Requests](validate-requests.md)
 - [Database validations](../../reference/database/validations.md)
