@@ -259,11 +259,12 @@ module Azu
             }
             attrs["type"] = type.to_s unless type.none?
 
-            # Handle crossorigin - fonts require it
-            if !crossorigin.none?
-              attrs["crossorigin"] = crossorigin.truthy? ? "anonymous" : crossorigin.to_s
-            elsif as_type == "font"
-              attrs["crossorigin"] = "anonymous"
+            # true means "anonymous", false omits the attribute, a string is used as given;
+            # a font preload without the argument gets "anonymous", as browsers require it
+            case raw = crossorigin.raw
+            when String, Crinja::SafeString then attrs["crossorigin"] = raw.to_s
+            when true                       then attrs["crossorigin"] = "anonymous"
+            when nil, Crinja::Undefined     then attrs["crossorigin"] = "anonymous" if as_type == "font"
             end
 
             Crinja::SafeString.new(Util.void_tag("link", attrs))

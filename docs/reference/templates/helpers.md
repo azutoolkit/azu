@@ -351,9 +351,6 @@ Filter that checks if a path matches the current page:
 |-----------|------|---------|-------------|
 | `exact` | bool | `true` | Exact match vs prefix match |
 
-The filter is also registered as `current_page?`, but Crinja cannot parse a name that ends in `?`
-(`TemplateSyntaxError: Not implemented expression value`), so templates use `is_current_page`.
-
 {% hint style="warning" %}
 `is_current_page` and `active_class` compare with the [request variable](#request-variables) `current_path`.
 Rendered without it, they compare with `/`, so the `/` link is active on every page.
@@ -754,7 +751,7 @@ Function that generates a `<link rel="preload">`:
 | `href` | string | `""` | Asset path; an `http(s)://` or `/` URL is kept as it is, anything else gets the asset prefix |
 | `as` | string | `""` | The `as` attribute (`font`, `style`, `script`, `image`, ...) |
 | `type` | string | `nil` | MIME type |
-| `crossorigin` | any | `nil` | Any true value gives `crossorigin="anonymous"` (a string such as `"use-credentials"` too); `as="font"` gets it without asking |
+| `crossorigin` | string or bool | `nil` | A string is the attribute value (`"use-credentials"`), `true` gives `"anonymous"`, `false` leaves the attribute out; without it, `as="font"` gets `"anonymous"` and anything else none |
 
 ### inline_svg
 
@@ -840,8 +837,10 @@ Function that describes the time between two moments in the same words:
 | `from_time` | time, int or string | now | Start |
 | `to_time` | time, int or string | now | End |
 
-A `Time` is used as it is, an integer (or a string of digits) is a unix timestamp, and another string is read as a
-`YYYY-MM-DD` date: a time of day after the date is ignored. A string that is not a date counts as now. The order
+A `Time` is used as it is, an integer (or a string of digits) is a unix timestamp, and another string is read, in
+this order, as RFC 3339 with an offset (`2026-01-01T10:00:00+02:00`), as `YYYY-MM-DDTHH:MM:SS` or
+`YYYY-MM-DD HH:MM:SS` in UTC, or as a `YYYY-MM-DD` date at midnight UTC. `time_ago`, `relative_time` and
+`date_format` read strings the same way. A string that matches none counts as now. The order
 does not matter. Words go up to years: `seconds`, `minutes`, `hours`, `days`, `weeks`, `months` (30 days), `years`
 (365 days).
 
@@ -1025,17 +1024,20 @@ the content is logged.
 
 ### cycle
 
-Function that returns its values in turn, one per call:
+Function that returns its values in turn. Inside a `for` loop it follows the iteration (`loop.index0`), so two
+cycles in one loop do not affect each other:
+
+```jinja
+{% for row in rows %}<tr class="{{ cycle(values=["odd", "even"]) }}">...</tr>{% endfor %}
+{# odd, even, odd, ... #}
+```
+
+Outside a loop each call returns the next value; calls with the same list share one position:
 
 ```jinja
 {{ cycle(values=["odd", "even"]) }} {{ cycle(values=["odd", "even"]) }} {{ cycle(values=["odd", "even"]) }}
 {# odd even odd #}
 ```
-
-{% hint style="warning" %}
-Inside a `for` loop `cycle` returns the first value on every iteration: the position it keeps does not outlive one
-pass of the loop body. Use Jinja's `loop.cycle("odd", "even")` there.
-{% endhint %}
 
 ### content_tag
 

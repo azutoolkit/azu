@@ -21,6 +21,44 @@ the proxy's own requests refused. The table is kept in two parts (clients in the
 making room O(1); a table at `max_clients` full of blocked clients cost milliseconds per new client before. Because the
 `ipv6_prefix` default of 64 changes how every IPv6 client is counted (see the entry below), this release is a minor one.
 
+**`HEAD` responses carry no body.** A `HEAD` to a `get` route sent the `GET` body, which a client reusing the
+connection read as the start of its next response. The body is now counted and discarded: the response has the `GET`
+status and headers, and a `Content-Length` for the body it would send, even where the `GET` is chunked (a large body,
+or compressed by `Handler::Compression`, which a `HEAD` now goes through too). A `Stream` or `EventStream` answers
+`HEAD` with `Transfer-Encoding: chunked`, as its `GET` does, instead of `Content-Length: 0`. An exception that no
+handler rescues still gets the standard library's plain-text `500` body; the connection is closed after it.
+
+**`CSRF.validate_origin` matches a `Referer` without a port.** It appended a `:` to the expected origin for a `Referer`
+with no port, so `http://example.com/form` never matched; an `Origin` with an explicit default port
+(`https://example.com:443`) did not match either, and a request without `Host` raised `KeyError`. Origins now compare
+by scheme, host (ignoring case) and port (default ports match written or not), a request without `Host` gets `false`,
+and the expected scheme is `https` when the app serves TLS and no `X-Forwarded-Proto` says otherwise.
+
+**`Benchmark.load_test` compiles.** Calling it failed to compile, as `Channel` named `Azu::Channel`. It now sends every
+request (the remainder of `requests / concurrent` was dropped), `total_requests` counts successes and failures, and
+the average is `0.0` instead of `NaN` when nothing succeeds.
+
+**`Azu::AsyncLogging.shutdown` waits for the queue to drain, and runs at exit.** `shutdown` only closed the queues, so
+entries still waiting in a batch worker were dropped. A program that exited without stopping the pipeline lost them
+too, and could die with an unhandled `Channel::ClosedError` once `Log`'s own `at_exit` had closed its dispatcher. Now
+`shutdown` returns once every queued entry and reported error is written. `Azu.shutdown` calls it last, and so does an
+`at_exit` registered when the pipeline first starts. Entries sent after it are written synchronously, without the
+"Log queue closed" line, and `AsyncLogging.initialize` (or the next `App#start`) starts the pipeline again. Reported
+errors are processed one after another in the reporter fiber, not in a fiber each.
+
+**The `current_page?` filter alias is gone.** Crinja names cannot contain `?`, so the alias could never be called from a
+template. Use `is_current_page`.
+
+**Date-time strings keep their time.** `date_format`, `time_ago`, `relative_time`, `time_tag`, `l` and
+`distance_of_time_between` read `"2024-01-01T10:00:00"` as midnight. They now read it as 10:00 UTC; RFC 3339 strings
+keep their offset, and `YYYY-MM-DD HH:MM:SS` is accepted. Output that relied on the midnight reading changes.
+
+**`cycle` alternates inside `for` loops.** It returned its first value on every pass. It now follows `loop.index0`, and
+several cycles in one loop are independent. Outside a loop, each list of values keeps its own position.
+
+**`preload_tag` uses the `crossorigin` value you pass.** `crossorigin="use-credentials"` now renders as given instead of
+`"anonymous"`. `true` still gives `"anonymous"`, and `false` now leaves the attribute out, even for fonts.
+
 **`Throttle` can read the client behind a proxy, sweeps its table and counts IPv6 by /64.** New options: `trusted_proxies`
 (addresses and CIDR blocks; empty by default, which keeps the connection's address as the client), `ipv6_prefix` (64) and
 `max_clients` (100 000). What changes without setting any: (1) IPv6 clients are counted by their /64, so several addresses
@@ -29,6 +67,9 @@ of one network now share a counter (and a block); (2) trackers whose window ende
 clients are compared in a normalized spelling, so `::ffff:1.2.3.4` and `1.2.3.4` are one address and `2001:DB8::1` equals
 `2001:db8:0:0:0:0:0:1`; (4) log lines name the IPv6 network (`2001:db8:0:0:0:0:0:0/64`) instead of the address. An app behind
 a proxy that wants one counter per client lists the proxy in `trusted_proxies`.
+
+## 0.6.1
+
 **`CSRF` bounds the body it reads for the form token.** A POST, PUT, PATCH or DELETE without an `X-CSRF-TOKEN` header had its
 whole body read into memory by `CSRF`, whatever its size, before any limit applied. A urlencoded body is now read up to
 `upload.max_file_size`, and a larger one (by `Content-Length` or as it streams in) is answered `413` instead of `403`, with
@@ -37,6 +78,9 @@ first file part: a form that put `_csrf` after an `<input type="file">` (or afte
 refused with `403` where it passed. Move `csrf_field()` to the top of the form, or send the token in the `X-CSRF-TOKEN`
 header. The `_csrf` field of a file's content is no longer taken for the token, and the urlencoded content type is matched
 whatever its case.
+
+## 0.6.0
+
 **`CORS` refuses a wildcard with credentials, and sends `*` for a plain wildcard.** `CORS.new(origins: ["*"], credentials: true)`
 (and setting either option so that both hold) now raises `ArgumentError` where it used to echo every `Origin`, `null` included,
 with `Access-Control-Allow-Credentials: true`: any site could read a signed-in user's responses. List the origins (or a regex)
@@ -47,6 +91,8 @@ in several headers is refused with `403`, and a preflight must ask for allowed h
 `Access-Control-Request-Headers` let the others through, while a preflight with no `Access-Control-Request-Headers` at all (it was
 refused with `403`) now passes for an allowed origin and method and gets no `Access-Control-Allow-Headers`. An app that built `CORS` with the wildcard and credentials must change
 its configuration to boot, which is why this release is a minor one.
+
+## 0.5.134
 
 **Responses get the request variables, and CSRF values need a CSRF handler.** A response's `view` had no request: its
 template got no `csrf_token`, `current_path` or other [request variable](templates/helpers.md#request-variables), and

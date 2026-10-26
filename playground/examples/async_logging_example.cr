@@ -30,6 +30,9 @@ class AsyncLoggingExample
     # Simulate batch processing
     simulate_batch_logging()
 
+    # Write every queued entry now. Without this an at_exit does it, after the lines below.
+    Azu::AsyncLogging.shutdown
+
     puts "\n✅ Async Logging Example Completed"
     puts "Check the logs above to see the structured async logging in action!"
   end
@@ -57,7 +60,7 @@ class AsyncLoggingExample
     })
 
     # Simulate database delay
-    sleep(0.1)
+    sleep(0.1.seconds)
 
     # Database success
     db_logger.info("Database query completed", {

@@ -234,7 +234,8 @@ module Azu
 
   # Stops the long lived parts of the framework: closes Spark connections, the default presence tracker
   # (so its entries leave before the PubSub backend stops), the PubSub backend, whatever was registered with
-  # `on_shutdown` (such as database pools) and, last, the shared Redis pools those used.
+  # `on_shutdown` (such as database pools), the shared Redis pools those used and, last, the async log
+  # pipeline, which writes every entry it still holds (the others' included) before this returns.
   # Called by `start` once the server stops; safe to call again.
   def self.shutdown : Nil
     Spark.shutdown
@@ -242,6 +243,7 @@ module Azu
     PubSub.shutdown
     run_shutdown_hooks
     Redis.shutdown
+    AsyncLogging.shutdown
   end
 
   private def self.run_shutdown_hooks : Nil

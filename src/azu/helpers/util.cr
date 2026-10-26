@@ -530,22 +530,26 @@ module Azu
         when Int32, Int64
           Time.unix(value.to_i64)
         when String
-          if value =~ /^\d+$/
-            Time.unix(value.to_i64)
-          else
-            begin
-              Time.parse(value, "%Y-%m-%d", Time::Location::UTC)
-            rescue
-              begin
-                Time.parse(value, "%Y-%m-%dT%H:%M:%S", Time::Location::UTC)
-              rescue
-                Time.utc
-              end
-            end
-          end
+          value =~ /^\d+$/ ? Time.unix(value.to_i64) : parse_time_string(value)
         else
           Time.utc
         end
+      end
+
+      # Formats without an offset, most specific first: `Time::Format#parse` stops at the end of
+      # the pattern, so "%Y-%m-%d" would read "2024-01-01T10:00:00" as midnight.
+      LOCAL_TIME_FORMATS = ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]
+
+      # Parses an RFC 3339 / ISO 8601 string with offset, then a local date-time (UTC), then a date;
+      # the current time when none matches.
+      private def parse_time_string(value : String) : Time
+        Time.parse_rfc3339(value)
+      rescue Time::Format::Error | ArgumentError
+        LOCAL_TIME_FORMATS.each do |format|
+          return Time.parse(value, format, Time::Location::UTC)
+        rescue Time::Format::Error | ArgumentError
+        end
+        Time.utc
       end
     end
   end

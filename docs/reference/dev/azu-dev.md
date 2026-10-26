@@ -160,6 +160,7 @@ than 50 MB allocated since the last collection.
 | --- | --- | --- |
 | `Benchmark.run(name, iterations = 1000, warmup = 100) { ... }` | `BenchmarkResult` | Runs the block `warmup` times, collects garbage, then times `iterations` runs |
 | `Benchmark.compare(benchmarks : Hash(String, Proc(Nil)), iterations = 1000)` | `Array(BenchmarkResult)` | Fastest first |
+| `Benchmark.load_test(url, concurrent = 10, requests = 1000, timeout = 30.seconds)` | `Hash(String, Float64)` | `requests` GETs over `concurrent` fibers: `total_requests`, `successful_requests`, `failed_requests` (any non-2xx or error), `requests_per_second`, `avg_`/`min_`/`max_response_time_ms` (successes only, `0.0` without one), `total_time_seconds`. Answers that come more than `timeout` after the start are not counted; the workers still finish their requests |
 
 `BenchmarkResult` has `name`, `iterations`, `total_time`, `avg_time`, `min_time`, `max_time`, `std_deviation`
 (nanoseconds), `memory_usage` (heap growth in bytes), `timestamp` and `ops_per_second`.
@@ -195,6 +196,9 @@ warnings follow `PERFORMANCE_SLOW_REQUEST_THRESHOLD` and `PERFORMANCE_MEMORY_THR
 - **Environment.** `Handler::DevDashboard` serves only while the configuration of the app serving the request is in
   development; elsewhere it passes every request on, and building one logs a warning. See
   [Environments](../configuration/environments.md#what-depends-on-the-environment).
+- **Request data.** The dashboard's request panels read the metrics of `Azu::CONFIG.performance_monitor` (or the
+  `metrics:` you pass), which exists only with `PERFORMANCE_MONITORING=true`, and that monitor must be in the handler
+  chain. Without one, building the dashboard in development logs a warning and its request panels stay empty.
 - **Access.** The page has no login of its own. In development Azu binds `127.0.0.1` unless `HOST` or `config.host`
   says otherwise; `start` logs a warning when `CRYSTAL_ENV` is unset and the server listens on another address.
 - **CSRF.** Building the dashboard adds `{path}/sql` to `Handler::CSRF.exempt`, in every environment (see
@@ -208,7 +212,6 @@ warnings follow `PERFORMANCE_SLOW_REQUEST_THRESHOLD` and `PERFORMANCE_MEMORY_THR
   timings per endpoint.
 - The memory figures of requests, profiles and benchmarks are GC heap sizes, so a request's heap growth includes what
   other fibers allocated meanwhile.
-- `Benchmark.load_test` does not compile when it is called: inside `Azu`, the `Channel` it uses names `Azu::Channel`.
 - `Profiler#profile(name, capture_stack: true)` stores the placeholder `<call_stack_capture_not_implemented>`, not a
   stack.
 - The reporters and `PerformanceMonitoringManager` read `Azu::CONFIG`, never the configuration of an `Azu::App.new` app.

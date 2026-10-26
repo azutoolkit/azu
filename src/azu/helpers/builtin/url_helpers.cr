@@ -197,8 +197,6 @@ module Azu
             end
           end
           Registry.register_filter(:is_current_page, filter)
-          # Also register with ? suffix as alias (may not work in all contexts)
-          Registry.register_filter(:"current_page?", filter)
         end
 
         private def self.register_active_class : Nil

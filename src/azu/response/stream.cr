@@ -27,6 +27,10 @@ module Azu::Response
       response.headers["Cache-Control"] = "no-cache"
       response.headers["X-Accel-Buffering"] = "no"
 
+      # A HEAD gets the headers of the GET, which is chunked: no Content-Length, and no body
+      if context.request.method == "HEAD" && context.request.version != "HTTP/1.0"
+        response.headers["Transfer-Encoding"] = "chunked"
+      end
       begin
         stream(context) unless context.request.method == "HEAD"
       rescue IO::Error | HTTP::Server::ClientError

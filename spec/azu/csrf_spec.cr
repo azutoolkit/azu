@@ -435,7 +435,7 @@ describe Azu::Handler::CSRF do
 
     it "validates referer when origin is missing" do
       headers = HTTP::Headers.new
-      headers["Referer"] = "http://example.com:80/page" # Include explicit port to match expected behavior
+      headers["Referer"] = "http://example.com/page"
       headers["Host"] = "example.com"
 
       # Create request with proper host setup
@@ -446,6 +446,26 @@ describe Azu::Handler::CSRF do
 
       result = Azu::Handler::CSRF.validate_origin(context)
       result.should be_true
+    end
+
+    it "matches whatever way the default port is written" do
+      {"http://example.com:80/page", "http://example.com/page"}.each do |referer|
+        context, _ = create_context("POST", "/", HTTP::Headers{"Referer" => referer, "Host" => "example.com"})
+        Azu::Handler::CSRF.validate_origin(context).should be_true
+      end
+      context, _ = create_context("POST", "/", HTTP::Headers{"Origin" => "http://example.com:80", "Host" => "example.com"})
+      Azu::Handler::CSRF.validate_origin(context).should be_true
+      context, _ = create_context("POST", "/", HTTP::Headers{"Referer" => "https://example.com/p", "Host" => "example.com", "X-Forwarded-Proto" => "https"})
+      Azu::Handler::CSRF.validate_origin(context).should be_true
+    end
+
+    it "rejects another port, another scheme and a request without Host" do
+      context, _ = create_context("POST", "/", HTTP::Headers{"Referer" => "http://example.com:8080/", "Host" => "example.com"})
+      Azu::Handler::CSRF.validate_origin(context).should be_false
+      context, _ = create_context("POST", "/", HTTP::Headers{"Referer" => "https://example.com/", "Host" => "example.com"})
+      Azu::Handler::CSRF.validate_origin(context).should be_false
+      context, _ = create_context("POST", "/", HTTP::Headers{"Origin" => "http://example.com"})
+      Azu::Handler::CSRF.validate_origin(context).should be_false
     end
 
     it "handles HTTPS with X-Forwarded-Proto" do

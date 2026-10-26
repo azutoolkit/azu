@@ -507,7 +507,7 @@ meta tag of a page carries the same token. The class methods act on `CSRF.defaul
 | `CSRF.default` | `CSRF` | The shared instance, built on first use |
 | `CSRF.configure(&)` | the block's value | Yields `default` (built with `defer_secret: true`), then reads its secret, so a production app without one fails here, at boot |
 | `CSRF.token(context)`, `CSRF.tag(context)`, `CSRF.metatag(context)` | `String` | The token; `<input type="hidden" name="_csrf" value="..." />`; `<meta name="_csrf" content="..." />` (the name is `param_name`) |
-| `CSRF.validate_origin(context)` | `Bool` | Whether `Origin` is `<X-Forwarded-Proto, else http>://<Host>`; without `Origin`, the origin of `Referer`; `false` without either. `call` does not run it: call it where you want the check |
+| `CSRF.validate_origin(context)` | `Bool` | Whether `Origin` (without it, the origin of `Referer`) is `<scheme>://<Host>`, where the scheme is the first `X-Forwarded-Proto`, else `https` when the app serves TLS, else `http`. Scheme and host compare ignoring case, and a default port matches whether it is written or not. `false` without `Host`, or without both `Origin` and `Referer`. `call` does not run it: call it where you want the check |
 | `CSRF.use_signed_double_submit!`, `use_synchronizer_token!`, `use_double_submit!` | `Strategy` | Set the strategy of `default` |
 | `CSRF.strategy`, `secret_key`, `cookie_name`, `header_name`, `param_name`, `cookie_max_age`, `secure_cookies` | | Read and write (`=`) the settings of `default`; `secret_key=` also applies to instances built afterwards without a key |
 | `CSRF.exempt(path : String)` | `Nil` | Exempts one exact path for every instance |
@@ -679,8 +679,6 @@ environment only: elsewhere it passes every request to the next handler, and bui
 
 ## Limits
 
-- The `Referer` fallback of `CSRF#validate_origin` only matches a `Referer` that names its port
-  (`http://example.com:80/form`); one without a port (`http://example.com/form`) never matches.
 - `Throttle` counts in the process: several processes each keep their own counters.
 
 ## See also

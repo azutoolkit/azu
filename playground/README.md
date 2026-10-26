@@ -12,9 +12,9 @@ start them from there. They need Crystal 1.22.1 or newer and the SQLite library 
 | Azu + CQL on PostgreSQL | `DATABASE_URL=postgres://... crystal run playground/azu_cql_postgres/app.cr` | <http://127.0.0.1:4000/__dev> |
 | Spark live components | `crystal run playground/spark_demo/app.cr` | <http://127.0.0.1:3000> |
 
-`examples/` holds single-file scripts (`crystal run playground/examples/direct_log_test.cr`). `cache_metrics_demo.cr`
-and `performance_reporter_demo.cr` do not compile against the current API, and `server_exception_test.cr` fails at
-start (it declares its route twice).
+`examples/` holds single-file scripts (`crystal run playground/examples/direct_log_test.cr`). Every one of them
+compiles and runs to completion (CI type-checks them); `server_exception_test.cr` listens on `PORT`, or on a free port
+when it is not set. [docs/examples.md](../docs/examples.md#scripts) says what each one shows.
 
 ## Azu + CQL demo: live SQL tracing
 

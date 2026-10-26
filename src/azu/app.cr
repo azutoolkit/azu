@@ -101,6 +101,7 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context)
+        HeadOutput.wrap(context)
         return if @app.track { Azu.with_scope(@app, @app.config) { call_next(context) } }
 
         context.response.status_code = 503
@@ -224,8 +225,9 @@ module Azu
     #    yourself with `stop`;
     # 4. `listen`, which blocks; afterwards the requests in flight get `config.shutdown_timeout` to finish;
     # 5. with *teardown*, `Azu.shutdown` (Spark, presence, PubSub, `Azu.on_shutdown` hooks such as the database
-    #    pools, Redis) once the last started app has stopped. Those parts are shared by every app in the process, so
-    #    `teardown: false` is for an app embedded in a program that stops them itself, and for specs.
+    #    pools, Redis, and last the async log pipeline, which writes what it holds) once the last started app has
+    #    stopped. Those parts are shared by every app in the process, so `teardown: false` is for an app embedded in
+    #    a program that stops them itself, and for specs.
     #
     # An app starts **once**: `start` on a running app raises `AlreadyRunning`, and on an app that has stopped (or
     # begun shutting down) raises `AlreadyStopped`; build a new `Azu::App` to serve again. A `start` that failed to bind
