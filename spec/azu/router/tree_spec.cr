@@ -41,6 +41,8 @@ describe Azu::Router::Tree do
       payload(routes, GET, "/users/1").should be_nil
       payload(routes, GET, "/api/v1").should be_nil
       payload(routes, GET, "users").should be_nil
+      payload(tree({GET, "/secret"}, {GET, "/admin/secret"}), GET, "x/admin/secret").should be_nil
+      payload(tree({GET, "/secret"}, {GET, "/admin/secret"}), GET, "admin/secret").should be_nil
     end
 
     it "matches a path of more segments than the stack holds" do

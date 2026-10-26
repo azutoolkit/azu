@@ -803,6 +803,7 @@ describe Azu::Router do
   describe "requests that do not name a route" do
     router = Azu::Router.new
     router.get "/admin/secret", VerbEndpoint.new("get")
+    router.get "/secret", VerbEndpoint.new("get")
     router.post "/users", VerbEndpoint.new("post")
     router.get "secret", VerbEndpoint.new("get")
     router.ws "/chat", TestChannel
@@ -848,6 +849,14 @@ describe Azu::Router do
       status, body = answer.call("GET secret HTTP/1.1")
       status.should eq 404
       body.should_not contain("handled by")
+    end
+
+    it "does not read a path without a leading slash from its first slash on" do
+      {"GET admin/secret HTTP/1.1", "GET x/admin/secret HTTP/1.1"}.each do |request_line|
+        status, body = answer.call(request_line)
+        status.should eq 404
+        body.should_not contain("handled by")
+      end
     end
 
     it "reaches a WebSocket channel only through a GET upgrade" do
