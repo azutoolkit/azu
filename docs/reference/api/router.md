@@ -173,6 +173,11 @@ Declaring the same method and path twice raises `Azu::Router::DuplicateRoute`, a
 trailing slash or by their parameter names (`/posts/:id` and `/posts/:slug`). A route path that does not start with
 `/` raises `ArgumentError`.
 
+Routes are declared before the app serves: `App#start` freezes its router, and the routers of the apps mounted in it,
+before it listens. After that `add`, `root`, `ws`, `mount` and `register` (and the verb methods) raise
+`Azu::Router::Frozen`, so a request never meets a router that is changing. Call `Azu::Spark.install` and the like
+before `start`.
+
 ## Accessing Route Parameters
 
 Route parameters are read with `params`, next to query and form values:

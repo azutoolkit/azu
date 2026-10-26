@@ -47,6 +47,9 @@ module Azu
 
     # The routes `process` finds requests in, by method and path segment
     @tree = Tree(Route).new
+    @frozen = Atomic(Bool).new(false)
+    # The mounts of this router, whose routers `freeze` freezes too
+    @mounts = [] of Mount
     # Routes registry for development tools and introspection
     private getter routes_registry : Array(Route)
 
@@ -70,6 +73,17 @@ module Azu
     end
 
     class DuplicateRoute < Exception
+    end
+
+    # Raised by `add`, `root`, `ws`, `mount` and `register` once the router is frozen (see `freeze`).
+    class Frozen < Exception
+    end
+
+    # Takes no more routes. `App#start` calls it before it listens, so the tree and the registry are never changed
+    # while requests read them; the routers of mounted apps are frozen with this one.
+    def freeze : Nil
+      @frozen.set(true)
+      @mounts.each(&.child.router.freeze)
     end
 
     {% for method in RESOURCES %}
@@ -117,6 +131,7 @@ module Azu
     # removed, and run with the child's configuration. A router can be mounted once, because its
     # links carry the prefix it is mounted at.
     def mount(child : Configuration, at prefix : String) : Nil
+      open! "mount at #{prefix}"
       prefix = prefix.rstrip('/')
       raise ArgumentError.new("a mount path must start with / and name a sub path, got #{prefix.inspect}") unless prefix.starts_with?('/')
       if existing = child.router.mounted_as
@@ -129,6 +144,7 @@ module Azu
         add "#{prefix}/*mount_path", mount, method
       end
       child.router.mounted_as = mount
+      @mounts << mount
     end
 
     # Adds routes declared in the block, optionally below a path prefix.
@@ -165,6 +181,7 @@ module Azu
     # root :web, ExampleApp::HelloWorld
     # ```
     def root(endpoint : Routable)
+      open! "GET /"
       route = Route.new(endpoint: endpoint, resource: "/get/", method: Azu::Method::Get)
       insert route, "/"
       @routes_registry << route
@@ -186,11 +203,17 @@ module Azu
     # add path: '/endpoint',   endpoint: Handler.new, method: Azu::Method::Get
     # ```
     def add(path : Path, endpoint : Routable, method : Azu::Method = Azu::Method::Get)
+      open! "#{method.to_s.upcase} #{path}"
       resource = method.web_socket? ? "/ws#{path}" : "/#{method.to_s.downcase}#{path}"
       route = Route.new(endpoint, resource, method)
       insert route, path
       @routes_registry << route
       @paths[endpoint.class.name] = route.path
+    end
+
+    private def open!(route : String) : Nil
+      return unless @frozen.get
+      raise Frozen.new("#{route}: a router takes no routes once its app is serving; declare them before App#start")
     end
 
     # Into the tree, which refuses a path without its leading "/": no request could reach it, and a route meant to

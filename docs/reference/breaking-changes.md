@@ -115,6 +115,9 @@ as before keep matching as before, with these differences:
 - A route path that does not start with `/` raises `ArgumentError` when it is declared. Radix accepted it and matched
   nothing, so a typo such as `get "files/private/*rest", Deny` next to `get "/files/*path", Download` silently let
   the broader route serve the private files.
+- `App#start` freezes the router (and the routers of mounted apps) before it listens: adding a route afterwards
+  (`router.get`, `add`, `root`, `ws`, `mount`, `register`) raises `Azu::Router::Frozen`. Declare every route, and call
+  `Azu::Spark.install`, before `start`.
 - `Router#radix` is removed. Code that looked routes up with `router.radix.find("/get/users")` should call
   `router.process(context)`, or read `router.registered_routes`; `route_info`, `registered_routes` and `Route#resource`
   are unchanged.

@@ -222,6 +222,23 @@ describe Azu::Router do
     end
   end
 
+  describe "once frozen" do
+    it "takes no route through any of its entry points, nor on the router of a mounted app" do
+      child = Azu::App.new
+      router = Azu::Router.new
+      router.mount child.config, at: "/admin"
+      router.freeze
+
+      expect_raises(Azu::Router::Frozen, "GET /late: a router takes no routes once its app is serving") { router.get "/late", RoutableStruct.new }
+      expect_raises(Azu::Router::Frozen, "GET /:") { router.root RoutableStruct.new }
+      expect_raises(Azu::Router::Frozen, "WEBSOCKET /late:") { router.ws "/late", TestChannel }
+      expect_raises(Azu::Router::Frozen, "POST /late:") { router.register "post", "/late", RoutableStruct.new }
+      expect_raises(Azu::Router::Frozen, "mount at /late:") { router.mount Azu::App.new.config, at: "/late" }
+      expect_raises(Azu::Router::Frozen) { child.router.get "/late", RoutableStruct.new }
+      router.registered_routes.map(&.path).should_not contain "/late"
+    end
+  end
+
   describe "complex routing scenarios" do
     it "handles RESTful routes" do
       router = Azu::Router.new

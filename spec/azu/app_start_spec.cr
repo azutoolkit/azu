@@ -137,6 +137,22 @@ describe "Azu::App#start" do
     expect_raises(IO::Error) { HTTP::Client.new(client.host, client.port).get("/ping") }
   end
 
+  it "freezes the routers before it listens, a mounted app's too" do
+    child = Azu::App.new
+    app = AppStartSpec.app("/hello", AppStartSpec::Hello.new)
+    app.routes { mount child, at: "/child" }
+    finished = AppStartSpec.boot(app, teardown: false, signals: false)
+    begin
+      AppStartSpec.client(app).get("/hello").status_code.should eq 200 # it listens, so it froze them
+
+      expect_raises(Azu::Router::Frozen, "declare them before App#start") { app.router.get "/late", AppStartSpec::Ping.new }
+      expect_raises(Azu::Router::Frozen) { child.router.get "/late", AppStartSpec::Ping.new }
+    ensure
+      app.stop(2.seconds)
+      finished.receive
+    end
+  end
+
   it "refuses to start an app that is running" do
     app = AppStartSpec.app("/ping", AppStartSpec::Ping.new)
     finished = AppStartSpec.boot(app, teardown: false, signals: false)
