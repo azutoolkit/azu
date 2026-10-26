@@ -20,9 +20,5 @@ module Azu
     Put
     # The TRACE method performs a message loop-back test along the path to the target resource.
     Trace
-
-    def add_options?
-      ![Trace, Connect, Options, Head].includes? self
-    end
   end
 end

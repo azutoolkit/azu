@@ -223,16 +223,17 @@ describe Azu::Components::DashboardDataProvider do
   end
 
   describe "#routes" do
-    it "hides the HEAD and OPTIONS routes Azu registers implicitly" do
+    it "hides the HEAD route Azu registers with every GET, and lists an options route you declare" do
       config = Azu::Configuration.new
       handler = Azu::Handler::RequestId.new
       config.router.get "/zeta", handler
+      config.router.options "/zeta", handler
       config.router.get "/alpha/:id", handler
       config.router.post "/alpha", handler
 
       Azu.with_config(config) do
         routes = provider_for(Azu::PerformanceMetrics.new).routes
-        routes.map { |route| "#{route["method"]} #{route["path"]}" }.should eq(["POST /alpha", "GET /alpha/:id", "GET /zeta"])
+        routes.map { |route| "#{route["method"]} #{route["path"]}" }.should eq(["POST /alpha", "GET /alpha/:id", "GET /zeta", "OPTIONS /zeta"])
       end
     end
   end
