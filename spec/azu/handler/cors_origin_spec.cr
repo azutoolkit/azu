@@ -156,6 +156,13 @@ describe "Azu::Handler::CORS origins and credentials" do
       context.response.headers.has_key?("Access-Control-Allow-Origin").should be_false
     end
 
+    it "is a documented trap with credentials: any sandboxed frame is then allowed" do
+      cors = Azu::Handler::CORS.new(origins: ["null"], credentials: true)
+      context = cors_get(cors, "null")
+      context.response.headers["Access-Control-Allow-Origin"].should eq "null"
+      context.response.headers["Access-Control-Allow-Credentials"].should eq "true"
+    end
+
     it "is not matched by listing other origins, credentials or not" do
       cors_get(Azu::Handler::CORS.new(origins: ["https://a.example"], credentials: true), "null").response.status_code.should eq 403
     end
@@ -163,10 +170,38 @@ describe "Azu::Handler::CORS origins and credentials" do
 
   describe "regex origins" do
     it "never see a malformed Origin" do
-      cors = Azu::Handler::CORS.new(origins: [/\.example\.com$/])
+      cors = Azu::Handler::CORS.new(origins: [/https:\/\/[a-z0-9]+\.example\.com/])
       cors_get(cors, "https://evil.test/x.example.com").response.status_code.should eq 403
+      cors_get(cors, "https://evil.test/https://a.example.com").response.status_code.should eq 403
       cors_get(cors, "https://evil.test,https://a.example.com").response.status_code.should eq 403
       cors_get(cors, "https://a.example.com").response.status_code.should eq 200
+    end
+  end
+
+  describe "regex origins match the whole Origin" do
+    it "does not let an unanchored regex allow a lookalike, with credentials echoed" do
+      cors = Azu::Handler::CORS.new(origins: [/good\.com/], credentials: true)
+      ["https://good.com.evil.test", "https://evilgood.com", "https://good.com", "http://good.com", "https://sub.good.com"].each do |origin|
+        context = cors_get(cors, origin)
+        context.response.status_code.should eq 403
+        context.response.headers.has_key?("Access-Control-Allow-Credentials").should be_false
+      end
+    end
+
+    it "allows what the regex describes in full, alternations and options included" do
+      cors = Azu::Handler::CORS.new(origins: [/https:\/\/(?:a|b)\.test/, /HTTPS:\/\/c\.test/i, /https:\/\/d\.test|https:\/\/e\.test/])
+      %w(https://a.test https://b.test https://c.test https://d.test https://e.test).each do |origin|
+        cors_get(cors, origin).response.status_code.should eq 200
+      end
+      %w(https://a.test.evil https://xa.test https://f.test https://d.testx).each do |origin|
+        cors_get(cors, origin).response.status_code.should eq 403
+      end
+    end
+
+    it "still accepts a regex that anchors itself" do
+      cors = Azu::Handler::CORS.new(origins: [/\Ahttps:\/\/app\.test\z/, /^https:\/\/api\.test$/])
+      cors_get(cors, "https://app.test").response.status_code.should eq 200
+      cors_get(cors, "https://api.test").response.status_code.should eq 200
     end
   end
 
@@ -207,7 +242,7 @@ describe "Azu::Handler::CORS origins and credentials" do
     end
 
     it "still needs an allowed method and origin when no headers are requested" do
-      preflight.call(cors.call, "https://app.example", nil, nil).response.status_code.should eq 403
+      preflight.call(cors.call, "https://app.example", "DELETE", nil).response.status_code.should eq 403
       preflight.call(cors.call, "https://evil.test", "PUT", nil).response.status_code.should eq 403
     end
 
@@ -215,10 +250,36 @@ describe "Azu::Handler::CORS origins and credentials" do
       preflight.call(cors.call, "https://app.example", "POST", " , ").response.status_code.should eq 403
     end
 
-    it "refuses a method that is not allowed, a lower-case method, and a missing method" do
+    it "refuses a method that is not allowed, and a lower-case method" do
       preflight.call(cors.call, "https://app.example", "DELETE", "Content-Type").response.status_code.should eq 403
       preflight.call(cors.call, "https://app.example", "post", "Content-Type").response.status_code.should eq 403
-      preflight.call(cors.call, "https://app.example", nil, "Content-Type").response.status_code.should eq 403
+    end
+
+    it "treats an OPTIONS request without Access-Control-Request-Method as an ordinary request" do
+      handler = cors.call
+      reached = false
+      handler.next = ->(context : HTTP::Server::Context) { reached = true }
+      context, _ = create_context("OPTIONS", "/test", HTTP::Headers{"Origin" => "https://app.example"})
+      handler.call(context)
+      reached.should be_true
+      context.response.headers["Access-Control-Allow-Origin"].should eq "https://app.example"
+      context.response.headers.has_key?("Access-Control-Allow-Methods").should be_false
+
+      other, _ = create_context("OPTIONS", "/test", HTTP::Headers{"Origin" => "https://evil.test"})
+      handler.call(other)
+      other.response.status_code.should eq 403
+    end
+
+    it "sends the allowed headers in their configured spelling, in the order asked, without duplicates" do
+      context = preflight.call(cors.call, "https://app.example", "POST", "x-token, CONTENT-TYPE, content-type")
+      context.response.headers["Access-Control-Allow-Headers"].should eq "X-Token, Content-Type"
+    end
+
+    it "drops every Access-Control header, the expose list included, from a refused preflight" do
+      handler = Azu::Handler::CORS.new(origins: ["https://app.example"], methods: ["POST"], headers: ["Content-Type"], credentials: true, expose_headers: ["X-Request-ID"], max_age: 600)
+      context = preflight.call(handler, "https://app.example", "DELETE", "Content-Type")
+      context.response.status_code.should eq 403
+      context.response.headers.map { |name, _| name }.select(&.downcase.starts_with?("access-control-")).should be_empty
     end
 
     it "gives a non-listed origin no CORS header at all, whatever it asks for" do
@@ -292,6 +353,21 @@ describe "Azu::Handler::CORS origins and credentials" do
       response.status_code.should eq 200
       response.headers["Access-Control-Allow-Methods"].should eq "DELETE"
       response.headers["Access-Control-Allow-Headers"]?.should be_nil
+    end
+
+    it "puts Allow-Origin, Allow-Credentials, Expose-Headers and Vary on an accepted preflight on the wire" do
+      cors = Azu::Handler::CORS.new(origins: ["https://app.example"], methods: ["PUT"], headers: ["Content-Type"], credentials: true, expose_headers: ["X-Request-ID"])
+      response = serve.call(cors, "OPTIONS", HTTP::Headers{
+        "Origin"                         => "https://app.example",
+        "Access-Control-Request-Method"  => "PUT",
+        "Access-Control-Request-Headers" => "content-type",
+      })
+      response.status_code.should eq 200
+      response.headers["Access-Control-Allow-Origin"].should eq "https://app.example"
+      response.headers["Access-Control-Allow-Credentials"].should eq "true"
+      response.headers["Access-Control-Expose-Headers"].should eq "X-Request-ID"
+      response.headers["Access-Control-Allow-Headers"].should eq "Content-Type"
+      response.headers["Vary"].should eq "Origin"
     end
 
     it "refuses a preflight asking for one allowed and one forbidden header on the wire" do

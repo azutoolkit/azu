@@ -346,17 +346,24 @@ keeps one entry per origin.
 
 How an `Origin` is matched:
 
+- A regex must match the **whole** `Origin`: it is wrapped in `\A(?:...)\z`, so `/good\.com/` allows `https://good.com`
+  only, not `https://good.com.evil.test` or `https://evilgood.com` (a search would have). Write the scheme into it:
+  `/https:\/\/[a-z0-9-]+\.example\.com/` for any one-label subdomain.
 - A listed string must equal it exactly, and it is case-sensitive (browsers send the scheme and host in lower case): a
   subdomain, another port, another scheme, a trailing slash or a path does not match.
 - A value that is not `scheme://host[:port]` matches nothing, not even a regex: a path, userinfo (`@`), whitespace or control
   characters, a comma-joined value, and several `Origin` (or `X-Origin`) headers are all refused with `403`. `X-Origin` is only
   read when there is no `Origin`.
 - `Origin: null` (sandboxed frames, `file:` pages, some redirects) is any page's to send, so it matches only when the string
-  `"null"` is listed in `origins`: never `"*"` and never a regex.
+  `"null"` is listed in `origins`: never `"*"` and never a regex. **`origins: ["null"], credentials: true` lets every
+  sandboxed iframe and `data:` page read credentialed responses: do not.**
 - A preflight is allowed only when **every** header in `Access-Control-Request-Headers` is in `headers` (compared without
-  regard to case); one allowed header no longer carries the others. A preflight without `Access-Control-Request-Headers` (a
+  regard to case); one allowed header no longer carries the others. `Access-Control-Allow-Headers` lists them in the order
+  asked and in the spelling of `headers`, not as the request wrote them. A preflight without `Access-Control-Request-Headers` (a
   bare cross-origin `DELETE`) is decided by origin and method alone and gets no `Access-Control-Allow-Headers`. Anything
-  refused gets no `Access-Control-*` header.
+  refused gets no `Access-Control-*` header. A preflight is an `OPTIONS` request with an `Access-Control-Request-Method`
+  header; an `OPTIONS` request without one is an ordinary request and goes to the next handler, with the origin's
+  `Access-Control-Allow-Origin` (a listed origin) or `403` (any other).
 
 {% hint style="warning" %}
 Put `CORS` before authentication handlers: a preflight carries no credentials, so an authentication handler in front
