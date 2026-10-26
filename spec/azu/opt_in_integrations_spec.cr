@@ -6,16 +6,23 @@ require "file_utils"
 # `testing` (the in-process test client) are opt-in too, but need no extra shard.
 describe "opt-in database integrations" do
   opt_in_dirs = %w(cql dev testing)
+  # Run at build time by `Azu::Templates.compile`, never required by the app
+  build_time_dirs = %w(template_compiler)
 
   it "does not glob the whole azu directory" do
     File.read("src/azu.cr").should_not contain(%(require "./azu/**"))
   end
 
   it "loads every core directory explicitly (a new directory must be added to src/azu.cr)" do
-    core = Dir.children("src/azu").select { |name| File.directory?("src/azu/#{name}") && !opt_in_dirs.includes?(name) }
+    core = Dir.children("src/azu").select { |name| File.directory?("src/azu/#{name}") && !opt_in_dirs.includes?(name) && !build_time_dirs.includes?(name) }
     source = File.read("src/azu.cr")
     missing = core.reject { |name| source.includes?(%(require "./azu/#{name}/**")) }
     missing.should be_empty
+  end
+
+  it "does not require the build-time directories from src/azu.cr" do
+    source = File.read("src/azu.cr")
+    build_time_dirs.select { |dir| source.includes?(%(require "./azu/#{dir}")) }.should be_empty
   end
 
   it "keeps `require \"cql\"` inside opt-in directories" do

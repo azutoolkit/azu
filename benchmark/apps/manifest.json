@@ -2,7 +2,7 @@
   "comment": "Apps and scenarios of the benchmark suite. `dir` is a directory of benchmark/apps; `flags` are extra compiler flags; an app is built to benchmark/apps/<dir>/bin/<name>. `default: false` apps run only when named in --apps.",
   "apps": [
     { "name": "baseline", "dir": "baseline", "flags": [], "websocket": true, "default": true, "stack": "HTTP::Server, hand-written dispatch, ECR, crystal-sqlite3, HTTP::WebSocketHandler" },
-    { "name": "azu", "dir": "azu", "flags": [], "websocket": true, "default": true, "stack": "Azu::App, default handlers without the request logger, Crinja, CQL (SQLite), Azu::Channel" },
+    { "name": "azu", "dir": "azu", "flags": [], "websocket": true, "default": true, "stack": "Azu::App, default handlers without the request logger, compiled Jinja (Azu::Templates.compile), CQL (SQLite), Azu::Channel" },
     { "name": "kemal", "dir": "kemal", "flags": [], "websocket": true, "default": true, "stack": "Kemal 1.9.0 default handlers, logging off, ECR, crystal-sqlite3, Kemal ws" },
     { "name": "athena", "dir": "athena", "flags": [], "websocket": false, "default": true, "stack": "Athena 0.23.0 default listeners, ECR, crystal-sqlite3; no WebSocket support" },
     { "name": "lucky", "dir": "lucky", "flags": [], "websocket": false, "default": true, "stack": "Lucky 1.5.0 ErrorHandler/RouteHandler, HTMLPage, crystal-sqlite3; no WebSocket support" },

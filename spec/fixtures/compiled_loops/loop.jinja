@@ -1,0 +1,1 @@
+{% for row in rows %}{{ loop.index }}/{{ loop.index0 }}/{{ loop.length }}/{{ loop.first }}/{{ loop.last }}/{{ loop.revindex }}:{% for c in row %}{{ loop.index }}{{ loop.last }},{% endfor %};{% endfor %}
