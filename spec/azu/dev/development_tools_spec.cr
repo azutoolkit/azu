@@ -220,4 +220,31 @@ describe Azu::DevelopmentTools do
       end
     end
   end
+
+  describe "Benchmark.load_test" do
+    it "sends every request, even when they do not divide evenly between workers, and counts them" do
+      served = Atomic(Int32).new(0)
+      server = HTTP::Server.new do |context|
+        served.add(1)
+        context.response.status_code = context.request.path == "/fail" ? 500 : 200
+        context.response.print "ok"
+      end
+      address = server.bind_unused_port
+      spawn { server.listen }
+      begin
+        ok = Azu::DevelopmentTools::Benchmark.load_test("http://#{address}/ok", concurrent: 2, requests: 5)
+        ok["successful_requests"].should eq 5.0
+        ok["failed_requests"].should eq 0.0
+        ok["total_requests"].should eq 5.0
+
+        failing = Azu::DevelopmentTools::Benchmark.load_test("http://#{address}/fail", concurrent: 2, requests: 2)
+        failing["failed_requests"].should eq 2.0
+        failing["total_requests"].should eq 2.0
+        failing["avg_response_time_ms"].should eq 0.0
+        served.get.should eq 7
+      ensure
+        server.close
+      end
+    end
+  end
 end

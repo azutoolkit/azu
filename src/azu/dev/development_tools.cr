@@ -367,46 +367,32 @@ module Azu
         results.sort_by(&.avg_time)
       end
 
-      # Load test an HTTP endpoint
+      # Load test an HTTP endpoint: `requests` GETs spread over `concurrent` workers. `total_requests` counts the
+      # answered ones (successes and failures); requests still running after `timeout` are not counted.
       def self.load_test(url : String, concurrent : Int32 = 10, requests : Int32 = 1000,
                          timeout : Time::Span = 30.seconds) : Hash(String, Float64)
-        channel = Channel(Time::Span).new
-        errors = Channel(String).new
+        # `::Channel`: inside `Azu`, `Channel` is the WebSocket channel. Buffered, so a worker never blocks after a
+        # timeout stopped the collection.
+        channel = ::Channel(Time::Span).new(requests)
+        errors = ::Channel(String).new(requests)
 
         start_time = Time.instant
 
-        # Spawn concurrent workers
-        concurrent.times do
-          spawn do
-            requests_per_worker = requests // concurrent
-            requests_per_worker.times do
-              begin
-                request_start = Time.instant
-                response = HTTP::Client.get(url, tls: false) # Disable TLS for testing
-                request_end = Time.instant
-
-                if response.success?
-                  channel.send(request_end - request_start)
-                else
-                  errors.send("HTTP #{response.status_code}")
-                end
-              rescue ex
-                errors.send(ex.message || "Unknown error")
-              end
-            end
-          end
+        # The first `requests % concurrent` workers take one request more, so every request is sent
+        concurrent.times do |worker|
+          share = requests // concurrent + (worker < requests % concurrent ? 1 : 0)
+          spawn { load_test_worker(url, share, channel, errors) }
         end
 
         # Collect results
         response_times = [] of Time::Span
         error_count = 0
-        total_expected = concurrent * (requests // concurrent)
 
-        total_expected.times do
+        requests.times do
           select
           when time = channel.receive
             response_times << time
-          when _ = errors.receive
+          when errors.receive
             error_count += 1
           when timeout(timeout)
             break
@@ -420,15 +406,29 @@ module Azu
         response_times_ms = response_times.map(&.total_milliseconds)
 
         {
-          "total_requests"       => response_times.size.to_f,
+          "total_requests"       => (response_times.size + error_count).to_f,
           "successful_requests"  => response_times.size.to_f,
           "failed_requests"      => error_count.to_f,
           "requests_per_second"  => response_times.size.to_f / total_time.total_seconds,
-          "avg_response_time_ms" => response_times_ms.sum / response_times_ms.size,
+          "avg_response_time_ms" => response_times_ms.empty? ? 0.0 : response_times_ms.sum / response_times_ms.size,
           "min_response_time_ms" => response_times_ms.min? || 0.0,
           "max_response_time_ms" => response_times_ms.max? || 0.0,
           "total_time_seconds"   => total_time.total_seconds,
         }
+      end
+
+      private def self.load_test_worker(url : String, count : Int32, times : ::Channel(Time::Span), errors : ::Channel(String)) : Nil
+        count.times do
+          request_start = Time.instant
+          response = HTTP::Client.get(url, tls: false) # Disable TLS for testing
+          if response.success?
+            times.send(Time.instant - request_start)
+          else
+            errors.send("HTTP #{response.status_code}")
+          end
+        rescue ex
+          errors.send(ex.message || "Unknown error")
+        end
       end
     end
 
