@@ -12,6 +12,15 @@ release to the current API, with old and new code side by side; every release is
 
 ## Next release
 
+**`CORS` regex origins must match the whole `Origin`, and `OPTIONS` without a request method is not a preflight.** A regex in
+`origins` was searched for in the `Origin`, so `/good\.com/` allowed `https://good.com.evil.test` and `/\.example\.com$/`
+allowed `https://evil.test/x.example.com`, with `Access-Control-Allow-Credentials` echoed. It is now wrapped in `\A(?:...)\z`:
+anchor nothing, but write the whole origin, scheme included (`/https:\/\/[a-z0-9-]+\.example\.com/`); a regex that only
+described a suffix stops matching and its origins get `403` until it is rewritten. An `OPTIONS` request with an `Origin` but no
+`Access-Control-Request-Method` was refused with `403` as a bad preflight (also before 0.6.0); it is now handled as the ordinary
+request it is. `Access-Control-Allow-Headers` is sent in the spelling of `headers` instead of echoing the request. The commit
+carries `(MINOR)` for the regex change.
+
 **`HEAD` responses carry no body.** A `HEAD` to a `get` route sent the `GET` body, which a client reusing the
 connection read as the start of its next response. The body is now counted and discarded: the response has the `GET`
 status and headers, and a `Content-Length` for the body it would send, even where the `GET` is chunked (a large body,

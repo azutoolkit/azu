@@ -16,7 +16,7 @@ describe Azu::Handler::CORS do
     end
 
     it "initializes with regex origins" do
-      handler = Azu::Handler::CORS.new(origins: [/\.example\.com$/])
+      handler = Azu::Handler::CORS.new(origins: [/https:\/\/[a-z]+\.example\.com/])
       handler.origins.should be_a(Array(String | Regex))
     end
 
@@ -87,7 +87,7 @@ describe Azu::Handler::CORS do
     end
 
     it "allows requests from regex-matched origin" do
-      handler = Azu::Handler::CORS.new(origins: [/\.example\.com$/])
+      handler = Azu::Handler::CORS.new(origins: [/https:\/\/[a-z]+\.example\.com/])
       next_handler, verify = create_next_handler(1)
       handler.next = next_handler
 

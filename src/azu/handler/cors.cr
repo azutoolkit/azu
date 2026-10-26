@@ -82,11 +82,13 @@ module Azu
 
         if @origin.match?(request_origin)
           is_preflight_request = preflight?(context)
+          # Set before a preflight is answered: its response is flushed, and what is set after that depends on how the
+          # server writes headers. A refusal below removes all of it again.
           put_expose_header(context.response)
+          put_response_headers(context.response, request_origin)
           # A refused preflight is already answered and closed: nothing more is granted on it.
           return if is_preflight_request && !Preflight.process(context, self)
 
-          put_response_headers(context.response, request_origin)
           call_next(context) unless is_preflight_request
         else
           forbidden(context)
@@ -123,8 +125,10 @@ module Azu
         (@vary || "").split(',').map(&.strip).reject(&.empty?)
       end
 
+      # A preflight is an OPTIONS request that names the method it asks about (Fetch standard). Any other OPTIONS request
+      # is an ordinary CORS request: the next handler answers it, with this origin's headers.
       private def preflight?(context)
-        context.request.method == "OPTIONS"
+        context.request.method == "OPTIONS" && context.request.headers.has_key?(Headers::REQUEST_METHOD)
       end
     end
 
@@ -138,7 +142,7 @@ module Azu
           return false
         end
 
-        put_preflight_headers(context.request, context.response, cors.max_age)
+        put_preflight_headers(context.request, context.response, cors.max_age, cors.headers)
         true
       end
 
@@ -147,12 +151,24 @@ module Azu
           valid_headers?(context.request, cors.headers)
       end
 
-      def put_preflight_headers(request, response, max_age)
+      # *allowed*: the headers a preflight may ask for. They are sent as configured (not as the request spelled them);
+      # without it the request's own list is echoed.
+      def put_preflight_headers(request, response, max_age, allowed : Array(String)? = nil)
         response.headers[Headers::ALLOW_METHODS] = request.headers[Headers::REQUEST_METHOD]
-        request.headers[Headers::REQUEST_HEADERS]?.try { |requested| response.headers[Headers::ALLOW_HEADERS] = requested }
+        request.headers[Headers::REQUEST_HEADERS]?.try do |requested|
+          response.headers[Headers::ALLOW_HEADERS] = allowed ? allowed_spelling(requested, allowed) : requested
+        end
         response.headers[Headers::ALLOW_MAX_AGE] = max_age.to_s if max_age
         response.content_length = 0
         response.flush
+      end
+
+      # The requested headers, in the order asked and in the spelling of the allowed list.
+      private def allowed_spelling(requested : String, allowed : Array(String)) : String
+        spelled = allowed.to_h { |header| {header.downcase, header} }
+        names = requested.split(',').compact_map { |header| spelled[header.strip.downcase]? }
+        names.uniq!
+        names.join(", ")
       end
 
       def valid_method?(request, methods)
@@ -174,12 +190,16 @@ module Azu
     struct Origin
       getter origins : CORS::OriginType
 
+      @patterns : CORS::OriginType
+
       def initialize(@origins : CORS::OriginType)
+        @patterns = @origins.map { |origin| origin.is_a?(Regex) ? Regex.new("\\A(?:#{origin.source})\\z", origin.options) : origin }
       end
 
       NULL_ORIGIN = "null"
 
-      # Exact (case-sensitive: browsers serialize the scheme and host in lower case), never by prefix or suffix. An Origin
+      # Exact (case-sensitive: browsers serialize the scheme and host in lower case), never by prefix or suffix: a regex
+      # must match the whole Origin (it is wrapped in `\A(?:...)\z`), so `/good\.com/` does not allow `https://good.com.evil.test`. An Origin
       # that is not `scheme://host[:port]` (a path, userinfo, a trailing slash, a comma-joined pair of Origin headers,
       # control characters) matches nothing, whatever the regexes say. `null` (sandboxed frames, `file:`, redirects across
       # origins) is any site's to send, so it matches only when it is listed as the string "null": not by `"*"`, not by a regex.
@@ -188,7 +208,7 @@ module Azu
         return @origins.includes?(NULL_ORIGIN) if request_origin == NULL_ORIGIN
         return true if wildcard?
 
-        @origins.any? do |origin|
+        @patterns.any? do |origin|
           case origin
           when String then origin == request_origin
           when Regex  then origin.matches?(request_origin)
