@@ -147,7 +147,19 @@ module Azu
 
     # Escape `{{ }}` output of `.jinja`, `.j2` and string templates like `.html` (default). `TEMPLATE_AUTOESCAPE=false`
     # turns it off; any other value keeps it on. `| safe` marks a value as markup without turning it off.
+    @template_autoescape_env : String? = ENV["TEMPLATE_AUTOESCAPE"]?
     @template_autoescape : Bool = ENV.fetch("TEMPLATE_AUTOESCAPE", "true") != "false"
+
+    # Warns that autoescape is off (every `{{ }}` of a `.jinja` page is then raw HTML), or that `TEMPLATE_AUTOESCAPE`
+    # holds a value that is neither "true" nor "false" and so left it on. `App#start` calls it.
+    def warn_about_template_autoescape : Nil
+      value = @template_autoescape_env
+      if !template_autoescape?
+        log.warn { "template_autoescape is off: {{ }} output of .jinja and .j2 templates is not escaped, so every unescaped user value is an XSS hole. Turn it on again, or escape with `| e`" }
+      elsif value && !value.empty? && value != "true"
+        log.warn { "TEMPLATE_AUTOESCAPE=#{value.inspect} is not recognised (only \"true\" and \"false\" are); autoescape stays on" }
+      end
+    end
 
     def template_autoescape? : Bool
       @template_autoescape

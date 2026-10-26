@@ -231,6 +231,36 @@ describe "Azu::Templates autoescape" do
       end
     end
 
+    it "warns at boot when autoescape is off, or the variable has a value that is not recognised" do
+      old = ENV["TEMPLATE_AUTOESCAPE"]?
+      begin
+        warnings = ->(value : String?) do
+          value ? (ENV["TEMPLATE_AUTOESCAPE"] = value) : ENV.delete("TEMPLATE_AUTOESCAPE")
+          backend = ::Log::MemoryBackend.new
+          config = Azu::Configuration.new
+          config.log = ::Log.new("spec.autoescape", backend, :warn)
+          config.warn_about_template_autoescape
+          backend.entries.map(&.message)
+        end
+        warnings.call(nil).should be_empty
+        warnings.call("true").should be_empty
+        warnings.call("false").first.should contain "template_autoescape is off"
+        {"0", "no", "off", "FALSE"}.each do |value|
+          message = warnings.call(value).first
+          message.should contain value.inspect
+          message.should contain "autoescape stays on"
+        end
+        backend = ::Log::MemoryBackend.new
+        config = Azu::Configuration.new
+        config.log = ::Log.new("spec.autoescape", backend, :warn)
+        config.template_autoescape = false
+        config.warn_about_template_autoescape
+        backend.entries.size.should eq 1
+      ensure
+        old ? (ENV["TEMPLATE_AUTOESCAPE"] = old) : ENV.delete("TEMPLATE_AUTOESCAPE")
+      end
+    end
+
     it "reads TEMPLATE_AUTOESCAPE=false, and keeps escaping for any other value" do
       old = ENV["TEMPLATE_AUTOESCAPE"]?
       begin
