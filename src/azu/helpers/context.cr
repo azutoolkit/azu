@@ -35,17 +35,27 @@ module Azu
       getter context : HTTP::Server::Context
       getter request : HTTP::Request
       getter response : HTTP::Server::Response
-      getter params : HTTP::Params
-      getter cookies : HTTP::Cookies
+      # Parsed when first read, like the other values: a render pays only for what its template reads.
+      getter params : HTTP::Params { @request.query_params }
+      getter cookies : HTTP::Cookies { HTTP::Cookies.from_client_headers(@request.headers) }
+
+      # The variables `view` gives a template rendered with a request, each computed by `template_var`.
+      VARIABLES = {"current_path", "current_url", "csrf_token", "csrf_tag", "csrf_metatag", "flash", "method", "secure",
+                   "ajax", "referer", "client_ip", "accept_locale"}
 
       @flash : Hash(String, String)?
       @session : Hash(String, String)?
+      @csrf_token : String?
 
       def initialize(@context : HTTP::Server::Context)
         @request = @context.request
         @response = @context.response
-        @params = @request.query_params
-        @cookies = HTTP::Cookies.from_client_headers(@request.headers)
+      end
+
+      # The context of one render. The CSRF token is issued now, so the token cookie is set on every render whether
+      # or not the template prints a token; everything else waits until the template reads it (`template_var`).
+      def self.for_render(context : HTTP::Server::Context) : TemplateContext
+        new(context).tap(&.csrf_token)
       end
 
       # Returns the current request path.
@@ -121,13 +131,14 @@ module Azu
         @session ||= extract_session
       end
 
-      # Returns CSRF token for the current request.
+      # Returns CSRF token for the current request. It is issued once per context (issuing sets the token cookie),
+      # so `csrf_tag` and `csrf_metatag` carry the same token, the one the cookie holds.
       #
       # ```jinja
       # <input type="hidden" name="_csrf" value="{{ csrf_token }}" />
       # ```
       def csrf_token : String
-        Handler::CSRF.token(@context)
+        @csrf_token ||= Handler::CSRF.token(@context)
       end
 
       # Returns CSRF hidden input tag.
@@ -136,7 +147,7 @@ module Azu
       # {{ csrf_tag }}
       # ```
       def csrf_tag : String
-        Handler::CSRF.tag(@context)
+        Handler::CSRF.default.tag(csrf_token)
       end
 
       # Returns CSRF meta tag for AJAX requests.
@@ -145,7 +156,7 @@ module Azu
       # {{ csrf_metatag }}
       # ```
       def csrf_metatag : String
-        Handler::CSRF.metatag(@context)
+        Handler::CSRF.default.metatag(csrf_token)
       end
 
       # Returns the referer URL.
@@ -193,22 +204,27 @@ module Azu
         end
       end
 
-      # Convert context to a hash for template rendering.
+      # Convert context to a hash for template rendering: every one of `VARIABLES`.
       def to_template_vars : Hash(String, Crinja::Value)
-        {
-          "current_path"  => Crinja::Value.new(current_path),
-          "current_url"   => Crinja::Value.new(current_url),
-          "csrf_token"    => Crinja::Value.new(csrf_token),
-          "csrf_tag"      => Crinja::Value.new(csrf_tag),
-          "csrf_metatag"  => Crinja::Value.new(csrf_metatag),
-          "flash"         => Crinja::Value.new(flash),
-          "method"        => Crinja::Value.new(method),
-          "secure"        => Crinja::Value.new(secure?),
-          "ajax"          => Crinja::Value.new(ajax?),
-          "referer"       => Crinja::Value.new(referer || ""),
-          "client_ip"     => Crinja::Value.new(client_ip || ""),
-          "accept_locale" => Crinja::Value.new(accept_language || "en"),
-        }
+        VARIABLES.to_h { |name| {name, template_var(name).not_nil!} }
+      end
+
+      # The template variable `name` (one of `VARIABLES`) for this request, nil for any other name.
+      def template_var(name : String) : Crinja::Value?
+        case name
+        when "current_path"  then Crinja::Value.new(current_path)
+        when "current_url"   then Crinja::Value.new(current_url)
+        when "csrf_token"    then Crinja::Value.new(csrf_token)
+        when "csrf_tag"      then Crinja::Value.new(csrf_tag)
+        when "csrf_metatag"  then Crinja::Value.new(csrf_metatag)
+        when "flash"         then Crinja::Value.new(flash)
+        when "method"        then Crinja::Value.new(method)
+        when "secure"        then Crinja::Value.new(secure?)
+        when "ajax"          then Crinja::Value.new(ajax?)
+        when "referer"       then Crinja::Value.new(referer || "")
+        when "client_ip"     then Crinja::Value.new(client_ip || "")
+        when "accept_locale" then Crinja::Value.new(accept_language || "en")
+        end
       end
 
       private def extract_flash : Hash(String, String)

@@ -100,9 +100,18 @@ module Azu
     # A render's variables as the scope of its Crinja context, taken over instead of copied (rendering with a hash,
     # Crinja copies it twice: `Crinja.variables`, then into the context's own scope).
     class Scope < Crinja::Context
-      def initialize(parent : Crinja::Context, variables : Crinja::Variables)
+      def initialize(parent : Crinja::Context, variables : Crinja::Variables, @request : Helpers::TemplateContext? = nil)
         super(parent)
         @scope = variables
+      end
+
+      # A request variable (`TemplateContext::VARIABLES`) the data does not set is computed when the template first
+      # reads it, then kept. It shadows a global of the same name, as when `view` set them all before rendering.
+      def [](key : String)
+        if (request = @request) && !@scope.has_key?(key) && (value = request.template_var(key))
+          return @scope[key] = value
+        end
+        super
       end
     end
 
@@ -126,17 +135,15 @@ module Azu
         template_data = Hash(String, Crinja::Value).new
         data.to_h.each { |k, v| template_data[k.to_s] = Crinja::Value.new(v) }
 
-        # Inject HTTP context variables if context is available
+        # The request's variables when a context is available, each computed when the template reads it
+        request = nil
         {% if @type.has_method?(:context) %}
           if ctx = (context rescue nil)
-            template_context = Helpers::TemplateContext.new(ctx)
-            template_context.to_template_vars.each do |key, value|
-              template_data[key] = value unless template_data.has_key?(key)
-            end
+            request = Helpers::TemplateContext.for_render(ctx)
           end
         {% end %}
 
-        Azu.current_config.templates.render_variables(template, template_data)
+        Azu.current_config.templates.render_variables(template, template_data, request)
       end
 
       # Renders a template with explicit context injection.
@@ -154,13 +161,9 @@ module Azu
       )
         template_data = Hash(String, Crinja::Value).new
         data.to_h.each { |k, v| template_data[k.to_s] = Crinja::Value.new(v) }
-        template_context = Helpers::TemplateContext.new(http_context)
+        request = Helpers::TemplateContext.for_render(http_context)
 
-        template_context.to_template_vars.each do |key, value|
-          template_data[key] = value unless template_data.has_key?(key)
-        end
-
-        Azu.current_config.templates.render_variables(template, template_data)
+        Azu.current_config.templates.render_variables(template, template_data, request)
       end
 
       def page_path
@@ -198,9 +201,9 @@ module Azu
 
     # :nodoc:
     # `render` for variables built for this one render (`view`): they become the render's scope without a copy, so
-    # a top-level `set` in the template writes into them.
-    def render_variables(template : String, variables : Crinja::Variables) : String
-      exclusively { load(template).render(Scope.new(crinja.context, variables)) }
+    # a top-level `set` in the template writes into them. `request` supplies the request variables the template reads.
+    def render_variables(template : String, variables : Crinja::Variables, request : Helpers::TemplateContext? = nil) : String
+      exclusively { load(template).render(Scope.new(crinja.context, variables, request)) }
     end
 
     # :nodoc:

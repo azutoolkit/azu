@@ -343,13 +343,21 @@ module Azu
 
       # Generate HTML hidden input with CSRF token
       def tag(context : HTTP::Server::Context) : String
-        token_value = token(context)
+        tag(token(context))
+      end
+
+      # The hidden input for `token_value`, a token already issued for this request.
+      def tag(token_value : String) : String
         %Q(<input type="hidden" name="#{@param_name}" value="#{token_value}" />)
       end
 
       # Generate meta tag with CSRF token for AJAX requests
       def metatag(context : HTTP::Server::Context) : String
-        token_value = token(context)
+        metatag(token(context))
+      end
+
+      # The meta tag for `token_value`, a token already issued for this request.
+      def metatag(token_value : String) : String
         %Q(<meta name="#{@param_name}" content="#{token_value}" />)
       end
 
