@@ -147,7 +147,7 @@ module Azu
       def render(template : String, data)
         templates.render(template, data)
       rescue ex : Crinja::Error | Crinja::TemplateNotFoundError
-        templates.exclusively { templates.builtin_fallback(template, ex).render(data) }
+        templates.builtin_fallback(template, ex).render(data)
       end
 
       def xml

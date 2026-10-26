@@ -1,4 +1,5 @@
 require "crinja"
+require "./templates/crinja_patches"
 require "./helpers"
 
 module Azu
@@ -31,7 +32,7 @@ module Azu
     @compile_lock : Mutex = Mutex.new
     @compile_count : Int32 = 0
     @compiled_strict : Bool = false
-    @render_lock : Mutex = Mutex.new(:reentrant)
+    @helpers_lock : Mutex = Mutex.new
 
     # Azu's own error pages, compiled into the binary. They are the last place the loader looks, so an app that
     # runs from any working directory (or from a container that holds only the binary) always finds them, and a
@@ -192,24 +193,17 @@ module Azu
       env.get_template(name)
     end
 
-    # Renders `template` with `data` (nil, a Hash or a NamedTuple). Renders take turns: Crinja keeps the variables
-    # of a render on the environment that every request shares, so two renders that overlap (a helper that yields
-    # the fiber, or threads under preview_mt) would read each other's. The lock is reentrant: a helper may render.
+    # Renders `template` with `data` (nil, a Hash or a NamedTuple). Renders run concurrently: each fiber renders in
+    # its own Crinja context (see templates/crinja_patches.cr).
     def render(template : String, data = nil) : String
-      exclusively { load(template).render(data) }
+      load(template).render(data)
     end
 
     # :nodoc:
     # `render` for variables built for this one render (`view`): they become the render's scope without a copy, so
     # a top-level `set` in the template writes into them. `request` supplies the request variables the template reads.
     def render_variables(template : String, variables : Crinja::Variables, request : Helpers::TemplateContext? = nil) : String
-      exclusively { load(template).render(Scope.new(crinja.context, variables, request)) }
-    end
-
-    # :nodoc:
-    # Holds the render lock around a Crinja render that does not go through `render` (the built-in fallback page).
-    def exclusively(&)
-      @render_lock.synchronize { yield }
+      load(template).render(Scope.new(crinja.context, variables, request))
     end
 
     # With reload on (development) every call may re-read changed files, see `check_for_changes`. Without it the
@@ -469,12 +463,16 @@ module Azu
       end
     end
 
+    # Writes to the environment that renders read, so two fibers never apply at once.
     private def apply_helpers
       revision = Helpers::Registry.revision
       return if revision == @helpers_revision
 
-      Helpers::Registry.apply_to(crinja)
-      @helpers_revision = revision
+      @helpers_lock.synchronize do
+        next if revision == @helpers_revision
+        Helpers::Registry.apply_to(crinja)
+        @helpers_revision = revision
+      end
     end
   end
 end

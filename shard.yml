@@ -13,6 +13,7 @@ dependencies:
     github: azutoolkit/schema
   crinja:
     github: straight-shoota/crinja
+    version: ~> 0.9.0
   redis:
     github: stefanwille/crystal-redis
     version: ~> 2.9.0
