@@ -106,7 +106,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY shard.yml shard.lock* ./
-RUN shards install --ignore-crystal-version
+RUN shards install
 COPY . .
 RUN mkdir -p bin && crystal build --release --no-debug src/user_api.cr -o bin/user_api
 
