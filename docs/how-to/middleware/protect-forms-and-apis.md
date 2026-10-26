@@ -246,9 +246,10 @@ Place it before `CSRF`, so an attempt refused for its token counts too.
 
 When a proxy or load balancer terminates TLS and forwards to the app:
 
-- `Throttle` identifies clients by the address of the connection and reads no header, so behind a proxy every
-  visitor shares the proxy's address and five attempts lock everybody out. Rate-limit the login in the proxy, or run
-  `Throttle` only where clients connect directly.
+- `Throttle` identifies clients by the address of the connection and reads no header unless you list the proxies in
+  `trusted_proxies:`; without it every visitor shares the proxy's address and five attempts lock everybody out. With
+  it, the client is the right-most `X-Forwarded-For` address that is not a trusted proxy
+  ([Behind a reverse proxy](../../reference/handlers/built-in.md#behind-a-reverse-proxy)).
 - The `csrf_token` cookie gets `Secure` only when the request has `X-Forwarded-Proto: https`. Make the proxy set that
   header and replace the one a client sends.
 - `Azu::Handler::SecurityHeaders` sends `Strict-Transport-Security` only with `hsts: true`, and the default stack
