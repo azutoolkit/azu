@@ -311,20 +311,38 @@ module Azu
       # (the `urlize` filter escapes it), so quotes in an address cannot leave the `href`. Markup in the text is
       # tolerated: tags and their attributes are copied untouched, and so are the text inside an `<a>` and the
       # contents of `<script>`, `<style>`, `<textarea>`, `<title>`, `<noscript>`, `<xmp>`, `<plaintext>`, `<iframe>`,
-      # `<noembed>` and `<noframes>`. Invalid UTF-8 is replaced first.
+      # `<noembed>` and `<noframes>`. Invalid UTF-8 is replaced first. A single comment, CDATA section or tag larger
+      # than a few MB exceeds the regex engine's limit: the text is then returned as it is, unlinked.
+      #
+      # It reads markup by a simplified HTML tokenizer, which differs from browsers in three known ways: a CDATA
+      # section is treated as a section also in HTML content (browsers read it as a bogus comment ending at the
+      # first `>`), a quote inside an attribute name starts a quoted value here (browsers keep it in the name), and
+      # the script double-escape state (`<!-- <script>`) is not modelled, so `</script>` always ends a script.
       def urlize(escaped_html_text : String, trim_limit : Int32?, rel : Array(String), target : String?) : String
         rel_attr = rel.empty? ? "" : %( rel="#{escape_html(rel.join(' '))}")
         target_attr = target.nil? || target.empty? ? "" : %( target="#{escape_html(target)}")
+        text = escaped_html_text.scrub
+        begin
+          link_text(text, trim_limit, rel_attr, target_attr)
+        rescue Regex::Error
+          # A single comment, CDATA section or tag of several MB exceeds the regex engine's match limit: fail safe.
+          text
+        end
+      end
+
+      private def link_text(text : String, trim_limit : Int32?, rel_attr : String, target_attr : String) : String
         in_anchor = false
         raw_text : String? = nil
-        escaped_html_text.scrub.gsub(URLIZE_TOKEN) do |piece|
+        text.gsub(URLIZE_TOKEN) do |piece|
           if piece.starts_with?('<')
-            in_anchor = true if piece.matches?(URLIZE_OPEN_ANCHOR)
-            in_anchor = false if piece.matches?(URLIZE_CLOSE_ANCHOR)
             if open_tag = raw_text
               raw_text = nil if URLIZE_RAW_END[open_tag]?.try(&.matches?(piece))
-            elsif found = URLIZE_RAW_TEXT.match(piece)
-              raw_text = found[1].downcase
+            else
+              in_anchor = true if piece.matches?(URLIZE_OPEN_ANCHOR)
+              in_anchor = false if piece.matches?(URLIZE_CLOSE_ANCHOR)
+              if found = URLIZE_RAW_TEXT.match(piece)
+                raw_text = found[1].downcase
+              end
             end
             piece
           elsif in_anchor || raw_text
