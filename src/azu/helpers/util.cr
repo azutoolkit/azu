@@ -275,15 +275,28 @@ module Azu
 
       # Turns the http, https and `www.` addresses of *escaped_html_text* into links. Unlike Crinja's own `urlize`
       # it links no other scheme (`javascript://...` matches Crinja's pattern) and the text must already be escaped
-      # (the `urlize` filter escapes it), so quotes in an address cannot leave the `href`.
+      # (the `urlize` filter escapes it), so quotes in an address cannot leave the `href`. Markup in the text is
+      # tolerated: tags and their attributes are copied untouched and text inside an `<a>` is not linked again.
       def urlize(escaped_html_text : String, trim_limit : Int32?, rel : Array(String), target : String?) : String
         rel_attr = rel.empty? ? "" : %( rel="#{escape_html(rel.join(' '))}")
         target_attr = target.nil? || target.empty? ? "" : %( target="#{escape_html(target)}")
-        escaped_html_text.gsub(URLIZE_PATTERN) do |address|
-          display = address
-          display = display[0..(trim_limit - 3)] + "..." if trim_limit && display.size >= trim_limit
-          href = address.downcase.starts_with?("www.") ? "http://#{address}" : address
-          %(<a href="#{href}"#{rel_attr}#{target_attr}>#{display}</a>)
+        in_anchor = false
+        # Tags are copied as they are (so are attributes), and text inside an existing <a> is not linked again
+        escaped_html_text.gsub(/<[^>]*>|[^<]+/) do |piece|
+          if piece.starts_with?('<')
+            in_anchor = true if piece.matches?(/\A<a[\s>]/i)
+            in_anchor = false if piece.matches?(/\A<\/a\s*>/i)
+            piece
+          elsif in_anchor
+            piece
+          else
+            piece.gsub(URLIZE_PATTERN) do |address|
+              display = address
+              display = display[0..(trim_limit - 3)] + "..." if trim_limit && display.size >= trim_limit
+              href = address.downcase.starts_with?("www.") ? "http://#{address}" : address
+              %(<a href="#{href}"#{rel_attr}#{target_attr}>#{display}</a>)
+            end
+          end
         end
       end
 
