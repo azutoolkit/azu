@@ -1,7 +1,6 @@
 # Set up a Redis cache
 
-This guide shows how to make `Azu.cache` use Redis, so several processes or servers share one cache that survives
-restarts.
+Make `Azu.cache` use Redis, so several processes or servers share one cache that survives restarts.
 
 ## Prerequisites
 
@@ -38,9 +37,8 @@ When the manager is built it pings Redis. If the ping fails, it retries `cache_c
 `cache_connection_retry_delay` seconds (1) and doubling the wait after each attempt. If every attempt fails, the
 error is logged and **the cache is disabled**: `Azu.cache` becomes a `NullStore`, `set` returns `false`, `get`
 returns `nil` and `fetch` runs its block every time. The application keeps serving and never raises because
-Redis is down. Against a closed port the first use of `Azu.cache` took 3.0 seconds (1 s + 2 s of waiting between the
-three attempts), logged the failure, and every call afterwards behaved as an always-missing cache. Restart the
-process after Redis is back to use it again.
+Redis is down. With the defaults, the first use of `Azu.cache` waits 3 seconds (1 s + 2 s between the three
+attempts) before the cache is disabled. Restart the process after Redis is back to use it again.
 
 A `RedisStore` built directly, or a command that fails after start-up, is logged and swallowed the same way: `get`
 returns `nil`, `set` and `delete` return `false`.
@@ -63,9 +61,8 @@ Azu.cache.set("session:abc", "data", 30.minutes)
 data = Azu.cache.get("user:1")
 ```
 
-`Azu.cache` prefixes every key with `key_prefix` (`azu:` by default), so `"user:1"` is meant to be stored as
-`azu:user:1`. A TTL is stored with `SETEX` in whole seconds (a 30 minute TTL read back from Redis as 1799 seconds).
-Without one, `cache_config.default_ttl` (an hour) applies.
+`Azu.cache` prefixes every key with `key_prefix` (`azu` by default), so `"user:1"` is stored as `azu:user:1`. A TTL
+is stored with `SETEX` in whole seconds. Without one, `cache_config.default_ttl` (an hour) applies.
 
 ### Fetch Pattern
 
@@ -156,105 +153,9 @@ Azu::CONFIG.cache_config.key_prefix = "myapp:production"
 keys in the same Redis database survive. `Azu.cache.clear(all: true)` runs `FLUSHDB` and removes **every** key of
 the database: use a database only the cache uses if you call it.
 
-## Caching Complex Objects
-
-```crystal
-require "azu"
-require "json"
-
-struct UserSummary
-  include JSON::Serializable
-
-  getter id : Int64
-  getter name : String
-  getter post_titles : Array(String)
-
-  def initialize(@id, @name, @post_titles)
-  end
-end
-
-def cache_user_summary(summary : UserSummary) : Nil
-  Azu.cache.set("user:#{summary.id}:summary", summary.to_json, 15.minutes)
-end
-
-def cached_user_summary(id : Int64) : UserSummary?
-  Azu.cache.get("user:#{id}:summary").try { |json| UserSummary.from_json(json) }
-end
-```
-
-## Cache-Aside in an Endpoint
-
-```crystal
-require "azu"
-
-struct ProductPage
-  include Azu::Response
-
-  def initialize(@json : String)
-  end
-
-  def render
-    @json
-  end
-end
-
-struct ProductEndpoint
-  include Azu::Endpoint(Azu::Request, ProductPage)
-
-  get "/products/:id"
-
-  def call : ProductPage
-    content_type "application/json"
-    id = params["id"]
-
-    json = Azu.cache.fetch("product:#{id}", 1.hour) do
-      {id: id, name: "Product #{id}"}.to_json
-    end
-
-    ProductPage.new(json)
-  end
-end
-```
-
-## Invalidate on Write
-
-Delete the key in the code that changes the data:
-
-```crystal
-require "azu"
-
-def update_product(id : Int64, name : String) : Nil
-  # ... update the database ...
-  Azu.cache.delete("product:#{id}")
-end
-```
-
 ## Rate Limiting
 
 Use `Azu::Handler::Throttle` for per-client request limits; it keeps its counters in process and needs no cache.
-
-## Session Storage
-
-```crystal
-require "azu"
-require "json"
-
-module SessionStore
-  def self.create(user_id : Int64) : String
-    session_id = Random::Secure.hex(32)
-    Azu.cache.set("session:#{session_id}", {user_id: user_id}.to_json, 24.hours)
-    session_id
-  end
-
-  def self.user_id(session_id : String) : Int64?
-    Azu.cache.get("session:#{session_id}").try { |json| JSON.parse(json)["user_id"].as_i64 }
-  end
-
-  def self.destroy(session_id : String) : Nil
-    Azu.cache.delete("session:#{session_id}")
-  end
-end
-```
 
 ## Health Check
 
@@ -271,11 +172,6 @@ health = Azu::Handler::HealthCheck.new(
 
 Use it in the handler array of `start`; `/health` answers `200`, or `503 {"status":"unavailable","failing":["redis"]}`.
 `Azu.cache.redis_info` returns the parsed `INFO` of the server.
-
-## What Was Checked
-
-The store is exercised against a live Redis 7 by `spec/azu/cache_spec.cr` (reads, counters with their TTL, multi-key
-operations, pooling, the operation timeout) and `spec/azu/redis_spec.cr`; both go pending without a server.
 
 ## See Also
 

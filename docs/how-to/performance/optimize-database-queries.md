@@ -1,8 +1,8 @@
 # Optimize database queries
 
-This guide shows you how to improve database performance in an Azu application that uses CQL. To see what your app
-actually runs, `require "azu/cql"`: the dev dashboard's Database tab lists every statement tagged with its request,
-flags slow queries and detects N+1 patterns (see [Database dashboard](../../reference/database-dashboard.md)).
+Improve database performance in an Azu application that uses CQL. To see what your app actually runs,
+`require "azu/cql"`: the dev dashboard's Database tab lists every statement tagged with its request, flags slow
+queries and detects N+1 patterns (see [Database dashboard](../../reference/database-dashboard.md)).
 
 Every example is self-contained: it defines the schema and models it needs.
 
@@ -69,11 +69,6 @@ plan = AcmeDB.exec_query do |connection|
 end
 
 puts plan.join("\n")
-
-# Look for:
-# - Seq Scan on a large table (bad)
-# - Index Scan (good)
-# - Index Only Scan (best)
 ```
 
 In development, the dashboard's SQL playground accepts one `EXPLAIN` statement and shows the result without leaving the
@@ -441,8 +436,7 @@ AcmeDB = CQL::Schema.define(
 end
 ```
 
-A common starting point is `pool_size = (cores * 2) + 1` per process; remember that the database's connection limit is
-shared by every process you run.
+Each process has its own pool, and the database's connection limit is shared by every process you run.
 
 ## Query Caching
 
@@ -584,79 +578,6 @@ User.order(:id).offset(10_000).limit(20).all
 last_id = 10_020_i64
 User.after_cursor(last_id, 20)
 User.paginate_by(:name, "Smith", 20)
-```
-
-### Search
-
-A `LIKE` with a leading wildcard cannot use a normal index. Prefer a prefix match, or the database's full-text search:
-
-```crystal
-require "cql"
-require "pg"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::Postgres, uri: ENV["DATABASE_URL"]) do
-  table :users do
-    primary :id, Int64
-    column :name, String
-  end
-end
-
-class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property name : String
-
-  def initialize(@name : String)
-  end
-end
-
-search_term = "smith"
-
-# Bad: a leading wildcard cannot use an index
-User.where("name LIKE ?", "%#{search_term}%").all
-
-# Better: a prefix match can use a btree index (PostgreSQL needs text_pattern_ops outside the C locale)
-User.where("name LIKE ?", "#{search_term}%").all
-
-# PostgreSQL full-text search
-User.where("to_tsvector('english', name) @@ plainto_tsquery('english', ?)", search_term).all
-```
-
-### Date Ranges
-
-Wrapping an indexed column in a function defeats the index; compare against a range instead:
-
-```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :orders do
-    primary :id, Int64
-    column :total, Float64
-    timestamps
-  end
-end
-
-class Order
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :orders
-
-  property total : Float64
-  property created_at : Time?
-
-  def initialize(@total : Float64)
-  end
-end
-
-date = Time.utc(2024, 3, 1)
-
-# Bad: a function on the indexed column
-Order.where("DATE(created_at) = ?", date.to_s("%Y-%m-%d")).all
-
-# Good: a range
-Order.where("created_at >= ? AND created_at < ?", date.at_beginning_of_day, date.at_beginning_of_day + 1.day).all
 ```
 
 ## Monitor Query Performance

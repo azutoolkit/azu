@@ -1,6 +1,6 @@
 # Run migrations
 
-This guide shows you how to create and run database migrations with CQL.
+Create and run database migrations with CQL.
 
 A migration is a class that subclasses `CQL::Migration(version)`, where the version is a unique integer, usually a
 timestamp (`YYYYMMDDHHMMSS`). Defining the class registers it with `CQL::Migrator`, which applies migrations in version

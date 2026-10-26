@@ -1,6 +1,6 @@
 # Configure production
 
-This guide shows you how to configure your Azu application for production deployment.
+Configure your Azu application for production deployment.
 
 ## Environment Configuration
 
@@ -171,8 +171,8 @@ Where the pool settings go depends on which pool serves the schema:
 
 - `Azu::CQL.schema` with a `postgres://` or `postgresql://` URL uses CQL's own engine pool by default. Size it with
   `pool_size`, `pool_min_size` and `checkout_timeout` on the URL; crystal-db's `max_pool_size` and
-  `initial_pool_size` are renamed to the first two, so
-  `postgres://user:pass@host/db?initial_pool_size=5&max_pool_size=10` still works.
+  `initial_pool_size` are translated to the first two, so
+  `postgres://user:pass@host/db?initial_pool_size=5&max_pool_size=10` works too.
 - `driver: :db` on `Azu::CQL.schema`, or `AZU_CQL_DRIVER=db`, selects crystal-db's pool instead. SQLite and MySQL
   always use it, and so does a schema made directly with `CQL::Schema.define`. It reads crystal-db's URL parameters
   (`initial_pool_size`, `max_pool_size`, `max_idle_pool_size`, `checkout_timeout`, ...).
@@ -215,7 +215,6 @@ Before deploying:
 - [ ] `/health` answers and is wired to the load balancer
 - [ ] Rate limiting where the API is public
 - [ ] Shutdown grace period of the process manager is longer than `SHUTDOWN_TIMEOUT`
-- [ ] Backups configured
 
 ## See Also
 

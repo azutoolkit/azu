@@ -1,6 +1,6 @@
 # Handle transactions
 
-This guide shows you how to use database transactions with CQL for atomic operations.
+Use database transactions with CQL for atomic operations.
 
 Every example defines the schema and models it uses; in an application they live in their own files.
 
@@ -120,9 +120,10 @@ import("Alice", "alice@example.com", dry_run: true)
 
 ## Error Handling
 
-Exceptions leave the transaction rolled back and reach your `rescue`. Records saved with `save`/`save!` raise
-`CQL::ActiveRecord::Validations::ValidationError` when invalid; `create!(**fields)` does not validate at all (see
-[Database validations](../../reference/database/validations.md#checking-validity)):
+Exceptions leave the transaction rolled back and reach your `rescue`, so rescue around the `transaction` call, not
+inside it. Records saved with `save`/`save!` raise `CQL::ActiveRecord::Validations::ValidationError` when invalid;
+`create!(**fields)` and `update!` skip validations and callbacks, so build records with `new` and call `save!` when
+you need them (see [Database validations](../../reference/database/validations.md#checking-validity)):
 
 ```crystal
 require "cql"
@@ -430,15 +431,6 @@ place_order(42.0)
 With `require "azu/cql"`, every transaction appears in the dev dashboard's Database tab with its duration and outcome,
 and `Azu::CQL.transaction(schema) { ... }` is a thin wrapper over `schema.transaction`. See
 [Database dashboard](../../reference/database-dashboard.md).
-
-## Best Practices
-
-1. **Keep transactions short.** Long transactions hold locks.
-2. **Lock in a fixed order.** It prevents deadlocks.
-3. **Handle failures.** Rescue around the `transaction` call, not inside it, so the rollback happens.
-4. **Do not mix concerns.** No HTTP calls or emails inside a transaction (see [After-Commit Work](#after-commit-work)).
-5. **Remember the escape hatches.** `User.create!(...)` and `update!` skip validations and callbacks; build records
-   with `new` and call `save!` when you need them.
 
 ## See Also
 

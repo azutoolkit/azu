@@ -1,6 +1,6 @@
 # Enable hot reload
 
-This guide shows you how to see template changes without restarting the server during development.
+See template changes without restarting the server during development.
 
 ## Enable Hot Reload
 
@@ -53,33 +53,10 @@ module MyApp
 end
 ```
 
-## File Watching
+## Rebuild on code changes
 
-To restart the server when Crystal code changes, use a file watcher.
-
-### Using Watchexec
-
-```bash
-# Install watchexec
-brew install watchexec  # macOS
-# or
-cargo install watchexec-cli
-
-# Restart when Crystal code changes; template edits need no restart
-watchexec -r -e cr crystal run src/app.cr
-```
-
-### Using entr
-
-```bash
-# Install entr
-brew install entr  # macOS
-
-# Watch and restart
-find src -name "*.cr" | entr -r crystal run src/app.cr
-```
-
-Azu CLI applications have `azu serve` for the same purpose.
+Crystal code changes need a rebuild: `azu dev` from the [azu CLI](https://github.com/azutoolkit/azu_cli) rebuilds and
+restarts the app when the code changes.
 
 ## Browser Auto-Refresh
 
@@ -148,25 +125,6 @@ Client-side script, included in your layout in development only:
 The channel writes every broadcast to the socket as it is, so the browser receives the string `reload`. Register the
 channel only in development: a channel exposes a route in every environment.
 
-## Sentry for Crystal
-
-Sentry rebuilds and restarts the app when files change:
-
-```yaml
-# .sentry.yml
-info: true
-src: src
-output_name: app
-watch:
-  - ./src/**/*.cr
-run: ./app
-build: crystal build src/app.cr -o app
-```
-
-```bash
-sentry
-```
-
 ## Troubleshooting
 
 ### Changes Not Reflecting
@@ -175,12 +133,6 @@ sentry
    directory the server was started in (see [Render HTML Templates](render-html-templates.md#template-location)).
 2. Check that the file name matches what `view` asks for, including the extension.
 3. A change to Crystal code, including the hash passed to `view`, needs a rebuild.
-
-### Slow Performance
-
-1. Reduce the number of watched files.
-2. Use a more specific watch pattern.
-3. Use browser caching for assets.
 
 ## See Also
 

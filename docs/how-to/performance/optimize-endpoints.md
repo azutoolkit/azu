@@ -1,7 +1,7 @@
 # Optimize endpoints
 
-This guide shows ways to make Azu endpoints faster, each one with a version that compiles and was run. For what
-the framework itself costs and how to measure it, see [Performance Design](../../explanation/architecture/performance-design.md).
+Make Azu endpoints faster. For what the framework itself costs and how to measure it, see
+[Performance Design](../../explanation/architecture/performance-design.md).
 
 ## Declare Endpoints as Structs
 
@@ -118,91 +118,9 @@ struct ArticleEndpoint
 end
 ```
 
-A repeated request with `If-None-Match` set to the `ETag` was answered `304` with an empty body. For files in
+A repeated request with `If-None-Match` set to the `ETag` gets `304` with an empty body. For files in
 `public/`, `Azu::Handler::Static` already does this (weak `ETag`, `Cache-Control: public, no-cache` and, for names
 with a content hash such as `app-3f2a9c1b.css`, `max-age=31536000, immutable`).
-
-## Pagination
-
-Never return an unbounded collection. Read the page and the page size from the query string, bound them, and return
-the total so a client can page:
-
-```crystal
-require "azu"
-
-struct PageResponse
-  include Azu::Response
-
-  def initialize(@items : Array(String), @page : Int32, @limit : Int32, @total : Int32)
-  end
-
-  def render
-    {items: @items, page: @page, limit: @limit, total: @total}.to_json
-  end
-end
-
-struct ItemsEndpoint
-  include Azu::Endpoint(Azu::Request, PageResponse)
-
-  ITEMS         = (1..250).map { |i| "item #{i}" }
-  DEFAULT_LIMIT =  20
-  MAX_LIMIT     = 100
-
-  get "/items"
-
-  def call : PageResponse
-    content_type "application/json"
-    page = Math.max(params["page"]?.try(&.to_i?) || 1, 1)
-    limit = (params["limit"]?.try(&.to_i?) || DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
-
-    PageResponse.new(ITEMS[(page - 1) * limit, limit]? || [] of String, page, limit, ITEMS.size)
-  end
-end
-```
-
-With a database, push the limit and offset into the query. See
-[Optimize Database Queries](optimize-database-queries.md) for indexes, eager loading and counting, and the
-dashboard's Database tab for finding the queries that matter.
-
-## Run Independent Work Concurrently
-
-Work that waits on I/O (HTTP calls to other services, database queries on separate connections) can overlap. Start a
-fiber per call with `spawn`, collect with channels:
-
-```crystal
-require "azu"
-
-struct ProfileResponse
-  include Azu::Response
-
-  def initialize(@name : String, @orders : Int32)
-  end
-
-  def render
-    {name: @name, orders: @orders}.to_json
-  end
-end
-
-struct ProfileEndpoint
-  include Azu::Endpoint(Azu::Request, ProfileResponse)
-
-  get "/profile"
-
-  def call : ProfileResponse
-    content_type "application/json"
-    names = Channel(String).new
-    orders = Channel(Int32).new
-
-    spawn { sleep 100.milliseconds; names.send("Ada") }  # stands in for a service call
-    spawn { sleep 100.milliseconds; orders.send(3) }     # stands in for a second call
-
-    ProfileResponse.new(names.receive, orders.receive)
-  end
-end
-```
-
-Two calls that each wait 100 ms answered in about 100 ms instead of 200 ms. An exception raised inside a spawned
-fiber does not reach the endpoint: rescue inside the fiber and send the failure over the channel.
 
 ## Compress Responses
 
@@ -224,8 +142,7 @@ MyApp.start [
 ] of HTTP::Handler
 ```
 
-A 2000 byte body requested with `Accept-Encoding: gzip` came back with `Content-Encoding: gzip` and 35 bytes. Do not
-write a handler that compresses by reading `context.response.output` after `call_next`; that is not where the body is.
+Do not write a handler that compresses by reading `context.response.output` after `call_next`; that is not where the body is.
 
 ## Stream Large Responses
 

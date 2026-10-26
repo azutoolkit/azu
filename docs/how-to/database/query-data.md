@@ -1,7 +1,7 @@
 # Query data
 
-This guide shows you how to query data with CQL models. Every example is self-contained: it defines the schema and the
-models it needs. In an application they live in their own files (see [Create Models](create-models.md)).
+Query data with CQL models. Every example is self-contained: it defines the schema and the models it needs. In an
+application they live in their own files (see [Create Models](create-models.md)).
 
 Model queries return a `QueryBuilder`. Every method that adds a condition returns a new builder, so queries chain, and
 nothing touches the database until you ask for records (`all`, `first`, `count`, ...).

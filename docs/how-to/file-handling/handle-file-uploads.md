@@ -1,6 +1,6 @@
 # Handle file uploads
 
-This guide shows you how to accept and process file uploads in Azu.
+Accept and process file uploads in Azu.
 
 ## How uploads work
 
@@ -66,7 +66,8 @@ end
 
 `error("File is required")` builds a `400` response error. Always call `cleanup` once you are done with the temp file
 (`ensure` does it on every path). A background task also deletes `azu_upload_*` files older than
-`config.upload.max_temp_age` (24 hours) every `cleanup_interval` (1 hour), but it is a safety net.
+`config.upload.max_temp_age` (24 hours) every `cleanup_interval` (1 hour), but it is a safety net. It removes only
+temp files: the files you copy out (to `uploads/` above) are yours to expire.
 
 ## HTML Form
 
@@ -166,56 +167,6 @@ See [Validate File Types](validate-file-types.md) for checking the content, not 
 
 Azu does not ship a storage client. Use the client of your storage service and give it the temp file as an `IO`
 (`upload.file`) so the content is streamed instead of read into memory, then call `upload.cleanup`.
-
-## Progress Tracking
-
-Track upload progress with JavaScript:
-
-```javascript
-const form = document.getElementById('upload-form');
-const progress = document.getElementById('progress');
-
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-
-  const formData = new FormData(form);
-  const xhr = new XMLHttpRequest();
-
-  xhr.upload.addEventListener('progress', (e) => {
-    if (e.lengthComputable) {
-      const percent = (e.loaded / e.total) * 100;
-      progress.style.width = percent + '%';
-    }
-  });
-
-  xhr.open('POST', '/upload');
-  xhr.send(formData);
-});
-```
-
-## Cleanup Old Files
-
-Files you keep in `uploads/` are yours to expire. A periodic cleanup:
-
-```crystal
-module FileCleanup
-  def self.cleanup_old_files(max_age : Time::Span = 7.days) : Nil
-    cutoff = Time.utc - max_age
-
-    Dir.glob("uploads/**/*").each do |path|
-      next if File.directory?(path)
-      File.delete(path) if File.info(path).modification_time < cutoff
-    end
-  end
-end
-
-spawn do
-  loop do
-    sleep 1.hour
-    FileCleanup.cleanup_old_files
-  end
-end
-```
 
 ## See Also
 

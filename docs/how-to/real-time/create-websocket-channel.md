@@ -1,6 +1,6 @@
 # Create a WebSocket channel
 
-This guide shows how to accept WebSocket connections with `Azu::Channel`.
+Accept WebSocket connections with `Azu::Channel`.
 
 ## Basic channel
 

@@ -1,7 +1,7 @@
 # Add logging
 
-This guide shows how to log requests and your own events in an Azu application. Azu logs through Crystal's
-standard `Log`; there is nothing to learn beyond configuring `Log` and, if you want, writing a handler.
+Log requests and your own events in an Azu application. Azu logs through Crystal's standard `Log`; there is nothing
+to learn beyond configuring `Log` and, if you want, writing a handler.
 
 ## Built-in Logger
 
@@ -126,6 +126,9 @@ Log.setup do |config|
   config.bind "*", Log::Severity::Info, file
 end
 ```
+
+Azu does not rotate log files. Rotate them outside the process (with logrotate, `copytruncate` avoids having to
+reopen the file).
 
 ### JSON
 
@@ -280,24 +283,6 @@ replaces the values of keys that look like secrets (`password`, `token`, `api_ke
 ```crystal
 Azu::Env.redacted({"name" => "Ada", "password" => "hunter2", "next" => "https://u:p@example.com/x?token=1"})
 # => {"name" => "Ada", "password" => "[FILTERED]", "next" => "https://u:[FILTERED]@example.com/x?token=[FILTERED]"}
-```
-
-## Log Rotation
-
-Azu writes to whatever backend you configure and does not rotate files. Rotate them outside the process, for
-example with logrotate; `copytruncate` avoids having to reopen the file:
-
-```text
-# /etc/logrotate.d/myapp
-/var/log/myapp/*.log {
-    daily
-    rotate 14
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-}
 ```
 
 ## See Also

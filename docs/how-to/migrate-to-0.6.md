@@ -5,8 +5,7 @@ when you `require "azu"`. The global shim (`include Azu`, `configure`, `Azu::CON
 verb macros) is a supported single-app facade: it drives `Azu::App.default`, logs no warning and is not
 scheduled for removal. It keeps one global configuration, so a process has one facade app; move to
 `Azu::App` when you need a second app, a configuration that is not global, or an app you start from code.
-This page shows each old form next to its replacement. The full list of behaviour changes is in
-[breaking changes](../reference/breaking-changes.md).
+The full list of behaviour changes is in [breaking changes](../reference/breaking-changes.md).
 
 ## Configuration
 

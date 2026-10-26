@@ -1,8 +1,8 @@
 # Test endpoints
 
-This guide shows how to write specs for Azu endpoints with the tools Crystal and Azu already provide:
-an in-process `HTTP::Server` bound to a free port, and `HTTP::Client`. The requests go through the real
-handler chain, the router, the request contract and the response, exactly as in production.
+Write specs for Azu endpoints with the tools Crystal and Azu already provide: an in-process `HTTP::Server`
+bound to a free port, and `HTTP::Client`. The requests go through the real handler chain, the router, the
+request contract and the response, exactly as in production.
 
 Specs normally use `Azu::Testing::Client` (see [Testing](../../reference/api/testing.md)), which sends requests
 through the same chain without opening a socket. The `serve` helper below, which you keep in `spec/spec_helper.cr`,
@@ -475,15 +475,6 @@ end
 `app.stop` stops accepting connections, sends every open WebSocket a close frame with code 1001 (going away)
 and waits, up to the timeout, for the requests in flight and for those sockets to close, which is also what a
 graceful shutdown does in production (see [Shut down gracefully](../deployment/graceful-shutdown.md)).
-
-## Running the specs
-
-```bash
-crystal spec                          # everything
-crystal spec spec/endpoints           # one directory
-crystal spec spec/users_spec.cr:12    # one example, by line
-crystal spec --tag focus              # examples tagged with focus: true
-```
 
 ## See also
 

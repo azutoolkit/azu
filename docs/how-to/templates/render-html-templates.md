@@ -1,6 +1,6 @@
 # Render HTML templates
 
-This guide shows you how to render HTML templates using Azu's Crinja template engine (Jinja2 syntax).
+Render HTML templates with Azu's Crinja template engine (Jinja2 syntax).
 
 ## Basic Template Rendering
 
@@ -136,7 +136,7 @@ already safe and are not escaped again. Templates of other formats (`mail.txt`, 
 `yml`, `sql`, `sh`) are not escaped; `xml`, `rss`, `atom` and `svg` are. `{% autoescape false %}...{% endautoescape %}`
 turns it off for a block. Filters such as `upper`, `truncate`, `replace` and the `~` operator return plain text, so
 markup that went through them is escaped: apply `| safe` last.
-`{{ value | e }}` still works and does not escape twice. To turn the escaping of `.jinja`/`.j2` off for an app, set
+`{{ value | e }}` does not escape twice. To turn the escaping of `.jinja`/`.j2` off for an app, set
 `template_autoescape = false` or `TEMPLATE_AUTOESCAPE=false` (see [Configuration](../../reference/configuration/options.md#templates)).
 
 ## Variables

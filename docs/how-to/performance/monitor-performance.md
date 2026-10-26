@@ -21,7 +21,7 @@ export PERFORMANCE_PROFILING=true
 export PERFORMANCE_MEMORY_MONITORING=true
 ```
 
-Building with `PERFORMANCE_MONITORING=true` or `--define=performance_monitoring` also makes `require "azu"` load `azu/dev`, for apps that always did that.
+Building with `PERFORMANCE_MONITORING=true` or `--define=performance_monitoring` also makes `require "azu"` load `azu/dev`.
 
 ## Add the handlers
 

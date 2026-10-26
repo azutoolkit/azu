@@ -1,6 +1,6 @@
 # Create custom middleware
 
-This guide shows how to write your own handlers. A handler is any class that includes `HTTP::Handler` and
+Write your own handlers. A handler is any class that includes `HTTP::Handler` and
 implements `call(context)`; Azu has no base class of its own. Before writing one, check
 [the built-in handlers](../../reference/handlers/built-in.md): request ids, logging, error pages, security
 headers, static files, CORS, CSRF, rate limiting, compression and health checks already exist.
@@ -26,7 +26,7 @@ end
 sees the response.
 
 A header set after `call_next` is lost once the response has started to leave the server, which happens for a large
-body (a 100 000 byte body lost the header above in a test), a `flush` or a stream. Anything you can decide before
+body, a `flush` or a stream. Anything you can decide before
 the endpoint runs belongs before `call_next`; `X-Response-Time` is best effort.
 
 ## Register the Handler
@@ -113,8 +113,8 @@ end
 ```
 
 In an array: `[RequestId.new, Rescuer.new, TokenAuthHandler.new({"s3cret" => 42_i64})]`. A request without the token
-was answered `401`; with `Authorization: Bearer s3cret` the endpoint saw `X-User-ID: 42`, and a forged `X-User-ID: 1`
-sent without a token was answered `401` too. An endpoint reads the value with
+gets `401`; with `Authorization: Bearer s3cret` the endpoint sees `X-User-ID: 42`, and a forged `X-User-ID: 1` sent
+without a token gets `401` too. An endpoint reads the value with
 `context.request.headers["X-User-ID"]?`.
 
 To answer without `Rescuer`, or with your own body, write the response yourself and return without
@@ -206,8 +206,7 @@ OnlyFor.new("/api", Azu::Handler::Throttle.new(interval: 5, duration: 60, thresh
 
 ## Handler Ordering
 
-Order matters; what each position means was checked by running it (see
-[the middleware concept](../../explanation/concepts/middleware.md#ordering-best-practices)):
+Order matters (see [the middleware concept](../../explanation/concepts/middleware.md#ordering-best-practices)):
 
 ```crystal
 module MyApp

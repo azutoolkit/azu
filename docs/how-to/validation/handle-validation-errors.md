@@ -1,6 +1,6 @@
 # Handle validation errors
 
-This guide shows you how to handle and respond to validation errors in your Azu application.
+Handle and respond to validation errors in your Azu application.
 
 ## Automatic Error Handling
 
@@ -70,8 +70,8 @@ when it names that type and as `application/json` otherwise:
 `text/html` gets an HTML page and an XML type gets XML. A request without `Accept`, or with `*/*` (curl's default),
 gets a `text/plain` body.
 
-To keep the body of Azu before 0.6 (`FieldErrors`, `ErrorId`, `Fingerprint`, ...) for one more minor release, set
-`config.error_format = Azu::ErrorFormat::Legacy`.
+`config.error_format = Azu::ErrorFormat::Legacy` selects the legacy body (`FieldErrors`, `ErrorId`, `Fingerprint`, ...)
+instead; see [Migrate to 0.6](../migrate-to-0.6.md#contracts-answer-422).
 
 ## Custom Error Responses
 

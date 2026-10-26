@@ -1,6 +1,6 @@
 # Handle parameters
 
-This guide shows you how to extract and work with request parameters.
+Extract and work with request parameters.
 
 ## Route Parameters
 

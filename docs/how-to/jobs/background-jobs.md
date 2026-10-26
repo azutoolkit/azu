@@ -2,7 +2,7 @@
 
 You will enqueue work from an endpoint and process it in a separate worker process. Azu has no job queue of its own; [JoobQ](https://github.com/azutoolkit/joobq) is a separate shard that keeps jobs in Redis, so **you need a Redis server** for this guide (Redis is optional for Azu itself). `azu new` includes JoobQ by default, and `--no-joobq` leaves it out.
 
-**What was verified.** The code below was type-checked (`crystal build --no-codegen`) together with Azu against JoobQ 0.4.2. It was not run against a Redis server for this page, and the docs checker does not install JoobQ, so these blocks are marked `<!-- skip -->`. Check [JoobQ's README](https://github.com/azutoolkit/joobq) for the version you install.
+The code below uses the JoobQ 0.4.2 API. Check [JoobQ's README](https://github.com/azutoolkit/joobq) for the version you install.
 
 ## Add JoobQ
 
@@ -112,7 +112,3 @@ crystal run worker.cr       # the worker process
 ```
 
 In a generated project `azu jobs:worker` does the second step.
-
-## Not verified
-
-The azu_cli job template currently suggests `schedule(in: 5.minutes, ...)`, `config.redis_url = ...` and `JoobQ::Worker.start`. None of these exist in JoobQ 0.4.2 (`schedule` takes `every:`, there is no `redis_url=`, and `JoobQ::Worker` is a generic class), so they are not used here.

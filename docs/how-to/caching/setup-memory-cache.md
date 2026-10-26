@@ -1,9 +1,8 @@
 # Set up a memory cache
 
-This guide shows how to use the in-process cache. The memory store is the default: with no configuration
-`Azu.cache` already stores up to 1000 entries for an hour each, evicting the least recently used. It lives in the
-memory of one process, so each process of a deployment has its own copy (use [Redis](setup-redis-cache.md) to
-share).
+The memory store is the default: with no configuration `Azu.cache` already stores up to 1000 entries for an hour
+each, evicting the least recently used. It lives in the memory of one process, so each process of a deployment has
+its own copy (use [Redis](setup-redis-cache.md) to share).
 
 ## Basic Setup
 
@@ -50,8 +49,7 @@ end
 Azu.cache.set("session:abc123", "data", 30.minutes)
 ```
 
-An entry that has outlived its TTL is never returned, even before the background cleanup removes it
-(a 100 ms TTL returned the value before the deadline and `nil` after it).
+An entry that has outlived its TTL is never returned, even before the background cleanup removes it.
 
 ### Fetch Pattern
 
@@ -135,8 +133,8 @@ struct ProductEndpoint
 end
 ```
 
-Requesting `/products/7` twice returned the same `loaded_at` both times (the block ran once), and `/products/8`
-computed its own entry.
+Within the ten minutes, a second request for `/products/7` gets the same `loaded_at` (the block runs once per
+key), and `/products/8` computes its own entry.
 
 ## How Eviction Works
 
@@ -154,24 +152,6 @@ store.get("a")      # "a" is now the most recently used
 store.set("d", "4") # evicts "b"
 puts store.get("b").inspect # => nil
 puts store.get("a")         # => 1
-```
-
-## Namespacing Keys
-
-Use one helper per kind of key so the format lives in one place:
-
-```crystal
-module CacheKeys
-  def self.user(id : Int64) : String
-    "users:#{id}"
-  end
-
-  def self.user_posts(user_id : Int64) : String
-    "users:#{user_id}:posts"
-  end
-end
-
-puts CacheKeys.user(1_i64)
 ```
 
 ## Cache Invalidation

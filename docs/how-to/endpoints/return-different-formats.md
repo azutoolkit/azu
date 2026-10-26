@@ -1,6 +1,6 @@
 # Return different formats
 
-This guide shows you how to return JSON, HTML, text, and other response formats.
+Return JSON, HTML, text, and other response formats.
 
 An endpoint returns a response object, and the body is whatever the response's `render` returns. The format
 is chosen by the content type the endpoint sets with `content_type`.

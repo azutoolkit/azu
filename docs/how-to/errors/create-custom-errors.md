@@ -1,6 +1,6 @@
 # Create custom errors
 
-This guide shows you how to create custom error types for your Azu application.
+Create custom error types for your Azu application.
 
 An error is an `Azu::Response::Error`: an exception that is also a response. `Azu::Handler::Rescuer` catches it and
 writes it with its status, in the format the `Accept` header asks for. A subclass sets the title, the status
@@ -301,25 +301,6 @@ struct TransferFundsEndpoint
     TransferResponse.new(amount)
   end
 end
-```
-
-## Error Documentation
-
-Document your errors for API consumers:
-
-```text
-Each error code has a specific meaning:
-
-Client Errors:
-- BAD_REQUEST (400): The request was malformed
-- UNAUTHORIZED (401): Authentication is required
-- FORBIDDEN (403): You don't have permission
-- NOT_FOUND (404): The resource doesn't exist
-- VALIDATION_FAILED (422): Input validation failed
-
-Server Errors:
-- INTERNAL_ERROR (500): Something went wrong on our end
-- SERVICE_UNAVAILABLE (503): A dependent service is down
 ```
 
 ## See Also

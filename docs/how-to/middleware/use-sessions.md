@@ -5,9 +5,6 @@ Azu has no session store of its own. It reads sessions through a small seam, `Az
 memory or Redis store), session fixation protection through `authenticate`, and a flash that belongs to the
 session. Azu has no dependency on the shard; you add it to your own `shard.yml`.
 
-The session snippets below need the `session` shard, which the docs check does not install, so their blocks are marked
-`<!-- skip -->`; `reference/handlers/built-in.md` has the part that needs no shard.
-
 ## Set it up
 
 <!-- skip -->
@@ -54,8 +51,7 @@ Azu.session_adapter = Azu::SessionAdapter.new(
 Install the adapter once at boot, before serving: it lives on the configuration of the app
 (`Azu.session_adapter=` sets it on the current one; an `Azu::App` has its own).
 
-Without an adapter, `flash` in templates is empty. Azu no longer reads a `_session` or `_flash` cookie: any
-client can write one, and nothing signed it. A template shows messages with `{{ flash.notice }}` as before.
+Without an adapter, `flash` in templates is empty. A template shows messages with `{{ flash.notice }}`.
 
 `flash` and `csrf_token` reach a template only when the response renders it with `view_with_context`, passing the
 endpoint's `context`. A response's `view` has no request: there, a template that reads `flash.notice` fails with a

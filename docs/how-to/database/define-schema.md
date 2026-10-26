@@ -1,6 +1,6 @@
 # Define a schema
 
-This guide shows you how to describe your database with CQL's schema DSL.
+Describe your database with CQL's schema DSL.
 
 CQL is a separate shard. Azu core does not depend on it, so add `cql` and a database driver (`sqlite3`, `pg` or
 `mysql`) to your `shard.yml` and `require` them before the schema file. To see queries in the dev dashboard, also

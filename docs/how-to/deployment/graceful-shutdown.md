@@ -1,7 +1,7 @@
 # Shut down gracefully
 
-This guide shows what happens to requests, streams and WebSockets when an Azu app is told to stop, and how to make a
-long-lived response cooperate.
+See what happens to requests, streams and WebSockets when an Azu app is told to stop, and make a long-lived response
+cooperate.
 
 ## What a Stop Does
 
@@ -89,7 +89,7 @@ Each `Azu::App` tracks its own sockets and requests. `Azu.start` drains `Azu::Ap
 
 `app.stop(timeout)` returns true when nothing was left. Bind the server on `bind_unused_port`, open an
 `HTTP::WebSocket` and an `HTTP::Client` request against it, call `stop`, and assert the close code is
-`HTTP::WebSocket::CloseCode::GoingAway` (see `spec/azu/graceful_shutdown_spec.cr`).
+`HTTP::WebSocket::CloseCode::GoingAway`.
 
 ## See Also
 

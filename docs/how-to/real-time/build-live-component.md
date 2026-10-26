@@ -1,8 +1,8 @@
 # Build a live component
 
 A live component keeps its state on the server. The browser sends events over a WebSocket, the server
-renders again and sends back only the HTML that changed. This guide builds one step by step. For the
-ideas behind it read [Components](../../explanation/concepts/components.md); for every option see the
+renders again and sends back only the HTML that changed. For the ideas behind it read
+[Components](../../explanation/concepts/components.md); for every option see the
 [Component Reference](../../reference/api/component.md).
 
 ## A basic live component

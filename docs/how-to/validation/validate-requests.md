@@ -1,6 +1,6 @@
 # Validate requests
 
-This guide shows you how to add validation to your request contracts.
+Add validation to your request contracts.
 
 ## Basic Validation
 
