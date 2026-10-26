@@ -8,6 +8,13 @@ This document lists breaking changes between Azu versions and migration guides.
 
 Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
 
+**The router matches only exact HTTP methods and paths that start with `/`.** A request whose method is not one of the
+verbs spelled exactly (`GET`, `POST`, ... : methods are case-sensitive, so `get` is not `GET`) or whose path does not start
+with `/` answers `404` instead of being routed. The router builds its lookup key from the method and the path together, so
+such a request could reach a route other than the one `request.method` and `request.path` show to the handlers before the
+router; a handler that guards a path prefix now always sees the path that is routed. Clients that send standard methods
+see no change.
+
 **`Static` can refuse paths (additive, nothing to change).** `Azu::Handler::Static.new(except: ["/templates"])` never serves
 `/templates` or anything below it; the request goes to the next handler, or answers `404` with `fallthrough: false`. Without
 `except` the handler behaves as before. Use it when template sources live under `public/`:

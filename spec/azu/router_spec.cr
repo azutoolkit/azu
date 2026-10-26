@@ -840,6 +840,45 @@ describe Azu::Router do
       end
     end
   end
+
+  # The router keys a route by method and path together, so a request reaches a route only when each is exactly
+  # what the route was declared with: middleware that checks `request.path` or `request.method` sees what is routed.
+  describe "requests that do not name a route" do
+    router = Azu::Router.new
+    router.get "/admin/secret", VerbEndpoint.new("get")
+    router.post "/users", VerbEndpoint.new("post")
+
+    # Parses the request line as the server does and returns the status and body the router answered with
+    answer = ->(request_line : String) do
+      request = HTTP::Request.from_io(IO::Memory.new("#{request_line}\r\nHost: example.com\r\n\r\n")).as(HTTP::Request)
+      io = IO::Memory.new
+      response = HTTP::Server::Response.new(io)
+      router.process(HTTP::Server::Context.new(request, response))
+      response.close
+      {response.status_code, io.to_s}
+    end
+
+    it "routes the methods and paths as declared" do
+      answer.call("GET /admin/secret HTTP/1.1")[1].should contain("handled by get")
+      answer.call("POST /users HTTP/1.1")[1].should contain("handled by post")
+    end
+
+    it "does not let a slash in the method reach another path" do
+      status, body = answer.call("GET/admin /secret HTTP/1.1")
+      status.should eq 404
+      body.should_not contain("handled by")
+    end
+
+    it "does not route a path without a leading slash" do
+      status, body = answer.call("PO st/users HTTP/1.1")
+      status.should eq 404
+      body.should_not contain("handled by")
+    end
+
+    it "treats the method as case-sensitive" do
+      answer.call("get /admin/secret HTTP/1.1")[0].should eq 404
+    end
+  end
 end
 
 # Renders the verb it was registered for, plus the title the form body carried
