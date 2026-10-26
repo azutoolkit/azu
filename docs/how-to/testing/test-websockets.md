@@ -5,8 +5,10 @@ socket: an in-process `HTTP::Server` on a free port and `HTTP::WebSocket` as the
 the handshake, the origin check, your callbacks and the PubSub wiring together. Components can also be
 tested without any socket through `Azu::Spark::Testing`.
 
-Azu has no WebSocket test helpers beyond `Azu::Spark::Testing`; the client below is about twenty lines
-you keep in `spec/spec_helper.cr`.
+Specs normally use `Azu::Testing::Client#connect` (see [Testing](../../reference/api/testing.md#websocket)),
+which performs the handshake through the app and exchanges frames over in-process pipes. The `WsClient` below,
+which you keep in `spec/spec_helper.cr`, connects to a real port instead, which also exercises `HTTP::Server`'s
+socket and connection handling.
 
 ## A client for specs
 

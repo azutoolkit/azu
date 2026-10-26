@@ -29,7 +29,7 @@ version: 0.1.0
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.5.52
+    version: ~> 0.5.119
   cql:
     github: azutoolkit/cql
   # Choose your database driver:
@@ -397,11 +397,6 @@ end
 
 module UserAPI
   include Azu
-
-  configure do |config|
-    config.port = ENV.fetch("PORT", "4000").to_i
-    config.host = ENV.fetch("HOST", "0.0.0.0")
-  end
 end
 
 # Create the tables if they do not exist yet
@@ -409,8 +404,8 @@ AppDB.build
 
 UserAPI.start [
   Azu::Handler::RequestId.new,
-  Azu::Handler::Rescuer.new,
   Azu::Handler::Logger.new,
+  Azu::Handler::Rescuer.new,
   Azu::Handler::CORS.new,
 ] of HTTP::Handler
 ```
@@ -424,6 +419,10 @@ What changed from the in-memory version:
 - **Update** assigns only the fields the client sent and saves; `update!(name: ...)` would skip validations.
 - **Delete** calls `delete!`, which returns `false` if the row was already gone.
 - Endpoints register themselves with the router when their struct is defined, so they are not listed in `start`.
+- The handlers follow the default stack's order: `Logger` sits outside `Rescuer`, so a request that raised is logged
+  with its final status.
+- Azu reads `PORT` (4000 by default) and `HOST` (`127.0.0.1` in development, `0.0.0.0` in other environments) from
+  the environment.
 
 Run it:
 
@@ -518,9 +517,10 @@ Post.find!(1_i64).publish!
 User.find!(1_i64).posts.to_a
 ```
 
-The `on_delete: :cascade` on the foreign key makes the database remove a user's posts with the user. (CQL's
-`dependent:` option on `has_many` is not applied by `delete!`, so let the database do it; SQLite enforces foreign keys
-only when `PRAGMA foreign_keys = ON`.)
+The `on_delete: :cascade` on the foreign key makes the database remove a user's posts with the user; SQLite enforces
+foreign keys only when `PRAGMA foreign_keys = ON`. CQL can do it instead: with
+`has_many :posts, Post, foreign_key: :user_id, dependent: :destroy`, `user.delete!` deletes the posts and then the
+user, in one transaction.
 
 ## Step 7: Query Examples
 
@@ -621,7 +621,8 @@ Post.published.count
 
 ## Environment Configuration
 
-Create a `.env` file (or export the variables) for development:
+Export the variables for development, or keep them in a `.env` file. Azu does not read `.env` by itself: call
+`Azu::Env.load_all` before `require "azu"` (see [Azu::Env](../reference/configuration/env.md)).
 
 ```bash
 DATABASE_URL=sqlite3://./db/development.db

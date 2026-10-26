@@ -4,8 +4,9 @@ This guide shows how to write specs for Azu endpoints with the tools Crystal and
 an in-process `HTTP::Server` bound to a free port, and `HTTP::Client`. The requests go through the real
 handler chain, the router, the request contract and the response, exactly as in production.
 
-Azu does not ship test helpers (an `Azu::Testing` module is planned but does not exist yet), so the few
-lines of helper below are yours to keep in `spec/spec_helper.cr`.
+Specs normally use `Azu::Testing::Client` (see [Testing](../../reference/api/testing.md)), which sends requests
+through the same chain without opening a socket. The `serve` helper below, which you keep in `spec/spec_helper.cr`,
+serves the app on a real port instead, which also exercises `HTTP::Server`'s socket and connection handling.
 
 ## Basic test setup
 
@@ -67,8 +68,9 @@ describe HelloEndpoint do
 end
 ```
 
-`RequestId` and `Rescuer` are the minimum for realistic specs: `Rescuer` turns raised errors (a missing
-record, a failed contract) into the error responses clients see. To test with the stack `Azu.start`
+`RequestId` and `Rescuer` are the minimum for realistic specs: `Rescuer` turns errors raised in `call` (a
+missing record, say) into the error responses clients see. A request that breaks its contract never reaches `call`;
+the endpoint answers it itself. To test with the stack `Azu.start`
 uses, pass `app.default_handlers` instead.
 
 ## Testing GET endpoints
@@ -470,8 +472,9 @@ describe "a routed handler" do
 end
 ```
 
-`app.stop` stops accepting connections and waits for the requests in flight, which is also what a
-graceful shutdown does in production. Open WebSockets are not drained.
+`app.stop` stops accepting connections, sends every open WebSocket a close frame with code 1001 (going away)
+and waits, up to the timeout, for the requests in flight and for those sockets to close, which is also what a
+graceful shutdown does in production (see [Shut down gracefully](../deployment/graceful-shutdown.md)).
 
 ## Running the specs
 

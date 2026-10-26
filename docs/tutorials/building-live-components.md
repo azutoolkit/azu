@@ -125,32 +125,27 @@ struct CounterPageEndpoint
 end
 ```
 
-Then, once while booting (in `src/user_api.cr` or your main file), configure the signing secret and
-install Spark:
+Then, once while booting (in `src/user_api.cr` or your main file), install Spark:
 
 ```crystal
 require "azu"
 
 module UserAPI
   include Azu
-
-  configure do |config|
-    config.port = ENV.fetch("PORT", "4000").to_i
-  end
 end
 
-Azu::Spark.configure { |spark| spark.secret = ENV.fetch("SPARK_SECRET", "development-only-secret") }
 Azu::Spark.install
 
 UserAPI.start
 ```
 
 `Azu::Spark.install` registers the WebSocket route (`/spark`) and serves the client script from your own
-application (`/_spark/azu_spark.js`), so there is no CDN and no inline script. The secret signs the
-tokens that let a browser join a component; production and staging refuse to start without
-`SPARK_SECRET`.
+application (`/_spark/azu_spark.js`), so there is no CDN and no inline script. The tokens that let a browser
+join a component are signed with `SPARK_SECRET`, which Spark reads itself. Without it, development and test use
+a random secret per process; production and staging raise `Azu::Spark::ConfigurationError` the first time a token
+is signed or verified (the first `Azu::Spark.render`), not at boot. Set `SPARK_SECRET` there.
 
-Run the app, open `http://localhost:4000/counter` and click the buttons. Open the page in two tabs: each
+Run the app (Azu listens on `PORT`, 4000 by default), open `http://localhost:4000/counter` and click the buttons. Open the page in two tabs: each
 tab has its own counter, because each connection owns its components.
 
 ## Step 4: Create a Chat Component

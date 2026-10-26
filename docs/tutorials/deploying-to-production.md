@@ -33,12 +33,6 @@ require "azu"
 
 module UserAPI
   include Azu
-
-  configure do |config|
-    config.port = ENV.fetch("PORT", "4000").to_i
-    config.host = ENV.fetch("HOST", "0.0.0.0")
-    config.shutdown_timeout = ENV.fetch("SHUTDOWN_TIMEOUT", "30").to_i.seconds
-  end
 end
 
 if Azu::CONFIG.env.production?
@@ -53,12 +47,14 @@ UserAPI.start [
   Azu::Handler::Logger.new,
   Azu::Handler::Rescuer.new,
   Azu::Handler::SecurityHeaders.new(hsts: Azu::CONFIG.env.production?),
-  Azu::Handler::Static.new(fallthrough: true),
+  Azu::Handler::Static.new,
 ] of HTTP::Handler
 ```
 
-`Static` is created with `fallthrough: true` so that a request for something that is not a file reaches the router (the default, `false`, answers `404` itself). `HealthCheck` answers `GET /health` with `{"status":"ok"}` before the request reaches the router. `hsts: true` sends
-`Strict-Transport-Security`; enable it once the site is served over HTTPS. Requiring `azu` does not set up `Log`:
+Azu reads `PORT`, `HOST` and `SHUTDOWN_TIMEOUT` from the environment itself (Step 3 sets them), so the app does not
+configure them. `Static` passes a request for something that is not a file on to the router (`fallthrough` is `true`
+by default; `fallthrough: false` answers `404` itself). `HealthCheck` answers `GET /health` with `{"status":"ok"}`
+before the request reaches the router. `hsts: true` sends `Strict-Transport-Security`; enable it once the site is served over HTTPS. Requiring `azu` does not set up `Log`:
 you choose the level and backend, as above. See [Configure Production](../how-to/deployment/configure-production.md)
 for every setting.
 
@@ -90,7 +86,8 @@ SHUTDOWN_TIMEOUT=30
 
 Secrets (`SPARK_SECRET`, and with an `azu new` application `SESSION_SECRET` and `CSRF_SECRET`) come from your
 platform's secret store. Generate one with `openssl rand -base64 48`. A generated application refuses to start in
-production without them.
+production without `SESSION_SECRET` and `CSRF_SECRET`; without `SPARK_SECRET`, Spark raises the first time it signs
+or verifies a token.
 
 ## Step 4: Docker Deployment
 

@@ -34,7 +34,7 @@ version: 0.1.0
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.5.70
+    version: ~> 0.5.119
 
 crystal: ">= 1.19.1"
 license: MIT
@@ -156,7 +156,7 @@ module UserRules
     errors = [] of Schema::Error
     errors << Schema::Error.new(:name, "Name must be between 2 and 50 characters") if name && !(2..50).includes?(name.size)
     errors << Schema::Error.new(:email, "Email must be a valid email address") if email && !EMAIL.matches?(email)
-    errors << Schema::Error.new(:age, "Age must be between 1 and 150") if age && !(1..149).includes?(age)
+    errors << Schema::Error.new(:age, "Age must be between 1 and 150") if age && !(1..150).includes?(age)
     errors
   end
 end
@@ -302,11 +302,6 @@ require "azu"
 
 module UserAPI
   include Azu
-
-  configure do |config|
-    config.port = ENV.fetch("PORT", "4000").to_i
-    config.host = ENV.fetch("HOST", "0.0.0.0")
-  end
 end
 
 Azu.setup_logging
@@ -317,6 +312,9 @@ UserAPI.start
 `Static`, with the router (and so the endpoints, which register themselves) last. `Azu.setup_logging` turns on Azu's
 log format; requiring `azu` does not touch `Log`.
 
+Azu reads the address from the environment: `PORT` (4000 by default) and `HOST` (`127.0.0.1` in development,
+`0.0.0.0` in other environments). In a container, set `HOST=0.0.0.0`.
+
 ## Step 6: Run and Test
 
 Start the server:
@@ -325,7 +323,8 @@ Start the server:
 crystal run src/user_api.cr
 ```
 
-Send `Accept: application/json` to get JSON error bodies (otherwise the `Rescuer` answers with plain text).
+Send `Accept: application/json` to get JSON error bodies (without an `Accept` header, or with curl's default `*/*`,
+error bodies are plain text).
 
 ### Create a User
 
@@ -373,7 +372,8 @@ Response (`422`, a problem document):
   "errors": {
     "name": ["Name must be between 2 and 50 characters"],
     "email": ["Email must be a valid email address"]
-  }
+  },
+  "instance": "/users"
 }
 ```
 
@@ -400,7 +400,9 @@ validate name, size: 2..50
 
 ### Structured Error Responses
 
-Errors are rendered by `Rescuer` with their status code, as JSON, HTML or text.
+A request that breaks its contract is answered by the endpoint itself; errors raised in `call` are rendered by
+`Rescuer`. Both use the error's status code and the format the `Accept` header asks for: problem JSON, JSON, HTML,
+XML or text.
 
 ### Route Parameters
 

@@ -22,8 +22,10 @@ By the end of this tutorial, you'll be able to:
 - Basic understanding of testing concepts
 - Crystal 1.19.1 or newer
 
-Azu has no `Azu::Testing` module yet, so there are no special helpers to learn: the pieces below are
-plain Crystal.
+Specs normally use `Azu::Testing::Client` (see [Testing](../reference/api/testing.md)), which sends requests and
+WebSocket frames through the app's real handler chain and router without opening a socket. The helpers below serve
+the app on a real port instead, which also exercises `HTTP::Server`'s socket and connection handling; for
+everything else the client replaces them.
 
 ## Step 1: Test Setup
 
@@ -84,7 +86,8 @@ end
 ```
 
 `serve` builds the handler chain with `RequestId` (so responses carry `X-Request-ID`) and `Rescuer`
-(so raised errors become the 404, 401 or 422 responses clients see). In a real project each spec file
+(so errors raised in `call` become the 404 or 401 responses clients see; a request that breaks its contract is
+answered with 400 or 422 by the endpoint itself). In a real project each spec file
 starts with `require "./spec_helper"` and the application file.
 
 ## Step 2: Testing Endpoints
@@ -519,8 +522,9 @@ describe "the default stack" do
 end
 ```
 
-`app.stop` closes the server and waits for requests in flight, as a graceful shutdown does. Open
-WebSockets are not drained.
+`app.stop` closes the server, sends every open WebSocket a close frame with code 1001 (going away) and waits,
+up to the timeout, for the requests in flight and for those sockets to close, as a graceful shutdown does (see
+[Shut down gracefully](../how-to/deployment/graceful-shutdown.md)).
 
 ## Step 8: Running Tests
 

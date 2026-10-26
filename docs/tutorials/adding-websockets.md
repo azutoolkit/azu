@@ -131,11 +131,6 @@ require "azu"
 
 module UserAPI
   include Azu
-
-  configure do |config|
-    config.port = ENV.fetch("PORT", "4000").to_i
-    config.host = ENV.fetch("HOST", "0.0.0.0")
-  end
 end
 
 # Same default stack as Azu.start: request id, logging, error pages, security headers and static files
@@ -143,7 +138,8 @@ UserAPI.start
 ```
 
 `UserAPI.start` without arguments uses the default handler stack, which already serves files from
-`public/` (the next step) and falls through to the router for everything else.
+`public/` (the next step) and falls through to the router for everything else. Azu reads `PORT` (4000 by
+default) and `HOST` (`127.0.0.1` in development, `0.0.0.0` in other environments) from the environment.
 
 ## Step 5: Create a Client Page
 
@@ -194,8 +190,8 @@ another origin, list it in `Azu::CONFIG.websocket.allowed_origins`.
 ## Step 6: Serve the Page
 
 The default stack's static handler serves `public/index.html` for `/`. Nothing to add. If you pass your
-own handler array to `start`, include `Azu::Handler::Static.new(fallthrough: true)` so that requests for
-files are served and everything else reaches the router:
+own handler array to `start`, include `Azu::Handler::Static.new`: it serves the files and passes everything
+else on to the router (`fallthrough` is `true` by default):
 
 ```crystal
 require "azu"
@@ -206,9 +202,9 @@ end
 
 UserAPI.start [
   Azu::Handler::RequestId.new,
-  Azu::Handler::Rescuer.new,
   Azu::Handler::Logger.new,
-  Azu::Handler::Static.new(fallthrough: true),
+  Azu::Handler::Rescuer.new,
+  Azu::Handler::Static.new,
 ] of HTTP::Handler
 ```
 
