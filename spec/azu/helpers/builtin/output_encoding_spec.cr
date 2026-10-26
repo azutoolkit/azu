@@ -271,6 +271,54 @@ describe "helper output encoding" do
           %(<!-- https://a.com > https://b.com --> <a href="https://c.com" rel="noopener">https://c.com</a> <![CDATA[ https://d.com ]]>))
       end
 
+      it "reads a comment the way a browser does" do
+        safe_urlize.call("<!--?>http://a.com").should eq "<!--?>http://a.com"
+        safe_urlize.call("<!--x --!> http://a.com").should eq %(<!--x --!> <a href="http://a.com" rel="noopener">http://a.com</a>)
+        safe_urlize.call("<!--> http://a.com").should eq %(<!--> <a href="http://a.com" rel="noopener">http://a.com</a>)
+        safe_urlize.call("<!--x http://a.com").should eq "<!--x http://a.com"
+      end
+
+      it "does not link the text of title, noscript, xmp, iframe, noembed, noframes and plaintext" do
+        {"title", "noscript", "xmp", "iframe", "noembed", "noframes"}.each do |tag|
+          safe_urlize.call("<#{tag}>http://a.com</#{tag}> http://b.com").should eq(
+            %(<#{tag}>http://a.com</#{tag}> <a href="http://b.com" rel="noopener">http://b.com</a>))
+        end
+        safe_urlize.call("<plaintext>http://a.com</plaintext> http://b.com").should eq "<plaintext>http://a.com</plaintext> http://b.com"
+      end
+
+      it "does not let a stray < swallow the tag after it" do
+        safe_urlize.call("<<script>http://x</script> http://y").should eq %(<<script>http://x</script> <a href="http://y" rel="noopener">http://y</a>)
+        safe_urlize.call("x < y <a href=z>http://q</a>").should eq "x < y <a href=z>http://q</a>"
+      end
+
+      it "closes an anchor only on whitespace HTML knows" do
+        safe_urlize.call("<a href=x>t</a\x0b> http://a.com").should eq "<a href=x>t</a\x0b> http://a.com"
+        safe_urlize.call("<a href=x>t</a\n> http://a.com").should eq %(<a href=x>t</a\n> <a href="http://a.com" rel="noopener">http://a.com</a>)
+      end
+
+      it "does not raise on invalid UTF-8" do
+        bad = String.new(Bytes[0x3c, 0x61, 0x20, 0xff, 0x3e, 0xc3]) + " http://a.com"
+        safe_urlize.call(bad).should contain "http://a.com"
+      end
+
+      it "survives one huge tag, attribute value or data URI" do
+        {"<a title=#{"x" * 100_000}>", %(<a title="#{"x" * 100_000}">), %(<img src="data:image/png;base64,#{"A" * 100_000}">),
+         "<a " + "x " * 50_000 + ">", "<a title=" + "x" * 100_000}.each do |html|
+          safe_urlize.call(html + " http://a.com").should contain "http://a.com"
+        end
+      end
+
+      it "stays fast on 1 MB of nasty markup" do
+        shapes = {
+          "<!--x>" * 170_000, "<![CDATA[x>" * 95_000, "<!-- a -- > " * 85_000, "<" * 1_000_000, "< " * 500_000, %(<a ") * 330_000,
+          "<script>" + "<a>" * 330_000, "<a x='" * 170_000, "<a " + "x" * 1_000_000,
+        }
+        shapes.each do |html|
+          elapsed = Time.measure { safe_urlize.call(html) }
+          elapsed.should be < 2.seconds
+        end
+      end
+
       it "links the text around a stray < and >" do
         safe_urlize.call("x < y > https://a.com").should eq %(x < y > <a href="https://a.com" rel="noopener">https://a.com</a>)
       end

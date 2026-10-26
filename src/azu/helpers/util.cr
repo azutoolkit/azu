@@ -273,29 +273,48 @@ module Azu
 
       private URLIZE_PATTERN = /(?:https?:\/\/|www\.)[^\s<]+/i
 
-      # A comment, CDATA section or tag (a `>` inside a quoted attribute does not end it), what is left from an
-      # unterminated `<` to the end, or a run of text. A tag the browser would read differently is never linked into.
-      private URLIZE_TOKEN = /<!--.*?-->|<!\[CDATA\[.*?\]\]>|<(?:[^>"']|"[^"]*"|'[^']*')*>|<.*\z|[^<]+/m
+      # A comment, CDATA section or tag (a `>` inside a quoted attribute does not end it), a lone `<`, or a run of text.
+      # Every alternative ends at its terminator or consumes to the end of the text (an unterminated comment, CDATA
+      # section or tag is one token to the end, as a browser reads it), and the repeats are possessive, so a long tag
+      # neither exhausts the regex engine's stack nor is scanned twice.
+      private URLIZE_TOKEN = /<!--(?:-?>|.*?--!?>|.*\z)|<!\[CDATA\[(?:.*?\]\]>|.*\z)|<[a-zA-Z\/!?](?:[^>"']++|"[^"]*+(?:"|\z)|'[^']*+(?:'|\z))*+(?:>|\z)|<|[^<]+/m
 
-      # Text of these elements is not markup a reader sees as prose, so it is never linked.
-      private URLIZE_RAW_TEXT = /\A<(script|style|textarea)(?=[\s\/>])/i
+      # The characters that end a tag name in HTML (`\s` also matches a vertical tab and no-break spaces, which do not).
+      private URLIZE_OPEN_ANCHOR  = /\A<a[ \t\n\f\r\/>]/i
+      private URLIZE_CLOSE_ANCHOR = /\A<\/a[ \t\n\f\r\/>]/i
+
+      # Elements whose content a reader does not see as prose, so it is never linked, and the end tag of each
+      # (`plaintext` has none: it runs to the end of the text).
+      private URLIZE_RAW_TEXT = /\A<(script|style|textarea|title|noscript|xmp|plaintext|iframe|noembed|noframes)(?=[ \t\n\f\r\/>])/i
+      private URLIZE_RAW_END  = {
+        "script"   => /\A<\/script[ \t\n\f\r\/>]/i,
+        "style"    => /\A<\/style[ \t\n\f\r\/>]/i,
+        "textarea" => /\A<\/textarea[ \t\n\f\r\/>]/i,
+        "title"    => /\A<\/title[ \t\n\f\r\/>]/i,
+        "noscript" => /\A<\/noscript[ \t\n\f\r\/>]/i,
+        "xmp"      => /\A<\/xmp[ \t\n\f\r\/>]/i,
+        "iframe"   => /\A<\/iframe[ \t\n\f\r\/>]/i,
+        "noembed"  => /\A<\/noembed[ \t\n\f\r\/>]/i,
+        "noframes" => /\A<\/noframes[ \t\n\f\r\/>]/i,
+      }
 
       # Turns the http, https and `www.` addresses of *escaped_html_text* into links. Unlike Crinja's own `urlize`
       # it links no other scheme (`javascript://...` matches Crinja's pattern) and the text must already be escaped
       # (the `urlize` filter escapes it), so quotes in an address cannot leave the `href`. Markup in the text is
       # tolerated: tags and their attributes are copied untouched, and so are the text inside an `<a>` and the
-      # contents of `<script>`, `<style>` and `<textarea>`.
+      # contents of `<script>`, `<style>`, `<textarea>`, `<title>`, `<noscript>`, `<xmp>`, `<plaintext>`, `<iframe>`,
+      # `<noembed>` and `<noframes>`. Invalid UTF-8 is replaced first.
       def urlize(escaped_html_text : String, trim_limit : Int32?, rel : Array(String), target : String?) : String
         rel_attr = rel.empty? ? "" : %( rel="#{escape_html(rel.join(' '))}")
         target_attr = target.nil? || target.empty? ? "" : %( target="#{escape_html(target)}")
         in_anchor = false
         raw_text : String? = nil
-        escaped_html_text.gsub(URLIZE_TOKEN) do |piece|
+        escaped_html_text.scrub.gsub(URLIZE_TOKEN) do |piece|
           if piece.starts_with?('<')
-            in_anchor = true if piece.matches?(/\A<a[\s\/>]/i)
-            in_anchor = false if piece.matches?(/\A<\/a[\s\/>]/i)
+            in_anchor = true if piece.matches?(URLIZE_OPEN_ANCHOR)
+            in_anchor = false if piece.matches?(URLIZE_CLOSE_ANCHOR)
             if open_tag = raw_text
-              raw_text = nil if piece.matches?(/\A<\/#{open_tag}[\s\/>]/i)
+              raw_text = nil if URLIZE_RAW_END[open_tag]?.try(&.matches?(piece))
             elsif found = URLIZE_RAW_TEXT.match(piece)
               raw_text = found[1].downcase
             end
