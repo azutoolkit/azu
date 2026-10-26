@@ -202,25 +202,23 @@ module Azu
           Registry.register_filter(:urlize, filter)
         end
 
+        # Cycles through values. Inside `{% for %}` the value follows `loop.index0`, so every cycle in the
+        # loop is independent; outside a loop each call advances a counter kept per list of values.
         private def self.register_cycle : Nil
-          # Cycle through values - useful in loops
           func = Crinja.function({values: [] of String}, :cycle) do
             values = arguments["values"]
+            items = values.iterable? ? values.to_a : [] of Crinja::Value
 
-            # Get or initialize cycle index from environment
-            cycle_key = "__cycle_index__"
-            cycle_val = env.context[cycle_key]
-            index = (!cycle_val.none? && !cycle_val.undefined?) ? cycle_val.to_i : 0
-
-            if values.iterable? && values.size > 0
-              result = values.to_a[index % values.size].to_s
-
-              # Increment index
-              env.context[cycle_key] = Crinja::Value.new((index + 1) % values.size)
-
-              result
-            else
+            if items.empty?
               ""
+            elsif loop = env.context["loop"].raw.as?(Crinja::Tag::For::ForLoop)
+              items[loop.index0 % items.size].to_s
+            else
+              cycle_key = "__cycle__:" + items.join('\u{1f}')
+              counter = env.context[cycle_key]
+              index = counter.raw.is_a?(Int32) ? counter.raw.as(Int32) : 0
+              env.context[cycle_key] = Crinja::Value.new((index + 1) % items.size)
+              items[index].to_s
             end
           end
           Registry.register_function(:cycle, func)

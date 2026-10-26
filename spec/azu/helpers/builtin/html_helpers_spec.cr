@@ -340,5 +340,33 @@ describe "HTML Helpers" do
 
       result.should eq ""
     end
+
+    it "alternates its values across loop iterations" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string("{% for i in [1, 2, 3] %}{{ cycle(values=['odd', 'even']) }} {% endfor %}")
+
+      template.render.should eq "odd even odd "
+    end
+
+    it "keeps two cycles in one loop independent" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string(
+        "{% for i in [1, 2, 3] %}{{ cycle(values=['a', 'b']) }}{{ cycle(values=['x', 'y', 'z']) }} {% endfor %}")
+
+      template.render.should eq "ax by az "
+    end
+
+    it "advances on each call outside a loop" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string("{{ cycle(values=['a', 'b']) }}{{ cycle(values=['a', 'b']) }}{{ cycle(values=['a', 'b']) }}")
+
+      template.render.should eq "aba"
+    end
   end
 end
