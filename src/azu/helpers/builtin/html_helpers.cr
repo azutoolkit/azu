@@ -97,8 +97,14 @@ module Azu
             omission = arguments["omission"].to_s
 
             result = Util.truncate_html(html, length, omission)
-            # safe in, safe out: the result is the input or its text, both made of the same escaped HTML
-            target.raw.is_a?(Crinja::SafeString) ? Crinja::SafeString.new(result) : result
+            if target.raw.is_a?(Crinja::SafeString)
+              # safe in, safe out: the result is the input or its text, both made of the same escaped HTML;
+              # the omission is the template author's argument and may hold anything, so it is escaped
+              result = result[0, result.size - omission.size] + Util.escape_html(omission) if result != html && result.ends_with?(omission)
+              Crinja::SafeString.new(result)
+            else
+              result
+            end
           end
           Registry.register_filter(:truncate_html, filter)
         end
