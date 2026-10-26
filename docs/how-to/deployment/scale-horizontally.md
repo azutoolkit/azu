@@ -55,7 +55,8 @@ end
 Any load balancer works. Point its health check at
 [`Azu::Handler::HealthCheck`](../../reference/handlers/built-in.md#handlerhealthcheck), and pass the `Upgrade` and
 `Connection` headers through so channels can open WebSockets. Behind a proxy every connection comes from the
-proxy's address; [`Handler::Throttle`](../../reference/handlers/built-in.md#handlerthrottle) and
+proxy's address, which [`Handler::Throttle`](../../reference/handlers/built-in.md#behind-a-reverse-proxy) corrects only for
+the proxies you list in `trusted_proxies:`; [`Handler::Throttle`](../../reference/handlers/built-in.md#handlerthrottle) and
 [`Handler::IpSpoofing`](../../reference/handlers/built-in.md#handleripspoofing) state what that means for rate limits
 and forwarded headers.
 

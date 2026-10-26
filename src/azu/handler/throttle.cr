@@ -151,6 +151,7 @@ module Azu
       CONTENT_TYPE   = "Content-Type"
       CONTENT_LENGTH = "Content-Length"
       UNKNOWN_CLIENT = "unknown"
+      UNRESOLVED     = "!forwarded"
 
       DEFAULT_MAX_CLIENTS = 100_000
       SWEEP_EVERY         = 1.second
@@ -166,27 +167,33 @@ module Azu
       @log_window = Clock.instant
       @logged = 0
       @suppressed = 0
+      # Clients inside their window, then clients that are blocked. Both keep the order clients entered them in, which
+      # is what makes eviction and sweeping cheap: the front of `@tracker` is the oldest first-seen client, and the
+      # front of `@blocked` is the block that ends first (every block lasts `duration`).
       @tracker : Hash(String, RequestTracker)
+      @blocked : Hash(String, RequestTracker)
       @mutex : Mutex
       @trusted : ClientAddress::Networks
       @ipv6_prefix : Int32
       @max_clients : Int32
       @next_sweep : Time::Instant
-      @blocked_addresses : Set(String)
-      @allowed_addresses : Set(String)
+      @blacklisted : ClientAddress::Networks
+      @whitelisted : ClientAddress::Networks
 
       # Without an explicit log, the log of the app serving the request (`Azu.current_config`).
-      # *trusted_proxies* raises `ArgumentError` for an entry that is not an IP address or CIDR block.
+      # *trusted_proxies*, *blacklist* and *whitelist* take IP addresses and CIDR blocks and raise `ArgumentError` for
+      # any other entry; *trusted_proxies* also refuses a block that is everything (`0.0.0.0/0`, `::/0`).
       def initialize(@interval, @duration, @threshold, @blacklist, @whitelist, @log : ::Log? = nil,
                      trusted_proxies : Array(String) = [] of String, ipv6_prefix : Int32 = 64, max_clients : Int32 = DEFAULT_MAX_CLIENTS)
         raise ArgumentError.new("ipv6_prefix must be between 1 and 128") unless 1 <= ipv6_prefix <= 128
         raise ArgumentError.new("max_clients must be positive") unless max_clients > 0
-        @trusted = ClientAddress::Networks.parse(trusted_proxies)
+        @trusted = ClientAddress::Networks.parse(trusted_proxies, "trusted_proxies", catch_all: false)
         @ipv6_prefix = ipv6_prefix
         @max_clients = max_clients
-        @blocked_addresses = @blacklist.map { |entry| normalized(entry) }.to_set
-        @allowed_addresses = @whitelist.map { |entry| normalized(entry) }.to_set
+        @blacklisted = ClientAddress::Networks.parse(@blacklist, "blacklist")
+        @whitelisted = ClientAddress::Networks.parse(@whitelist, "whitelist")
         @tracker = Hash(String, RequestTracker).new
+        @blocked = Hash(String, RequestTracker).new
         @mutex = Mutex.new
         @next_sweep = Clock.instant + SWEEP_EVERY
       end
@@ -204,7 +211,7 @@ module Azu
 
       # Who a request is from: the address, as it is compared with the black and white lists, and the key its
       # requests are counted under (the same for IPv4, the network for IPv6).
-      private record Client, address : String, key : String
+      private record Client, address : String, key : String, ip : UInt128? = nil
 
       # Clients are identified by the peer address of the connection. A header such as
       # REMOTE_ADDR is never set by the server and a client can send any value for it,
@@ -220,20 +227,29 @@ module Azu
 
       private def identify(peer : Socket::IPAddress, headers : HTTP::Headers) : Client
         return Client.new(peer.address, peer.address) unless parsed = ClientAddress.parse(peer.address)
-        client = ClientAddress.client(parsed, headers.get?(FORWARDED_FOR), @trusted)
-        Client.new(ClientAddress.to_s(client), ClientAddress.key(client, @ipv6_prefix))
+        return Client.new(ClientAddress.to_s(parsed), ClientAddress.key(parsed, @ipv6_prefix), parsed) if @trusted.empty?
+
+        if client = ClientAddress.client(parsed, headers.get?(FORWARDED_FOR), @trusted)
+          Client.new(ClientAddress.to_s(client), ClientAddress.key(client, @ipv6_prefix), client)
+        else
+          # A trusted proxy sent a header that names no client: counted apart from the proxy's own requests (a health
+          # check carries no header), so whoever can make a proxy forward garbage only throttles itself.
+          Client.new(ClientAddress.to_s(parsed), "#{ClientAddress.key(parsed, @ipv6_prefix)}#{UNRESOLVED}", parsed)
+        end
       end
 
       private def deflect?(client : Client) : Bool
-        return false if whitelisted?(client.address)
-        return true if blacklisted?(client.address)
+        if ip = client.ip
+          return false if @whitelisted.includes?(ip)
+          return true if @blacklisted.includes?(ip)
+        end
 
         @mutex.synchronize { watch(client.key) }
       end
 
       private def too_many_requests(context, remote : String)
         retry_after = @mutex.synchronize do
-          if tracker = @tracker[remote]?
+          if tracker = @blocked[remote]?
             if block_exp = tracker.block_expires
               remaining = block_exp - Clock.instant
               remaining.total_seconds.to_i64
@@ -281,79 +297,68 @@ module Azu
         # (e.g., NTP adjustments causing indefinite blocks)
         current_time = Clock.instant
         sweep(current_time)
-        tracker = get_or_create_tracker(remote, current_time)
-        make_room(remote)
 
-        # Increment requests
-        tracker = tracker.increment_requests
-        @tracker[remote] = tracker
+        if blocked = @blocked[remote]?
+          return still_blocked?(remote, blocked, current_time)
+        end
 
-        # Check if watch period expired and not blocked
-        if tracker.watch_expired?(current_time) && !tracker.blocked?
+        tracker = @tracker[remote]? || begin
+          make_room
+          RequestTracker.new(current_time + interval.seconds, 0)
+        end
+        count(remote, tracker.increment_requests, current_time)
+      end
+
+      private def still_blocked?(remote : String, tracker : RequestTracker, current_time : Time::Instant) : Bool
+        return true unless tracker.block_expired?(current_time)
+
+        @blocked.delete(remote)
+        log.warn { "#{remote} released" }
+        false
+      end
+
+      # Counts one request of a client that is not blocked: a window that has ended starts over, a client over the
+      # threshold moves to the blocked table.
+      private def count(remote : String, tracker : RequestTracker, current_time : Time::Instant) : Bool
+        if tracker.watch_expired?(current_time)
           @tracker.delete(remote)
           return false
         end
 
-        # Check if block period expired
-        if tracker.blocked? && tracker.block_expired?(current_time)
+        if tracker.requests > threshold
           @tracker.delete(remote)
-          log.warn { "#{remote} released" }
-          return false
-        end
-
-        # Check if threshold exceeded and should be blocked
-        if !tracker.blocked? && tracker.requests > threshold
-          @tracker[remote] = tracker.block(duration, current_time)
+          @blocked[remote] = tracker.block(duration, current_time)
           log.warn { "#{remote} blocked" }
           return true
         end
 
-        tracker.blocked?
+        @tracker[remote] = tracker
+        false
       end
 
-      # Drops the trackers whose window and block have ended, at most once per SWEEP_EVERY, on a request.
+      # Drops the trackers whose window has ended, and the blocks that have ended (they are in the order they end in,
+      # so only the front is looked at), at most once per SWEEP_EVERY, on a request.
       private def sweep(current_time : Time::Instant) : Nil
         return if current_time < @next_sweep
         @next_sweep = current_time + SWEEP_EVERY
-        @tracker.reject! { |_, tracker| stale?(tracker, current_time) }
+        @tracker.reject! { |_, tracker| tracker.watch_expired?(current_time) }
+        while (first = @blocked.first_value?) && first.block_expired?(current_time)
+          @blocked.shift
+        end
       end
 
-      private def stale?(tracker : RequestTracker, current_time : Time::Instant) : Bool
-        tracker.blocked? ? tracker.block_expired?(current_time) : tracker.watch_expired?(current_time)
-      end
-
-      # A new client does not grow the table past max_clients: the oldest trackers that are not blocked go first (the
-      # table keeps the order clients were first seen in), then, only when every one is blocked, the oldest block.
-      private def make_room(remote : String) : Nil
-        return if @tracker.size < @max_clients || @tracker.has_key?(remote)
-        excess = @tracker.size - @max_clients + 1
-        oldest = @tracker.each_key.reject { |key| @tracker[key].blocked? }.first(excess).to_a
-        oldest.concat(@tracker.each_key.reject { |key| oldest.includes?(key) }.first(excess - oldest.size).to_a) if oldest.size < excess
-        oldest.each { |key| @tracker.delete(key) }
-      end
-
-      private def get_or_create_tracker(remote : String, current_time : Time::Instant) : RequestTracker
-        @tracker[remote]? || RequestTracker.new(current_time + interval.seconds, 0)
-      end
-
-      private def blacklisted?(address : String) : Bool
-        @blocked_addresses.includes?(address)
-      end
-
-      private def whitelisted?(address : String) : Bool
-        @allowed_addresses.includes?(address)
-      end
-
-      # A list entry in the form a client address is compared in (`::ffff:1.2.3.4` is `1.2.3.4`); text that is not
-      # an IP address stays as it was written.
-      private def normalized(entry : String) : String
-        ClientAddress.parse(entry).try { |address| ClientAddress.to_s(address) } || entry
+      # A new client does not grow the tables past max_clients: the client first seen longest ago and not blocked goes,
+      # and only when every tracked client is blocked, the block that ends first. Both are the front of a table, O(1).
+      private def make_room : Nil
+        return if @tracker.size + @blocked.size < @max_clients
+        @tracker.shift? || @blocked.shift?
       end
 
       # Reset tracker (useful for testing)
       def reset
         @mutex.synchronize do
           @tracker.clear
+          @blocked.clear
         end
       end
 
@@ -361,8 +366,8 @@ module Azu
       def stats
         @mutex.synchronize do
           {
-            tracked_ips: @tracker.size,
-            blocked_ips: @tracker.count { |_, tracker| tracker.blocked? },
+            tracked_ips: @tracker.size + @blocked.size,
+            blocked_ips: @blocked.size,
           }
         end
       end

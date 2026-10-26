@@ -195,7 +195,8 @@ if Azu terminates TLS itself (a TLS-terminating proxy instead needs `SecurityHea
 handler array).
 
 {% hint style="warning" %}
-Behind a proxy, `Throttle` sees the proxy's address for every request.
+Behind a proxy, `Throttle` sees the proxy's address for every request unless the proxy is listed in its
+`trusted_proxies:` ([Behind a reverse proxy](../handlers/built-in.md#behind-a-reverse-proxy)).
 {% endhint %}
 
 ### Environment files
