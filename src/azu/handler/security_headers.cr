@@ -27,19 +27,18 @@ module Azu
         headers = HTTP::Headers{"X-Content-Type-Options" => "nosniff", "X-Frame-Options" => frame_options, "Referrer-Policy" => referrer_policy}
         content_security_policy.try { |policy| headers["Content-Security-Policy"] = policy }
         headers["Strict-Transport-Security"] = HSTS_VALUE if hsts
-        @headers = headers.map { |name, values| {HTTP::Headers::Key.new(name), values.first} }
+        @headers = headers.map { |name, values| {TrustedHeader.key(name), values.first} }
       end
 
       def call(context : HTTP::Server::Context)
         headers = context.response.headers
         # One pass over the headers set before this handler (in the default stack, X-Request-ID alone) finds ours,
-        # comparing names as HTTP::Headers does
+        # comparing names as HTTP::Headers does (`each_key` and `Key#==` lean on the internals TrustedHeader names)
         present = 0
         headers.each_key do |name|
           @headers.each_with_index { |(key, _), index| present |= 1 << index if key == name }
         end
-        # A Key goes straight to the hash HTTP::Headers forwards to: one hash of the name, no second check of the value
-        @headers.each_with_index { |(key, value), index| headers[key] = value if present.bit(index) == 0 }
+        @headers.each_with_index { |(key, value), index| TrustedHeader.set(headers, key, value) if present.bit(index) == 0 }
 
         call_next(context)
       end
