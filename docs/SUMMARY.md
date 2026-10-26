@@ -112,6 +112,3 @@
 * [Code standards](contributing/standards.md)
 * [Documentation style](contributing/docs-style.md)
 * [Development roadmap](contributing/roadmap.md)
-* [Azu 0.6: apps as values](plans/0.6-architecture.md)
-* [Unified JoobQ and Dashforge DSL](plans/joobq-dashforge-dsl.md)
-* [Documentation overhaul: audit and plan](plans/docs-overhaul.md)

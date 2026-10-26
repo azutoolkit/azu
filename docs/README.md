@@ -230,4 +230,3 @@ Also: [Everything in the box](explanation/features.md) (every feature, with its 
 
 - [Development setup](contributing/setup.md) · [Code standards](contributing/standards.md) · [Documentation style](contributing/docs-style.md) · [Roadmap](contributing/roadmap.md)
 - [Benchmarks](https://github.com/azutoolkit/azu/blob/master/benchmark/README.md): how Azu is measured against other frameworks.
-- Design plans: [Azu 0.6, apps as values](plans/0.6-architecture.md) · [Unified JoobQ and Dashforge DSL](plans/joobq-dashforge-dsl.md) · [Documentation overhaul](plans/docs-overhaul.md)
