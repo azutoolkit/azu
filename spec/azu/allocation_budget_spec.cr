@@ -234,3 +234,58 @@ describe "allocation budget" do
     end
   {% end %}
 end
+
+# One render of benchmark/apps/common/template.jinja on the default stack, over the baseline's ECR render, calibrated
+# like the budgets above (whole-suite measurement plus ~10%, rounded up to a multiple of 8; measured 77922).
+TEMPLATE_AZU_BUDGET = 85720
+
+describe "allocation budget of a template render" do
+  it "answers /template with the bench app's HTML on every stack it measures" do
+    # Bench::ITEMS rendered by benchmark/apps/common/template.jinja: the names carry characters that must be escaped
+    items = (1..20).join { |i| %(<li class="item-#{i}">Item #{i} &amp; &lt;co&gt; (#{i * 7})</li>) }
+    html = %(<!DOCTYPE html><html><head><title>Items</title></head><body><h1>Items</h1><ul>#{items}</ul></body></html>)
+
+    HotPath::Stack.each do |stack|
+      response = HotPath.response(stack, "/template")
+
+      response.should start_with("HTTP/1.1 200")
+      response.should contain("Content-Type: text/html")
+      response.should end_with(html)
+    end
+  end
+
+  {% if flag?(:preview_mt) %}
+    pending "keeps the default stack on /template within its budget over the baseline"
+  {% else %}
+    it "keeps the default stack on /template within its budget over the baseline" do
+      bytes_over_baseline(HotPath::Stack::Azu, HotPath::TEMPLATE_PATH).should be <= TEMPLATE_AZU_BUDGET
+    end
+  {% end %}
+end
+
+# What rendering the same page with its request adds on the default stack: the request variables (the template reads
+# one), the CSRF token and its cookie. Calibrated like the budgets above (measured 2506).
+REQUEST_TEMPLATE_AZU_BUDGET = 2760
+
+describe "allocation budget of a template render with its request" do
+  it "answers /template/request with the page, the request variable it reads and the CSRF cookie" do
+    {HotPath::Stack::AzuMin, HotPath::Stack::Azu}.each do |stack|
+      response = HotPath.response(stack, "/template/request")
+
+      response.should start_with("HTTP/1.1 200")
+      response.should contain("Set-Cookie: csrf_token=")
+      response.should contain("<h1>Items</h1><p>GET</p><ul>")
+      response.should end_with("(140)</li></ul></body></html>")
+    end
+  end
+
+  {% if flag?(:preview_mt) %}
+    pending "keeps what the request adds to /template within its budget on the default stack"
+  {% else %}
+    it "keeps what the request adds to /template within its budget on the default stack" do
+      added = HotPath.measure(HotPath::Stack::Azu, "/template/request").bytes - HotPath.measure(HotPath::Stack::Azu, "/template").bytes
+
+      added.should be <= REQUEST_TEMPLATE_AZU_BUDGET
+    end
+  {% end %}
+end
