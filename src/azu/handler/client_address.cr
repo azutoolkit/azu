@@ -35,11 +35,6 @@ module Azu
         parse_v6(text[1...close])
       end
 
-      # The peer address of a connection: `Socket::IPAddress` or nil.
-      def self.of(address : Socket::Address?) : UInt128?
-        address.as?(Socket::IPAddress).try { |ip| parse(ip.address) }
-      end
-
       def self.ipv4?(address : UInt128) : Bool
         (address >> 32) == 0xffff_u128
       end
@@ -70,22 +65,32 @@ module Azu
 
         getter blocks : Array(Block)
 
-        def self.parse(entries : Array(String)) : Networks
-          new(entries.map { |entry| block(entry) })
+        # *option* names the setting in error messages. With *catch_all* false a block that is every address of its
+        # family (`0.0.0.0/0`, `::/0`) is refused: as a trusted proxy it would let anyone write their own client address.
+        def self.parse(entries : Array(String), option : String = "trusted_proxies", catch_all : Bool = true) : Networks
+          new(entries.map { |entry| block(entry, option, catch_all) })
         end
 
-        private def self.block(entry : String) : Block
+        private def self.block(entry : String, option : String, catch_all : Bool) : Block
           address_text, slash, length = entry.strip.partition('/')
           address = ClientAddress.parse(address_text)
           if address.nil? || address_text.includes?('[') || address_text.count(':') == 1
-            raise ArgumentError.new("trusted_proxies: #{entry.inspect} is not an IP address or CIDR block")
+            raise ArgumentError.new("#{option}: #{entry.inspect} is not an IP address or CIDR block")
           end
-          v4 = ClientAddress.ipv4?(address)
-          bits = slash.empty? ? (v4 ? 32 : 128) : length.to_i?(whitespace: false) || -1
-          max = v4 ? 32 : 128
-          raise ArgumentError.new("trusted_proxies: #{entry.inspect} has a prefix length outside 0..#{max}") unless 0 <= bits <= max
-          bits += 96 if v4
+          bits = prefix_bits(address, slash.empty? ? nil : length, entry, option)
+          if bits == 0 && !catch_all
+            raise ArgumentError.new("#{option}: #{entry.inspect} matches every address; list the proxies that sit in front of the app")
+          end
+          bits += 96 if ClientAddress.ipv4?(address)
           Block.new(address & ClientAddress.mask(bits), bits)
+        end
+
+        # The prefix length of the entry within its own family (32 or 128 bits for a single address).
+        private def self.prefix_bits(address : UInt128, length : String?, entry : String, option : String) : Int32
+          max = ClientAddress.ipv4?(address) ? 32 : 128
+          bits = length ? (length.to_i?(whitespace: false) || -1) : max
+          raise ArgumentError.new("#{option}: #{entry.inspect} has a prefix length outside 0..#{max}") unless 0 <= bits <= max
+          bits
         end
 
         def initialize(@blocks : Array(Block))
@@ -101,21 +106,23 @@ module Azu
       end
 
       # The client of a request that reached us from *peer*. When *peer* is not a trusted proxy, or no proxy is trusted,
-      # it is the peer: `X-Forwarded-For` is a header the sender chose. When it is, the hops of the header (every
-      # line, in order) are read from the right, past the trusted proxies, and the first address that is not trusted is
-      # the client: a proxy appends the address it saw, so only the right-most entries can be believed; the
-      # left-most are whatever the client wrote. An unreadable hop, a chain with nothing but trusted hops and a
-      # chain longer than MAX_HOPS all give back the peer.
-      def self.client(peer : UInt128, forwarded_for : Array(String)?, trusted : Networks) : UInt128
+      # or the header says nothing, it is the peer: `X-Forwarded-For` is a header the sender chose. When it is, the hops
+      # of the header (every line, in order) are read from the right, past the trusted proxies, and the first address
+      # that is not trusted is the client: a proxy appends the address it saw, so only the right-most entries can be
+      # believed; the left-most are whatever the client wrote. A header that names no client (an unreadable hop, a
+      # chain with nothing but trusted hops, a chain longer than MAX_HOPS) gives nil: the caller must not guess.
+      def self.client(peer : UInt128, forwarded_for : Array(String)?, trusted : Networks) : UInt128?
         return peer if trusted.empty? || !trusted.includes?(peer) || forwarded_for.nil?
 
         hops = forwarded_for.flat_map(&.split(','))
-        return peer if hops.size > MAX_HOPS * 4
+        return peer if hops.all?(&.blank?)
+        return if hops.size > MAX_HOPS * 4
+
         hops.reverse_each.first(MAX_HOPS).each do |hop|
-          address = parse(hop) || return peer
+          address = parse(hop) || return
           return address unless trusted.includes?(address)
         end
-        peer
+        nil
       end
 
       # :nodoc:

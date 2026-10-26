@@ -194,7 +194,9 @@ reference and the [database guides](../database/define-schema.md).
 ## Rate limiting
 
 `Azu::Handler::Throttle` counts requests per client address; it keeps its counters in the memory of
-the process, so each instance of a scaled deployment counts separately:
+the process, so each instance of a scaled deployment counts separately. Behind a load balancer pass its address or
+network as `trusted_proxies:`, or every visitor is counted as the load balancer
+([Behind a reverse proxy](../../reference/handlers/built-in.md#behind-a-reverse-proxy)):
 
 ```crystal
 module MyApp

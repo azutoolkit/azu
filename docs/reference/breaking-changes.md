@@ -12,6 +12,15 @@ release to the current API, with old and new code side by side; every release is
 
 ## Next release
 
+**`Throttle` keeps clients that a proxy forwarded garbage for apart, and its lists take CIDR blocks and refuse bad entries.**
+`blacklist` and `whitelist` now accept CIDR blocks (`"10.0.0.0/8"`) and raise `ArgumentError` when the handler is built for
+an entry that is not an IP address or block (`"unknown"`, a host name, `"1.2.3.4:80"`); before they compared text and ignored
+such entries silently. `trusted_proxies` refuses a catch-all block (`0.0.0.0/0`, `::/0`). Requests from a trusted proxy whose
+`X-Forwarded-For` names no client are counted in a bucket of their own, no longer under the proxy's address, so they cannot get
+the proxy's own requests refused. The table is kept in two parts (clients in their window, blocked clients), which makes
+making room O(1); a table at `max_clients` full of blocked clients cost milliseconds per new client before. Because the
+`ipv6_prefix` default of 64 changes how every IPv6 client is counted (see the entry below), this release is a minor one.
+
 **`Throttle` can read the client behind a proxy, sweeps its table and counts IPv6 by /64.** New options: `trusted_proxies`
 (addresses and CIDR blocks; empty by default, which keeps the connection's address as the client), `ipv6_prefix` (64) and
 `max_clients` (100 000). What changes without setting any: (1) IPv6 clients are counted by their /64, so several addresses
