@@ -1,5 +1,4 @@
 require "http/web_socket"
-require "radix"
 require "./method"
 require "./routable"
 require "./log_text"
@@ -46,14 +45,12 @@ module Azu
     OVERRIDE_HEADER     = "X-HTTP-Method-Override"
     OVERRIDABLE_METHODS = %w(PUT PATCH DELETE)
 
-    getter radix : Radix::Tree(Route)
     # The routes `process` finds requests in, by method and path segment
     @tree = Tree(Route).new
     # Routes registry for development tools and introspection
     private getter routes_registry : Array(Route)
 
     def initialize
-      @radix = Radix::Tree(Route).new
       @routes_registry = Array(Route).new
       @paths = Hash(String, String).new
     end
@@ -65,7 +62,7 @@ module Azu
       endpoint : Routable,
       resource : String,
       method : Azu::Method do
-      # The path the route was declared with, without the method prefix the radix tree is keyed by.
+      # The path the route was declared with, without the method prefix of `resource`.
       def path : String
         path = method.web_socket? ? resource.lchop("/ws") : resource.lchop("/#{method.to_s.downcase}")
         path.empty? ? "/" : path
@@ -196,12 +193,11 @@ module Azu
       @paths[endpoint.class.name] = route.path
     end
 
-    # Into the tree, and into radix until it goes. A path without its leading "/" can name no request, so its route
-    # is listed by `route_info` and found by nothing, as radix did.
+    # Into the tree. A path without its leading "/" can name no request, so its route is listed by `route_info` and
+    # found by nothing.
     private def insert(route : Route, path : Path) : Nil
       @tree.add route.method, route.path, route if route.path.starts_with?('/')
-      @radix.add route.resource, route
-    rescue Tree::DuplicateError | Radix::Tree::DuplicateError
+    rescue Tree::DuplicateError
       raise DuplicateRoute.new("http_method: #{route.method}, path: #{path}, endpoint: #{route.endpoint}")
     rescue ex : Tree::Error
       raise ArgumentError.new(ex.message)

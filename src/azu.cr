@@ -1,6 +1,5 @@
 require "http"
 require "log"
-require "radix"
 require "json"
 require "xml"
 require "colorize"

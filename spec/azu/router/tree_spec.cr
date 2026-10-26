@@ -105,7 +105,7 @@ describe Azu::Router::Tree do
   end
 
   describe "named segments" do
-    it "captures each parameter raw, without percent-decoding it, as radix does" do
+    it "captures each parameter raw, without percent-decoding it, as radix did" do
       routes = tree({GET, "/users/:id"}, {GET, "/users/:id/posts/:post_id"})
 
       routes.find(GET, "/users/a%20b").try(&.params).should eq({"id" => "a%20b"})
@@ -233,7 +233,7 @@ describe Azu::Router::Tree do
   end
 
   describe "edge rules" do
-    it "ignores a trailing slash on the request and on the route, as Router does with radix" do
+    it "ignores a trailing slash on the request and on the route, as Router did with radix" do
       routes = tree({GET, "/"}, {GET, "/users"}, {GET, "/posts/"}, {GET, "/a/:id/"})
 
       payload(routes, GET, "/users/").should eq "Get /users"
