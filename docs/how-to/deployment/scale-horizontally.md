@@ -20,7 +20,7 @@ Azu.cache.set("user:1", %({"id":1}))
 
 Things that are per process in Azu:
 
-- the memory cache (`CACHE_STORE=memory`, the default) and the router path cache;
+- the memory cache (`CACHE_STORE=memory`, the default);
 - `Azu::Handler::Throttle` counters;
 - the in-memory `Azu::PubSub` backend and the default `Azu::Presence` store (see
   [Real-time across processes](#real-time-across-processes));

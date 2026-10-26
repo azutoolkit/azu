@@ -13,21 +13,18 @@ Azu adds the handlers, router and endpoint layer on top.
 
 ## Router
 
-Routes live in a radix tree (the `radix` shard), keyed by method and path. A lookup walks the tree by path segment.
+Routes live in a tree of path segments (`Azu::Router::Tree`): a node per segment, with its static children keyed by
+the segment's bytes, at most one parameter child and one wildcard child, and one route per HTTP method on the node a
+path ends at. The method is matched by comparing it with the verbs as written.
 
-### The path cache
+### Lookup cost
 
-Before the lookup the router builds the string it searches for (`"/get/users/42"`, or `"/ws/chat"` for an
-upgrade). That string is cached per `method:path` in a hash guarded by a mutex:
-
-```text
-GET /users/42  →  cache key "GET:/users/42"  →  lookup string "/get/users/42"
-```
-
-The cache holds the **lookup string**, not the matched route, and it is bounded at 1000 entries with **no
-eviction**: once it is full, new paths are simply not added. A site with more than 1000 distinct URLs (an id per
-page) stops adding entries after the thousandth and builds the string for the rest on each request. Routes with
-parameters are therefore cached per distinct path, not per route.
+A lookup reads the request path in place. The offsets of its slashes are kept on the stack, and a static segment is
+looked up by a slice of the path, so finding a static route allocates nothing; a route with parameters allocates
+their values and the params hash, once the route is known (trying a branch that dead-ends allocates nothing). Each
+node is visited at most once. A path with more segments than any route is refused after reading only the offsets a
+route could use, so a path of thousands of slashes costs no more than a short one. There is no path cache: a site
+with an id per page costs the same per request as one with a handful of URLs.
 
 ## Request processing
 

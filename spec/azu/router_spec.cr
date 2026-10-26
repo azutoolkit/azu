@@ -69,6 +69,14 @@ private struct RoutableStruct
   end
 end
 
+private struct ParamsHandler
+  include Azu::Routable
+
+  def call(context : HTTP::Server::Context)
+    context.response << context.request.path_params
+  end
+end
+
 private def dispatch(router : Azu::Router, path : String) : String
   io = IO::Memory.new
   context = HTTP::Server::Context.new(HTTP::Request.new("GET", path), HTTP::Server::Response.new(io))
@@ -87,6 +95,7 @@ describe Azu::Router do
 
       dispatch(router, "/plain").should contain "plain"
       dispatch(router, "/struct").should contain "routable"
+      dispatch(router, "/").should contain "routable"
     end
   end
 
@@ -197,9 +206,46 @@ describe Azu::Router do
 
       router.add "/duplicate", endpoint1, Azu::Method::Get
 
-      expect_raises(Azu::Router::DuplicateRoute) do
+      expect_raises(Azu::Router::DuplicateRoute, "http_method: Get, path: /duplicate, endpoint:") do
         router.add "/duplicate", endpoint2, Azu::Method::Get
       end
+    end
+
+    it "refuses a get \"/\" next to a root, in either order" do
+      rooted = Azu::Router.new
+      rooted.root RoutableStruct.new
+      expect_raises(Azu::Router::DuplicateRoute, "http_method: Get, path: /,") { rooted.get "/", RoutableStruct.new }
+
+      declared = Azu::Router.new
+      declared.get "/", RoutableStruct.new
+      expect_raises(Azu::Router::DuplicateRoute, "http_method: Get, path: /,") { declared.root RoutableStruct.new }
+    end
+  end
+
+  describe "once frozen" do
+    it "takes no route through any of its entry points, nor on the router of a mounted app" do
+      child = Azu::App.new
+      router = Azu::Router.new
+      router.mount child.config, at: "/admin"
+      router.freeze
+
+      expect_raises(Azu::Router::Frozen, "GET /late: a router takes no routes once its app is serving") { router.get "/late", RoutableStruct.new }
+      expect_raises(Azu::Router::Frozen, "GET /:") { router.root RoutableStruct.new }
+      expect_raises(Azu::Router::Frozen, "WEBSOCKET /late:") { router.ws "/late", TestChannel }
+      expect_raises(Azu::Router::Frozen, "POST /late:") { router.register "post", "/late", RoutableStruct.new }
+      expect_raises(Azu::Router::Frozen, "mount at /late:") { router.mount Azu::App.new.config, at: "/late" }
+      expect_raises(Azu::Router::Frozen) { child.router.get "/late", RoutableStruct.new }
+      router.registered_routes.map(&.path).should_not contain "/late"
+    end
+
+    it "freezes once, also a router mounted on itself" do
+      app = Azu::App.new
+      app.routes { mount app, at: "/self" }
+
+      app.router.frozen?.should be_false
+      app.router.freeze
+      app.router.freeze
+      app.router.frozen?.should be_true
     end
   end
 
@@ -228,6 +274,15 @@ describe Azu::Router do
 
       # Should not raise an exception
       router.should be_a(Azu::Router)
+    end
+
+    it "dispatches nested resources of one method, each route with its own parameter names" do
+      router = Azu::Router.new
+      router.get "/posts/:id", ParamsHandler.new
+      router.get "/posts/:post_id/comments", ParamsHandler.new
+
+      dispatch(router, "/posts/1").should contain %({"id" => "1"})
+      dispatch(router, "/posts/1/comments").should contain %({"post_id" => "1"})
     end
 
     it "handles optional parameters" do
@@ -291,8 +346,8 @@ describe Azu::Router do
     end
   end
 
-  describe "path building optimization" do
-    it "caches commonly requested paths" do
+  describe "request processing" do
+    it "answers a repeated request the same way" do
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new
       router.get("/hello", endpoint)
@@ -303,17 +358,13 @@ describe Azu::Router do
       response = HTTP::Server::Response.new(io)
       context = HTTP::Server::Context.new(request, response)
 
-      # First call should build and cache the path
       router.process(context)
       response.close
 
-      # Verify the path is cached by checking internal state
-      # Since path_cache is private, we'll test behavior indirectly
       io.rewind
       first_response = io.gets_to_end
       first_response.should contain("Hello, World!")
 
-      # Second call should use cached path
       io2 = IO::Memory.new
       response2 = HTTP::Server::Response.new(io2)
       context2 = HTTP::Server::Context.new(HTTP::Request.new("GET", "/hello"), response2)
@@ -346,10 +397,8 @@ describe Azu::Router do
       (result.nil? || result == "").should be_true
     end
 
-    it "pre-computes method cache at initialization" do
+    it "routes each verb it was given a route for" do
       router = Azu::Router.new
-
-      # Test that common HTTP methods work correctly
       endpoint = SimpleEndpoint.new
 
       # Test various HTTP methods
@@ -364,6 +413,26 @@ describe Azu::Router do
         result = router.process(context)
         result.should be_a(String)
       end
+    end
+
+    it "keeps the same path of different methods, and of a WebSocket upgrade, apart" do
+      router = Azu::Router.new
+      router.get "/thing", VerbEndpoint.new("get")
+      router.post "/thing", VerbEndpoint.new("post")
+      router.add "/thing", RoutableStruct.new, Azu::Method::WebSocket
+      answer = ->(method : String, upgrade : Bool) do
+        request = HTTP::Request.new(method, "/thing")
+        request.headers.merge!({"Upgrade" => "websocket", "Connection" => "Upgrade"}) if upgrade
+        io = IO::Memory.new
+        response = HTTP::Server::Response.new(io)
+        router.process(HTTP::Server::Context.new(request, response))
+        response.close
+        io.to_s
+      end
+
+      answer.call("GET", false).should contain "handled by get"
+      answer.call("POST", false).should contain "handled by post"
+      answer.call("GET", true).should contain "routable"
     end
 
     it "returns an empty string for a routed request, not a rendering of the context" do
@@ -392,12 +461,11 @@ describe Azu::Router do
       result.should contain("Hello, World!")
     end
 
-    it "clears path cache when requested" do
+    it "keeps routing after clear_path_cache, which does nothing" do
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new
       router.get("/cached-test", endpoint)
 
-      # Make a request to populate cache
       request = HTTP::Request.new("GET", "/cached-test")
       io = IO::Memory.new
       response = HTTP::Server::Response.new(io)
@@ -405,10 +473,8 @@ describe Azu::Router do
 
       router.process(context)
 
-      # Clear the cache
       router.clear_path_cache
 
-      # Make another request - should still work
       io2 = IO::Memory.new
       response2 = HTTP::Server::Response.new(io2)
       context2 = HTTP::Server::Context.new(HTTP::Request.new("GET", "/cached-test"), response2)
@@ -420,56 +486,7 @@ describe Azu::Router do
       result.should contain("Hello, World!")
     end
 
-    it "handles cache functionality properly" do
-      # Test basic cache functionality without complex LRU operations
-      router = Azu::Router.new
-      endpoint = SimpleEndpoint.new
-
-      # Add a few routes
-      (1..5).each do |i|
-        router.get("/test#{i}", endpoint)
-      end
-
-      # Verify cache stats before requests
-      initial_stats = router.path_cache.stats
-      initial_stats[:size].should eq(0)
-      initial_stats[:max_size].should eq(1000)
-
-      # Make requests to populate cache
-      (1..5).each do |i|
-        request = HTTP::Request.new("GET", "/test#{i}")
-        io = IO::Memory.new
-        response = HTTP::Server::Response.new(io)
-        context = HTTP::Server::Context.new(request, response)
-
-        result = router.process(context)
-        result.should be_a(String)
-      end
-
-      # Verify cache is populated
-      final_stats = router.path_cache.stats
-      final_stats[:size].should eq(5) # Should have 5 entries
-      final_stats[:max_size].should eq(1000)
-      final_stats[:fill_percent].should eq(0.5) # how full it is: nothing counts hits
-
-      # Test cache hits by making the same requests again
-      (1..5).each do |i|
-        request = HTTP::Request.new("GET", "/test#{i}")
-        io = IO::Memory.new
-        response = HTTP::Server::Response.new(io)
-        context = HTTP::Server::Context.new(request, response)
-
-        result = router.process(context)
-        result.should be_a(String)
-      end
-
-      # Cache should still be populated
-      final_stats_after_hits = router.path_cache.stats
-      final_stats_after_hits[:size].should eq(5)
-    end
-
-    it "handles cache with many requests without hanging" do
-      # Test that cache doesn't cause hanging with many requests
+    it "answers 100 requests quickly" do
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new
 
@@ -494,15 +511,9 @@ describe Azu::Router do
       # Performance check: should complete quickly (under 200ms for 100 requests)
       elapsed_time = end_time - start_time
       elapsed_time.total_milliseconds.should be < 200
-
-      # Verify cache is working
-      final_stats = router.path_cache.stats
-      final_stats[:size].should eq(100)
-      final_stats[:max_size].should eq(1000)
     end
 
-    it "handles concurrent cache access safely" do
-      # Test thread safety of cache under concurrent access
+    it "answers concurrent requests for the same paths" do
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new
 
@@ -550,15 +561,9 @@ describe Azu::Router do
       # Verify all requests completed successfully
       results.size.should eq(200) # 20 fibers * 10 requests each
       results.all?(&.includes?("Hello, World!")).should be_true
-
-      # Verify cache is working correctly
-      final_stats = router.path_cache.stats
-      final_stats[:size].should eq(10) # Should have 10 unique routes cached
-      final_stats[:max_size].should eq(1000)
     end
 
-    it "handles concurrent cache writes safely" do
-      # Test that concurrent cache writes don't cause issues
+    it "answers concurrent requests for distinct paths" do
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new
 
@@ -569,7 +574,7 @@ describe Azu::Router do
         end
       end
 
-      # Create multiple fibers writing to cache simultaneously
+      # Create multiple fibers requesting distinct paths simultaneously
       results = [] of String
       results_mutex = Mutex.new
       completed_fibers = 0
@@ -608,15 +613,9 @@ describe Azu::Router do
       # Verify all requests completed successfully
       results.size.should eq(50) # 10 fibers * 5 requests each
       results.all?(&.includes?("Hello, World!")).should be_true
-
-      # Verify cache is working correctly
-      final_stats = router.path_cache.stats
-      final_stats[:size].should eq(50) # Should have 50 unique routes cached
-      final_stats[:max_size].should eq(1000)
     end
 
-    it "handles cache performance under concurrent load" do
-      # Test cache performance with concurrent requests
+    it "answers 1000 concurrent requests quickly" do
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new
 
@@ -658,11 +657,6 @@ describe Azu::Router do
       # Performance check: should complete quickly (under 500ms for 1000 concurrent requests)
       elapsed_time = end_time - start_time
       elapsed_time.total_milliseconds.should be < 500
-
-      # Verify cache is working
-      final_stats = router.path_cache.stats
-      final_stats[:size].should eq(20) # Should have 20 unique routes cached
-      final_stats[:max_size].should eq(1000)
     end
   end
 
@@ -847,8 +841,10 @@ describe Azu::Router do
   describe "requests that do not name a route" do
     router = Azu::Router.new
     router.get "/admin/secret", VerbEndpoint.new("get")
+    router.get "/secret", VerbEndpoint.new("get")
     router.post "/users", VerbEndpoint.new("post")
-    router.get "secret", VerbEndpoint.new("get")
+    # A path without its leading slash has no segments once read from its first slash: it would reach the root
+    router.root VerbEndpoint.new("root")
     router.ws "/chat", TestChannel
 
     # Parses the request line (and any header lines after it) as the server does and returns the status and body the router
@@ -894,8 +890,38 @@ describe Azu::Router do
       body.should_not contain("handled by")
     end
 
+    it "refuses a route path without a leading slash when it is declared" do
+      expect_raises(ArgumentError, %(route path "secret" must start with /)) { Azu::Router.new.get "secret", VerbEndpoint.new("get") }
+    end
+
+    it "does not read a path without a leading slash from its first slash on" do
+      {"GET admin/secret HTTP/1.1", "GET x/admin/secret HTTP/1.1"}.each do |request_line|
+        status, body = answer.call(request_line)
+        status.should eq 404
+        body.should_not contain("handled by")
+      end
+    end
+
     it "reaches a WebSocket channel only through a GET upgrade" do
       answer.call("POST /chat HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade")[0].should eq 404
+    end
+
+    it "reaches a WebSocket channel through a GET upgrade" do
+      answer.call("GET /chat HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade")[0].should_not eq 404
+    end
+
+    it "takes no method name for the WebSocket slot, with an upgrade or without" do
+      {"WEBSOCKET", "web_socket", "websocket"}.each do |method|
+        {"", "\r\nUpgrade: websocket\r\nConnection: Upgrade"}.each do |upgrade|
+          request = HTTP::Request.from_io(IO::Memory.new("#{method} /chat HTTP/1.1#{upgrade}\r\nHost: example.com\r\n\r\n")).as(HTTP::Request)
+          response = HTTP::Server::Response.new(IO::Memory.new)
+          router.process(HTTP::Server::Context.new(request, response))
+
+          response.status_code.should eq 404
+          # A channel reached without an upgrade answers 404 too: what tells is that the router found no route
+          request.headers["X-Azu-Endpoint"]?.should be_nil
+        end
+      end
     end
 
     it "treats the method as case-sensitive" do

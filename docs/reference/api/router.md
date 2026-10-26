@@ -1,5 +1,5 @@
 ---
-description: How the radix-tree router registers routes, matches paths and answers requests that match no route.
+description: How the segment-tree router registers routes, matches paths and answers requests that match no route.
 ---
 
 # Router
@@ -164,11 +164,23 @@ Trailing slashes are ignored: `/users/` matches the route `/users`.
 
 ## Route matching
 
-The radix tree tries static segments before parameters, and parameters before wildcards. With `/users`,
-`/users/:id` and `/users/*rest` declared, `/users` matches the first, `/users/123` the second and
-`/users/123/posts/456` the third.
+The router tries static segments before parameters, and parameters before wildcards, and falls back to the next
+branch when one dead-ends. With `/users`, `/users/:id` and `/users/*rest` declared, `/users` matches the first,
+`/users/123` the second and `/users/123/posts/456` the third.
 
-Declaring the same method and path twice raises `Azu::Router::DuplicateRoute`.
+A segment is a parameter only when it starts with `:` (or a wildcard with `*`, which must be the last segment): in
+`/users:search` or `/files/report-:id` the colon is literal, as in the OpenAPI document. Each route keeps its own
+parameter names, so `/posts/:id` and `/posts/:post_id/comments` can both be declared for one method. A parameter's
+value is the raw segment, not percent-decoded.
+
+Declaring the same method and path twice raises `Azu::Router::DuplicateRoute`, also when the paths differ only by a
+trailing slash or by their parameter names (`/posts/:id` and `/posts/:slug`). A route path that does not start with
+`/` raises `ArgumentError`.
+
+Routes are declared before the app serves: `App#start` freezes its router, and the routers of the apps mounted in it,
+before it listens. After that `add`, `root`, `ws`, `mount` and `register` (and the verb methods) raise
+`Azu::Router::Frozen`, so a request never meets a router that is changing. Call `Azu::Spark.install` and the like
+before `start`.
 
 ## Accessing route parameters
 
@@ -233,15 +245,12 @@ end
 Azu::App.default.router.path_of(PathEndpoint) # => "/path"
 ```
 
-### Path caching
+### Lookup cost
 
-The router caches the radix lookup key of the first 1000 distinct method and path pairs. The cache has two levels
-(method, then path), and reads take no lock: a lookup is two hash reads and allocates nothing. Once 1000 entries are
-cached, new paths are not added (there is no eviction). `clear_path_cache` empties it:
-
-```crystal
-Azu::App.default.router.clear_path_cache
-```
+The router keeps no cache. It finds a route by walking a tree of path segments, reading the request path in place: a
+static route allocates nothing, and a route with parameters allocates only their values and the params hash. A path
+with more segments than any route is refused before it is read whole. `clear_path_cache` is kept for the code that
+calls it and does nothing.
 
 ## Route groups
 

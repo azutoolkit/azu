@@ -31,7 +31,7 @@ flowchart TD
     request["Client request"] --> server["HTTP::Server (Crystal standard library)"]
     server --> scope["App::Scope<br/>marks the request in flight, makes the app's configuration current"]
     scope --> chain["Handler chain<br/>the handlers you pass to start, outermost first"]
-    chain --> router["Router<br/>radix tree: method + path → endpoint (or channel upgrader)"]
+    chain --> router["Router<br/>segment tree: method + path → endpoint (or channel upgrader)"]
     subgraph endpoint["Endpoint"]
         direction TB
         contract["request contract<br/>parsed and validated; 400 / 422 before call"] --> handle["call<br/>your code"]
@@ -145,7 +145,7 @@ the chain, change the response after it, or answer on its own and stop the chain
 
 ## Routing
 
-The router is a radix tree from the `radix` shard. Routes come from the endpoint macros (`get "/users/:id"`) or
+The router is a tree of path segments (`Azu::Router::Tree`). Routes come from the endpoint macros (`get "/users/:id"`) or
 from an app's `routes` block (`get`, `post`, ..., `ws`, `scope`, `mount`). It supports
 
 - static and `:param` segments, with the parameters available as `params`,
@@ -190,7 +190,7 @@ See [Spark live views](../spark-live-views.md).
 Azu
 ├── App            Configuration + Router, server, graceful shutdown
 ├── Configuration  Environment-driven settings
-├── Router         Radix-tree routing, scopes, mounts
+├── Router         Segment-tree routing, scopes, mounts
 ├── Routable       What the router dispatches to
 ├── Endpoint       Request handling
 ├── Request        Input contracts and validation

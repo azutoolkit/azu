@@ -102,4 +102,15 @@ describe "endpoint registration" do
   it "raises for a verb the router does not know" do
     expect_raises(ArgumentError, /unknown HTTP verb/) { Azu::Router.new.register("yank", "/x", Noop.new) }
   end
+
+  # A verb macro run once the app serves (`Greeter.get "/late"`) would leave a declaration that every later request
+  # of App.default tries to apply, and fails on: it is refused where it is declared instead.
+  it "refuses a declaration at the declaring call once the router it goes to is frozen" do
+    frozen = Azu::Router.new
+    frozen.freeze
+
+    expect_raises(Azu::Router::Frozen, "GET /late: a router takes no routes once its app is serving") do
+      Azu::DeclaredEndpoints.declare(->(_router : Azu::Router) { nil }, "GET /late", into: frozen)
+    end
+  end
 end

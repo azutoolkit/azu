@@ -18,7 +18,11 @@ module Azu
       @@mutex.synchronize { @@routes[type_name] ||= [] of Tuple(String, String) }
     end
 
-    def self.declare(declaration : Declaration) : Nil
+    # Records *declaration*, the *route* it adds, for the global router (*into*, read as it is: reading
+    # `CONFIG.router` would apply the declarations). Once that router is frozen (its app serves) the declaration
+    # raises `Router::Frozen` here: left pending, it would make every later request of `App.default` raise.
+    def self.declare(declaration : Declaration, route : String = "a route", into : Router = CONFIG.@router) : Nil
+      raise Router::Frozen.for(route) if into.frozen?
       @@mutex.synchronize do
         @@declarations << declaration
         @@declared.set(@@declarations.size)

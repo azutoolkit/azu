@@ -41,20 +41,6 @@ describe "Design Pattern Refactoring" do
     end
   end
 
-  describe "Router PathCache Thread Safety" do
-    it "provides stats about cache usage" do
-      router = Azu::Router.new
-      # The path cache is private, but we can verify the router works
-      router.should be_a(Azu::Router)
-    end
-
-    it "can clear the path cache" do
-      router = Azu::Router.new
-      router.clear_path_cache
-      # Should not raise
-    end
-  end
-
   describe "CSRF Instance Configuration" do
     it "creates instance with custom configuration" do
       csrf = Azu::Handler::CSRF.new(

@@ -1,5 +1,4 @@
 require "http/web_socket"
-require "radix"
 require "./method"
 require "./routable"
 require "./log_text"
@@ -46,90 +45,17 @@ module Azu
     OVERRIDE_HEADER     = "X-HTTP-Method-Override"
     OVERRIDABLE_METHODS = %w(PUT PATCH DELETE)
 
-    # The path cache keeps WebSocket upgrades apart from the plain requests of the same path
-    private WEBSOCKET_CACHE = "ws"
-
-    # Thread-safe path cache for frequently requested paths. Stops adding entries at `max_size`.
-    #
-    # A lookup takes no lock: the maps are never changed once they are published. `set` builds the
-    # next version under the lock (a copy of the map of one method with the new entry) and swaps it in
-    # with one atomic store, so a reader sees either the old version or the new one, complete. The
-    # copies are bounded, because nothing is added after `max_size` entries.
-    private class PathCache
-      DEFAULT_MAX_SIZE = 1000
-
-      # Built paths by request method, then by the path as requested.
-      alias Entries = Hash(String, Hash(String, String))
-
-      def initialize(@max_size : Int32 = DEFAULT_MAX_SIZE)
-        @entries = Atomic(Entries).new(Entries.new)
-        @size = Atomic(Int32).new(0)
-        @mutex = Mutex.new
-      end
-
-      def get(method : String, path : String) : String?
-        @entries.get[method]?.try(&.[path]?)
-      end
-
-      def set(method : String, path : String, value : String) : Nil
-        # Once full, new paths are simply not cached; there is no eviction. Checked before the lock,
-        # so a scan of paths that do not exist does not make writers queue once the cache is full.
-        return if @size.get >= @max_size
-
-        @mutex.synchronize do
-          return if @size.get >= @max_size
-
-          entries = @entries.get
-          known = entries[method]?
-          return if known.try(&.has_key?(path))
-
-          paths = known ? known.dup : Hash(String, String).new
-          paths[path] = value
-          next_entries = entries.dup
-          next_entries[method] = paths
-          @entries.set(next_entries)
-          @size.add(1)
-        end
-      end
-
-      def clear : Nil
-        @mutex.synchronize do
-          @entries.set(Entries.new)
-          @size.set(0)
-        end
-      end
-
-      # Get cache statistics (useful for monitoring)
-      def stats
-        @mutex.synchronize do
-          {
-            size:         @size.get,
-            max_size:     @max_size,
-            fill_percent: fill_percent,
-          }
-        end
-      end
-
-      # How full the cache is, not a hit rate: nothing counts hits or misses.
-      private def fill_percent : Float64
-        @size.get.to_f / @max_size.to_f * 100.0
-      end
-    end
-
-    getter radix : Radix::Tree(Route)
-    # :nodoc:
-    getter path_cache : PathCache
-    private getter method_cache : Hash(String, String)
+    # The routes `process` finds requests in, by method and path segment
+    @tree = Tree(Route).new
+    @frozen = Atomic(Bool).new(false)
+    # The mounts of this router, whose routers `freeze` freezes too
+    @mounts = [] of Mount
     # Routes registry for development tools and introspection
     private getter routes_registry : Array(Route)
 
     def initialize
-      @radix = Radix::Tree(Route).new
-      @path_cache = PathCache.new
-      @method_cache = Hash(String, String).new
       @routes_registry = Array(Route).new
       @paths = Hash(String, String).new
-      precompute_method_cache
     end
 
     # What a route points at is `Routable`: an endpoint (class or struct) or any `HTTP::Handler`.
@@ -139,7 +65,7 @@ module Azu
       endpoint : Routable,
       resource : String,
       method : Azu::Method do
-      # The path the route was declared with, without the method prefix the radix tree is keyed by.
+      # The path the route was declared with, without the method prefix of `resource`.
       def path : String
         path = method.web_socket? ? resource.lchop("/ws") : resource.lchop("/#{method.to_s.downcase}")
         path.empty? ? "/" : path
@@ -147,6 +73,25 @@ module Azu
     end
 
     class DuplicateRoute < Exception
+    end
+
+    # Raised by `add`, `root`, `ws`, `mount` and `register` once the router is frozen (see `freeze`).
+    class Frozen < Exception
+      def self.for(route : String) : self
+        new("#{route}: a router takes no routes once its app is serving; declare them before App#start")
+      end
+    end
+
+    # Takes no more routes. `App#start` calls it before it listens, so the tree and the registry are never changed
+    # while requests read them; the routers of mounted apps are frozen with this one.
+    def freeze : Nil
+      return if @frozen.swap(true) # once: a mount cycle, or a router mounted on itself, ends here
+      @mounts.each(&.child.router.freeze)
+    end
+
+    # True once `freeze` ran.
+    def frozen? : Bool
+      @frozen.get
     end
 
     {% for method in RESOURCES %}
@@ -194,6 +139,7 @@ module Azu
     # removed, and run with the child's configuration. A router can be mounted once, because its
     # links carry the prefix it is mounted at.
     def mount(child : Configuration, at prefix : String) : Nil
+      open! "mount at #{prefix}"
       prefix = prefix.rstrip('/')
       raise ArgumentError.new("a mount path must start with / and name a sub path, got #{prefix.inspect}") unless prefix.starts_with?('/')
       if existing = child.router.mounted_as
@@ -206,6 +152,7 @@ module Azu
         add "#{prefix}/*mount_path", mount, method
       end
       child.router.mounted_as = mount
+      @mounts << mount
     end
 
     # Adds routes declared in the block, optionally below a path prefix.
@@ -215,10 +162,12 @@ module Azu
 
     def process(context : HTTP::Server::Context)
       method_override(context)
-      result = path(context).try { |key| @radix.find key }
-      return not_found(context).to_s(context) unless result && result.found?
-      context.request.path_params = result.params
-      route = result.payload
+      request = context.request
+      match = route_method(context).try { |method| @tree.find(method, request.path) }
+      return not_found(context).to_s(context) unless match
+      # Nil for a route without parameters also forgets the `mount_path` of the mount that led here
+      request.path_params = match.params
+      route = match.payload
 
       # Store endpoint information in context for logging
       endpoint_class_name = route.endpoint.class.name
@@ -240,9 +189,10 @@ module Azu
     # root :web, ExampleApp::HelloWorld
     # ```
     def root(endpoint : Routable)
+      open! "GET /"
       route = Route.new(endpoint: endpoint, resource: "/get/", method: Azu::Method::Get)
+      insert route, "/"
       @routes_registry << route
-      @radix.add "/get/", route
     end
 
     # Registers a websocket route
@@ -261,67 +211,51 @@ module Azu
     # add path: '/endpoint',   endpoint: Handler.new, method: Azu::Method::Get
     # ```
     def add(path : Path, endpoint : Routable, method : Azu::Method = Azu::Method::Get)
+      open! "#{method.to_s.upcase} #{path}"
       resource = method.web_socket? ? "/ws#{path}" : "/#{method.to_s.downcase}#{path}"
       route = Route.new(endpoint, resource, method)
-      @radix.add resource, route
+      insert route, path
       @routes_registry << route
       @paths[endpoint.class.name] = route.path
-    rescue ex : Radix::Tree::DuplicateError
-      raise DuplicateRoute.new("http_method: #{method}, path: #{path}, endpoint: #{endpoint}")
     end
 
-    # Pre-compute method cache at startup to avoid repeated downcasing
-    private def precompute_method_cache : Nil
-      RESOURCES.each do |method|
-        @method_cache[method.upcase] = method.downcase
-      end
-
-      # Add common HTTP methods that might not be in RESOURCES
-      %w(HEAD OPTIONS).each do |method|
-        @method_cache[method] = method.downcase
-      end
+    private def open!(route : String) : Nil
+      return unless @frozen.get
+      raise Frozen.for(route)
     end
 
-    # Optimized path building with caching and efficient string operations. Nil when the request cannot name a
-    # route: the key joins method and path, so a method that is not one of the verbs exactly (`GET/admin /secret`)
-    # or a path without its leading "/" would otherwise reach a route other than the one `request.method` and
-    # `request.path` show to middleware. A WebSocket upgrade is a GET (RFC 6455); its key has no method.
-    private def path(context) : String?
-      request = context.request
-      method_str = request.method
-      path_str = request.path
-      upgraded = upgrade?(context)
-      return unless path_str.starts_with?('/') && (upgraded ? method_str == "GET" : @method_cache.has_key?(method_str))
+    # Into the tree, which refuses a path without its leading "/": no request could reach it, and a route meant to
+    # shadow a broader one would silently not.
+    private def insert(route : Route, path : Path) : Nil
+      @tree.add route.method, route.path, route
+    rescue Tree::DuplicateError
+      raise DuplicateRoute.new("http_method: #{route.method}, path: #{path}, endpoint: #{route.endpoint}")
+    rescue ex : Tree::Error
+      raise ArgumentError.new(ex.message)
+    end
 
-      cache_method = upgraded ? WEBSOCKET_CACHE : method_str
+    # The tree slot a request names: its method when it is one of the verbs spelled exactly (methods are
+    # case-sensitive), the WebSocket slot for an upgrade, which is a GET (RFC 6455). Nil, so 404, for any other.
+    private def route_method(context) : Azu::Method?
+      method = context.request.method
+      return (Azu::Method::WebSocket if method == "GET") if upgrade?(context)
+      verb(method)
+    end
 
-      # Check cache first
-      if cached_path = @path_cache.get(cache_method, path_str)
-        return cached_path
+    # The method named by a verb spelled exactly, as a literal `case` and never `Azu::Method.parse?`, which ignores
+    # case and underscores and would read `WEBSOCKET` as the WebSocket slot.
+    private def verb(method : String) : Azu::Method?
+      case method
+      when "GET"     then Azu::Method::Get
+      when "POST"    then Azu::Method::Post
+      when "PUT"     then Azu::Method::Put
+      when "PATCH"   then Azu::Method::Patch
+      when "DELETE"  then Azu::Method::Delete
+      when "HEAD"    then Azu::Method::Head
+      when "OPTIONS" then Azu::Method::Options
+      when "TRACE"   then Azu::Method::Trace
+      when "CONNECT" then Azu::Method::Connect
       end
-
-      # Build path efficiently using pre-allocated capacity
-      built_path = if upgraded
-                     # WebSocket path: "/ws" + normalized_path
-                     normalized_path = path_str.rstrip('/')
-                     String.build(capacity: 4 + normalized_path.bytesize) do |str|
-                       str << "/ws"
-                       str << normalized_path
-                     end
-                   else
-                     # HTTP path: "/" + method + normalized_path
-                     normalized_path = path_str.rstrip('/')
-                     method_lower = @method_cache[method_str]
-                     String.build(capacity: 1 + method_lower.bytesize + normalized_path.bytesize) do |str|
-                       str << "/"
-                       str << method_lower
-                       str << normalized_path
-                     end
-                   end
-
-      # Cache the result for future requests
-      @path_cache.set(cache_method, path_str, built_path)
-      built_path
     end
 
     # HTML forms can only GET or POST, so a POST may ask to be handled as PUT, PATCH or DELETE
@@ -355,9 +289,9 @@ module Azu
       context.request.headers.includes_word?("Connection", "Upgrade")
     end
 
-    # Clear path cache (useful for testing or memory management)
+    # Does nothing, and is kept for the code that called it: the router has no path cache since it finds routes in
+    # its segment tree, where a static route costs no allocation and a route with parameters only their values.
     def clear_path_cache : Nil
-      @path_cache.clear
     end
 
     # The routes declared here, in declaration order. Mounted apps appear as the mount's own routes.
