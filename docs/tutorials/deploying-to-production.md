@@ -98,7 +98,7 @@ An application created with `azu new my_app --docker` already has a `Dockerfile`
 (your Crystal version and packages differ) is a build stage and a small runtime stage:
 
 ```dockerfile
-FROM crystallang/crystal:1.19.1 AS build
+FROM crystallang/crystal:1.22.1 AS build
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libsqlite3-dev libssl-dev \
  && rm -rf /var/lib/apt/lists/*
@@ -292,7 +292,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     container:
-      image: crystallang/crystal:1.19.1
+      image: crystallang/crystal:1.22.1
     steps:
       - uses: actions/checkout@v4
       - name: Install system dependencies

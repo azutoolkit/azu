@@ -707,7 +707,7 @@ crystal build --warnings=all src/app.cr
 
 | Azu Version | Crystal Version |
 |-------------|-----------------|
-| 0.5.x | 1.19.1 and newer (CI runs 1.19.1 and the latest release) |
+| 0.5.x | 1.22.1 and newer (CI runs 1.22.1 and the latest release; releases up to 0.5.123 asked for 1.19.1) |
 | 0.4.x | 0.35.0 - 1.0.0 |
 | 0.3.x | 0.35.0 - 0.36.x |
 

@@ -16,7 +16,7 @@ By the end of this tutorial, you'll have:
 
 - Completed [Building a User API](building-a-user-api.md) tutorial (the `POST /users` endpoint below is a
   slimmed-down version of the one you wrote there)
-- Crystal 1.19.1 or newer
+- Crystal 1.22.1 or newer
 - Basic understanding of WebSockets
 
 ## Step 1: Understanding WebSocket Channels

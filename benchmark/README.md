@@ -154,7 +154,7 @@ disable turbo, or the first and the last run differ.
 
 ## Reproducing
 
-Requirements: Crystal 1.19.1 (`BENCH_CRYSTAL` / `BENCH_SHARDS` name other commands), `wrk` (`apt install wrk`),
+Requirements: Crystal 1.22.1 (`BENCH_CRYSTAL` / `BENCH_SHARDS` name other commands), `wrk` (`apt install wrk`),
 node 22 or newer, the `sqlite3` CLI and library, `libmagic-dev` (Athena's mime component), `libevent`, `openssl`,
 `libyaml`, `gmp`, and network access to GitHub for `shards install`. Then:
 

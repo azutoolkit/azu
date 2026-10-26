@@ -56,7 +56,7 @@ Put this in `hello.cr`, with a `shard.yml` next to it, and install:
 ```yaml
 name: hello
 version: 0.1.0
-crystal: ">= 1.19.1"
+crystal: ">= 1.22.1"
 dependencies:
   azu:
     github: azutoolkit/azu
@@ -77,7 +77,7 @@ curl -H "Accept: application/problem+json" "http://127.0.0.1:4000/hello?name=A"
 
 ## Get started in 5 minutes
 
-The [Azu CLI](https://github.com/azutoolkit/azu_cli) generates a working app. You need Crystal 1.19.1 or newer with `shards`, a C toolchain, and the development libraries Crystal and the CLI link against (on Debian or Ubuntu: `build-essential libreadline-dev libevent-dev libssl-dev libxml2-dev libyaml-dev libgmp-dev libsqlite3-dev`).
+The [Azu CLI](https://github.com/azutoolkit/azu_cli) generates a working app. You need Crystal 1.22.1 or newer with `shards`, a C toolchain, and the development libraries Crystal and the CLI link against (on Debian or Ubuntu: `build-essential libreadline-dev libevent-dev libssl-dev libxml2-dev libyaml-dev libgmp-dev libsqlite3-dev`).
 
 ```bash
 git clone https://github.com/azutoolkit/azu_cli && cd azu_cli
@@ -261,7 +261,7 @@ The raw snapshot is committed: [report](benchmark/snapshots/2026-10-25-v0.5.119-
 ## Status and compatibility
 
 - Azu is 0.x: the API can still change between minor versions, and every break is written down in [breaking changes](docs/reference/breaking-changes.md).
-- Crystal 1.19.1 or newer. CI runs the oldest supported version and the latest release.
+- Crystal 1.22.1 or newer. CI runs 1.22.1 (the oldest supported version) and the latest release.
 - Redis is optional for Azu: it backs the cache, pub/sub and presence when you want them shared between processes. The JoobQ job queue that `azu new` includes by default does need it (`--no-joobq` leaves it out).
 - Databases go through [CQL](https://github.com/azutoolkit/cql) (`azu/cql` needs cql 0.0.609 or newer, see the [CQL bridge page](docs/reference/api/cql-bridge.md)). The end-to-end checks of generated apps run on SQLite; PostgreSQL apps are only booted in CI.
 - Most Crystal examples in this README and in the docs are compiled in CI against the code in this repository; the ones that need another shard or another file are marked as fragments and are not.
