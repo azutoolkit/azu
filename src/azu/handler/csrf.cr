@@ -82,6 +82,37 @@ module Azu
         end
       end
 
+      # How much of a multipart body is looked at for the token field: the token must be a field that comes before
+      # the first file part and ends within these bytes. The rest of the body is not read here.
+      MULTIPART_SCAN_LIMIT = 64 * 1024
+
+      # The body is over `upload.max_file_size`: answered with 413, never buffered past the limit.
+      private class BodyTooLarge < Exception
+      end
+
+      # Hands out the bytes the handler already read, then the rest of the request body, so the endpoint reads the
+      # whole body as it was sent.
+      class ReplayedBody < IO
+        def initialize(prefix : Bytes, @rest : IO)
+          @prefix = IO::Memory.new(prefix)
+        end
+
+        def read(slice : Bytes) : Int32
+          return 0 if slice.empty?
+          count = @prefix.read(slice)
+          count > 0 ? count : @rest.read(slice)
+        end
+
+        def write(slice : Bytes) : NoReturn
+          raise IO::Error.new("A replayed request body is read only")
+        end
+
+        def close : Nil
+          @rest.close
+          super
+        end
+      end
+
       # Instance-level configuration properties
       property strategy : Strategy
       @secret_key : String?
@@ -306,6 +337,9 @@ module Azu
         else
           refuse(context, Response::AuthorizationError.new("CSRF token validation failed"))
         end
+      rescue BodyTooLarge
+        context.response.headers["Connection"] = "close" # the rest of the body is not read: do not wait for the next request in it
+        refuse(context, Response::PayloadTooLarge.new)
       end
 
       # The refusal is written here, never raised to the `Rescuer`: this is where it is logged (the request headers are
@@ -382,10 +416,9 @@ module Azu
       # Token stored in session/cookie, compared with submitted token
 
       private def validate_synchronizer_token(context : HTTP::Server::Context) : Bool
-        request_token = extract_token_from_request(context)
-        session_token = token_store.read(context)
-
-        return false unless request_token && session_token
+        # No stored token, no match: the body is not read for a request that cannot pass.
+        return false unless session_token = token_store.read(context)
+        return false unless request_token = extract_token_from_request(context)
 
         # Constant-time comparison to prevent timing attacks
         Crypto::Subtle.constant_time_compare(request_token, session_token)
@@ -408,10 +441,8 @@ module Azu
       # Token is HMAC-signed with secret, cookie and form token must match
 
       private def validate_signed_double_submit(context : HTTP::Server::Context) : Bool
-        request_token = extract_token_from_request(context)
-        cookie_token = extract_token_from_cookie(context)
-
-        return false unless request_token && cookie_token
+        return false unless cookie_token = extract_token_from_cookie(context)
+        return false unless request_token = extract_token_from_request(context)
 
         # Both tokens must be identical
         return false unless Crypto::Subtle.constant_time_compare(request_token, cookie_token)
@@ -442,10 +473,8 @@ module Azu
       # Token in cookie must match token in form/header
 
       private def validate_double_submit(context : HTTP::Server::Context) : Bool
-        request_token = extract_token_from_request(context)
-        cookie_token = extract_token_from_cookie(context)
-
-        return false unless request_token && cookie_token
+        return false unless cookie_token = extract_token_from_cookie(context)
+        return false unless request_token = extract_token_from_request(context)
 
         # Simple comparison (vulnerable to subdomain attacks)
         Crypto::Subtle.constant_time_compare(request_token, cookie_token)
@@ -481,32 +510,149 @@ module Azu
         nil
       end
 
-      # Extract token from form data
+      # Extract token from form data. Only a body that carries the token in a form is read, and never past
+      # `upload.max_file_size` (`BodyTooLarge`); the endpoint still gets the whole body afterwards.
       private def extract_token_from_form(context : HTTP::Server::Context) : String?
-        content_type = context.request.headers["Content-Type"]?
+        content_type = context.request.headers["Content-Type"]?.try(&.downcase)
         return nil unless content_type
+        return nil unless body = context.request.body
 
         if content_type.starts_with?("application/x-www-form-urlencoded")
-          if body = context.request.body.try(&.gets_to_end)
-            params = HTTP::Params.parse(body)
-            # Restore body for other handlers
-            context.request.body = IO::Memory.new(body)
-            return params[@param_name]?
-          end
+          form_token(context, body)
         elsif content_type.starts_with?("multipart/form-data")
-          # Handle multipart form data
-          # Note: This is a simplified implementation
-          # In practice, you'd want to use a proper multipart parser
-          if body = context.request.body.try(&.gets_to_end)
-            # Look for CSRF token in multipart data
-            if match = body.match(/name="#{@param_name}".*?\r?\n\r?\n([^\r\n]+)/)
-              context.request.body = IO::Memory.new(body)
-              return match[1]?
-            end
+          multipart_token(context, body)
+        end
+      end
+
+      private def form_token(context : HTTP::Server::Context, body : IO) : String?
+        limit = Azu.current_config.upload.max_file_size
+        raise BodyTooLarge.new if declared_length(context.request).try { |length| length > limit }
+
+        buffer = IO::Memory.new
+        IO.copy(IO::Sized.new(body, read_size: limit.to_i64 + 1), buffer)
+        raise BodyTooLarge.new if buffer.size > limit
+
+        bytes = buffer.to_slice
+        context.request.body = IO::Memory.new(bytes)
+        HTTP::Params.parse(String.new(bytes))[@param_name]?
+      end
+
+      private def multipart_token(context : HTTP::Server::Context, body : IO) : String?
+        # No size check here: `upload.max_file_size` applies to each file of a multipart body, which the endpoint
+        # enforces as it parses; this only looks at the first bytes.
+        preamble = read_up_to(body, MULTIPART_SCAN_LIMIT)
+        context.request.body = ReplayedBody.new(preamble, body)
+        boundary = boundary_of(context.request.headers["Content-Type"]?) || return
+        CSRF.multipart_field(preamble, boundary, @param_name)
+      end
+
+      private def declared_length(request : HTTP::Request) : UInt64?
+        request.headers["Content-Length"]?.try(&.to_u64?)
+      end
+
+      private def read_up_to(io : IO, limit : Int32) : Bytes
+        buffer = Bytes.new(limit)
+        filled = 0
+        while filled < limit
+          count = io.read(buffer[filled, limit - filled])
+          break if count == 0
+          filled += count
+        end
+        buffer[0, filled]
+      end
+
+      private def boundary_of(content_type : String?) : String?
+        return nil unless content_type
+        MIME::MediaType.parse(content_type)["boundary"]?.try(&.presence)
+      rescue MIME::Error
+        nil
+      end
+
+      # The value of the multipart field *name* in *preamble* (the first bytes of a body), or nil. Parts are walked in
+      # order: the walk ends without a token at the first part that is a file (it has a `filename`), at a part that
+      # does not end within *preamble*, and at a field whose `name` is given twice. So the token field has to come
+      # before the files in the form, and a `_csrf` placed after an upload is not found.
+      def self.multipart_field(preamble : Bytes, boundary : String, name : String) : String?
+        text = String.new(preamble)
+        delimiter = "--#{boundary}"
+        position = text.index(delimiter) || return
+        loop do
+          position += delimiter.size
+          return if text[position, 2]? == "--"
+          part = part_at(text, position, delimiter) || return
+          params = part.params
+          return if params.nil? || params.has_key?("filename") || params.has_key?("filename*")
+          return part.value if params["name"]? == name
+          position = part.next_delimiter
+        end
+      end
+
+      private record Part, params : Hash(String, String)?, value : String, next_delimiter : Int32
+
+      # The part that starts on the line after *position* (just past a delimiter), nil when it does not end in *text*.
+      private def self.part_at(text : String, position : Int32, delimiter : String) : Part?
+        headers_start = (text.index('\n', position) || return) + 1
+        headers_end, value_start, break_size = part_head_end(text, headers_start) || return
+        # An empty value has no break of its own: the one that ends the headers is the one before the delimiter.
+        closing, consumed = part_end(text, value_start - break_size, delimiter) || return
+        value = closing < value_start ? "" : text[value_start...closing]
+        Part.new(disposition_params(text[headers_start...headers_end]), value, closing + consumed - delimiter.size)
+      end
+
+      # The end of the header block, where the value starts, and the size of the line break that ends the last header.
+      private def self.part_head_end(text : String, from : Int32) : {Int32, Int32, Int32}?
+        crlf = text.index("\r\n\r\n", from)
+        lf = text.index("\n\n", from)
+        if crlf && (lf.nil? || crlf < lf)
+          {crlf, crlf + 4, 2}
+        elsif lf
+          {lf, lf + 2, 1}
+        end
+      end
+
+      # Where the part ends: the line break before the next delimiter (which belongs to the delimiter, not the value),
+      # and how many bytes that break and the delimiter take.
+      private def self.part_end(text : String, from : Int32, delimiter : String) : {Int32, Int32}?
+        crlf = text.index("\r\n#{delimiter}", from)
+        lf = text.index("\n#{delimiter}", from)
+        if crlf && lf && lf == crlf + 1
+          {crlf, 2 + delimiter.size}
+        elsif lf
+          {lf, 1 + delimiter.size}
+        end
+      end
+
+      # The `name`, `filename` ... parameters of the part's Content-Disposition header, with quotes honoured;
+      # nil when it has none, is not `form-data`, or repeats a parameter (two parsers could pick different ones).
+      private def self.disposition_params(headers : String) : Hash(String, String)?
+        line = headers.each_line.find(&.downcase.starts_with?("content-disposition:")) || return
+        pieces = split_params(line.partition(':')[2])
+        return unless pieces.shift?.try(&.strip.downcase) == "form-data"
+
+        params = {} of String => String
+        pieces.each do |piece|
+          key, separator, value = piece.partition('=')
+          next if separator.empty?
+          key = key.strip.downcase
+          return if params.has_key?(key)
+          params[key] = value.strip.lchop('"').rchop('"')
+        end
+        params
+      end
+
+      private def self.split_params(text : String) : Array(String)
+        pieces = [] of String
+        start = 0
+        quoted = false
+        text.each_char_with_index do |char, index|
+          quoted = !quoted if char == '"'
+          if char == ';' && !quoted
+            pieces << text[start...index]
+            start = index + 1
           end
         end
-
-        nil
+        pieces << text[start..]
+        pieces
       end
 
       # Extract token from cookie

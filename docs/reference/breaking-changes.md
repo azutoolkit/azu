@@ -12,6 +12,14 @@ release to the current API, with old and new code side by side; every release is
 
 ## Next release
 
+**`CSRF` bounds the body it reads for the form token.** A POST, PUT, PATCH or DELETE without an `X-CSRF-TOKEN` header had its
+whole body read into memory by `CSRF`, whatever its size, before any limit applied. A urlencoded body is now read up to
+`upload.max_file_size`, and a larger one (by `Content-Length` or as it streams in) is answered `413` instead of `403`, with
+`Connection: close`. A multipart body is searched for `_csrf` only in its first 64 KB, and the field must come before the
+first file part: a form that put `_csrf` after an `<input type="file">` (or after more than 64 KB of other fields) is now
+refused with `403` where it passed. Move `csrf_field()` to the top of the form, or send the token in the `X-CSRF-TOKEN`
+header. The `_csrf` field of a file's content is no longer taken for the token, and the urlencoded content type is matched
+whatever its case.
 **`CORS` refuses a wildcard with credentials, and sends `*` for a plain wildcard.** `CORS.new(origins: ["*"], credentials: true)`
 (and setting either option so that both hold) now raises `ArgumentError` where it used to echo every `Origin`, `null` included,
 with `Access-Control-Allow-Credentials: true`: any site could read a signed-in user's responses. List the origins (or a regex)
