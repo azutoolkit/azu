@@ -12,6 +12,44 @@ release to the current API, with old and new code side by side; every release is
 
 ## Next release
 
+**`HEAD` responses carry no body.** A `HEAD` to a `get` route sent the `GET` body, which a client reusing the
+connection read as the start of its next response. The body is now counted and discarded: the response has the `GET`
+status and headers, and a `Content-Length` for the body it would send, even where the `GET` is chunked (a large body,
+or compressed by `Handler::Compression`).
+
+**`CSRF.validate_origin` matches a `Referer` without a port.** It appended a `:` to the expected origin for a `Referer`
+with no port, so `http://example.com/form` never matched; an `Origin` with an explicit default port
+(`https://example.com:443`) did not match either, and a request without `Host` raised `KeyError`. Origins now compare
+by scheme, host (ignoring case) and port (default ports match written or not), a request without `Host` gets `false`,
+and the expected scheme is `https` when the app serves TLS and no `X-Forwarded-Proto` says otherwise.
+
+**`Benchmark.load_test` compiles.** Calling it failed to compile, as `Channel` named `Azu::Channel`. It now sends every
+request (the remainder of `requests / concurrent` was dropped), `total_requests` counts successes and failures, and
+the average is `0.0` instead of `NaN` when nothing succeeds.
+
+**`Azu::AsyncLogging.shutdown` waits for the queue to drain, and runs at exit.** `shutdown` only closed the queues, so
+entries still waiting in a batch worker were dropped. A program that exited without stopping the pipeline lost them
+too, and could die with an unhandled `Channel::ClosedError` once `Log`'s own `at_exit` had closed its dispatcher. Now
+`shutdown` returns once every queued entry and reported error is written. `Azu.shutdown` calls it last, and so does an
+`at_exit` registered when the pipeline first starts. Entries sent after it are written synchronously, without the
+"Log queue closed" line, and `AsyncLogging.initialize` (or the next `App#start`) starts the pipeline again. Reported
+errors are processed one after another in the reporter fiber, not in a fiber each.
+
+**The `current_page?` filter alias is gone.** Crinja names cannot contain `?`, so the alias could never be called from a
+template. Use `is_current_page`.
+
+**Date-time strings keep their time.** `date_format`, `time_ago`, `relative_time`, `time_tag`, `l` and
+`distance_of_time_between` read `"2024-01-01T10:00:00"` as midnight. They now read it as 10:00 UTC; RFC 3339 strings
+keep their offset, and `YYYY-MM-DD HH:MM:SS` is accepted. Output that relied on the midnight reading changes.
+
+**`cycle` alternates inside `for` loops.** It returned its first value on every pass. It now follows `loop.index0`, and
+several cycles in one loop are independent. Outside a loop, each list of values keeps its own position.
+
+**`preload_tag` uses the `crossorigin` value you pass.** `crossorigin="use-credentials"` now renders as given instead of
+`"anonymous"`. `true` still gives `"anonymous"`, and `false` now leaves the attribute out, even for fonts.
+
+## 0.5.134
+
 **Responses get the request variables, and CSRF values need a CSRF handler.** A response's `view` had no request: its
 template got no `csrf_token`, `current_path` or other [request variable](templates/helpers.md#request-variables), and
 reading `flash.notice` raised a `500`. `view` now takes the request from `Azu::RequestContext` while a request is served,
