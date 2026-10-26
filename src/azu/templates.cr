@@ -57,7 +57,7 @@ module Azu
     end
 
     # :nodoc:
-    # Its name in 0.5.113 to 0.5.132.
+    # Its name in 0.5.113 to 0.5.133.
     CompileError = PreloadError
 
     # :nodoc:
@@ -226,7 +226,7 @@ module Azu
       initialize_loader
     end
 
-    # The keyword `compile_ignore:` of 0.5.113 to 0.5.132.
+    # The keyword `compile_ignore:` of 0.5.113 to 0.5.133.
     @[Deprecated("Use `preload_ignore:`.")]
     def self.new(path : Array(String), error_path : String, hot_reload : Bool? = nil, *, compile_ignore : Array(String), autoescape : Bool = true)
       new(path, error_path, hot_reload, compile_ignore, autoescape)

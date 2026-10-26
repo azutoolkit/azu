@@ -133,7 +133,7 @@ module Azu
 
     @template_hot_reload : Bool = ENV.fetch("TEMPLATE_HOT_RELOAD", Configuration.hot_reload_default.to_s) == "true"
     # Template names not preloaded at boot (see `Templates#preload_ignore`); `TEMPLATE_PRELOAD_IGNORE` takes a comma separated
-    # list (`TEMPLATE_COMPILE_IGNORE`, its name in 0.5.113 to 0.5.132, now deprecated, is read when it is not set).
+    # list (`TEMPLATE_COMPILE_IGNORE`, its name in 0.5.113 to 0.5.133, now deprecated, is read when it is not set).
     @template_preload_ignore : Array(String) = ENV.fetch("TEMPLATE_PRELOAD_IGNORE") { ENV.fetch("TEMPLATE_COMPILE_IGNORE", "") }
       .split(',').map(&.strip).reject(&.empty?)
 
