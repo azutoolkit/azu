@@ -75,6 +75,7 @@ describe Azu::Router::Tree do
       routes.find(GET, "/users/a%20b").try(&.params).should eq({"id" => "a%20b"})
       routes.find(GET, "/users/7/posts/9").try(&.params).should eq({"id" => "7", "post_id" => "9"})
       payload(routes, GET, "/users/7/posts").should be_nil
+      tree({GET, "/:a/:b/:c/:d/:e"}).find(GET, "/1/2/3/4/5").try(&.params).should eq({"a" => "1", "b" => "2", "c" => "3", "d" => "4", "e" => "5"})
     end
 
     it "prefers a static segment to a parameter" do
@@ -139,9 +140,12 @@ describe Azu::Router::Tree do
       names.first.should_not be_nil
       names.first.should be names.last
       value = "123".to_slice
-      by_hand = HotPath.bytes_per_call { Hash(String, String).new(initial_capacity: 1)["id"] = String.new(value) }
+      by_hand = HotPath.bytes_per_call { Hash(String, String).new["id"] = String.new(value) }
+      found = HotPath.bytes_per_call { routes.find(GET, "/api/v1/resource57/123") }
+
       # Within less than the smallest heap object (16 B): GC statistics add a byte or two of noise per call
-      HotPath.bytes_per_call { routes.find(GET, "/api/v1/resource57/123") }.should be_close(by_hand, 8)
+      found.should be_close(by_hand, 8)
+      found.should be < 216 # measured 205: a Hash grown to 4 entries (112 B), not the 8 a capacity asks for (208 B)
     end
   end
 

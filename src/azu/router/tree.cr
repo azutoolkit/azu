@@ -44,21 +44,27 @@ module Azu
 
       # :nodoc:
       class Entry(T)
+        # Nil when the route has none. Declared first, so a static find reads it next to the object header.
+        @params : Array(Param)?
         getter payload : T
         getter path : String
 
-        def initialize(@payload : T, @path : String, @params : Array(Param))
+        def initialize(@payload : T, @path : String, params : Array(Param))
+          @params = params unless params.empty?
         end
 
         # The raw values of the route's parameters in `path`; nil when it has none.
         def params(path : String, bounds : Slice(Int32)) : Hash(String, String)?
-          return if @params.empty?
+          return unless list = @params
 
-          @params.each_with_object(Hash(String, String).new(initial_capacity: @params.size)) do |param, values|
+          # A capacity takes the 8-entry minimum (208 B); without one, the first insert grows the Hash to 4 (112 B)
+          values = list.size > 4 ? Hash(String, String).new(initial_capacity: list.size) : Hash(String, String).new
+          list.each do |param|
             from = bounds[param.segment] + 1
             to = param.glob ? bounds[-1] : bounds[param.segment + 1]
             values[param.name] = String.new(path.to_unsafe + from, Math.max(to - from, 0))
           end
+          values
         end
       end
 
