@@ -233,6 +233,7 @@ describe "Azu::Templates compiled templates (for, member and index access, filte
     "for_hash.jinja"   => {"table" => {"k1" => "v1", "k2" => "v2"}},
     "loop.jinja"       => {"rows" => [["a", "b"], ["c"]]},
     "emitters.jinja"   => {"s" => "a\nb", "row" => {"k" => "v"}, "key" => "k"},
+    "shadow.jinja"     => {"xs" => [["a", "b"], ["c"]], "x" => "top"},
   }.each do |name, data|
     it "renders #{name} as a CompiledTemplate, byte-identical to Crinja" do
       compiled = loops(hot_reload: false, compiled: true)
@@ -306,5 +307,43 @@ describe "Azu::Templates compiled templates (whitespace options, errors)" do
       compiled, crinja = errors.map { |e| {e.class, e.message, e.location_start, e.template.try(&.name)} }
       compiled.should eq crinja
     end
+  end
+end
+
+private class Shown
+  include Crinja::Object
+
+  def to_s(io : IO) : Nil
+    io << "<o & o>"
+  end
+end
+
+describe "Azu::Templates compiled templates (values written to io, loops without a scope)" do
+  it "prints every kind of value like Crinja, in and out of a loop, with autoescape on and off" do
+    vals = [1, 1.5, nil, true, "<a>", Crinja::SafeString.new("<b>"), [1, "x<"], {"k" => "<v>"}, Time.utc(2020, 1, 2), Shown.new]
+    data = {"vals" => vals.map { |val| Crinja::Value.new(val) }, "h" => {"k<" => "v>"}}
+    [true, false].each do |escape|
+      compiled, reloading = loops(hot_reload: false, compiled: true), loops(hot_reload: true)
+      {compiled, reloading}.each(&.autoescape=(escape))
+      compiled.render("values.jinja", data).should eq reloading.render("values.jinja", data)
+    end
+  end
+
+  it "runs a loop in a scope, like Crinja, when a filter it calls is not Crinja's own (the filter reads the scope)" do
+    outputs = {loops(hot_reload: false, compiled: true), loops(hot_reload: true)}.map do |templates|
+      templates.crinja.filters["upper"] = Crinja.filter { "#{target}@#{env.resolve("item")}" }
+      templates.render("loop_filter.jinja", {"items" => ["a", "b"], "item" => "top"})
+    end
+    outputs.should eq({"a@a,b@b,", "a@a,b@b,"})
+  end
+
+  it "resolves a loop variable named like a function to the function, like Crinja" do
+    function = Crinja.function { "F" }
+    outputs = {loops(hot_reload: false, compiled: true), loops(hot_reload: true)}.map do |templates|
+      templates.crinja.functions["item"] = function
+      templates.render("loop_filter.jinja", {"items" => ["a"]})
+    end
+    outputs[0].should_not eq "A,"
+    outputs[0].should eq outputs[1]
   end
 end

@@ -17,7 +17,7 @@ module Azu::TemplateCompiler
       source = File.read(File.join(dir, name))
       case body = emit(source)
       in String
-        proc = "->(io : ::IO, env : ::Crinja, filters : ::Array(::Crinja::Callable?)) { #{body}nil }"
+        proc = "->(io : ::IO, env : ::Crinja, filters : ::Array(::Crinja::Callable?), own : ::Array(::Bool)) { #{body}nil }"
         proc = "->{ #{@@hoisted}#{proc} }.call" unless @@hoisted.empty?
         "#{name.inspect} => {#{source.inspect}, (#{@@filters.inspect} of ::String), #{proc}}"
       in Unsupported
@@ -54,7 +54,7 @@ module Azu::TemplateCompiler
   # Code rendering `source` as `Crinja::Template` does (default `trim_blocks`, `lstrip_blocks`), or why not: a node is
   # unsupported or the source does not parse (an app tag, a vendored page). Crinja serves those at runtime.
   private def self.emit(source : String) : String | Unsupported
-    @@filters, @@hoisted = [] of String, ""
+    @@filters, @@hoisted, @@locals, @@plain = [] of String, "", nil, false
     nodes(Crinja::Parser::TemplateParser.new(Crinja.new, source.rchop('\n')).parse.children)
   rescue e : Fallback
     unsupported(e.at, e.message.to_s)
@@ -70,6 +70,18 @@ module Azu::TemplateCompiler
   # Locals assigned once, in a scope of the template's own, before its proc, which captures them: a loop's names.
   @@hoisted = ""
 
+  # Inside a loop whose names are Crystal locals (name => local), and what its fast path asks at runtime: that each
+  # filter is Crinja's own (`own[n]`) and that no loop name is a function, which `env.resolve` would return instead.
+  @@locals : Hash(String, String)? = nil
+  @@guard = [] of String
+
+  # Set while emitting a loop's Crinja path: the loops inside it have no fast path either.
+  @@plain = false
+
+  # A loop body that can see its scope (it names `loop`): it runs in a `Crinja::Context` per item.
+  private class Impure < Exception
+  end
+
   # Crinja does not locate a `{# note #}`: it takes the end of the node before.
   private def self.nodes(list : Array(Crinja::AST::TemplateNode), after = Crinja::Parser::StreamPosition.new(1, 1, 0)) : String
     list.join do |node|
@@ -82,13 +94,13 @@ module Azu::TemplateCompiler
   private def self.node(node : Crinja::AST::TemplateNode, at) : String
     case node
     when Crinja::AST::FixedString    then "io << #{Crinja::Renderer.trim_text(node, false, false).inspect}; "
-    when Crinja::AST::PrintStatement then located(node, "io << env.stringify(#{value(node.expression, at)})") + "; "
+    when Crinja::AST::PrintStatement then located(node, "::Crinja::Finalizer.stringify(io, #{value(node.expression, at)}, env.context.autoescape?)") + "; "
     when Crinja::AST::TagNode        then located(node, for_loop(node, at)) + "; "
     else                                  raise Fallback.new(at, node.class.name.split("::").last)
     end
   end
 
-  # `Crinja::Tag::For` without `if`, `recursive` or `else`: its `ForLoop`, and `Runner#run_loop`'s scope per item.
+  # `Crinja::Tag::For` without `if`, `recursive` or `else`: its `ForLoop`, with no scope where the body cannot see it.
   private def self.for_loop(node : Crinja::AST::TagNode, at) : String
     raise Fallback.new(at, node.name) unless node.name == "for" && node.end_tag
     raise Fallback.new(at, "for ... else") if node.block.children.any? { |child| child.is_a?(Crinja::AST::TagNode) && child.name == "else" }
@@ -97,10 +109,42 @@ module Azu::TemplateCompiler
     vars, collection = parsed
     looper = "looper#{at.pos}" # a local per loop: an inner loop's must not replace it
     @@hoisted += "#{looper}_vars = #{vars.inspect}; " if vars.size > 1
+    head = "#{looper} = ::Crinja::Tag::For::ForLoop.new(#{value(collection, at)}); "
+    locals = @@locals
+    return head + fast_loop(node, vars, looper, at, locals) if locals # inside a fast loop
+    fast = fast_loop?(node, vars, looper, at) unless @@plain
+    head + (fast ? "if #{fast[0]}; #{fast[1]}; else; #{scoped_loop(node, vars, looper, at, true)}; end" : scoped_loop(node, vars, looper, at, @@plain))
+  end
+
+  # `Runner#run_loop`: a scope per item. `plain` when the loops inside it have no fast path.
+  private def self.scoped_loop(node, vars, looper, at, plain : Bool) : String
+    outer, @@plain = @@plain, plain
     unpack = vars.size == 1 ? "ctx[#{vars[0].inspect}] = item" : "ctx.unpack(#{looper}_vars, item)"
-    "#{looper} = ::Crinja::Tag::For::ForLoop.new(#{value(collection, at)}); " \
     "#{looper}.each { |item| env.with_scope(::Crinja::Context.new(env.context)) { |ctx| " \
     "ctx[::Crinja::Tag::For::LOOP_VARIABLE] = #{looper}; #{unpack}; #{nodes(node.block.children, at)}} }"
+  ensure
+    @@plain = outer unless outer.nil?
+  end
+
+  # The guard and code of the fast path of an outermost loop, or nil when its body can see the scope.
+  private def self.fast_loop?(node, vars, looper, at) : {String, String}?
+    @@guard.clear
+    code = fast_loop(node, vars, looper, at, {} of String => String)
+    {@@guard.uniq.join(" && "), code}
+  rescue Impure
+  ensure
+    @@locals = nil
+  end
+
+  # `Runner#run_loop` with the item variables bound to Crystal locals, and no scope.
+  private def self.fast_loop(node, vars, looper, at, outer : Hash(String, String)) : String
+    locals = vars.map_with_index { |_, i| "v#{at.pos}_#{i}" }
+    @@locals = scope = outer.dup
+    vars.zip(locals) { |var, local| scope[var] = local; @@guard << "!env.functions.has_key?(#{var.inspect})" }
+    unpack = vars.size == 1 ? "" : "#{locals.join(", ")} = ::Azu::Templates::CompiledTemplate.unpack(#{vars.size}, item); "
+    "#{looper}.each { |#{vars.size == 1 ? locals[0] : "item"}| #{unpack}#{nodes(node.block.children, at)}}"
+  ensure
+    @@locals = outer
   end
 
   # What `Crinja::Evaluator#value` returns for `node`.
@@ -111,7 +155,7 @@ module Azu::TemplateCompiler
   # One emitter per expression node, for what `Crinja::Evaluator#evaluate` returns (a raw literal or a value).
   private def self.expr(node : Crinja::AST::ExpressionNode, at) : String
     case node
-    when Crinja::AST::IdentifierLiteral                          then "env.resolve(#{node.name.inspect})"
+    when Crinja::AST::IdentifierLiteral                          then identifier(node.name)
     when Crinja::AST::StringLiteral, Crinja::AST::BooleanLiteral then node.value.inspect
     when Crinja::AST::IntegerLiteral                             then "#{node.value}_i64"
     when Crinja::AST::FloatLiteral                               then "#{node.value}_f64"
@@ -121,6 +165,12 @@ module Azu::TemplateCompiler
     when Crinja::AST::FilterExpression                           then located(node, filter(node, at))
     else                                                              raise Fallback.new(node.location_start? || at, node.class.name.split("::").last)
     end
+  end
+
+  # The local an enclosing loop binds `name` to, or `env.resolve`; inside such a loop, `loop` needs the scope.
+  private def self.identifier(name : String) : String
+    raise Impure.new if (locals = @@locals) && name == Crinja::Tag::For::LOOP_VARIABLE
+    locals.try(&.[name]?) || "env.resolve(#{name.inspect})"
   end
 
   private def self.attribute(node, object, key : String, index : Bool, at) : String
@@ -136,6 +186,7 @@ module Azu::TemplateCompiler
     kwargs = node.keyword_arguments.join { |key, arg| "kw[#{key.name.inspect}] = #{value(arg, at)}; " }
     name = node.identifier.name
     index = @@filters.index(name) || (@@filters << name).size - 1
+    @@guard << "own[#{index}]" if @@locals
     "env.execute_call(filters[#{index}] || env.filters[#{name.inspect}], [#{args}] of ::Crinja::Value, " \
     "::Crinja::Variables.new.tap { |kw| #{kwargs}}, target: #{value(node.target, at)})"
   end
