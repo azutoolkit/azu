@@ -8,6 +8,7 @@ module Azu
       include HTTP::Handler
 
       def initialize(@log = Log.for("Azu::Rescuer"))
+        @slow_lines = LogBudget.new
       end
 
       def call(context : HTTP::Server::Context)
@@ -19,6 +20,12 @@ module Azu
         context.response.flush unless context.response.closed?
         log_response_error(context, ex)
       rescue ex : Exception
+        recover(context, ex)
+      end
+
+      private def recover(context : HTTP::Server::Context, ex : Exception) : Nil
+        return slow_client(context) if ex.is_a?(IO::TimeoutError)
+
         request_id = context.request.headers["X-Request-ID"]? || generate_request_id
         error_context = ErrorContext.from_http_context(context, request_id, load_environment: Azu.current_config.env.development?)
 
@@ -27,6 +34,19 @@ module Azu
         context.response.flush unless context.response.closed?
 
         @log.error(exception: ex) { "Error Processing Request ".colorize(:red) }
+      end
+
+      # The client stopped sending the request (see `ServerLimitsConfiguration`): not the server's failure, and one line,
+      # not a backtrace, however many connections do it.
+      private def slow_client(context : HTTP::Server::Context) : Nil
+        write, left_out = @slow_lines.take
+        @log.warn { "suppressed #{left_out} similar slow requests in the last second" } if left_out > 0
+        @log.warn { "#{context.request.method} #{context.request.path} -> 408 the client was too slow to send the request" } if write
+        return if context.response.wrote_headers?
+
+        context.response.status = :request_timeout
+        context.response.headers["Connection"] = "close"
+        context.response.content_length = 0
       end
 
       # A 4xx is the client's mistake: one line for the request with the reason, no exception and no backtrace (the
