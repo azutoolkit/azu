@@ -176,9 +176,9 @@ app.config.port = Bench::PORT
 app.config.websocket.tcp_nodelay = Bench.nodelay?
 app.config.env = Azu::Environment::Production
 app.config.templates.path = File.expand_path(File.join(__DIR__, "..", "..", "common"))
-# template.jinja as build-time Crystal (a template it cannot compile falls back to Crinja). The path is from where
-# scripts/bench.sh builds: benchmark/apps/azu.
-app.config.templates.compiled = Azu::Templates.compile("../common")
+# template.jinja as build-time Crystal; strict, so a template that stops compiling fails the build instead of
+# silently measuring Crinja. The path is from where scripts/bench.sh builds: benchmark/apps/azu.
+app.config.templates.compiled = Azu::Templates.compile("../common", strict: true)
 
 app.routes do
   get "/plaintext", BenchApp::PlaintextEndpoint

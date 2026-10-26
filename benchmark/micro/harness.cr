@@ -29,7 +29,8 @@ module HotPath
   # Both directories' templates compiled to Crystal (paths from the project root, where the harness is built), as the
   # bench app compiles its own: one set, as a Templates holds one.
   COMPILED = begin
-    common, micro = Azu::Templates.compile("benchmark/apps/common"), Azu::Templates.compile("benchmark/micro")
+    # strict: a template that stops compiling fails the build instead of measuring Crinja
+    common, micro = Azu::Templates.compile("benchmark/apps/common", strict: true), Azu::Templates.compile("benchmark/micro", strict: true)
     Azu::Templates::CompiledSet.new(common.templates.merge(micro.templates), common.fallbacks.merge(micro.fallbacks))
   end
 
@@ -222,7 +223,8 @@ module HotPath
     end
   end
 
-  private def self.azu_app : Azu::App
+  # The `azu` stacks' app (public for spec/azu/allocation_budget_spec.cr, which checks its templates are the compiled ones).
+  def self.azu_app : Azu::App
     app = Azu::App.new
     app.config.env = Azu::Environment::Production
     # As the bench app runs (CRYSTAL_ENV=production): templates parsed once, never reloaded, whatever CRYSTAL_ENV is here

@@ -20,6 +20,11 @@ describe "opt-in database integrations" do
     missing.should be_empty
   end
 
+  it "does not require the build-time directories from src/azu.cr" do
+    source = File.read("src/azu.cr")
+    build_time_dirs.select { |dir| source.includes?(%(require "./azu/#{dir}")) }.should be_empty
+  end
+
   it "keeps `require \"cql\"` inside opt-in directories" do
     offenders = Dir.glob("src/azu/**/*.cr").select do |path|
       next false if opt_in_dirs.any? { |dir| path.starts_with?("src/azu/#{dir}/") }

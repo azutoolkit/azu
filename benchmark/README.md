@@ -67,11 +67,13 @@ One program per framework in `benchmark/apps/<name>/src/app.cr`, built with `cry
 - The app is written against the lower-level `Azu::App` API (routes declared with `app.routes`, the server
   built with `app.server(handlers)`), the 0.6 style of this repository at the commit in the result's `git`
   field. That API is not in a release yet; results from another commit are not comparable.
-- **The `template` scenario is compiled Jinja against compiled ECR.** Azu renders the Jinja template through
-  `Azu::Templates.compile`: build-time generated Crystal, a template it cannot compile falling back to Crinja (the
-  bench template compiles). It still builds a `Crinja::Value` hash per call and evaluates values as Crinja does; the
-  baseline, Kemal and Athena run ECR that the compiler turned into straight code. The scenario measures the
-  template systems, not the routers.
+- **The `template` scenario is compiled Jinja against compiled ECR.** The `azu` rows render a template compiled to
+  Crystal at build time with `Azu::Templates.compile`, an opt-in build step that is not documented or in a release
+  yet (like the `Azu::App` API above); the bench app compiles strictly, so a template that stops compiling fails its
+  build. An app that calls `view` without that step renders through Crinja (each template parsed once), which these
+  rows do not measure. The compiled render still builds a `Crinja::Value` hash per call and evaluates values as
+  Crinja does; the baseline, Kemal and Athena run ECR that the compiler turned into straight code. The scenario
+  measures the template systems, not the routers.
 - The `routing` scenario requests 99,700 distinct paths (100 routes x 997 ids). Azu has no path cache since its
   segment tree replaced radix, so every request is a lookup either way.
 
@@ -110,9 +112,9 @@ skipped and said so in the result (`--require-all` turns that into a failure).
 
 ### Known confounds (read before comparing)
 
-- **Templates**: Azu renders a Jinja template compiled to Crystal at build time (`Azu::Templates.compile`, falling
-  back per template to Crinja); the baseline, Kemal and
-  Athena render ECR, which the compiler turns into straight code; Lucky builds the page with its HTML DSL.
+- **Templates**: Azu renders a Jinja template compiled to Crystal at build time (`Azu::Templates.compile`, an opt-in
+  build step not documented or released yet; an app calling `view` without it renders through Crinja, parsed once,
+  which the `azu` rows do not measure); the baseline, Kemal and Athena render ECR, which the compiler turns into straight code; Lucky builds the page with its HTML DSL.
   The `template` scenario compares template *systems*, not routers.
 - **Database**: Azu goes through CQL (query builder, model instances); the others call crystal-sqlite3
   directly. `azu-rawdb` removes the ORM from the picture.
@@ -220,9 +222,9 @@ mkdir -p bin && crystal build --release --no-debug benchmark/micro/hot_path.cr -
 ```
 
 prints one row per stack and scenario (`/plaintext`, one parameterised URL, `/template`, the bench template rendered
-with `view` and compiled Jinja on the Azu stacks, as the bench app, and with ECR on `baseline`: on `azu`, 24.1 KB and
-about 20 us per request against 92.1 KB and about 65 us through Crinja; `/template/request`, the same page
-rendered with its request on the Azu stacks (it reads one request variable and sets the CSRF cookie), and
+with `view` and compiled Jinja on the Azu stacks, as the bench app (it allocates less and runs faster than the same
+render through Crinja), and with ECR on `baseline`; `/template/request`, the same page rendered with its request on
+the Azu stacks (it reads one request variable; both pages issue the CSRF token and cookie), and
 `routing (cycling)`, the URLs of `routing.lua`, warmed with 1200 of them so that every measured path is new to the
 router): bytes and nanoseconds
 per request through the same `HTTP::Server::RequestProcessor` that serves a connection, without a socket or `wrk`.

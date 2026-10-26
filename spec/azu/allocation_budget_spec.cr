@@ -1,11 +1,13 @@
 require "../spec_helper"
 require "../../benchmark/micro/harness"
 
-# Bytes per request over the baseline handler. Each budget is the whole-suite `crystal spec` measurement plus ~10%,
-# rounded up to a multiple of 8 (measured 447 / 236 / 949 / 734 with the segment tree, in the order below; 784 / 575 /
-# 1328 / 1119 with radix). Re-measure and lower them when a slice saves bytes or a new Crystal shifts stdlib
-# allocations. Per-request bytes can depend on the compiled program, so a single-file run may measure less: the
-# budgets are calibrated on the whole-suite file list.
+# Bytes per request over the baseline handler. Each budget is the whole-suite `crystal spec` measurement plus
+# max(~10%, 64 B), rounded up to a multiple of 8. The 64 B floor applies to a measurement under 100 B, whose
+# run-to-run spread exceeds 10% (REQUEST_TEMPLATE_AZU_BUDGET); the budgets in this block predate it and keep ~10%
+# (measured 447 / 236 / 949 / 734 with the segment tree, in the order below; 784 / 575 / 1328 / 1119 with radix).
+# Re-measure and lower them when a slice saves bytes or a new Crystal shifts stdlib allocations. Per-request bytes
+# can depend on the compiled program, so a single-file run may measure less: the budgets are calibrated on the
+# whole-suite file list.
 PLAINTEXT_AZU_BUDGET     =  496
 PLAINTEXT_AZU_MIN_BUDGET =  264
 RESOURCE_AZU_BUDGET      = 1048
@@ -258,6 +260,11 @@ describe "allocation budget of a template render" do
   it "renders the bench templates compiled, as the bench app does, none of them falling back to Crinja" do
     HotPath::COMPILED.templates.keys.sort!.should eq ["template.jinja", "template_request.jinja"]
     HotPath::COMPILED.fallbacks.should be_empty
+
+    # and the harness app selects them at runtime (a Crinja option they were not compiled for would parse them instead)
+    templates = HotPath.azu_app.config.templates
+    templates.load("template.jinja").should be_a(Azu::Templates::CompiledTemplate)
+    templates.load("template_request.jinja").should be_a(Azu::Templates::CompiledTemplate)
   end
 
   {% if flag?(:preview_mt) %}
@@ -269,9 +276,10 @@ describe "allocation budget of a template render" do
   {% end %}
 end
 
-# What rendering the same page with its request adds on the default stack: the request variables (the template reads
-# one), the CSRF token and its cookie. Calibrated like the budgets above (measured 34 compiled, 2506 through Crinja).
-REQUEST_TEMPLATE_AZU_BUDGET = 40
+# What reading request variables adds when the same page is rendered with its request on the default stack (the
+# template reads one; both pages issue the CSRF token and cookie). Calibrated like the budgets above, here by the
+# 64 B floor: 25 whole-suite runs measured 25.6 to 39.1 compiled (2506 through Crinja).
+REQUEST_TEMPLATE_AZU_BUDGET = 64
 
 describe "allocation budget of a template render with its request" do
   it "answers /template/request with the page, the request variable it reads and the CSRF cookie" do
