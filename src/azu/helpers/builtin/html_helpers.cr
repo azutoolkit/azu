@@ -70,16 +70,17 @@ module Azu
             phrase:      "",
             highlighter: "<mark>\\0</mark>",
           }, :highlight) do
-            text = target.to_s
             phrase = arguments["phrase"].to_s
             highlighter = arguments["highlighter"].to_s
 
-            if phrase.empty?
-              text
-            else
-              result = Util.highlight(text, phrase, highlighter)
-              Crinja::SafeString.new(result)
-            end
+            # Text that is already safe (a SafeString) is escaped HTML text: the phrase is escaped to match it.
+            # Anything else is plain text and is escaped here, since the result is marked safe.
+            result = if target.raw.is_a?(Crinja::SafeString)
+                       Util.highlight(target.to_s, Util.escape_html(phrase), highlighter)
+                     else
+                       Util.highlight_html(target.to_s, phrase, highlighter)
+                     end
+            Crinja::SafeString.new(result)
           end
           Registry.register_filter(:highlight, filter)
         end
@@ -248,7 +249,14 @@ module Azu
               end
             end
 
-            content_str = content.none? ? "" : content.to_s
+            # Content is text unless it is already safe markup (another helper's output, `| safe`)
+            content_str = if content.none?
+                            ""
+                          elsif content.raw.is_a?(Crinja::SafeString)
+                            content.to_s
+                          else
+                            Util.escape_html(content.to_s)
+                          end
 
             Crinja::SafeString.new(Util.tag(tag_name, attrs, content_str))
           end

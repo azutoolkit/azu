@@ -8,6 +8,27 @@ This document lists breaking changes between Azu versions and migration guides.
 
 Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
 
+**`.jinja` and `.j2` templates are autoescaped (security).** Crinja escapes only `html`, `htm` and `xml` templates, and
+`.jinja` is the framework's own default extension (`Renderable#page_path`), so `{{ user.name }}` in a page was stored XSS
+unless the author remembered `| e`. Now every template is escaped, string templates included, except plain text
+(`*.txt`, `*.text`, `*.txt.jinja`). Migration:
+
+- No change is needed for `| e`: `{{ value | e }}` returns an already-escaped value that is not escaped again, so existing templates
+  keep their bytes. Do not chain a filter after `| e` (`{{ x | e | upper }}`): `upper` returns plain text, which is then
+  escaped once more; escape last, or drop the `| e`.
+- A value that is markup on purpose (HTML you built or sanitized) needs `{{ value | safe }}`. Before, it printed raw by
+  accident. Values passed through `t()` that contain HTML are escaped now; render them with `| safe`.
+- The built-in helpers return `Crinja::SafeString` and are not escaped. Your own `Azu::Helpers.function`/`filter` that
+  return HTML must return `Crinja::SafeString.new(html)`, built from escaped parts.
+- Last resort: `Azu::CONFIG.template_autoescape = false` or `TEMPLATE_AUTOESCAPE=false` restores the old behavior.
+
+**Template helpers escape what they used to pass through (security).** `highlight` and `content_tag` escape their text and
+content (pass markup as a `SafeString`: another helper's output or `| safe`); `link_to`, `button_to` and `form_tag` replace a
+URL whose scheme is not `http`, `https`, `mailto` or `tel` (`javascript:`, `data:`, `vbscript:`, ...) with `#` or
+`about:invalid`; an attribute name that is not `[A-Za-z_:][-A-Za-z0-9_:.]*` is dropped and a tag name that is not a name
+raises `ArgumentError`. Check `content_tag(content="<b>x</b>")` and links to other schemes (`sms:`, `ftp:`, custom app schemes):
+write those `<a>` tags yourself. See [attribute names and URLs](templates/helpers.md#attribute-names-and-urls).
+
 **`Static` can refuse paths (additive, nothing to change).** `Azu::Handler::Static.new(except: ["/templates"])` never serves
 `/templates` or anything below it; the request goes to the next handler, or answers `404` with `fallthrough: false`. Without
 `except` the handler behaves as before. Use it when template sources live under `public/`:

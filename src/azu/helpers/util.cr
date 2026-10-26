@@ -22,6 +22,39 @@ module Azu
         HTML.escape(text)
       end
 
+      # What an HTML attribute name may be (a name that is not one could end the tag or start another attribute).
+      ATTRIBUTE_NAME = /\A[a-zA-Z_:][-a-zA-Z0-9_:.]*\z/
+
+      # What a tag name may be.
+      TAG_NAME = /\A[a-zA-Z][a-zA-Z0-9-]*\z/
+
+      # The schemes a link or form may point to; anything else (javascript:, data:, vbscript:, ...) is replaced.
+      SAFE_URL_SCHEMES = {"http", "https", "mailto", "tel"}
+
+      private URL_SCHEME = /\A([a-zA-Z][a-zA-Z0-9+.\-]*):/
+
+      # Returns `url` when it is safe to put into `href` or `action`: http, https, mailto, tel, a relative path
+      # or a fragment (compared case-insensitively). Any other scheme gives `fallback`. Browsers ignore control
+      # characters, spaces and tabs or newlines inside a scheme (`java\tscript:`), so they are removed before the
+      # scheme is read. Entities are not decoded here: the value is escaped when it is written, so `&#106;avascript:`
+      # reaches the page as text. The result still has to be escaped as an attribute value.
+      #
+      # ```
+      # Util.safe_url("/posts?page=2")                     # => "/posts?page=2"
+      # Util.safe_url("JavaScript:alert(1)")               # => "#"
+      # Util.safe_url("data:text/html,x", "about:invalid") # => "about:invalid"
+      # ```
+      def safe_url(url : String, fallback : String = "#") : String
+        compact = url.gsub(/[\x00-\x20\x7f]/, "")
+        scheme = URL_SCHEME.match(compact).try(&.[1])
+        return url if scheme.nil? || SAFE_URL_SCHEMES.includes?(scheme.downcase)
+        fallback
+      end
+
+      def attribute_name?(name : String) : Bool
+        ATTRIBUTE_NAME.matches?(name)
+      end
+
       # Formats a number with thousands delimiter.
       #
       # ```
@@ -186,7 +219,8 @@ module Azu
         escaped.gsub(/\r?\n/, "<br>")
       end
 
-      # Highlights occurrences of a phrase in text.
+      # Highlights occurrences of a phrase in text. Neither `text` nor `phrase` is escaped: the result is only
+      # safe as HTML when `text` is. Use `highlight_html` for text that is not.
       #
       # ```
       # Util.highlight("Hello World", "World")
@@ -201,6 +235,32 @@ module Azu
 
         escaped_phrase = Regex.escape(phrase)
         text.gsub(/#{escaped_phrase}/i, highlighter)
+      end
+
+      # Highlights occurrences of a phrase in plain text and returns HTML: the text between the matches and the
+      # matches themselves are escaped, `highlighter` (markup written by the template author, `\\0` is the match)
+      # is not. The phrase is searched in the raw text, so `&` and `<` match and an entity is never cut in half.
+      #
+      # ```
+      # Util.highlight_html("a <b> c", "<b>") # => "a <mark>&lt;b&gt;</mark> c"
+      # ```
+      def highlight_html(
+        text : String,
+        phrase : String,
+        highlighter : String = "<mark>\\0</mark>",
+      ) : String
+        return escape_html(text) if phrase.empty?
+
+        pattern = /#{Regex.escape(phrase)}/i
+        String.build do |io|
+          position = 0
+          text.scan(pattern) do |match|
+            io << escape_html(text.byte_slice(position, match.byte_begin - position))
+            io << highlighter.gsub("\\0") { escape_html(match[0]) }
+            position = match.byte_end
+          end
+          io << escape_html(text.byte_slice(position))
+        end
       end
 
       # Pluralizes a word based on count.
@@ -251,7 +311,8 @@ module Azu
         text.split.map(&.capitalize).join(" ")
       end
 
-      # Builds HTML attributes string from a hash.
+      # Builds HTML attributes string from a hash. Values are escaped; an attribute whose name is not a valid
+      # name (`[a-zA-Z_:][-a-zA-Z0-9_:.]*`) is left out and logged.
       #
       # ```
       # Util.tag_attributes({class: "btn", id: "submit"})
@@ -259,7 +320,10 @@ module Azu
       # ```
       def tag_attributes(attrs : Hash(String, String)) : String
         attrs.compact_map do |key, value|
-          if value == "true" || value == true.to_s
+          if !attribute_name?(key.to_s)
+            Log.for("azu.helpers").warn { "attribute #{key.to_s.inspect} was left out: not a valid attribute name" }
+            nil
+          elsif value == "true" || value == true.to_s
             key.to_s
           elsif value == "false" || value == false.to_s
             nil
@@ -284,6 +348,7 @@ module Azu
         content : String? = nil,
         self_closing : Bool = false,
       ) : String
+        raise ArgumentError.new("invalid tag name #{name.inspect}") unless TAG_NAME.matches?(name)
         attr_str = tag_attributes(attrs)
         attr_part = attr_str.empty? ? "" : " #{attr_str}"
 
@@ -333,7 +398,7 @@ module Azu
 
         args.defaults.each_key do |key|
           key_str = key.to_s
-          next if exclude.includes?(key_str)
+          next if exclude.includes?(key_str) || !attribute_name?(key_str)
 
           value = args[key_str]
           next if value.none? || value.undefined?
