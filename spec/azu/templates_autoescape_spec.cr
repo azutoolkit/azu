@@ -94,6 +94,34 @@ describe "Azu::Templates autoescape" do
     end
   end
 
+  it "does not escape formats that are not HTML (x.json.jinja, x.md.jinja, ...), and escapes xml, rss, atom and svg" do
+    with_template_dir do |dir|
+      %w(json js mjs css csv md markdown yml yaml sql sh txt text).each do |ext|
+        File.write(File.join(dir, "f.#{ext}.jinja"), "{{ x }}")
+      end
+      %w(xml rss atom svg html htm).each { |ext| File.write(File.join(dir, "m.#{ext}.jinja"), "{{ x }}") }
+      each_mode(dir) do |mode, templates|
+        %w(json js mjs css csv md markdown yml yaml sql sh txt text).each do |ext|
+          templates.load("f.#{ext}.jinja").render({"x" => "a&b"}).should eq("a&b"), "#{mode} #{ext}"
+        end
+        %w(xml rss atom svg html htm).each do |ext|
+          templates.load("m.#{ext}.jinja").render({"x" => "a&b"}).should eq("a&amp;b"), "#{mode} #{ext}"
+        end
+      end
+    end
+  end
+
+  it "honours {% autoescape false %} and {% autoescape true %} blocks" do
+    with_template_dir do |dir|
+      File.write(File.join(dir, "page.jinja"), "{{ x }}|{% autoescape false %}{{ x }}{% endautoescape %}|{{ x }}")
+      File.write(File.join(dir, "mail.txt.jinja"), "{{ x }}|{% autoescape true %}{{ x }}{% endautoescape %}")
+      each_mode(dir) do |mode, templates|
+        templates.load("page.jinja").render({"x" => "<b>"}).should eq("&lt;b&gt;|<b>|&lt;b&gt;"), mode
+        templates.load("mail.txt.jinja").render({"x" => "<b>"}).should eq("<b>|&lt;b&gt;"), mode
+      end
+    end
+  end
+
   it "escapes a template added after the compile (found by the file loader)" do
     with_template_dir do |dir|
       File.write(File.join(dir, "first.jinja"), "1")
@@ -111,7 +139,7 @@ describe "Azu::Templates autoescape" do
     end
   end
 
-  it "escapes the same way through Renderable#view" do
+  it "escapes the same way through Configuration#templates, the object Renderable#view loads from" do
     with_template_dir do |dir|
       File.write(File.join(dir, "view.jinja"), "<h1>{{ title }}</h1>")
       config = Azu::Configuration.new

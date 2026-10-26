@@ -157,8 +157,11 @@ module Azu
       end
     end
 
-    # File extensions (also as the inner extension of `x.txt.jinja`) whose templates are plain text and not escaped.
-    PLAIN_TEXT_EXTENSIONS = %w(txt text)
+    # File extensions (also as the inner extension of `x.json.jinja`) of formats that are not HTML and are not
+    # escaped: HTML escaping would corrupt them, and they need their own encoding (`| tojson` for JSON and
+    # JavaScript). `xml`, `rss`, `atom`, `svg`, `html` and `htm` stay escaped. A single block opts out inside a
+    # template: `{% autoescape false %}...{% endautoescape %}`.
+    PLAIN_TEXT_EXTENSIONS = %w(txt text json js mjs css csv md markdown yml yaml sql sh)
 
     # The autoescape rule of the environment. Crinja decides per template from the file name, and only knows
     # `html`, `htm` and `xml`; a `.jinja` or `.j2` name (the framework's own default, see `Renderable#page_path`)
