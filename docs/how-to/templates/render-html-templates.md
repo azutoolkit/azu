@@ -104,7 +104,10 @@ Crinja uses Jinja2-style syntax:
 Output is autoescaped in every template: `.html`, `.jinja`, `.j2` and templates rendered from a string. `{{ user.name }}`
 with `<script>` in the name prints `&lt;script&gt;`. A value that really is markup is marked with `{{ markup | safe }}`
 (or the `safe_html` filter); the built-in helpers (`link_to`, `form_tag`, `csrf_field`, ...) return markup that is
-already safe and are not escaped again. Plain text templates (`mail.txt`, `mail.txt.jinja`) are not escaped.
+already safe and are not escaped again. Templates of other formats (`mail.txt`, `mail.txt.jinja`, `data.json.jinja`, and `js`, `css`, `csv`, `md`,
+`yml`, `sql`, `sh`) are not escaped; `xml`, `rss`, `atom` and `svg` are. `{% autoescape false %}...{% endautoescape %}`
+turns it off for a block. Filters such as `upper`, `truncate`, `replace` and the `~` operator return plain text, so
+markup that went through them is escaped: apply `| safe` last.
 `{{ value | e }}` still works and does not escape twice. To turn the escaping of `.jinja`/`.j2` off for an app, set
 `template_autoescape = false` or `TEMPLATE_AUTOESCAPE=false` (see [Configuration](../../reference/configuration/options.md#templates)).
 

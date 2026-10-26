@@ -118,7 +118,8 @@ Azu::CONFIG.log = Log.for("my_app")
 | `templates.error_path` | `String` | the error templates inside the azu source (compile-time path) | `ERROR_TEMPLATE` |
 
 `template_autoescape` makes `.jinja`, `.j2` and string templates escape `{{ }}` output like `.html` (Crinja alone only
-escapes `html`, `htm` and `xml`). Plain text templates (`*.txt`, `*.text`, `*.txt.jinja`) are not escaped. Turn it off
+escapes `html`, `htm` and `xml`). Templates of other formats (`*.txt`, `*.json.jinja`, `*.md.jinja`, ... see [breaking changes](../breaking-changes.md)) are not
+escaped. `App#start` logs a warning while `template_autoescape` is off. Turn it off
 only for an app that cannot be migrated yet: `Azu::CONFIG.template_autoescape = false`, or `TEMPLATE_AUTOESCAPE=false`; any
 other value of the variable keeps it on. It applies to compiled templates too, because Crinja decides at render time.
 

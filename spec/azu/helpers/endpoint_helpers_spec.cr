@@ -251,6 +251,17 @@ describe "Type-Safe Endpoint Helpers" do
       result.should contain "class=\"btn btn-danger\""
     end
 
+    it "cannot be broken out of the confirm string" do
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+
+      template = crinja.from_string("{{ button_to_delete_endpoint_helpers_spec_delete_user(id='1', confirm=c) }}")
+      result = template.render({"c" => "x'); alert(1); ('"})
+
+      result.should contain %(onclick="return confirm('x\\u0027); alert(1); (\\u0027')")
+      result.should_not contain "&#39;"
+    end
+
     it "supports confirm attribute" do
       crinja = Crinja.new
       Azu::Helpers::Registry.apply_to(crinja)

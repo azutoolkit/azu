@@ -28,6 +28,14 @@ module Azu
       # What a tag name may be.
       TAG_NAME = /\A[a-zA-Z][a-zA-Z0-9-]*\z/
 
+      # Escapes text for the inside of a JavaScript string literal written in an HTML attribute
+      # (`onclick="return confirm('...')"`). HTML decodes entities before JavaScript runs, so HTML escaping alone
+      # does not keep a quote inside the string; every character that can end the string, the attribute or a script
+      # becomes a `\uXXXX` escape. Plain text is unchanged. Escape the result for HTML as well.
+      def js_string_escape(text : String) : String
+        text.gsub(/[\\'"<>&\/`\x00-\x1f\x{2028}\x{2029}]/) { |char| "\\u%04x" % char[0].ord }
+      end
+
       # The schemes a link or form may point to; anything else (javascript:, data:, vbscript:, ...) is replaced.
       SAFE_URL_SCHEMES = {"http", "https", "mailto", "tel"}
 
@@ -260,6 +268,22 @@ module Azu
             position = match.byte_end
           end
           io << escape_html(text.byte_slice(position))
+        end
+      end
+
+      private URLIZE_PATTERN = /(?:https?:\/\/|www\.)[^\s<]+/i
+
+      # Turns the http, https and `www.` addresses of *escaped_html_text* into links. Unlike Crinja's own `urlize`
+      # it links no other scheme (`javascript://...` matches Crinja's pattern) and the text must already be escaped
+      # (the `urlize` filter escapes it), so quotes in an address cannot leave the `href`.
+      def urlize(escaped_html_text : String, trim_limit : Int32?, rel : Array(String), target : String?) : String
+        rel_attr = rel.empty? ? "" : %( rel="#{escape_html(rel.join(' '))}")
+        target_attr = target.nil? || target.empty? ? "" : %( target="#{escape_html(target)}")
+        escaped_html_text.gsub(URLIZE_PATTERN) do |address|
+          display = address
+          display = display[0..(trim_limit - 3)] + "..." if trim_limit && display.size >= trim_limit
+          href = address.downcase.starts_with?("www.") ? "http://#{address}" : address
+          %(<a href="#{href}"#{rel_attr}#{target_attr}>#{display}</a>)
         end
       end
 
