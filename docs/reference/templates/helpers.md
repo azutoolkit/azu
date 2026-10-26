@@ -798,6 +798,10 @@ Filter that highlights occurrences of a phrase:
 {{ text | highlight("term", highlighter="<strong>\\0</strong>") }}
 ```
 
+The text and the matches are escaped (the phrase is searched in the raw text, so `{{ "a & b" | highlight("&") }}`
+prints `a <mark>&amp;</mark> b`); only the `highlighter` markup, which you write, is passed through. Text that is
+already safe (a `SafeString`, e.g. after `| e`) is used as it is.
+
 ### truncate_html
 
 Filter that truncates HTML while preserving structure:
@@ -842,6 +846,22 @@ Function that generates an HTML tag:
 {{ content_tag(name="div", content="Hello", class="container") }}
 {# <div class="container">Hello</div> #}
 ```
+
+`content` is escaped unless it is already safe markup (another helper's output, or `| safe`).
+
+### Attribute names and URLs
+
+Tag names must match `[A-Za-z][A-Za-z0-9-]*` (anything else raises `ArgumentError`, so a user value can never become a
+second tag). Attribute names, in every helper that takes `attrs`, `data` or similar hashes, must match
+`[A-Za-z_:][-A-Za-z0-9_:.]*`; an attribute with another name is left out and logged at `warn`.
+
+`link_to` (`href`), `button_to` (`action`) and `form_tag` (`action`) only point to `http`, `https`, `mailto`, `tel`, a
+relative path, a query or a fragment (the scheme is compared case-insensitively, and tabs, newlines and control
+characters inside it are ignored, as browsers do). Any other scheme (`javascript:`, `data:`, `vbscript:`, `file:`, ...)
+is replaced: `link_to` prints `#`, `button_to` and `form_tag` print `about:invalid`. The value is escaped as well, so
+`&#106;avascript:` stays text. Use `Azu::Helpers::Util.safe_url(url)` in your own helpers. Asset helpers
+(`image_tag`, `javascript_tag`, `stylesheet_tag`, ...) only keep an `http(s)://` or `/` URL as it is and prefix the
+asset path to anything else. To link to another scheme, write the `<a>` yourself.
 
 ---
 

@@ -144,7 +144,7 @@ module Azu
             attrs["class"] = css_class.to_s unless css_class.none?
             attrs["id"] = id.to_s unless id.none?
 
-            Crinja::SafeString.new(Util.tag("time", attrs, display_text))
+            Crinja::SafeString.new(Util.tag("time", attrs, Util.escape_html(display_text)))
           end
           Registry.register_function(:time_tag, func)
         end

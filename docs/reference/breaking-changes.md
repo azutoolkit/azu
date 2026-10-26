@@ -8,6 +8,54 @@ This document lists breaking changes between Azu versions and migration guides.
 
 Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
 
+**`.jinja` and `.j2` templates are autoescaped (security).** Crinja escapes only `html`, `htm` and `xml` templates, and
+`.jinja` is the framework's own default extension (`Renderable#page_path`), so `{{ user.name }}` in a page was stored XSS
+unless the author remembered `| e`. Now every template is escaped, string templates included, except formats that are not
+HTML: a name with the inner extension `txt`, `text`, `json`, `js`, `mjs`, `css`, `csv`, `md`, `markdown`, `yml`, `yaml`,
+`sql` or `sh` (`mail.txt.jinja`, `data.json.jinja`) is not escaped (JSON and JavaScript need their own encoding,
+`{{ value | tojson }}`); `xml`, `rss`, `atom`, `svg`, `html` and `htm` stay escaped. Migration:
+
+- No change is needed for `| e`: `{{ value | e }}` returns an already-escaped value that is not escaped again, so existing templates
+  keep their bytes. Do not chain a filter after `| e` (`{{ x | e | upper }}`): `upper` returns plain text, which is then
+  escaped once more; escape last, or drop the `| e`.
+- A value that is markup on purpose (HTML you built or sanitized) needs `{{ value | safe }}`. Before, it printed raw by
+  accident. Values passed through `t()` that contain HTML are escaped now; render them with `| safe`.
+- The built-in helpers return `Crinja::SafeString` and are not escaped. Your own `Azu::Helpers.function`/`filter` that
+  return HTML must return `Crinja::SafeString.new(html)`, built from escaped parts.
+- Filters that build a new string drop the safe mark, so their result is escaped (again): `upper`, `lower`, `title`,
+  `capitalize`, `truncate`, `replace`, `format` and the `~` operator (`{{ (x | safe) ~ "a" }}`, `{{ (x | e) | upper }}`
+  gives `&amp;LT;`). Apply them to the plain value and mark the result last (`{{ (x | upper) | e }}`), or build the markup
+  yourself with `Crinja::SafeString.new(html)` in a helper. `trim`, `default`, `join` and `{% set %}` keep it.
+- Strings your code passes into a template that are HTML must be marked: `{{ csrf_tag }}` and `{{ csrf_metatag }}` (the
+  template variables) are safe already, but `Azu::Spark.render(...)` and `Azu::Spark.script_tag` return plain Strings, so a
+  template that prints them needs `{{ spark_view | safe }}`. Wrap them as `Crinja::Value.new(Crinja::SafeString.new(html))`
+  in the data you pass to `view`.
+- `{% autoescape false %}...{% endautoescape %}` turns the escaping off for a block, `{% autoescape true %}` on again
+  inside a plain text template.
+- The global `Crinja.render("{{ x }}", ...)` (Crinja's own default environment, not `Azu::CONFIG.templates.crinja`) does
+  not escape. Use the Azu environment for anything that prints user values.
+- Last resort: `Azu::CONFIG.template_autoescape = false` or `TEMPLATE_AUTOESCAPE=false` restores the old behavior (the start logs a warning while it is off, and when the variable holds a
+  value other than `true` or `false`, which leaves escaping on).
+
+**Releases that autoescape need `csrf_metatag | safe` in generated apps (urgent).** The template variables `csrf_tag` and
+`csrf_metatag` are `Crinja::SafeString` now. Before this fix, 0.5.120 printed `&lt;input ...` for `{{ csrf_tag }}` and
+`{{ csrf_metatag }}` in a page that did not say `| safe`, and the form carried no CSRF token. A page that says `| safe`
+(the generated scaffold and auth pages do) works with both; the generated welcome page (`{{ csrf_metatag }}` without
+`| safe`) needs it until azu_cli is updated.
+
+**`urlize` is Azu's own.** It escapes the text around the links and links only `http`, `https` and `www.` addresses
+(Crinja's linked any `scheme://`, `javascript://` too, and did not escape the rest of the text). `button_to` and
+`button_to_delete_*` write the `confirm:` text as `\uXXXX` escapes inside the JavaScript string, so an apostrophe no
+longer ends it. `truncate_html` returns a `SafeString` for a safe input; `simple_format` and `auto_link` validate the
+tag and attribute names like `content_tag`.
+
+**Template helpers escape what they used to pass through (security).** `highlight` and `content_tag` escape their text and
+content (pass markup as a `SafeString`: another helper's output or `| safe`); `link_to`, `button_to` and `form_tag` replace a
+URL whose scheme is not `http`, `https`, `mailto` or `tel` (`javascript:`, `data:`, `vbscript:`, ...) with `#` or
+`about:invalid`; an attribute name that is not `[A-Za-z_:][-A-Za-z0-9_:.]*` is dropped and a tag name that is not a name
+raises `ArgumentError`. Check `content_tag(content="<b>x</b>")` and links to other schemes (`sms:`, `ftp:`, custom app schemes):
+write those `<a>` tags yourself. See [attribute names and URLs](templates/helpers.md#attribute-names-and-urls).
+
 **`Static` can refuse paths (additive, nothing to change).** `Azu::Handler::Static.new(except: ["/templates"])` never serves
 `/templates` or anything below it; the request goes to the next handler, or answers `404` with `fallthrough: false`. Without
 `except` the handler behaves as before. Use it when template sources live under `public/`:

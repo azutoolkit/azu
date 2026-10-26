@@ -1,124 +1,129 @@
-# Azu Web Framework
+# Azu documentation
 
-**Azu** is a high-performance web framework for Crystal emphasizing type safety, modularity, and real-time capabilities.
+Azu is a web framework for Crystal built on typed contracts and real-time. These pages are organized by what you are trying to do. Not sure where to start? Read [Getting started](tutorials/getting-started.md), then skim [Everything in the box](explanation/features.md).
 
-## Quick Example
+## Start here
 
-```crystal
-require "azu"
+- [Getting started](tutorials/getting-started.md): an endpoint with a validated contract, a page, a test and the dev dashboard, in about 15 minutes.
+- [Everything in the box](explanation/features.md): every feature Azu ships, with a link to its guide.
+- [FAQ and troubleshooting](faq.md): common questions and the errors you are likely to meet.
+- [Migrate to 0.6](how-to/migrate-to-0.6.md): moving from the global `configure` style to `Azu::App`.
 
-module MyApp
-  include Azu
+## Tutorials
 
-  configure do
-    port = 3000
-  end
-end
+Lessons that take you from zero to a working feature. Do them in order.
 
-struct HelloRequest
-  include Azu::Request
-  getter name : String = "World"
-end
+- [Getting started](tutorials/getting-started.md): your first app.
+- [Building a user API](tutorials/building-a-user-api.md): a complete JSON CRUD API.
+- [Working with databases](tutorials/working-with-databases.md): CQL models, migrations and queries.
+- [Adding WebSockets](tutorials/adding-websockets.md): a chat channel with pub/sub.
+- [Building live components](tutorials/building-live-components.md): server-rendered views that update in place.
+- [Testing your app](tutorials/testing-your-app.md): endpoints, contracts, channels and components.
+- [Deploying to production](tutorials/deploying-to-production.md): configuration, secrets and a running service.
 
-struct HelloResponse
-  include Azu::Response
-  def initialize(@name : String); end
-  def render
-    "Hello, #{@name}!"
-  end
-end
+## How-to guides
 
-struct HelloEndpoint
-  include Azu::Endpoint(HelloRequest, HelloResponse)
-  get "/"
-  def call : HelloResponse
-    HelloResponse.new(hello_request.name)
-  end
-end
+Short recipes for one task each.
 
-MyApp.start [
-  Azu::Handler::Logger.new,
-  Azu::Handler::Rescuer.new
-]
-```
+**Endpoints and validation**
 
-## Architecture
+- [Create an endpoint](how-to/endpoints/create-endpoint.md)
+- [Handle parameters](how-to/endpoints/handle-parameters.md): path, query, form and JSON.
+- [Return different formats](how-to/endpoints/return-different-formats.md): JSON, HTML, text, XML.
+- [Validate requests](how-to/validation/validate-requests.md)
+- [Validate models](how-to/validation/validate-models.md)
+- [Handle validation errors](how-to/validation/handle-validation-errors.md)
+- [Handle file uploads](how-to/file-handling/handle-file-uploads.md) and [validate file types](how-to/file-handling/validate-file-types.md)
 
-```text
-HTTP Request → Router → Middleware Chain → Endpoint → Response
-                                              ↓
-                                    Request Contract (validation)
-```
+**Errors and middleware**
 
-**Endpoints** are type-safe handlers with:
+- [Handle errors gracefully](how-to/errors/handle-errors-gracefully.md) and [create custom errors](how-to/errors/create-custom-errors.md)
+- [Create custom middleware](how-to/middleware/create-custom-middleware.md)
+- [Add logging](how-to/middleware/add-logging.md)
+- [Use sessions](how-to/middleware/use-sessions.md)
 
-- **Request Contract**: Validates and types incoming data
-- **Response Object**: Handles content rendering
-- **Middleware**: Cross-cutting concerns (auth, logging, etc.)
+**Templates**
 
-## Core Features
+- [Render HTML templates](how-to/templates/render-html-templates.md)
+- [Use template helpers](how-to/templates/use-template-helpers.md)
+- [Enable hot reload](how-to/templates/enable-hot-reload.md)
 
-| Feature                 | Description                                 |
-| ----------------------- | ------------------------------------------- |
-| **Type-Safe Contracts** | Compile-time validation via `Azu::Request` |
-| **Radix Routing**       | O(log n) lookup with path caching          |
-| **WebSocket Channels**  | Real-time bidirectional communication      |
-| **Live Components**     | Server-rendered with client sync (Spark)   |
-| **Multi-Store Cache**   | Memory and Redis with auto-metrics         |
-| **Middleware Stack**    | CORS, CSRF, Rate Limiting, Logging         |
+**Real-time**
 
-## Documentation
+- [Create a WebSocket channel](how-to/real-time/create-websocket-channel.md)
+- [Broadcast messages](how-to/real-time/broadcast-messages.md)
+- [Build a live component](how-to/real-time/build-live-component.md)
 
-| New to Azu? | Need to do something? | Looking for API? | Want to understand? |
-|-------------|----------------------|------------------|---------------------|
-| [Tutorials](tutorials/) | [How-To Guides](how-to/) | [Reference](reference/) | [Explanation](explanation/) |
+**Data and caching**
 
-### Tutorials
+- [Define a schema](how-to/database/define-schema.md), [create models](how-to/database/create-models.md), [run migrations](how-to/database/run-migrations.md)
+- [Query data](how-to/database/query-data.md) and [handle transactions](how-to/database/handle-transactions.md)
+- [Set up a memory cache](how-to/caching/setup-memory-cache.md) and [a Redis cache](how-to/caching/setup-redis-cache.md)
+- [Run background jobs](how-to/jobs/background-jobs.md)
 
-Step-by-step lessons to learn Azu:
+**Testing**
 
-- [Getting Started](tutorials/getting-started.md) - Install and create your first app
-- [Building a User API](tutorials/building-a-user-api.md) - Complete CRUD API tutorial
-- [Adding WebSockets](tutorials/adding-websockets.md) - Real-time features
-- [Working with Databases](tutorials/working-with-databases.md) - CQL integration
-- [Testing Your App](tutorials/testing-your-app.md) - Write comprehensive tests
-- [Deploying to Production](tutorials/deploying-to-production.md) - Production deployment
+- [Test endpoints](how-to/testing/test-endpoints.md)
+- [Test WebSockets](how-to/testing/test-websockets.md)
 
-### How-To Guides
+**Performance**
 
-Task-oriented guides for specific goals:
+- [Optimize endpoints](how-to/performance/optimize-endpoints.md)
+- [Optimize database queries](how-to/performance/optimize-database-queries.md)
+- [Monitor performance in development](how-to/performance/monitor-performance.md)
 
-- [Migrate to 0.6](how-to/migrate-to-0.6.md) - Move from the global shim to `Azu::App`
-- [Endpoints](how-to/endpoints/) - Create endpoints, handle parameters, return formats
-- [Validation](how-to/validation/) - Validate requests and models
-- [Real-Time](how-to/real-time/) - WebSocket channels and live components
-- [Database](how-to/database/) - Schema, models, queries, transactions
-- [Caching](how-to/caching/) - Memory and Redis caching
-- [Middleware](how-to/middleware/) - Custom handlers and logging
-- [Deployment](how-to/deployment/) - Production, Docker, scaling
-- [Performance](how-to/performance/) - Optimize endpoints and queries
+**Deployment**
 
-### Reference
+- [Configure production](how-to/deployment/configure-production.md)
+- [Deploy with Docker](how-to/deployment/deploy-with-docker.md)
+- [Scale horizontally](how-to/deployment/scale-horizontally.md)
+- [Scale real-time features out](how-to/deployment/scale-out-realtime.md)
+- [Shut down gracefully](how-to/deployment/graceful-shutdown.md)
 
-Technical specifications and API documentation:
+## Reference
 
-- [Core API](reference/api/) - Endpoint, Request, Response, Channel, Component
-- [App](reference/api/app.md) - `Azu::App#start`, mounting and the `include Azu` facade
-- [Handlers](reference/handlers/built-in.md) - Built-in middleware handlers
-- [Configuration](reference/configuration/options.md) - All configuration options
-- [Database](reference/database/) - CQL API, validations, query methods
-- [Error Types](reference/errors/error-types.md) - HTTP error classes
+Exact behavior, options and signatures.
 
-### Explanation
+**Core API**
 
-Conceptual understanding of Azu:
+- [Core module](reference/api/core.md), [App](reference/api/app.md), [Router](reference/api/router.md)
+- [Endpoint](reference/api/endpoint.md), [Request](reference/api/request.md), [Response](reference/api/response.md)
+- [Content negotiation](reference/api/content-negotiation.md), [Streaming and SSE](reference/api/streaming.md)
+- [OpenAPI](reference/api/openapi.md), [Testing](reference/api/testing.md)
+- [Cache](reference/api/cache.md), [Redis](reference/api/redis.md)
+- [Error types](reference/errors/error-types.md)
 
-- [Architecture](explanation/architecture/overview.md) - How Azu works
-- [Request Lifecycle](explanation/architecture/request-lifecycle.md) - Request flow
-- [Type Safety](explanation/architecture/type-safety.md) - Compile-time guarantees
-- [Design Decisions](explanation/design-decisions/) - Why Azu is built this way
+**Real-time**
 
-### Resources
+- [Channel](reference/api/channel.md), [Presence](reference/api/presence.md), [Component](reference/api/component.md)
+- [Spark client and reconnects](reference/spark-client.md), [Spark benchmarks](reference/spark-benchmarks.md)
 
-- [FAQ](faq.md) - Common questions and troubleshooting
-- [Contributing](contributing/setup.md) - Development setup and guidelines
+**Handlers, configuration and templates**
+
+- [Built-in handlers](reference/handlers/built-in.md)
+- [Configuration options](reference/configuration/options.md), [environments](reference/configuration/environments.md), [`Azu::Env`](reference/configuration/env.md)
+- [Template engine](reference/templates/engine.md), [template helpers](reference/templates/helpers.md)
+
+**Database**
+
+- [CQL bridge](reference/api/cql-bridge.md), [database dashboard](reference/database-dashboard.md)
+- [CQL API](reference/database/cql-api.md), [query methods](reference/database/query-methods.md), [validations](reference/database/validations.md)
+
+**Releases**
+
+- [Breaking changes](reference/breaking-changes.md): what changed in each version and how to adapt.
+
+## Explanation
+
+Why Azu works the way it does.
+
+- [Everything in the box](explanation/features.md)
+- [Architecture overview](explanation/architecture/overview.md), [request lifecycle](explanation/architecture/request-lifecycle.md), [type safety](explanation/architecture/type-safety.md), [performance design](explanation/architecture/performance-design.md)
+- [Endpoints](explanation/concepts/endpoints.md), [contracts](explanation/concepts/contracts.md), [middleware](explanation/concepts/middleware.md), [real-time](explanation/concepts/real-time.md), [components](explanation/concepts/components.md), [Spark live views](explanation/spark-live-views.md)
+- [Why contracts?](explanation/design-decisions/why-contracts.md) and [why type safety?](explanation/design-decisions/why-type-safety.md)
+
+## Contributing
+
+- [Development setup](contributing/setup.md), [code standards](contributing/standards.md), [roadmap](contributing/roadmap.md)
+- [Benchmarks](../benchmark/README.md): how Azu is measured against other frameworks.
+- Design plans: [Azu 0.6, apps as values](plans/0.6-architecture.md), [unified JoobQ and Dashforge DSL](plans/joobq-dashforge-dsl.md).

@@ -247,6 +247,7 @@ module Azu
       @started_once = true
       @config.announce_default_environment
       @config.warn_about_bind_host
+      @config.warn_about_template_autoescape
       @config.handlers = handlers.map(&.as(HTTP::Handler))
       App.trap_signals if signals
 

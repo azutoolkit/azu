@@ -167,12 +167,12 @@ describe "Azu::Templates compiled (every environment but development)" do
 
   it "autoescapes exactly as the file loader does, per extension" do
     with_template_dir do |dir|
-      {"p.html" => true, "p.jinja" => false, "p.j2" => nil, "x.html.jinja" => nil}.each do |name, escaped|
+      {"p.html" => true, "p.jinja" => true, "p.j2" => true, "x.html.jinja" => true}.each do |name, escaped|
         File.write(File.join(dir, name), "{{ x }}")
         compiled = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false).load(name).render({"x" => "<b>"})
         reloading = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: true).load(name).render({"x" => "<b>"})
         compiled.should eq reloading
-        compiled.should eq(escaped ? "&lt;b&gt;" : "<b>") unless escaped.nil?
+        compiled.should eq(escaped ? "&lt;b&gt;" : "<b>")
       end
       File.write(File.join(dir, "_inc.html"), "{{ x }}")
       File.write(File.join(dir, "outer.jinja"), %({% include "_inc.html" %}))
