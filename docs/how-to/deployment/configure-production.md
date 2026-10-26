@@ -23,6 +23,8 @@ PORT=4000
 | `PORT_REUSE` | `true` | `SO_REUSEPORT` on the listening socket |
 | `TEMPLATE_HOT_RELOAD` | on in `development`, `test`, `pipeline` | re-read changed template files |
 | `TEMPLATES_PATH` | see [templates](../templates/render-html-templates.md) | comma separated template directories |
+| `SERVER_HEADER_TIMEOUT`, `SERVER_READ_TIMEOUT`, `SERVER_WRITE_TIMEOUT`, `SERVER_KEEP_ALIVE_TIMEOUT` | `10`, `30`, `60`, `60` | seconds a connection may be slow, see [Connection limits](../../reference/configuration/options.md#connection-limits) |
+| `SERVER_MIN_BODY_RATE`, `SERVER_MAX_CONNECTIONS` | `1024`, `10000` | slowest request body in bytes per second, and connections served at once |
 | `SHUTDOWN_TIMEOUT` | `30` | seconds to wait for requests in flight on SIGTERM |
 | `UPLOAD_MAX_FILE_SIZE` | `10485760` | bytes allowed per uploaded file, multipart text field, urlencoded body and JSON body |
 | `UPLOAD_MAX_REQUEST_SIZE`, `UPLOAD_MAX_PARTS`, `UPLOAD_MAX_FILES` | `67108864`, `100`, `20` | bytes, parts and files allowed in one multipart request |

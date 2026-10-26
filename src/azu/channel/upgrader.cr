@@ -37,6 +37,7 @@ module Azu
         params = context.request.path_params?
         response.upgrade do |io|
           context.request.path_params = params
+          ServerLimits.release(io)
           TCPNoDelay.apply(io, nodelay)
           Azu.with_scope(app, config) do
             socket = HTTP::WebSocket.new(BoundedProtocol.new(io, @channel.max_message_size))

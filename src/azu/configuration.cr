@@ -241,6 +241,8 @@ module Azu
 
     # WebSocket security and keep-alive settings shared by `Azu::Channel`s
     getter websocket : WebSocketConfiguration = WebSocketConfiguration.new
+    # Time limits on the connections the server accepts, and how many it takes at once (`ServerLimitsConfiguration`).
+    getter limits : ServerLimitsConfiguration = ServerLimitsConfiguration.new
 
     # Spark live views (see `Azu::Spark`)
     getter spark : Spark::Configuration = Spark::Configuration.new
@@ -373,6 +375,28 @@ module Azu
   end
 
   # Configuration for file upload handling
+  # What the server does with a connection that is slow or one too many. Applied to the sockets the server accepts
+  # (`App#start`; a server you bind yourself with `server.bind_tcp` has none of it).
+  #
+  # With TLS only `read_timeout`, `write_timeout` and `max_connections` apply: the header and idle rules read the
+  # request, which only a plain connection shows.
+  class ServerLimitsConfiguration
+    # From the first byte of a request (or of the connection) to the end of its headers. A client that sends them
+    # slowly, a byte at a time, is cut here however often it sends something.
+    property header_timeout : Time::Span = ENV.fetch("SERVER_HEADER_TIMEOUT", "10").to_f.seconds
+    # Without data from the client while the server waits for it: the body of a request, or a TLS handshake.
+    property read_timeout : Time::Span = ENV.fetch("SERVER_READ_TIMEOUT", "30").to_f.seconds
+    # A write that the client does not take. Streaming responses write in pieces, each piece gets this long.
+    property write_timeout : Time::Span = ENV.fetch("SERVER_WRITE_TIMEOUT", "60").to_f.seconds
+    # How long a kept-alive connection may wait for the next request.
+    property keep_alive_timeout : Time::Span = ENV.fetch("SERVER_KEEP_ALIVE_TIMEOUT", "60").to_f.seconds
+    # The slowest a request body may arrive, in bytes per second, after `read_timeout` of grace: a body that comes in
+    # slower is cut even if every read is within `read_timeout`. 0 turns the rule off.
+    property min_body_rate : Int32 = ENV.fetch("SERVER_MIN_BODY_RATE", "1024").to_i
+    # Connections served at once; the next one is answered `503` with `Retry-After` and closed. 0 means no limit.
+    property max_connections : Int32 = ENV.fetch("SERVER_MAX_CONNECTIONS", "10000").to_i
+  end
+
   class UploadConfiguration
     property max_file_size : UInt64 = ENV.fetch("UPLOAD_MAX_FILE_SIZE", "10485760").to_u64 # 10MB default
     # The whole multipart request, headers of its parts included, counted as it streams in: a larger one is answered 413
@@ -459,7 +483,7 @@ module Azu
     # answered by two small writes, and with Nagle on the second waits for the peer's delayed ACK
     # (about 40 ms per round trip on a Linux peer). Set `WEBSOCKET_TCP_NODELAY=false` to keep the
     # operating system's default. Plain TCP sockets are set at the upgrade; a TLS listener started by
-    # `App#start` is built on `Azu::NoDelayTCPServer`, so every connection it accepts is set.
+    # `App#start` is built on `Azu::LimitedTCPServer`, so every connection it accepts is set.
     property? tcp_nodelay : Bool = WebSocketConfiguration.flag("WEBSOCKET_TCP_NODELAY", true)
 
     # Reads a boolean variable: true, 1, on, yes / false, 0, off, no (any case). Anything else keeps
