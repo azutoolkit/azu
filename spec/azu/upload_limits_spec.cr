@@ -155,6 +155,51 @@ private def temp_files(dir : String) : Array(String)
   Dir.children(dir)
 end
 
+# An in-memory body that counts the read calls made on it: a reader that scans a byte at a time makes one per byte.
+private class CountingMemory < IO::Memory
+  getter reads = 0
+
+  def read(slice : Bytes) : Int32
+    @reads += 1
+    super
+  end
+end
+
+private def parse_through(body : String, limit : UInt64) : {CountingMemory, Int32}
+  memory = CountingMemory.new(body)
+  limited = Azu::Params::Multipart::LimitedBody.new(memory, limit)
+  parts = 0
+  HTTP::FormData.parse(limited, "B") do |upload|
+    upload.body.skip_to_end
+    parts += 1
+  end
+  {memory, parts}
+end
+
+describe Azu::Params::Multipart::LimitedBody do
+  body = part("doc", "z" * 3_000_000, "big.bin") + "--B--\r\n"
+
+  it "lets the multipart parser scan ahead, so a large upload is not read a byte at a time" do
+    memory, parts = parse_through(body, 10_000_000_u64)
+    parts.should eq 1
+    memory.reads.should be < body.bytesize // 50
+  end
+
+  it "counts exactly: the limit passes, one byte over is refused, whatever the way the bytes are taken" do
+    parse_through(body, body.bytesize.to_u64)[1].should eq 1
+    parse_through(body, body.bytesize.to_u64 + 1)[1].should eq 1
+    [1_u64, 2_u64].each do |over|
+      expect_raises(Azu::Params::TooLarge) { parse_through(body, body.bytesize.to_u64 - over) }
+    end
+  end
+
+  it "never lets a peek show more than one byte past the limit" do
+    limited = Azu::Params::Multipart::LimitedBody.new(IO::Memory.new("a" * 100), 10_u64)
+    limited.peek.not_nil!.size.should eq 11
+    expect_raises(Azu::Params::TooLarge) { limited.skip(11) }
+  end
+end
+
 describe "multipart limits" do
   dir = Path[Dir.tempdir, "azu_upload_limits_spec"].to_s
 
@@ -222,6 +267,25 @@ describe "multipart limits" do
       status, _ = stream(address, post_head("Content-Length: #{body.bytesize}"), [body].each, false)
       status.should start_with("HTTP/1.1 413")
       temp_files(dir).should be_empty
+    end
+  end
+
+  it "counts every file, also under one field name" do
+    with_upload_server(dir, files: 5, request: 1_000_000_u64) do |address, _|
+      body = (1..8).map { |n| part("doc", "v", "f#{n}.txt") }.join + "--B--\r\n"
+      status, _ = stream(address, post_head("Content-Length: #{body.bytesize}"), [body].each, false)
+      status.should start_with("HTTP/1.1 413")
+      temp_files(dir).should be_empty
+    end
+  end
+
+  it "takes a large upload at a speed that does not depend on a byte-wise reader (2 MB over the wire)" do
+    with_upload_server(dir, file: 5_000_000_u64, request: 10_000_000_u64) do |address, _|
+      body = part("doc", "z" * 2_000_000, "big.bin") + "--B--\r\n"
+      started = Time.instant
+      response = HTTP::Client.new(address.address, address.port).post("/upload", HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=B"}, body)
+      response.status_code.should eq 200
+      (Time.instant - started).should be < 20.seconds
     end
   end
 

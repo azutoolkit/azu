@@ -242,6 +242,21 @@ module Azu
           read
         end
 
+        # What the body has buffered, never more than the limit allows plus the byte that shows there is more. The
+        # stdlib's `IO::Delimited` (the multipart parser) scans ahead through `peek` and falls back to a byte at a time
+        # without it, which is twenty times slower.
+        def peek : Bytes?
+          data = @io.peek || return
+          allowed = (@limit - Math.min(@count, @limit) + 1).to_i64
+          data.size <= allowed ? data : data[0, allowed]
+        end
+
+        def skip(bytes_count : Int) : Nil
+          @io.skip(bytes_count)
+          @count += bytes_count.to_u64
+          raise TooLarge.new("Request body exceeds maximum allowed size of #{@limit} bytes") if @count > @limit
+        end
+
         def write(slice : Bytes) : NoReturn
           raise IO::Error.new("A request body is read only")
         end
@@ -276,17 +291,14 @@ module Azu
           @read_time = upload.read_time
           @size = upload.size
 
-          # A temp path nobody can guess, made of characters that cannot leave the directory: the client's file name
-          # is only a hint in it (`File#filename` keeps the original).
-          temp_filename = "azu_upload_#{Time.utc.to_unix_ms}_#{Random::Secure.hex(8)}"
-          temp_filename += "_#{safe_name(@filename)}" if @filename && !@filename.try(&.empty?)
           upload_config = Azu.current_config.upload
           upload_config.prepare
-          @temp_path = Path[upload_config.temp_dir, temp_filename].to_s
 
-          # Create temp file and stream upload data
-          # Readable by this process only: the temp directory is usually shared.
-          @file = ::File.new(@temp_path, "w+", perm: 0o600)
+          # Created exclusively (O_EXCL) with mode 0600, in the temp directory, under a name nobody can guess: the
+          # client's file name is only a hint in it, reduced to safe characters (`File#filename` keeps the original).
+          suffix = @filename && !@filename.try(&.empty?) ? "_#{safe_name(@filename)}" : nil
+          @file = ::File.tempfile(prefix: "azu_upload_#{Time.utc.to_unix_ms}_", suffix: suffix, dir: upload_config.temp_dir)
+          @temp_path = @file.path
           stream_upload_data(upload.body, upload_config)
         end
 
@@ -369,13 +381,15 @@ module Azu
 
         begin
           parts = 0
+          file_count = 0
           HTTP::FormData.parse(request) do |upload|
             next unless upload
             parts += 1
             raise TooLarge.new("Too many parts in the request (at most #{limits.max_parts})") if parts > limits.max_parts
             filename = upload.filename
             if filename.is_a?(String) && !filename.empty?
-              raise TooLarge.new("Too many files in the request (at most #{limits.max_files})", filename: filename) if files.size >= limits.max_files && !files.has_key?(upload.name)
+              file_count += 1 # every file counts, whatever the field name
+              raise TooLarge.new("Too many files in the request (at most #{limits.max_files})", filename: filename) if file_count > limits.max_files
               begin
                 files.delete(upload.name).try(&.cleanup) # a second file under one name replaces the first
                 files[upload.name] = File.new(upload: upload)

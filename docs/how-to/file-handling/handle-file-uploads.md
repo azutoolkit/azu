@@ -162,7 +162,10 @@ end
 Temp files are created with mode `0600` and a name the client cannot choose (its file name is only a hint in the name,
 reduced to safe characters; `file.filename` keeps the original), and **they are deleted when the request is done**: copy
 the file you want to keep inside the endpoint, as the examples do, and do not hand `temp_path` to a background job.
-A second file under the same field name replaces the first.
+A second file under the same field name replaces the first, but every file counts toward `max_files`. A limit of `0` (or
+below) refuses every multipart request or file rather than switching the check off: raise limits, do not zero them. A
+client that opens a request and then stalls holds the temp files it has sent until the connection closes; the
+server's connection limits (`header_timeout`, `read_timeout`) bound that.
 
 `UPLOAD_MAX_FILE_SIZE` (bytes), `UPLOAD_MAX_REQUEST_SIZE`, `UPLOAD_MAX_PARTS`, `UPLOAD_MAX_FILES`, `UPLOAD_TEMP_DIR`, `UPLOAD_BUFFER_SIZE`, `UPLOAD_CLEANUP_INTERVAL` and
 `UPLOAD_MAX_TEMP_AGE` (seconds) set the same from the environment. Put a limit on the request in your reverse proxy

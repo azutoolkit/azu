@@ -413,9 +413,9 @@ Where the form token is looked for, and how much of the body is read for it:
   part with a `filename` is a file part, and that includes the empty file input a browser sends as
   `filename=""` when nothing is chosen. Put `csrf_field()` at the top of the form, above every file input. A token after
   a file, past 64 parts or 64 KB, in a part whose `name` or `filename` is repeated, or in a request without a
-  `boundary` is not found, and the request is refused with `403`. The size of a multipart body is **not** checked by
-  `CSRF`, and the framework does not bound it as a whole: `upload.max_file_size` is checked for each file as the endpoint
-  parses it. Limit the total in the proxy (`client_max_body_size`) until the framework does.
+  `boundary` is not found, and the request is refused with `403`. `CSRF` does not check the size
+  of a multipart body: the endpoint does, while it streams it in (`upload.max_request_size`, `max_parts`, `max_files` and
+  `max_file_size` per file; see [Handle file uploads](../../how-to/file-handling/handle-file-uploads.md)).
 - In every case the endpoint still reads the whole body afterwards, as it was sent. The query parameter is the last
   place tried.
 
