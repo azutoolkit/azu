@@ -375,7 +375,10 @@ not set, the handler uses a random key that only this process knows (one warning
 **raises `Azu::Env::MissingError` when it is built in production** (or any `Azu::Env.strict_environments`): tokens signed
 with a per-process key are rejected after a restart and by every other server.
 
-`Azu::Handler::CSRF.token(context)` uses `Azu::Handler::CSRF.default`. A second instance validates those tokens
+`Azu::Handler::CSRF.token(context)` uses `Azu::Handler::CSRF.default`. A second call for the same response (on any
+instance) returns the token already issued for it: the response's CSRF cookie, or the session's with `SessionTokenStore`.
+So every form and meta tag of one page carries the same token (an endpoint's `csrf_token`, `csrf_tag` and `csrf_metatag`
+included); a deleted, expired or other-path cookie is replaced. A second instance validates those tokens
 only if it has the same secret: set `CSRF_SECRET` (or `Azu::Handler::CSRF.secret_key = ...` before building it), or put
 `Azu::Handler::CSRF.default` in the chain. Checked by running
 all four combinations: an instance with a different random key answered `403` to a valid token; the same key,

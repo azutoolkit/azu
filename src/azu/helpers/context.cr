@@ -148,14 +148,15 @@ module Azu
         @session ||= extract_session
       end
 
-      # Returns CSRF token for the current request. It is issued once per context (issuing sets the token cookie),
-      # so `csrf_tag` and `csrf_metatag` carry the same token, the one the cookie holds.
+      # Returns CSRF token for the current request: the one already issued for its response (the CSRF cookie, or the
+      # session's with `SessionTokenStore`; an earlier `view` of the same request reuses it), so `csrf_tag` and
+      # `csrf_metatag` carry the same token.
       #
       # ```jinja
       # <input type="hidden" name="_csrf" value="{{ csrf_token }}" />
       # ```
       def csrf_token : String
-        @csrf_token ||= issued_csrf_token || Handler::CSRF.token(@context)
+        @csrf_token ||= Handler::CSRF.token(@context)
       end
 
       # Returns CSRF hidden input tag.
@@ -230,12 +231,6 @@ module Azu
       # The template variable `name` for this request, nil for a name that is not one of `TEMPLATE_VARS`.
       def template_var(name : String) : Crinja::Value?
         TEMPLATE_VARS[name]?.try &.call(self)
-      end
-
-      # The token this response already set (an earlier `view` of the same request): issuing another would replace
-      # the cookie and leave that page's token stale.
-      private def issued_csrf_token : String?
-        @response.cookies[Handler::CSRF.cookie_name]?.try(&.value)
       end
 
       private def extract_flash : Hash(String, String)

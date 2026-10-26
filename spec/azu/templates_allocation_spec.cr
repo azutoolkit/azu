@@ -36,7 +36,8 @@ module TemplatesAllocationSpec
     HTTP::Server::Context.new(HTTP::Request.new("GET", "/items"), HTTP::Server::Response.new(IO::Memory.new))
   end
 
-  # What `view` computed per render with a request before: query and cookies parsed, every variable, three tokens.
+  # What `view` computed per render with a request before: query and cookies parsed, every variable (one token now,
+  # which csrf_tag and csrf_metatag reuse; each issued its own before).
   def self.every_request_variable(context : HTTP::Server::Context) : Hash(String, Crinja::Value)
     request, csrf = Azu::Helpers::TemplateContext.new(context), Azu::Handler::CSRF
     request.params
@@ -89,10 +90,11 @@ describe "view with a request" do
         every_variable = HotPath.bytes_per_call { context.response.reset; TemplatesAllocationSpec.every_request_variable(context) }
         one_token = HotPath.bytes_per_call { context.response.reset; Azu::Handler::CSRF.token(context) }
 
-        # Left: the one token that sets the cookie and the TemplateContext object. Measured 3,937 B below every_variable,
-        # which leaves out the old merge of the variables into the render's hash (~1 KB more)
+        # Left: the one token that sets the cookie and the TemplateContext object. Measured 2,907 B below every_variable,
+        # which leaves out the old merge of the variables into the render's hash (~1 KB more); csrf_tag and csrf_metatag
+        # there reuse the response's token now, where each issued its own before (another ~1 KB)
         (request_cost - one_token).should be <= 128
-        (every_variable - request_cost).should be >= 3600
+        (every_variable - request_cost).should be >= 2600
       end
     end
   {% end %}

@@ -328,8 +328,13 @@ module Azu
         end
       end
 
-      # Generate CSRF token for forms/AJAX requests
+      # Generate CSRF token for forms/AJAX requests. Issuing one sets the token cookie, so a response that already
+      # carries it gets that token again: another would replace the cookie and leave the token printed before stale.
       def token(context : HTTP::Server::Context) : String
+        if issued = issued_token(context)
+          return issued
+        end
+
         case @strategy
         when .synchronizer_token?
           generate_synchronizer_token(context)
@@ -376,8 +381,10 @@ module Azu
       end
 
       private def generate_synchronizer_token(context : HTTP::Server::Context) : String
-        # Generate or retrieve existing token from the token store
-        if existing_token = token_store.read(context)
+        # Generate or retrieve existing token from the token store. A token cookie already on the response is one
+        # `issued_token` did not reuse (deleted, expired, another path): the request's cookie it replaces is not handed out.
+        replaced = token_store.is_a?(CookieTokenStore) && context.response.cookies.has_key?(@cookie_name)
+        if !replaced && (existing_token = token_store.read(context))
           existing_token
         else
           new_token = Random::Secure.urlsafe_base64(TOKEN_LENGTH)
@@ -499,6 +506,14 @@ module Azu
       protected def cookie_token(context : HTTP::Server::Context) : String?
         cookies = HTTP::Cookies.from_client_headers(context.request.headers)
         cookies[@cookie_name]?.try(&.value)
+      end
+
+      # The token cookie `set_token_cookie` put on this response: live, non-empty and for no narrower path than it
+      # gives. A token kept elsewhere (a synchronizer token store that is not the cookie) is never read from the response.
+      private def issued_token(context : HTTP::Server::Context) : String?
+        return if @strategy.synchronizer_token? && !token_store.is_a?(CookieTokenStore)
+        cookie = context.response.cookies[@cookie_name]?
+        cookie.value if cookie && !cookie.expired? && !cookie.value.empty? && (cookie.path || "/") == "/"
       end
 
       # Set CSRF token cookie

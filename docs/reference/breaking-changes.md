@@ -47,7 +47,11 @@ HTML: a name with the inner extension `txt`, `text`, `json`, `js`, `mjs`, `css`,
 each of the three variables and each one replaced the CSRF cookie, so only `csrf_metatag` matched it: a form that printed
 `{{ csrf_token }}` or `{{ csrf_tag }}` was refused with 403 under the default `SignedDoubleSubmit` strategy. Now a render
 issues one token, the cookie holds it, and a second `view` in the same request (a layout and a partial) reuses it. The cookie
-is still set on every `view` with a request, whether or not the template prints a token.
+is still set on every `view` with a request, whether or not the template prints a token. The same held for an endpoint's
+`csrf_token`, `csrf_tag` and `csrf_metatag` helpers and for any code calling `Handler::CSRF.token(context)` twice under
+`SignedDoubleSubmit`, `DoubleSubmit`, or the synchronizer token with the cookie store on a request without the cookie: each
+call issued a token and replaced the cookie. Now one response gets one token, the one its cookie holds; a deleted, expired
+or other-path cookie of that name is replaced, not reused.
 
 **Request variables are computed when a template reads them.** `current_path`, `flash`, `csrf_token` and the other
 variables `view` gives a template with a request cost nothing when the template does not print them. `{{ debug() }}` lists
