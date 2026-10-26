@@ -1,6 +1,6 @@
 name: bench_athena
 version: 0.0.0
-crystal: ">= 1.19.1"
+crystal: ">= 1.22.1"
 dependencies:
   athena:
     github: athena-framework/framework

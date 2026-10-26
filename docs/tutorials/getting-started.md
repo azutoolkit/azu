@@ -2,11 +2,11 @@
 
 In about 15 minutes you will build a small Azu app from an empty directory: one endpoint whose contract is validated before your code runs, an HTML page that links to it, a test, and the development dashboard. You type every file, and every step has been run.
 
-You need [Crystal](https://crystal-lang.org/install/) 1.19.1 or newer and a terminal.
+You need [Crystal](https://crystal-lang.org/install/) 1.22.1 or newer and a terminal.
 
 ```bash
 crystal --version
-# Crystal 1.19.1 (...)
+# Crystal 1.22.1 (...)
 ```
 
 Prefer a generator? `azu new` writes a whole project for you; see [Get started in 5 minutes](../../README.md#get-started-in-5-minutes). This tutorial builds the pieces by hand so you see how they fit.
@@ -23,7 +23,7 @@ Create `shard.yml`:
 ```yaml
 name: hello
 version: 0.1.0
-crystal: ">= 1.19.1"
+crystal: ">= 1.22.1"
 
 dependencies:
   azu:

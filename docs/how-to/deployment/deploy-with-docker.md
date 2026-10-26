@@ -8,7 +8,7 @@ Create a multi-stage Dockerfile:
 
 ```dockerfile
 # Build stage
-FROM crystallang/crystal:1.17.1-alpine AS builder
+FROM crystallang/crystal:1.22.1-alpine AS builder
 
 WORKDIR /app
 
@@ -189,7 +189,7 @@ Development Dockerfile:
 
 ```dockerfile
 # Dockerfile.dev
-FROM crystallang/crystal:1.17.1
+FROM crystallang/crystal:1.22.1
 
 WORKDIR /app
 
