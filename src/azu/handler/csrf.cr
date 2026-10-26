@@ -89,6 +89,9 @@ module Azu
       # ... and the token field must be among the first parts: a walk over more is given up, whatever their size.
       MULTIPART_MAX_PARTS = 64
 
+      # Bytes the multipart walks may cover in all before they follow the buffer's growth instead of every read.
+      WALK_BUDGET = 262_144
+
       # The largest urlencoded body read for the token by default (`max_form_size`).
       FORM_SIZE_LIMIT = 1_048_576_u64
 
@@ -567,14 +570,17 @@ module Azu
         buffer = Bytes.new(MULTIPART_SCAN_LIMIT)
         filled = 0
         parsed = 0
+        walked = 0
         loop do
           count = io.read(buffer[filled, Math.min(4096, MULTIPART_SCAN_LIMIT - filled)])
           filled += count
           # The walk starts over from the first byte, so it runs on a schedule that does not depend on how the client
-          # slices its writes: after every read while the buffer is small, then each time it has grown by a quarter.
-          # The work for a whole request is a few times the size of the buffer, not once per read.
-          next unless count == 0 || filled == MULTIPART_SCAN_LIMIT || filled <= 256 || filled - parsed >= Math.max(512, parsed // 4)
+          # slices its writes: after every read until the walks have covered WALK_BUDGET bytes in all (a head of any
+          # size that arrives in a few reads is decided as soon as it is there), then each time the buffer has grown by
+          # a quarter. The work for a whole request is a constant, not once per read.
+          next unless count == 0 || filled == MULTIPART_SCAN_LIMIT || walked + filled <= WALK_BUDGET || filled - parsed >= Math.max(512, parsed // 4)
           parsed = filled
+          walked += filled
           return {buffer[0, filled], nil} unless boundary
           token, decided = CSRF.scan_multipart(buffer[0, filled], boundary, name)
           return {buffer[0, filled], token} if decided || count == 0 || filled == MULTIPART_SCAN_LIMIT

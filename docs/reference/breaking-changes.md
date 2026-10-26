@@ -26,7 +26,7 @@ looks at each byte a bounded number of times, gives up after 64 parts, and a `cs
 `SignedDoubleSubmit` handler signed is refused before any body is read (the other strategies cannot check a cookie the
 client chose, and read the body first). A urlencoded body is read up to the new `max_form_size` (1 MB by default,
 `CSRF_MAX_FORM_SIZE`) and a larger one answers `413`: **a urlencoded form between 1 MB and `upload.max_file_size` that
-passed before is now refused**, which deserved a minor release; raise `max_form_size` for such forms. **A browser sends an empty file input as a part with
+passed before is now refused** (the 1 MB default shipped in 0.7.0 without a minor-release marker); raise `max_form_size` for such forms. **A browser sends an empty file input as a part with
 `filename=""`: it counts as a file part, so `_csrf` must come before it.** Put `csrf_field()` at the top of every form,
 above its file inputs (the scaffolds' upload forms too), or send the `X-CSRF-TOKEN` header. A form with more than 64
 fields before `_csrf`, or with `_csrf` after the first 64 KB, is refused with `403` where the 0.6.1 behaviour was already

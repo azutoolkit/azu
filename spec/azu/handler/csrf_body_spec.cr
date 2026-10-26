@@ -64,13 +64,13 @@ end
 private class StalledBody < IO
   getter stalled_reads = 0
 
-  def initialize(@head : String)
+  def initialize(@head : String, @step : Int32 = 4096)
     @io = IO::Memory.new(@head)
-    @served = false
   end
 
   def read(slice : Bytes) : Int32
-    return @io.read(slice).tap { @served = true } unless @served
+    count = @io.read(slice[0, Math.min(slice.size, @step)])
+    return count if count > 0
     @stalled_reads += 1
     raise IO::TimeoutError.new("the client stalled")
   end
@@ -340,6 +340,28 @@ describe "Azu::Handler::CSRF request bodies" do
       stalled.stalled_reads.should eq 0
     end
 
+    [257, 274, 300, 399, 510, 511, 512, 700, 4000].each do |size|
+      [4096, 100, 37].each do |step|
+        it "decides a #{size}-byte head sent #{step} bytes at a time without waiting for the client that then stalls" do
+          handler = csrf_handler
+          token = issue_token(handler)
+          base = (text_part("B", "pad", "") + text_part("B", "_csrf", token)).bytesize
+          head = text_part("B", "pad", "p" * (size - base)) + text_part("B", "_csrf", token)
+          head.bytesize.should eq size
+          stalled = StalledBody.new(head, step)
+          headers = HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=B", "Cookie" => "csrf_token=#{token}"}
+          request = HTTP::Request.new("POST", "/save", headers)
+          request.body = stalled
+          reached = false
+          handler.next = ->(context : HTTP::Server::Context) { reached = true }
+          context = HTTP::Server::Context.new(request, HTTP::Server::Response.new(IO::Memory.new))
+          handler.call(context)
+          reached.should be_true
+          stalled.stalled_reads.should eq 0
+        end
+      end
+    end
+
     it "walks at most 64 parts: the token as the 64th is found, as the 65th is not" do
       handler = csrf_handler
       token = issue_token(handler)
@@ -424,7 +446,7 @@ describe "Azu::Handler::CSRF request bodies" do
       "a long line without a break" => "x" * Azu::Handler::CSRF::MULTIPART_SCAN_LIMIT,
     }
     shapes.each do |name, body|
-      [1, 7, 1024].each do |size|
+      [1, 7, 1024, 4096].each do |size|
         it "stays cheap for #{name} in #{size}-byte reads" do
           handler = csrf_handler
           token = issue_token(handler)

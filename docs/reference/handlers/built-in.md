@@ -348,7 +348,7 @@ How an `Origin` is matched:
 
 - A regex must match the **whole** `Origin`: it is wrapped in `\A(?:...)\z`, so `/good\.com/` allows `https://good.com`
   only, not `https://good.com.evil.test` or `https://evilgood.com` (a search would have). Write the scheme into it:
-  `/https:\/\/[a-z0-9-]+\.example\.com/` for any one-label subdomain. The `x` flag works, trailing `# comment` included.
+  `/https:\/\/[a-z0-9-]+\.example\.com/` for any one-label subdomain. The `x` flag works, trailing `# comment` included; an inline `(?x)` ending in a comment, without the flag, does not (it raises `ArgumentError` when the handler is built).
 - `origins` returns a copy: change the list with `cors.origins = [...]` (it re-checks the wildcard and credentials rule), not
   with `cors.origins << "https://b.test"`, which changes nothing.
 - A listed string must equal it exactly, and it is case-sensitive (browsers send the scheme and host in lower case): a
