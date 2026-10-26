@@ -15,6 +15,18 @@ class Azu::Templates
       super(source, env, name, filename)
     end
 
+    # `a.b` (`key` is the member name) and `a[key]`, as `Crinja::Evaluator` resolves them; the block names `a`.
+    def self.attribute(object : Crinja::Value, key, index : Bool, &) : Crinja::Value
+      raise Crinja::UndefinedError.new(yield) if object.undefined?
+      begin
+        value = Crinja::Resolver.resolve_attribute(key, object)
+      rescue Crinja::UndefinedError
+        raise Crinja::UndefinedError.new(index ? "#{yield}[#{key}]" : "#{yield}.#{key}")
+      end
+      value.as_undefined.name = (index ? "#{yield}[#{key}]" : "#{yield}.#{key}") if value.undefined?
+      value
+    end
+
     def render(io : IO, env : Crinja)
       env.context.autoescape = env.config.autoescape?(filename) # as Crinja's renderer does
       @body.call(io, env)

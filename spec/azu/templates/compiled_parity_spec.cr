@@ -191,3 +191,74 @@ describe "Azu::Templates compiled templates (fallbacks)" do
     end
   end
 end
+
+COMPILED_LOOPS = Azu::Templates.compile("spec/fixtures/compiled_loops")
+
+private def loops(hot_reload : Bool, compiled : Bool = false) : Azu::Templates
+  templates = Azu::Templates.new(["spec/fixtures/compiled_loops"], File.join(Dir.tempdir, "azu_compiled_errors"), hot_reload: hot_reload)
+  templates.compiled = COMPILED_LOOPS if compiled
+  templates
+end
+
+private def bench_items : Array(Hash(String, Crinja::Value))
+  ["Item 1 & <co>", "Item 2", "Item \"3\""].map_with_index do |name, i|
+    {"id" => Crinja::Value.new(i + 1), "name" => Crinja::Value.new(name), "price" => Crinja::Value.new((i + 1) * 100)}
+  end
+end
+
+describe "Azu::Templates compiled templates (for, member and index access, filters)" do
+  it "compiles every loops fixture, with no fallbacks" do
+    COMPILED_LOOPS.fallbacks.should be_empty
+  end
+
+  {
+    "bench.jinja"      => {"items" => bench_items},
+    "member.jinja"     => {"user" => {"name" => "Ada <b>", "address" => {"city" => "Paris"}}},
+    "index.jinja"      => {"row" => {"a" => "A&"}, "list" => ["x", "y<"]},
+    "filters.jinja"    => {"x" => "<i>&", "name" => "ada"},
+    "nested_for.jinja" => {"rows" => [["a", "b&"], ["c"], [] of String]},
+    "for_scope.jinja"  => {"item" => "outer<", "items" => ["1", "2&"]},
+    "for_hash.jinja"   => {"table" => {"k1" => "v1", "k2" => "v2"}},
+  }.each do |name, data|
+    it "renders #{name} as a CompiledTemplate, byte-identical to Crinja" do
+      compiled = loops(hot_reload: false, compiled: true)
+      reloading = loops(hot_reload: true)
+
+      compiled.load(name).should be_a Azu::Templates::CompiledTemplate
+      expected = reloading.render(name, data)
+      expected.should_not be_empty
+      compiled.render(name, data).should eq expected
+    end
+  end
+
+  it "renders the benchmark page through render_variables like Crinja, escaping names" do
+    compiled = loops(hot_reload: false, compiled: true)
+    reloading = loops(hot_reload: true)
+    vars = -> { Crinja::Variables.new.tap { |v| v["items"] = Crinja::Value.new(bench_items) } }
+
+    compiled.load("bench.jinja").should be_a Azu::Templates::CompiledTemplate
+    output = compiled.render_variables("bench.jinja", vars.call)
+    output.should contain %(<li class="item-1">Item 1 &amp; &lt;co&gt; (100)</li>)
+    output.should eq reloading.render_variables("bench.jinja", vars.call)
+  end
+
+  it "renders the benchmark page with autoescape off like Crinja" do
+    compiled = loops(hot_reload: false, compiled: true)
+    reloading = loops(hot_reload: true)
+    compiled.autoescape = false
+    reloading.autoescape = false
+
+    compiled.load("bench.jinja").should be_a Azu::Templates::CompiledTemplate
+    compiled.render("bench.jinja", {"items" => bench_items}).should eq reloading.render("bench.jinja", {"items" => bench_items})
+  end
+
+  it "renders a for over an undefined variable as an empty loop, like Crinja, and does not leak the loop variable" do
+    compiled = loops(hot_reload: false, compiled: true)
+    reloading = loops(hot_reload: true)
+
+    compiled.load("for_scope.jinja").should be_a Azu::Templates::CompiledTemplate
+    compiled.render("for_scope.jinja", {"item" => "outer"}).should eq "outer||outer"
+    compiled.render("for_scope.jinja", {"item" => "outer"}).should eq reloading.render("for_scope.jinja", {"item" => "outer"})
+    compiled.render("for_scope.jinja").should eq reloading.render("for_scope.jinja")
+  end
+end

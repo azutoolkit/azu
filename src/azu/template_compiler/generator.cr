@@ -26,21 +26,112 @@ module Azu::TemplateCompiler
     "#{fallbacks.inspect} of ::String => ::String)"
   end
 
+  # Raised while emitting, for a node `emit` cannot compile.
+  private class Fallback < Exception
+    getter at : Crinja::Parser::StreamPosition?
+
+    def initialize(@at, what : String)
+      super(what)
+    end
+  end
+
+  # `Crinja::Tag::For`'s own argument parse, for a plain loop only: its item variables and collection, or nil.
+  private class ForParser < Crinja::Tag::ArgumentsParser
+    def parse_for : {Array(String), Crinja::AST::ExpressionNode}?
+      vars = parse_identifier_list.map(&.name)
+      expect Kind::IDENTIFIER, "in"
+      collection = parse_expression
+      {vars, collection} if current_token.kind.eof? && !vars.includes?(Crinja::Tag::For::LOOP_VARIABLE)
+    end
+  end
+
   # Code rendering `source` as `Crinja::Template` does (default `trim_blocks`, `lstrip_blocks`), or why not: a node is
   # unsupported or the source does not parse (an app tag, a vendored page). Crinja serves those at runtime.
   private def self.emit(source : String) : String | Unsupported
-    after = Crinja::Parser::StreamPosition.new(1, 1, 0) # Crinja does not locate a `{# note #}`: it follows the node before
-    Crinja::Parser::TemplateParser.new(Crinja.new, source.rchop('\n')).parse.children.join do |node|
-      at, after = node.location_start? || after, node.location_end? || after
-      next "io << #{Crinja::Renderer.trim_text(node, false, false).inspect}; " if node.is_a?(Crinja::AST::FixedString)
-      name = node.as?(Crinja::AST::PrintStatement).try(&.expression.as?(Crinja::AST::IdentifierLiteral)).try(&.name)
-      return unsupported(at, node.as?(Crinja::AST::TagNode).try(&.name) || node.class.name.split("::").last) unless name
-      # locates a render error at the statement, as Crinja's renderer does
-      span = {node.location_start, node.location_end}.join(", ") { |pos| "::Crinja::Parser::StreamPosition.new(#{pos.line}, #{pos.column}, #{pos.pos})" }
-      "begin; io << env.stringify(env.resolve(#{name.inspect})); rescue e : ::Crinja::Error; raise e.has_location? ? e : e.at(#{span}); end; "
-    end
+    nodes(Crinja::Parser::TemplateParser.new(Crinja.new, source.rchop('\n')).parse.children)
+  rescue e : Fallback
+    unsupported(e.at, e.message.to_s)
   rescue e : Crinja::Error
     unsupported(e.location_start, e.message.to_s.lines.first? || e.class.name)
+  end
+
+  # Crinja does not locate a `{# note #}`: it takes the end of the node before.
+  private def self.nodes(list : Array(Crinja::AST::TemplateNode), after = Crinja::Parser::StreamPosition.new(1, 1, 0)) : String
+    list.join do |node|
+      at, after = node.location_start? || after, node.location_end? || after
+      node(node, at)
+    end
+  end
+
+  # One emitter per template node, as `Crinja::Renderer` renders it; a statement is located as the renderer does.
+  private def self.node(node : Crinja::AST::TemplateNode, at) : String
+    case node
+    when Crinja::AST::FixedString    then "io << #{Crinja::Renderer.trim_text(node, false, false).inspect}; "
+    when Crinja::AST::PrintStatement then located(node, "io << env.stringify(#{value(node.expression, at)})") + "; "
+    when Crinja::AST::TagNode        then located(node, for_loop(node, at)) + "; "
+    else                                  raise Fallback.new(at, node.class.name.split("::").last)
+    end
+  end
+
+  # `Crinja::Tag::For` without `if`, `recursive` or `else`: its `ForLoop`, and `Runner#run_loop`'s scope per item.
+  private def self.for_loop(node : Crinja::AST::TagNode, at) : String
+    parsed = ForParser.new(node.arguments, Crinja::Config.new).parse_for if node.name == "for" && node.end_tag
+    raise Fallback.new(at, node.name) unless parsed
+    vars, collection = parsed
+    "::Crinja::Tag::For::ForLoop.new(#{value(collection, at)}).try { |looper| looper.each { |item| " \
+    "env.with_scope({::Crinja::Tag::For::LOOP_VARIABLE => looper}) { |ctx| ctx.unpack(#{vars.inspect}, item); " \
+    "#{nodes(node.block.children, at)}} } }"
+  end
+
+  # What `Crinja::Evaluator#value` returns for `node`.
+  private def self.value(node : Crinja::AST::ExpressionNode, at) : String
+    "::Crinja::Value.new(#{expr(node, at)})"
+  end
+
+  # One emitter per expression node, for what `Crinja::Evaluator#evaluate` returns (a raw literal or a value).
+  private def self.expr(node : Crinja::AST::ExpressionNode, at) : String
+    case node
+    when Crinja::AST::IdentifierLiteral                          then "env.resolve(#{node.name.inspect})"
+    when Crinja::AST::StringLiteral, Crinja::AST::BooleanLiteral then node.value.inspect
+    when Crinja::AST::IntegerLiteral                             then "#{node.value}_i64"
+    when Crinja::AST::FloatLiteral                               then "#{node.value}_f64"
+    when Crinja::AST::NullLiteral                                then "nil"
+    when Crinja::AST::MemberExpression                           then attribute(node, node.identifier, node.member.name.inspect, false, at)
+    when Crinja::AST::IndexExpression                            then attribute(node, node.identifier, expr(node.argument, at), true, at)
+    when Crinja::AST::FilterExpression                           then located(node, filter(node, at))
+    else                                                              raise Fallback.new(node.location_start? || at, node.class.name.split("::").last)
+    end
+  end
+
+  private def self.attribute(node, object, key : String, index : Bool, at) : String
+    located(node, "::Azu::Templates::CompiledTemplate.attribute(#{value(object, at)}, #{key}, #{index}) { #{name(object, at)} }")
+  end
+
+  # `Crinja::Evaluator#evaluate_filter`: the filter, its arguments, keyword arguments and target, in that order.
+  private def self.filter(node : Crinja::AST::FilterExpression, at) : String
+    args = node.argumentlist.children.join(", ") do |arg|
+      raise Fallback.new(arg.location_start? || at, "SplashOperator") if arg.is_a?(Crinja::AST::SplashOperator)
+      value(arg, at)
+    end
+    kwargs = node.keyword_arguments.join { |key, arg| "kw[#{key.name.inspect}] = #{value(arg, at)}; " }
+    "env.execute_call(env.filters[#{node.identifier.name.inspect}], [#{args}] of ::Crinja::Value, " \
+    "::Crinja::Variables.new.tap { |kw| #{kwargs}}, target: #{value(node.target, at)})"
+  end
+
+  # Code for the name `Crinja::Evaluator#name_for_expression` gives `node` (it raises for any other node).
+  private def self.name(node : Crinja::AST::ExpressionNode, at) : String
+    case node
+    when Crinja::AST::IdentifierLiteral then node.name.inspect
+    when Crinja::AST::MemberExpression  then "(#{name(node.identifier, at)} + #{".#{node.member.name}".inspect})"
+    when Crinja::AST::IndexExpression   then %((#{name(node.identifier, at)} + "[" + #{expr(node.argument, at)}.to_s + "]"))
+    else                                     %((raise #{"not implemented for #{node.class}".inspect}).as(::String))
+    end
+  end
+
+  # Locates a `Crinja::Error` from `code` at `node`, as `Crinja::Renderer` and `Crinja::Evaluator` do.
+  private def self.located(node, code : String) : String
+    span = {node.location_start?, node.location_end?}.join(", ") { |pos| pos ? "::Crinja::Parser::StreamPosition.new(#{pos.line}, #{pos.column}, #{pos.pos})" : "nil" }
+    "begin; #{code}; rescue e : ::Crinja::Error; raise e.has_location? ? e : e.at(#{span}); end"
   end
 
   private def self.unsupported(at : Crinja::Parser::StreamPosition?, what : String) : Unsupported
