@@ -817,7 +817,62 @@ describe Azu::Handler::Static do
           static_bytes(dir, "/plaintext").should be > 0
         end
       end
+
+      it "looks up a path with a trailing slash, which may name a directory's index.html" do
+        with_temp_dir({"robots.txt" => "robots"}) do |dir|
+          static_bytes(dir, "/plaintext/").should be > 0
+        end
+      end
+
+      it "keeps no names once they cannot be read, so every path takes the full route" do
+        with_temp_dir({"robots.txt" => "robots"}) do |root|
+          with_fake_clock do |clock|
+            dir = File.join(root, "public")
+            Dir.mkdir(dir)
+            handler = Azu::Handler::Static.new(dir, fallthrough: true)
+            handler.next = StaticNoopNext.new
+            context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/plaintext"), HTTP::Server::Response.new(IO::Memory.new))
+            handler.call(context)
+
+            Dir.delete(dir)
+            File.write(dir, "a file now: listing it fails")
+            clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+            handler.call(context)
+            HotPath.bytes_per_call { handler.call(context) }.should be > 0
+          end
+        end
+      end
     {% end %}
+
+    it "refuses a raw NUL byte in the path, with the directory present or missing" do
+      with_temp_dir({"robots.txt" => "robots"}) do |dir|
+        [dir, File.join(dir, "missing")].each do |public_dir|
+          context, _ = create_context("GET", "/")
+          context.request.path = "/a\0b" # the URI parser stops at a NUL: only code that sets the path can put one there
+          falling_through_static(public_dir).call(context)
+          context.response.status_code.should eq(400)
+        end
+      end
+    end
+
+    it "passes requests on once the directory is removed, and serves it again once it is back" do
+      with_temp_dir({"public/robots.txt" => "robots"}) do |root|
+        with_fake_clock do |clock|
+          dir = File.join(root, "public")
+          handler = falling_through_static(dir)
+          static_body(handler, "/robots.txt").should eq("robots")
+
+          FileUtils.rm_rf(dir)
+          clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+          static_body(handler, "/robots.txt").should eq("OK")
+
+          Dir.mkdir(dir)
+          File.write(File.join(dir, "robots.txt"), "robots again")
+          clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+          static_body(handler, "/robots.txt").should eq("robots again")
+        end
+      end
+    end
 
     it "serves a top-level file added after boot once the directory is looked at again, not before" do
       with_temp_dir({"robots.txt" => "robots"}) do |dir|
