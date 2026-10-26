@@ -446,7 +446,7 @@ describe Azu::OpenAPI do
       paths.should_not contain "/live"
     end
 
-    it "lists a GET once, not with the HEAD and OPTIONS routes registered for it" do
+    it "lists a GET once, not with the HEAD route registered for it" do
       document["paths"]["/api/users"].as_h.keys.sort!.should eq %w(get post)
     end
 
@@ -464,6 +464,16 @@ describe Azu::OpenAPI do
 
       paths = JSON.parse(Azu::OpenAPI.document(outer, OpenAPISpec.info).to_json)["paths"].as_h.keys
       paths.should eq ["/middle/inner/deep"]
+    end
+
+    it "lists an options route declared next to a get" do
+      app = Azu::App.new
+      app.routes do
+        get "/a", OpenAPISpec::Admin::StatsEndpoint
+        options "/a", OpenAPISpec::Admin::StatsEndpoint
+      end
+      parsed = JSON.parse(Azu::OpenAPI.document(app, OpenAPISpec.info).to_json)
+      parsed["paths"]["/a"].as_h.keys.sort!.should eq %w(get options)
     end
 
     it "keeps operation ids unique when one endpoint is routed twice" do
