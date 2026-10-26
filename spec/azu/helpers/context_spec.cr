@@ -86,5 +86,17 @@ describe Azu::Helpers::TemplateContext do
         TemplateContextSpec.csrf_cookie(context).should_not be_nil
       end
     end
+
+    it "reuse the token an earlier view of the same request issued" do
+      with_compiled_templates({"token.jinja" => "{{ csrf_token }}"}) do
+        context = TemplateContextSpec.request
+        # A layout and a partial, each rendered with `view`: one cookie, so both pages' tokens stay valid
+        first = TemplateContextSpec::Page.new("token.jinja", context).render
+        second = TemplateContextSpec::Page.new("token.jinja", context).render
+
+        second.should eq first
+        TemplateContextSpec.csrf_cookie(context).should eq first
+      end
+    end
   end
 end

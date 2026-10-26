@@ -2,6 +2,7 @@ require "random/secure"
 require "crypto/subtle"
 require "openssl/hmac"
 require "http"
+require "html"
 require "base64"
 
 module Azu
@@ -348,7 +349,7 @@ module Azu
 
       # The hidden input for `token_value`, a token already issued for this request.
       def tag(token_value : String) : String
-        %Q(<input type="hidden" name="#{@param_name}" value="#{token_value}" />)
+        %Q(<input type="hidden" name="#{@param_name}" value="#{HTML.escape(token_value)}" />)
       end
 
       # Generate meta tag with CSRF token for AJAX requests
@@ -358,7 +359,7 @@ module Azu
 
       # The meta tag for `token_value`, a token already issued for this request.
       def metatag(token_value : String) : String
-        %Q(<meta name="#{@param_name}" content="#{token_value}" />)
+        %Q(<meta name="#{@param_name}" content="#{HTML.escape(token_value)}" />)
       end
 
       # SYNCHRONIZER TOKEN PATTERN

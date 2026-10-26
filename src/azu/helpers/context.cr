@@ -155,7 +155,7 @@ module Azu
       # <input type="hidden" name="_csrf" value="{{ csrf_token }}" />
       # ```
       def csrf_token : String
-        @csrf_token ||= Handler::CSRF.token(@context)
+        @csrf_token ||= issued_csrf_token || Handler::CSRF.token(@context)
       end
 
       # Returns CSRF hidden input tag.
@@ -230,6 +230,12 @@ module Azu
       # The template variable `name` for this request, nil for a name that is not one of `TEMPLATE_VARS`.
       def template_var(name : String) : Crinja::Value?
         TEMPLATE_VARS[name]?.try &.call(self)
+      end
+
+      # The token this response already set (an earlier `view` of the same request): issuing another would replace
+      # the cookie and leave that page's token stale.
+      private def issued_csrf_token : String?
+        @response.cookies[Handler::CSRF.cookie_name]?.try(&.value)
       end
 
       private def extract_flash : Hash(String, String)

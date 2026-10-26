@@ -164,4 +164,13 @@ describe Azu::Handler::CSRF do
       context.response.status_code.should eq(403)
     end
   end
+
+  describe "tags for a token already issued" do
+    it "escapes the token" do
+      handler = Azu::Handler::CSRF.new(secret_key: "my-secret-key-32-chars-long!!")
+
+      handler.tag(%(a"b<c)).should eq %(<input type="hidden" name="_csrf" value="a&quot;b&lt;c" />)
+      handler.metatag(%(a"b<c)).should eq %(<meta name="_csrf" content="a&quot;b&lt;c" />)
+    end
+  end
 end
