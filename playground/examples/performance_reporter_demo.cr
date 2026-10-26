@@ -62,7 +62,7 @@ module PerformanceReporterDemo
     service.start_periodic_reporting(:json, 10.seconds)
 
     # Let it run for a bit then stop
-    sleep(2)
+    sleep(2.seconds)
     puts "Demo periodic reporting started (would run in background)"
   end
 
@@ -75,7 +75,10 @@ module PerformanceReporterDemo
       timestamp = Time.utc.to_s
       memory_mb = (Azu::PerformanceMetrics.current_memory_usage / 1024.0 / 1024.0).round(2)
 
-      csv_lines << "#{timestamp},#{stats.total_requests},#{stats.avg_response_time.round(2)},#{stats.error_rate.round(2)},#{stats.requests_per_second.round(2)},#{memory_mb}"
+      elapsed = (stats.end_time - stats.start_time).total_seconds
+      requests_per_second = elapsed > 0 ? stats.total_requests / elapsed : 0.0
+
+      csv_lines << "#{timestamp},#{stats.total_requests},#{stats.avg_response_time.round(2)},#{stats.error_rate.round(2)},#{requests_per_second.round(2)},#{memory_mb}"
 
       csv_lines.join("\n")
     end
@@ -114,7 +117,7 @@ module PerformanceReporterDemo
     puts "\n8. File Output Demo".colorize(:green).bold
     puts "-" * 60
 
-    file_reporter = FilePerformanceReporter.new("/tmp/azu_performance_report.json")
+    file_reporter = FilePerformanceReporter.new(File.join(Dir.tempdir, "azu_performance_report.json"))
     file_reporter.output_report
   end
 
@@ -150,6 +153,8 @@ end
 
 # Run the demo if this file is executed directly
 if PROGRAM_NAME.includes?("performance_reporter_demo")
+  # The reporters need a monitor; without PERFORMANCE_MONITORING=true they say it is not enabled
+  Azu::CONFIG.performance_enabled = true
   PerformanceReporterDemo.demonstrate_solid_principles
   PerformanceReporterDemo.demonstrate_file_output
   PerformanceReporterDemo.show_benefits

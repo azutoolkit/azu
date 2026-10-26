@@ -1,6 +1,7 @@
 require "colorize"
 require "log"
 require "benchmark"
+require "wait_group"
 
 module Azu
   # Enhanced async logging system with structured pipeline and batch processing
@@ -54,28 +55,45 @@ module Azu
     # Batch processor for log entries
     class BatchProcessor
       @@queue = ::Channel(LogEntry).new(1000)
+      @@stop = ::Channel(Nil).new
+      @@done = WaitGroup.new
       @@batch_size = 50
       @@flush_interval = 5.seconds
       @@workers = 4
       @@started = false
       @@start_lock = Mutex.new
 
+      # Starts the workers and the flush timer. After `shutdown` it opens a new queue, so an app
+      # started again logs asynchronously again.
       def self.start
         @@start_lock.synchronize do
           return if @@started
           @@started = true
+          reopen if @@queue.closed?
+          @@done = WaitGroup.new(@@workers + 1)
+          spawn_fibers(@@queue, @@stop, @@done)
         end
+        AsyncLogging.shutdown_at_exit
+      end
 
-        # Start batch processing workers
+      private def self.reopen : Nil
+        @@queue = ::Channel(LogEntry).new(1000)
+        @@stop = ::Channel(Nil).new
+      end
+
+      private def self.spawn_fibers(queue : ::Channel(LogEntry), stop : ::Channel(Nil), done : WaitGroup) : Nil
         @@workers.times do |i|
           spawn(name: "log-batch-worker-#{i}") do
-            worker_loop(i)
+            worker_loop(queue, i)
+          ensure
+            done.done
           end
         end
 
-        # Start flush timer
         spawn(name: "log-flush-timer") do
-          flush_timer_loop
+          flush_timer_loop(queue, stop)
+        ensure
+          done.done
         end
       end
 
@@ -83,18 +101,29 @@ module Azu
         start unless @@queue.closed?
         @@queue.send(entry)
       rescue ::Channel::ClosedError
-        # Fallback to synchronous logging if queue is closed
-        Log.for("Azu::AsyncLogging").error { "Log queue closed, falling back to sync logging" }
+        # The pipeline was shut down: write the entry now
         process_entry_sync(entry)
       end
 
-      private def self.worker_loop(worker_id : Int32)
+      # Closes the queue and waits until the workers have written every entry it held. Entries sent
+      # afterwards are written synchronously. Safe to call again, and when the pipeline never started.
+      def self.shutdown : Nil
+        done = @@start_lock.synchronize do
+          @@started = false
+          @@queue.close
+          @@stop.close
+          @@done
+        end
+        done.wait
+      end
+
+      private def self.worker_loop(queue : ::Channel(LogEntry), worker_id : Int32)
         batch = [] of LogEntry
         last_flush = Time.instant
 
         loop do
           select
-          when entry = @@queue.receive
+          when entry = queue.receive
             batch << entry
 
             # Flush if batch is full or enough time has passed
@@ -112,26 +141,38 @@ module Azu
             end
           end
         rescue ::Channel::ClosedError
-          batch.each { |log_entry| process_entry_sync(log_entry) }
+          # The queue is closed and empty: write what this worker still holds
+          process_batch(batch, worker_id)
           break
         rescue ex
-          Log.for("Azu::AsyncLogging").error(exception: ex) { "Worker #{worker_id} failed" }
+          report_failure(ex) { "Worker #{worker_id} failed" }
           # Process remaining entries synchronously
           batch.each { |log_entry| process_entry_sync(log_entry) }
           batch.clear
         end
       end
 
-      private def self.flush_timer_loop
+      private def self.flush_timer_loop(queue : ::Channel(LogEntry), stop : ::Channel(Nil))
         loop do
-          sleep @@flush_interval
-          # Force flush of any pending entries
-          flush_pending_entries
+          select
+          when stop.receive?
+            break
+          when timeout(@@flush_interval)
+            # Force flush of any pending entries
+            flush_pending_entries(queue)
+          end
         rescue ::Channel::ClosedError
           break
         rescue ex
-          Log.for("Azu::AsyncLogging").error(exception: ex) { "Flush timer failed" }
+          report_failure(ex) { "Flush timer failed" }
         end
+      end
+
+      private def self.report_failure(ex : Exception, &) : Nil
+        message = yield
+        Log.for("Azu::AsyncLogging").error(exception: ex) { message }
+      rescue ::Channel::ClosedError
+        STDERR.puts "#{message}: #{ex.message}"
       end
 
       private def self.process_batch(batch : Array(LogEntry), worker_id : Int32)
@@ -157,21 +198,34 @@ module Azu
           # Process warnings with medium priority
           entries.each { |entry| process_entry_sync(entry) }
         else
-          # Process info/debug in batches
-          batch_message = entries.map(&.message).join("\n")
-          log = Log.for("Azu::AsyncLogging")
-          case severity
-          when .debug? then log.debug { batch_message }
-          when .info?  then log.info { batch_message }
-          else
-            log.info { batch_message }
-          end
+          log_batched(severity, entries)
         end
+      end
+
+      # Info/debug entries are written as one message
+      private def self.log_batched(severity : Log::Severity, entries : Array(LogEntry))
+        batch_message = entries.map(&.message).join("\n")
+        log = Log.for("Azu::AsyncLogging")
+        if severity.debug?
+          log.debug { batch_message }
+        else
+          log.info { batch_message }
+        end
+      rescue ::Channel::ClosedError
+        entries.each { |entry| write_to_stderr(entry) }
       end
 
       private def self.process_entry_sync(entry : LogEntry)
         log = Log.for(entry.source)
         log_entry_by_severity(log, entry)
+      rescue ::Channel::ClosedError
+        write_to_stderr(entry)
+      end
+
+      # `Log`'s async dispatcher is closed (its `at_exit` already ran): write the entry plainly
+      # rather than lose it.
+      private def self.write_to_stderr(entry : LogEntry) : Nil
+        STDERR.puts "#{entry.timestamp.to_rfc3339} #{entry.severity.label} #{entry.source}: #{entry.message}"
       end
 
       private def self.log_entry_by_severity(log : Log, entry : LogEntry)
@@ -215,33 +269,28 @@ module Azu
             # Example: Send to external service
             # ExternalLogService.send_batch(batch)
             Log.for("Azu::AsyncLogging").debug { "Sent #{batch.size} entries to external service" }
+          rescue ::Channel::ClosedError
+            # `Log` is closed: the program is exiting
           rescue ex
             Log.for("Azu::AsyncLogging").error(exception: ex) { "Failed to send to external service" }
           end
         end
       end
 
-      private def self.flush_pending_entries
+      private def self.flush_pending_entries(queue : ::Channel(LogEntry))
         # Force flush any remaining entries in the queue
         pending = [] of LogEntry
 
         while pending.size < @@batch_size
           select
-          when entry = @@queue.receive
+          when entry = queue.receive
             pending << entry
           else
             break
           end
         end
 
-        if !pending.empty?
-          process_batch(pending, -1) # -1 indicates flush worker
-        end
-      end
-
-      def self.shutdown
-        @@started = false
-        @@queue.close
+        process_batch(pending, -1) # -1 indicates flush worker
       end
 
       def self.running? : Bool
@@ -252,39 +301,49 @@ module Azu
     # Background error reporter
     class ErrorReporter
       @@error_queue = ::Channel(Exception).new(100)
+      @@done = WaitGroup.new
       @@started = false
       @@start_lock = Mutex.new
 
+      # Starts the reporter fiber. After `shutdown` it opens a new queue.
       def self.start
         @@start_lock.synchronize do
           return if @@started
           @@started = true
+          @@error_queue = ::Channel(Exception).new(100) if @@error_queue.closed?
+          queue = @@error_queue
+          done = @@done = WaitGroup.new(1)
+          spawn(name: "error-reporter") do
+            error_processing_loop(queue)
+          ensure
+            done.done
+          end
         end
-
-        spawn(name: "error-reporter") do
-          error_processing_loop
-        end
+        AsyncLogging.shutdown_at_exit
       end
 
       def self.report_error(exception : Exception)
         start unless @@error_queue.closed?
         @@error_queue.send(exception)
       rescue ::Channel::ClosedError
-        # Fallback to immediate reporting
-        Log.for("Azu::ErrorReporter").error(exception: exception) { "Error reported synchronously" }
+        # The reporter was shut down: report it now
+        process_error(exception)
       end
 
-      private def self.error_processing_loop
-        loop do
-          exception = @@error_queue.receive
+      # Closes the queue and waits until every error it held has been reported. Safe to call again,
+      # and when the reporter never started.
+      def self.shutdown : Nil
+        done = @@start_lock.synchronize do
+          @@started = false
+          @@error_queue.close
+          @@done
+        end
+        done.wait
+      end
 
-          spawn(name: "error-processor") do
-            process_error(exception)
-          end
-        rescue ::Channel::ClosedError
-          break
-        rescue ex
-          Log.for("Azu::ErrorReporter").error(exception: ex) { "Error reporter failed" }
+      private def self.error_processing_loop(queue : ::Channel(Exception))
+        while exception = queue.receive?
+          process_error(exception)
         end
       end
 
@@ -305,6 +364,11 @@ module Azu
 
         # Send to external error reporting service
         send_to_error_service(exception, error_context)
+      rescue ::Channel::ClosedError
+        # `Log`'s async dispatcher is closed (its `at_exit` already ran)
+        STDERR.puts "#{Time.utc.to_rfc3339} ERROR Azu::ErrorReporter: #{exception.class.name}: #{exception.message}"
+      rescue ex
+        STDERR.puts "Azu::ErrorReporter failed: #{ex.message}"
       end
 
       private def self.send_to_error_service(exception : Exception, context : Hash(String, String))
@@ -315,15 +379,12 @@ module Azu
             # Example: Send to Sentry, Rollbar, etc.
             # ErrorReportingService.report(exception, context)
             Log.for("Azu::ErrorReporter").debug { "Error sent to external service" }
+          rescue ::Channel::ClosedError
+            # `Log` is closed: the program is exiting
           rescue ex
             Log.for("Azu::ErrorReporter").error(exception: ex) { "Failed to send error to external service" }
           end
         end
-      end
-
-      def self.shutdown
-        @@started = false
-        @@error_queue.close
       end
 
       def self.running? : Bool
@@ -385,9 +446,23 @@ module Azu
       ErrorReporter.start
     end
 
-    def self.shutdown
-      BatchProcessor.shutdown
+    # Stops the pipeline and waits until every queued entry and reported error has been written.
+    # Errors go first, as reporting one logs. Entries sent afterwards are written synchronously;
+    # `initialize` (or `App#start`) starts the pipeline again. Safe to call again, and when the
+    # pipeline never started. `Azu.shutdown` calls it, and so does an `at_exit` registered when the
+    # pipeline first starts: that one runs before `Log`'s own `at_exit` (registered earlier, when
+    # `log` was required) closes the async dispatcher the entries are written to.
+    def self.shutdown : Nil
       ErrorReporter.shutdown
+      BatchProcessor.shutdown
+    end
+
+    @@shutdown_at_exit = Atomic(Bool).new(false)
+
+    # :nodoc:
+    def self.shutdown_at_exit : Nil
+      return if @@shutdown_at_exit.swap(true)
+      at_exit { shutdown }
     end
 
     def self.running? : Bool

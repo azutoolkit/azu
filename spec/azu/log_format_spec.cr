@@ -1,4 +1,32 @@
 require "../spec_helper"
+require "file_utils"
+
+# Every entry written to `Log` while the block runs, from any fiber.
+private def capture_log_entries(&) : Array(Log::Entry)
+  backend = Log::MemoryBackend.new
+  Log.builder.bind("*", :trace, backend)
+  begin
+    yield
+  ensure
+    Log.builder.unbind("*", :trace, backend)
+  end
+  backend.entries
+end
+
+# Compiles and runs `source` as a program of its own, so its `at_exit` handlers run.
+private def run_exiting_program(source : String) : {String, String, Process::Status}
+  dir = File.tempname("azu-async-logging")
+  Dir.mkdir_p(dir)
+  program = File.join(dir, "main.cr")
+  File.write(program, source)
+  search_path = [File.expand_path("../../src", __DIR__), File.expand_path("../../lib", __DIR__), `crystal env CRYSTAL_PATH`.strip].join(':')
+  output = IO::Memory.new
+  error = IO::Memory.new
+  status = Process.run("crystal", ["run", "--no-color", program], env: {"CRYSTAL_PATH" => search_path}, output: output, error: error)
+  {output.to_s, error.to_s, status}
+ensure
+  FileUtils.rm_rf(dir) if dir
+end
 
 describe Azu::LogFormat do
   describe "LogFormat" do
@@ -59,9 +87,83 @@ describe Azu::LogFormat do
   describe "AsyncLogging" do
     describe "lifecycle" do
       it "stays running when a Configuration is finalized" do
+        Azu::AsyncLogging.initialize
         Azu::Configuration.new.finalize
 
         Azu::AsyncLogging.running?.should be_true
+      end
+    end
+
+    describe ".shutdown" do
+      it "writes every queued entry and reported error before it returns" do
+        Azu::AsyncLogging.initialize
+        logger = Azu::AsyncLogging::AsyncLogger.new("spec.shutdown")
+
+        entries = capture_log_entries do
+          120.times { |i| logger.info("queued info #{i}") }
+          3.times { |i| logger.warn("queued warn #{i}") }
+          Azu::AsyncLogging::ErrorReporter.report_error(Exception.new("queued error"))
+
+          Azu::AsyncLogging.shutdown
+        end
+
+        written = entries.map(&.message).join("\n")
+        120.times { |i| written.should match(/^queued info #{i}$/m) }
+        3.times { |i| written.should contain("queued warn #{i}") }
+        entries.count(&.exception.try(&.message.==("queued error"))).should eq 1
+        Azu::AsyncLogging.running?.should be_false
+      ensure
+        Azu::AsyncLogging.initialize
+      end
+
+      it "is safe to call again, writes later entries synchronously and starts again with initialize" do
+        Azu::AsyncLogging.shutdown
+        Azu::AsyncLogging.shutdown
+
+        entries = capture_log_entries do
+          Azu::AsyncLogging::AsyncLogger.new("spec.shutdown").info("after shutdown")
+        end
+        entries.map(&.message).should eq ["after shutdown"]
+
+        Azu::AsyncLogging.initialize
+        Azu::AsyncLogging.running?.should be_true
+        entries = capture_log_entries do
+          Azu::AsyncLogging::AsyncLogger.new("spec.shutdown").info("after restart")
+          Azu::AsyncLogging.shutdown
+        end
+        entries.map(&.message).should eq ["after restart"]
+      ensure
+        Azu::AsyncLogging.initialize
+      end
+
+      it "is called by Azu.shutdown" do
+        Azu::AsyncLogging.initialize
+
+        entries = capture_log_entries do
+          Azu::AsyncLogging::AsyncLogger.new("spec.shutdown").info("before Azu.shutdown")
+          Azu.shutdown
+        end
+
+        entries.map(&.message).should contain("before Azu.shutdown")
+      ensure
+        Azu::AsyncLogging.initialize
+      end
+
+      it "runs at exit, before Log closes its async dispatcher" do
+        next pending!("crystal is not installed") unless Process.find_executable("crystal")
+
+        output, error, status = run_exiting_program(<<-CR)
+          require "azu"
+          Log.setup(:info, Log::IOBackend.new(STDOUT))
+          logger = Azu::AsyncLogging::AsyncLogger.new("child")
+          5.times { |i| logger.info("entry \#{i}") }
+          Azu::AsyncLogging::ErrorReporter.report_error(Exception.new("reported"))
+          CR
+
+        status.success?.should be_true
+        error.should_not contain("Unhandled exception")
+        5.times { |i| output.should contain("entry #{i}") }
+        output.should contain("Error processed: Exception")
       end
     end
 

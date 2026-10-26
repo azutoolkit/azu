@@ -20,34 +20,46 @@ end
 class TestApp
   include Azu
 
+  # PORT when it is set, otherwise a port the system chooses
+  configure do |config|
+    config.port = ENV["PORT"]?.try(&.to_i?) || 0
+  end
+
   def self.start_test
     puts "🧪 Starting Server Exception Test"
     puts "=" * 50
 
-    # Register test endpoint
-    TestEndpoint.get "/test-exception"
+    app = Azu::App.default
+    stopped = ::Channel(Nil).new
 
-    # Start server in background
+    # Start the server in the background; `stop` below ends it
     spawn do
-      TestApp.start([
+      app.start([
         Azu::Handler::Rescuer.new,
         Azu::Handler::SimpleLogger.new,
-      ])
+      ] of HTTP::Handler, signals: false)
+      stopped.close
     end
 
-    # Give server time to start
-    sleep(1)
+    # Wait until the server is bound
+    address = nil
+    50.times do
+      break if address = app.address
+      sleep 100.milliseconds
+    end
+    abort "The server did not start" unless address
 
     # Make request that will trigger exception
     begin
-      response = HTTP::Client.get("http://localhost:4000/test-exception")
+      response = HTTP::Client.get("http://#{address}/test-exception")
       puts "Response status: #{response.status_code}"
     rescue ex
       puts "Request failed: #{ex.message}"
     end
 
-    # Give time for async logging to process
-    sleep(2)
+    # Stopping the app writes the log entries still queued
+    app.stop
+    stopped.receive?
 
     puts "\n✅ Server Exception Test Completed"
     puts "Check the logs above for exception details!"
