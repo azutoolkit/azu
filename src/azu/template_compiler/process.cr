@@ -1,4 +1,4 @@
-require "crinja" # Crinja only, never azu: this helper builds quickly and runs no app code
+# Crinja only, never azu: this helper builds quickly and runs no app code
 require "./generator"
 
 begin

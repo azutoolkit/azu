@@ -1,3 +1,5 @@
+require "crinja"
+
 module Azu::TemplateCompiler
   # A template directory that is missing, or (strict mode) a template that cannot be compiled.
   class Error < Exception
@@ -21,7 +23,7 @@ module Azu::TemplateCompiler
         nil
       end
     end
-    raise Error.new("Azu::Templates.compile: cannot compile #{fallbacks.values.join(", ")}") if strict && fallbacks.present?
+    raise Error.new("Azu::Templates.compile: cannot compile #{fallbacks.values.join("\n")}") if strict && fallbacks.present?
     "::Azu::Templates::CompiledSet.new({#{entries.join(", ")}} of ::String => {::String, ::Proc(::IO, ::Crinja, ::Nil)}, " \
     "#{fallbacks.inspect} of ::String => ::String)"
   end
@@ -135,6 +137,10 @@ module Azu::TemplateCompiler
   end
 
   private def self.unsupported(at : Crinja::Parser::StreamPosition?, what : String) : Unsupported
-    Unsupported.new(at ? "#{at.line}:#{at.column}: #{what}" : " #{what}")
+    Unsupported.new("#{position(at)}#{what}")
+  end
+
+  private def self.position(at : Crinja::Parser::StreamPosition?) : String
+    at ? "#{at.line}:#{at.column}: " : ""
   end
 end

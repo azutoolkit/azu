@@ -182,7 +182,7 @@ end
 describe "Azu::Templates compiled templates (fallbacks)" do
   it "records the templates that fell back to Crinja" do
     fallbacks = COMPILED_FIXTURES.fallbacks
-    fallbacks.should be_a Hash(String, String)
+    fallbacks["raw.jinja"].should eq "raw.jinja:1:1: raw"
     fallbacks.keys.should contain "comment.jinja"
     fallbacks.keys.should contain "raw.jinja"
     fallbacks.keys.should contain "if.jinja"

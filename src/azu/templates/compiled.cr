@@ -2,7 +2,7 @@ class Azu::Templates
   # Turns the templates below `dir` (from the project root, as with ECR) into a `CompiledSet` at build time. `strict`
   # fails the build for a template that would fall back to Crinja.
   macro compile(dir, strict = false)
-    {% if strict %}{{ run("../template_compiler/process", dir, "--strict") }}{% else %}{{ run("../template_compiler/process", dir) }}{% end %}
+    {{ run("../template_compiler/process", dir, strict ? "--strict" : "--lenient") }}
   end
 
   # name => {source, render proc}; name => why it falls back to Crinja
