@@ -5,7 +5,8 @@ module Azu
     # :nodoc:
     #
     # Header writes for values already known to be valid, without `HTTP::Headers#[]=` checking every byte of the
-    # value again or wrapping the name on each call. SecurityHeaders checks its values once, when it is built.
+    # value again or wrapping the name on each call. SecurityHeaders checks its values once, when it is built; RequestId
+    # writes an id it generated or one the request parser already checked.
     #
     # It depends on two stdlib internals: the `:nodoc:` `HTTP::Headers::Key`, and `HTTP::Headers` passing a call it
     # does not define (`[]=` with a `Key`) to its hash through `forward_missing_to @hash`. If either changes, this
