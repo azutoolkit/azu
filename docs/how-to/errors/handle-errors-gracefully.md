@@ -63,7 +63,13 @@ of their own.
 
 Create a handler that answers errors in your own format. A handler is an `HTTP::Handler`: it calls `call_next` and
 rescues what the rest of the chain raises. Put it after `Rescuer` to see errors first, or instead of it to own the
-format:
+format.
+
+A handler sees only the errors raised inside `call` (and by the handlers after it). A request that breaks its contract
+never reaches `call`: the endpoint answers it itself, with `400` when the body or a field cannot be read as the
+contract's types and `422` with the failing fields when a validation rule fails. Neither reaches this handler, which
+sees only the final status code on the way out. Its `JSON::ParseException` and `KeyError` branches are for code in
+`call` that parses JSON or reads `params["name"]` itself:
 
 ```crystal
 class ErrorHandler

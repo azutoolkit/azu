@@ -4,8 +4,8 @@ This guide shows you how to handle and respond to validation errors in your Azu 
 
 ## Automatic Error Handling
 
-Azu validates the request contract before your endpoint runs. A request that breaks it raises
-`Azu::Response::ValidationError`, which is answered with a `422` response:
+Azu validates the request contract before your endpoint runs. A request that breaks it never reaches `call`: the
+endpoint answers it itself with a `422` that lists the failing fields:
 
 ```crystal
 struct CreateUserRequest
@@ -49,7 +49,9 @@ answered with `400` instead.
 
 ## Default Error Response
 
-When validation fails, Azu returns a problem document (`application/problem+json` to a client that names it in `Accept`, `application/json` otherwise) with HTTP status `422 Unprocessable Entity`:
+When validation fails, the status is `422 Unprocessable Entity` and the format of the body follows the first entry of
+the request's `Accept` header. A client that asks for JSON gets a problem document, sent as `application/problem+json`
+when it names that type and as `application/json` otherwise:
 
 ```json
 {
@@ -60,16 +62,22 @@ When validation fails, Azu returns a problem document (`application/problem+json
   "errors": {
     "name": ["can't be blank"],
     "email": ["is invalid"]
-  }
+  },
+  "instance": "/users"
 }
 ```
+
+`text/html` gets an HTML page and an XML type gets XML. A request without `Accept`, or with `*/*` (curl's default),
+gets a `text/plain` body.
 
 To keep the body of Azu before 0.6 (`FieldErrors`, `ErrorId`, `Fingerprint`, ...) for one more minor release, set
 `config.error_format = Azu::ErrorFormat::Legacy`.
 
 ## Custom Error Responses
 
-Create a custom error response format by building it from the `Schema::Error`s of a request:
+Create a custom error response format by building it from the `Schema::Error`s of a request. A request that breaks
+its contract always gets the body above, so return a response like this one from an endpoint that validates by hand
+(see the next section):
 
 ```crystal
 struct ValidationErrorResponse
@@ -160,8 +168,14 @@ A `Hash(String, Array(String))` of field errors works as well:
 
 ## Custom Error Handler
 
-Create a handler that answers validation errors in your own format. `Rescuer` also rescues `ValidationError`, so the
-handler goes after it in the list (closer to the router):
+A handler sees only the errors raised inside `call`, such as the domain error above. A request that breaks its
+contract never reaches `call`: the endpoint answers it itself, with `400` when the body or a field cannot be read as the
+contract's types and `422` with the failing fields when a validation rule fails. A handler that rescues
+`Azu::Response::ValidationError` never sees those; it sees only the final status code on the way out. To answer
+contract failures in your own format, validate by hand as in [Manual Validation Handling](#manual-validation-handling).
+
+This handler answers the `ValidationError`s raised inside `call` in its own format. `Rescuer` also rescues
+`ValidationError`, so the handler goes after it in the list (closer to the router):
 
 ```crystal
 class ValidationErrorHandler
@@ -185,11 +199,16 @@ end
 
 MyApp.start [
   Azu::Handler::RequestId.new,
+  Azu::Handler::Logger.new,
   Azu::Handler::Rescuer.new,
   ValidationErrorHandler.new,
   # ... other handlers
 ] of HTTP::Handler
 ```
+
+With it, `POST /register` with `email=ada@example.com` gets
+`{"error":"Validation Failed","details":{"email":["has already been taken"]}}`, while a `POST /users` that breaks
+`CreateUserRequest` still gets the problem document above.
 
 ## Collecting All Errors
 

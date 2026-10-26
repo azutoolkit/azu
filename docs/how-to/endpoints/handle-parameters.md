@@ -14,7 +14,7 @@ struct ShowUserEndpoint
 
   def call : Azu::Response::Empty
     id = params["id"] # String
-    id.to_i64         # Convert to Int64
+    id.to_i64?        # Int64, or nil when the segment is not a number
     Azu::Response::Empty.new
   end
 end
@@ -31,8 +31,8 @@ struct ShowPostEndpoint
   get "/users/:user_id/posts/:post_id"
 
   def call : Azu::Response::Empty
-    user_id = params["user_id"].to_i64
-    post_id = params["post_id"].to_i64
+    user_id = params["user_id"].to_i64?
+    post_id = params["post_id"].to_i64?
     Azu::Response::Empty.new
   end
 end
@@ -58,7 +58,8 @@ struct SearchEndpoint
 end
 ```
 
-`params` looks in the form body, then the route parameters, then the query string. Use `params.query`,
+`params` looks in the route parameters, then the query string, then the form body, so a body field cannot change
+what the URL addresses (`POST /users/5` with `id=1` in the body reads `5`). Use `params.query`,
 `params.path` and `params.form` to read one source only, and `params.fetch_all("tag")` for a repeated key.
 
 ## Request Body (JSON)
@@ -220,8 +221,8 @@ struct ListEndpoint
   get "/list"
 
   def call : Azu::Response::Empty
-    page = (params["page"]? || "1").to_i
-    per_page = (params["per_page"]? || "20").to_i
+    page = params["page"]?.try(&.to_i?) || 1
+    per_page = params["per_page"]?.try(&.to_i?) || 20
     sort = params["sort"]? || "created_at"
     order = params["order"]? || "desc"
     Azu::Response::Empty.new

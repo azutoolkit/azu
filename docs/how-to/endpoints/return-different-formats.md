@@ -186,25 +186,28 @@ end
 
 ## Content Negotiation
 
-Return different formats based on the `Accept` header. Read the header in the endpoint and let the response
-choose how to render:
+Let the `Accept` header pick the format with `Azu::Response::Negotiable`. Define the `render_html`, `render_json`,
+`render_xml` or `render_text` methods you need; the response sends the matching `Content-Type` and `Vary: Accept`:
 
 ```crystal
 struct NegotiatedResponse
-  include Azu::Response
+  include Azu::Response::Negotiable
 
-  def initialize(@message : String, @value : Int32, @format : String)
+  prefer :json # what a request without Accept, or with */*, gets
+
+  def initialize(@message : String, @value : Int32)
   end
 
-  def render
-    case @format
-    when "text/html"
-      "<p>#{HTML.escape(@message)}: #{@value}</p>"
-    when "text/plain"
-      "#{@message}: #{@value}"
-    else
-      {message: @message, value: @value}.to_json
-    end
+  def render_html : String
+    "<p>#{HTML.escape(@message)}: #{@value}</p>"
+  end
+
+  def render_json : String
+    {message: @message, value: @value}.to_json
+  end
+
+  def render_text : String
+    "#{@message}: #{@value}"
   end
 end
 
@@ -214,17 +217,15 @@ struct NegotiatedEndpoint
   get "/data"
 
   def call : NegotiatedResponse
-    format = accept_type
-    format = "application/json" unless {"text/html", "text/plain"}.includes?(format)
-    content_type format
-    NegotiatedResponse.new("Hello", 42, format)
-  end
-
-  private def accept_type : String
-    header["Accept"]?.try(&.split(",").first.split(";").first.strip) || "application/json"
+    NegotiatedResponse.new("Hello", 42)
   end
 end
 ```
+
+The `q` values count: `Accept: text/html;q=0.5, text/plain` gets `Hello: 42` as `text/plain; charset=utf-8`. A
+request without `Accept`, or with `*/*`, gets JSON because of `prefer :json`. A client that accepts none of the formats
+(`Accept: image/png`) gets a `406` before `call` runs, and `?format=text` overrides the header. The rules are in
+[Content negotiation](../../reference/api/content-negotiation.md).
 
 Errors raised from an endpoint are negotiated for you: `Azu::Handler::Rescuer` renders them as HTML, JSON, XML
 or plain text according to `Accept`.

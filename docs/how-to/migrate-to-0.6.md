@@ -97,8 +97,9 @@ end
 
 ## Handlers
 
-Pass the handlers when you build the server. Without an argument you get the default stack
-(`RequestId, Logger, Rescuer, SecurityHeaders, Static`); an array is used exactly as given.
+Pass the handlers when you build the server; an array is used exactly as given. `app.server` without an argument
+serves the router with no handlers in front of it: no request id, logging or error pages. Only `start` without an
+argument uses the default stack, `app.default_handlers` (`RequestId, Logger, Rescuer, SecurityHeaders, Static`).
 
 ```crystal
 require "azu"
@@ -151,14 +152,14 @@ Azu.setup_logging
 ## Dev tools
 
 The dashboard and performance monitor are opt-in. Require them after `azu` and add the handlers to
-the chain in development only:
+the chain in development only, after the default stack so the request id, logging and error pages stay:
 
 ```crystal
 require "azu"
 require "azu/dev"
 
 app = Azu::App.new
-handlers = [] of HTTP::Handler
+handlers = app.default_handlers
 if app.config.env.development?
   handlers << Azu::Handler::DevDashboard.new
   handlers << Azu::Handler::PerformanceMonitor.new
@@ -168,8 +169,10 @@ server = app.server(handlers)
 
 ## Contracts answer 422
 
-An endpoint whose request type has validations no longer runs when the request breaks them: the router
-answers `422` with an RFC 7807 problem body before `call` (`Content-Type: application/problem+json` only when the client's `Accept` names it, `application/json` otherwise). To keep the pre-0.6 body
+An endpoint whose request type has validations no longer runs when the request breaks them: the endpoint
+answers `422` itself, before `call`. The first `Accept` entry picks the format of the body: a JSON client gets an
+RFC 7807 problem body (`application/problem+json` when it names that type, `application/json` otherwise), `text/html`
+an HTML page, an XML type XML, and a request without `Accept`, or with `*/*`, `text/plain`. To keep the pre-0.6 body
 for one more minor release:
 
 ```crystal

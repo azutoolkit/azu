@@ -36,8 +36,36 @@ end
 hashes). Without a template name it renders the template named after the response type: `Blog::Posts::ShowPage`
 renders `blog/posts/show_page.jinja`.
 
-`view` adds the request-aware variables (`csrf_token`, `current_path`, flash messages, ...) when it is called from an
-endpoint, and the [template helpers](use-template-helpers.md) are always available.
+The [template helpers](use-template-helpers.md) are always available. The request variables (`csrf_token`, `flash`,
+`current_path`, ...) are not: `view` adds them only when the type that calls it has a `context` method, and a response
+has none. In a response's `view`, `{{ csrf_field() }}` renders an empty token and a template that reads `flash.notice`
+fails with a `500` (`flash is undefined`). A page with a form or flash messages takes the endpoint's `context` and
+renders with `view_with_context(template, context, data)`, which adds them:
+
+```crystal
+struct SignupPage
+  include Azu::Response
+  include Azu::Templates::Renderable
+
+  def initialize(@context : HTTP::Server::Context)
+  end
+
+  def render
+    view_with_context "users/new.jinja", @context, {"title" => "Sign up"}
+  end
+end
+
+struct SignupPageEndpoint
+  include Azu::Endpoint(Azu::Request, SignupPage)
+
+  get "/signup"
+
+  def call : SignupPage
+    content_type "text/html"
+    SignupPage.new(context)
+  end
+end
+```
 
 ## Template Location
 

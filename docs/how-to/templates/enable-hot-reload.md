@@ -88,8 +88,6 @@ template files and broadcasts to every connected browser through `Azu::PubSub`:
 
 ```crystal
 class LiveReloadChannel < Azu::Channel
-  ws "/livereload"
-
   def on_connect
     subscribe "livereload"
   end
@@ -128,7 +126,10 @@ class LiveReloadChannel < Azu::Channel
   end
 end
 
-LiveReloadChannel.watch("./public/templates") if Azu::CONFIG.env.development?
+if Azu::CONFIG.env.development?
+  LiveReloadChannel.ws "/livereload"
+  LiveReloadChannel.watch("./public/templates")
+end
 ```
 
 Client-side script, included in your layout in development only:

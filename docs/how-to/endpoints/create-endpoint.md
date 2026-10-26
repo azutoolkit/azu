@@ -223,8 +223,9 @@ module MyApp
 end
 
 MyApp.start [
-  Azu::Handler::Rescuer.new,
+  Azu::Handler::RequestId.new,
   Azu::Handler::Logger.new,
+  Azu::Handler::Rescuer.new,
 ] of HTTP::Handler
 ```
 

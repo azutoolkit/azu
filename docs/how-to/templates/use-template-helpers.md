@@ -4,7 +4,11 @@ This guide shows how to use Azu's built-in template helpers for common web devel
 
 ## Prerequisites
 
-Template helpers are automatically available in all templates when using Azu's `Renderable` module.
+Template helpers are automatically available in all templates when using Azu's `Renderable` module. The helpers that
+read the request need the response to render with `view_with_context(template, @context, data)`, passing the
+endpoint's `context`: `csrf_field()` and `csrf_meta()` print the request's CSRF token, and `active_class` and
+`is_current_page` compare with the request path. With `view`, a response's template has neither, so the token is empty
+(see [Render HTML Templates](render-html-templates.md#basic-template-rendering)).
 
 ## Building Forms
 
@@ -72,7 +76,7 @@ This generates proper `name` attributes like `user[name]` and `user[email]`, whi
 ```jinja
 {# Checkbox #}
 {{ checkbox("user", "newsletter", label="Subscribe to newsletter") }}
-{{ checkbox("user", "terms", required=true) }}
+{{ checkbox("user", "terms") }}
 <label for="user_terms">I agree to the terms</label>
 
 {# Radio buttons #}
@@ -114,7 +118,7 @@ This generates proper `name` attributes like `user[name]` and `user[email]`, whi
 ### External Links
 
 ```jinja
-{# External links automatically get rel="noopener noreferrer" #}
+{# A link with target="_blank" and no rel gets rel="noopener noreferrer" #}
 {{ link_to("Documentation", "https://docs.example.com", target="_blank") }}
 ```
 
@@ -131,9 +135,11 @@ This generates proper `name` attributes like `user[name]` and `user[email]`, whi
    class="btn btn-danger") }}
 ```
 
-## Using Type-Safe Endpoint Helpers
+## Using Endpoint Helpers
 
-When you define endpoints in Crystal, Azu automatically generates type-safe helpers with the HTTP method in the name. This makes it clear what action each helper performs.
+When you define endpoints in Crystal, Azu generates a helper for each one, with the HTTP method in the name. This makes
+it clear what action each helper performs. The helpers do not check their arguments: the helper of a route with `:id`
+called without `id` prints the pattern itself (`href="/users/:id"`).
 
 ### Link Helpers for Endpoints
 
@@ -280,10 +286,11 @@ en:
       one: "1 user"
       other: "%{count} users"
   date:
-    formats:
-      short: "%b %d"
-      long: "%B %d, %Y"
+    short: "%b %d"
+    long: "%B %d, %Y"
 ```
+
+`l("date.short")` looks up the key `date.short` as written, so the formats sit directly under `date`.
 
 ### Using Translations
 
@@ -300,17 +307,15 @@ en:
 <p>Published: {{ post.published_at | l("date.long") }}</p>
 ```
 
-### Language Switcher
+### Choosing the Locale
+
+The locale of a request comes from its `Accept-Language` header: with `Azu::Handler::Locale` in the handler list, each
+request is served in the best match among the locales listed with
+`Azu::Helpers::I18n.configure { |config| config.available_locales = ["en", "fr"] }`, or in the default locale. Nothing
+reads a `?locale=` parameter, so a link cannot switch the locale. `current_locale()` prints the one in use:
 
 ```jinja
-<div class="language-switcher">
-  {% for locale in available_locales() %}
-    <a href="?locale={{ locale }}" 
-       class="{% if locale == current_locale() %}active{% endif %}">
-      {{ locale | locale_name }}
-    </a>
-  {% endfor %}
-</div>
+<html lang="{{ current_locale() }}">
 ```
 
 ## Formatting Numbers and Dates

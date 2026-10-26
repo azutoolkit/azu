@@ -269,21 +269,17 @@ end
 
 ## What Not to Log
 
-`Azu::Handler::Logger` logs the path of the request line (`context.request.resource`, so with the query string)
-and never headers or bodies. Keep it that way in your own handlers: a query string can carry tokens, and
-`Authorization`, cookies and form bodies carry credentials. If you must log a request-derived hash, remove the
-sensitive keys first:
+`Azu::Handler::Logger` logs the request target with its query string, and never headers or bodies. It passes the
+target through `Azu::Env.redact_url` first, which replaces the value of a credential-looking query parameter and the
+password of a URL: `/data?token=abc123&page=2&api_key=zzz` is logged as
+`/data?token=[FILTERED]&page=2&api_key=[FILTERED]`. Keep your own handlers as careful: `Authorization`, cookies and
+form bodies carry credentials. If you must log a request-derived hash, filter it with `Azu::Env.redacted`, which
+replaces the values of keys that look like secrets (`password`, `token`, `api_key`, `authorization`, ...) with
+`[FILTERED]` and redacts URLs in the other values:
 
 ```crystal
-module LogFilter
-  SENSITIVE = %w(password token secret api_key authorization)
-
-  def self.filter(params : Hash(String, String)) : Hash(String, String)
-    params.to_h do |key, value|
-      {key, SENSITIVE.any? { |word| key.downcase.includes?(word) } ? "[FILTERED]" : value}
-    end
-  end
-end
+Azu::Env.redacted({"name" => "Ada", "password" => "hunter2", "next" => "https://u:p@example.com/x?token=1"})
+# => {"name" => "Ada", "password" => "[FILTERED]", "next" => "https://u:[FILTERED]@example.com/x?token=[FILTERED]"}
 ```
 
 ## Log Rotation

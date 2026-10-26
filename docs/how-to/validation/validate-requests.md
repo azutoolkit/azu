@@ -91,7 +91,9 @@ end
 
 ### Comparisons
 
-Validate numbers with `gt`, `gte`, `lt`, `lte` and `eq`:
+Validate numbers with `gt`, `gte`, `lt`, `lte` and `eq`. Put all the rules of one field in one `validate` call: a second
+`validate` for the same field replaces the first, so `validate age, gt: 0` followed by `validate age, lt: 150` checks
+only `lt: 150`.
 
 ```crystal
 struct OrderLineRequest
@@ -104,8 +106,7 @@ struct OrderLineRequest
   def initialize(@age = 0, @quantity = 1, @price = 0.0)
   end
 
-  validate age, gt: 0
-  validate age, lt: 150
+  validate age, gt: 0, lt: 150
   validate quantity, gte: 1
   validate price, gt: 0.0
 end

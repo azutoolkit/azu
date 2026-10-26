@@ -186,8 +186,9 @@ schema and rescue the database error as the last line of defence.
 
 ## Validation Callbacks
 
-`before_validation` and `after_validation` run around the validation when you call `save`. A callback that returns
-`false` stops the save:
+`save` runs the `before_validation` callbacks, then the `after_validation` callbacks, and only then validates. Both
+run before the validation, so an `after_validation` callback also runs for a record that is invalid; it can call
+`errors`, which validates on demand. A callback that returns `false` stops the save:
 
 ```crystal
 require "cql"
