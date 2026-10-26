@@ -243,6 +243,8 @@ describe Azu::Testing::Client do
 
     typed.status_code.should eq 422
     typed.response.should be_a(Azu::Testing::Response)
+    typed.inspect.should eq typed.response.inspect
+    typed.to_s.should eq typed.response.to_s
     typed.problem?.should be_true
     error = expect_raises(Azu::Testing::UnexpectedStatus) { typed.value }
     error.response.status_code.should eq 422

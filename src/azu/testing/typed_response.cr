@@ -21,8 +21,17 @@ module Azu
       def initialize(@response : Response)
       end
 
-      # The body as a `T`. Raises `UnexpectedStatus` unless the status is a 2xx; a `T` that is not
-      # `JSON::Serializable` does not compile, since nothing says how to read it back.
+      def to_s(io : IO) : Nil
+        @response.to_s(io)
+      end
+
+      def inspect(io : IO) : Nil
+        @response.inspect(io)
+      end
+
+      # The body as a `T`. Raises `UnexpectedStatus` unless the status is a 2xx (and `JSON::ParseException` for a 2xx
+      # whose body is not a `T`, such as an empty 204); a `T` that is not `JSON::Serializable` does not compile, since
+      # nothing says how to read it back.
       def value : T
         {% unless (T.union? ? T.union_types : [T]).all? { |type| type <= JSON::Serializable } %}
           {% raise "#{T} is not JSON::Serializable: read the body of the response instead of its value" %}

@@ -76,7 +76,8 @@ module Azu
         # Calls the route of *endpoint* with the fields of *request*, which must be the endpoint's own request
         # type. Path fields (`/users/:id`) fill the path; the others go to the query string for the verbs
         # OpenAPI gives no body (GET, DELETE, HEAD, OPTIONS) and to a JSON body, or a form with `form: true`.
-        # For an `Azu::Endpoint` the answer is a `TypedResponse` whose `value` is the endpoint's response type.
+        # For an `Azu::Endpoint` the answer is a `TypedResponse` whose `value` is the endpoint's response type, for a
+        # plain `Routable` a `Response` (chosen at compile time by `typed`, hence no return type here).
         def {{ verb.id }}(endpoint : E.class, request : R, *, headers = nil, form : Bool = false) forall E, R
           \{% begin %}
           \{% contract = E.ancestors.find { |a| a.name(generic_args: false) == "Azu::Endpoint" } %}
@@ -87,7 +88,7 @@ module Azu
           typed(endpoint, call_endpoint({{ verb.upcase }}, endpoint, request.to_www_form, request.to_json, headers, form))
         end
 
-        # Calls the route of *endpoint* with path (and query) fields given as named arguments.
+        # Calls the route of *endpoint* with path (and query) fields given as named arguments; answers like the overload above.
         def {{ verb.id }}(endpoint : E.class, *, headers = nil, form : Bool = false, **fields) forall E
           typed(endpoint, call_endpoint({{ verb.upcase }}, endpoint, encode(fields), fields.to_json, headers, form))
         end

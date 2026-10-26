@@ -152,8 +152,9 @@ with a request struct.
 A typed call answers a `TypedResponse`: the `Response` (every method of it works, and `response` returns it) plus
 `value`, the body decoded as the endpoint's own response type. So the assertion is typed too:
 `client.post(CreateUserEndpoint, request).value` is a `UserResponse`. `value` raises
-`Azu::Testing::UnexpectedStatus` (which carries the `response`) unless the status is a 2xx, and does not compile for a
-response type that is not `JSON::Serializable`; read `body` for those.
+`Azu::Testing::UnexpectedStatus` (which carries the `response`) unless the status is a 2xx, raises
+`JSON::ParseException` for a 2xx whose body is not one (an empty `204`), and does not compile for a response type that
+is not `JSON::Serializable`; read `body` for those. `to_s` and `inspect` show the response; `==` compares the wrappers.
 
 ```crystal
 require "azu"
@@ -240,7 +241,7 @@ app.routes { post "/users", CreateUserEndpoint }
 client = Azu::Testing::Client.new(app).accept(:json)
 created = client.post(CreateUserEndpoint, NewUserRequest.new("Ada"))
 created.status_code # => 201
-created.value.name   # => "Ada"
+created.value.name  # => "Ada"
 
 client.post(CreateUserEndpoint, NewUserRequest.new("")).status_code # => 422
 ```
