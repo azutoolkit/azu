@@ -4,7 +4,19 @@ module Azu
     # a `TransactionEvent` per transaction state change) and records the events in
     # `Azu::QueryStore`, tagged with the current `Azu::RequestContext`. Subscribers run in the
     # fiber that issued the SQL, so the request is known and the call site can be captured.
+    #
+    # The subscribers are deliberately synchronous: an `async: true` subscriber runs on another fiber,
+    # where neither the request, nor the call site, nor the open transaction can be seen.
+    #
+    # Bound values are never recorded unless `database.show_params` is on in development (see
+    # `params_visible?`): the dashboard keeps `?` placeholders, and shows an error as its class and the first
+    # line of its message only for shapes it recognises (`QueryAnalysis.safe_error`), otherwise the class alone.
     module Instrumentor
+      # Marks an exception raised only to roll a transaction back on purpose (like `DB::Rollback`):
+      # the dashboard shows such a rollback as rolled back, not as an error.
+      module IntentionalRollback
+      end
+
       # Subscriber name in `CQL::Telemetry` (subscribing again replaces, so installing twice is harmless).
       NAME = "azu.dashboard"
 
@@ -18,16 +30,25 @@ module Azu
 
       @@mutex = Mutex.new
       @@transactions = {} of Fiber => Array(Int64)
+      @@capturing = false
+      @@capture_before = false
 
       # True while our subscribers are registered (false again after `CQL::Telemetry.reset!`).
       def self.installed? : Bool
         ::CQL::Telemetry.subscribed?(NAME)
       end
 
+      # Whether bound values are shown: opted in with `database.show_params` and in development.
+      def self.params_visible? : Bool
+        Azu.current_config.show_database_params?
+      end
+
+      # Registers both subscribers. It always subscribes again (subscribing under the same name replaces), so
+      # a subscriber someone removed with `Telemetry.unsubscribe_transactions(NAME)` comes back.
       def self.install(store : QueryStore = QueryStore.instance) : Nil
         @@mutex.synchronize do
-          return if installed?
           store.enabled = true
+          capture_params if params_visible?
           ::CQL::Telemetry.subscribe(NAME) { |event| record_query(store, event) }
           ::CQL::Telemetry.subscribe_transactions(NAME) { |event| record_transaction(store, event) }
         end
@@ -37,21 +58,31 @@ module Azu
         @@mutex.synchronize do
           ::CQL::Telemetry.unsubscribe(NAME)
           ::CQL::Telemetry.unsubscribe_transactions(NAME)
+          ::CQL::Telemetry.capture_params = @@capture_before if @@capturing && ::CQL::Telemetry.capture_params # still what we set
+          @@capturing = false
           @@transactions.clear
           store.enabled = false
         end
+      end
+
+      # CQL leaves bound values out of its events unless asked; asked only by `database.show_params`.
+      private def self.capture_params : Nil
+        unless @@capturing
+          @@capture_before = ::CQL::Telemetry.capture_params
+          @@capturing = true
+        end
+        ::CQL::Telemetry.capture_params = true
       end
 
       private def self.record_query(store : QueryStore, event : ::CQL::Telemetry::QueryEvent) : Nil
         return unless Azu::CONFIG.database.instrument?
         return if event.operation == :explain # plans are diagnostics, not application queries
         context = RequestContext.current?
-        params = event.params.try(&.map { |param| truncate(param.inspect) }) || Array.new(event.param_count) { "?" }
         store.record_query(
-          event.sql, params, event.duration.total_milliseconds, event.rows_affected,
-          event.error.try { |error| error.message.presence || error.class.name }, call_site, current_transaction,
+          event.sql, params(event), event.duration.total_milliseconds, event.rows_affected,
+          event.error.try { |error| error_text(error) }, call_site, current_transaction,
           context.try(&.request_id), context.try(&.endpoint), context.try(&.method), context.try(&.path),
-          Fiber.current.object_id
+          Fiber.current.object_id, operation(event), pool_wait_ms(event), event.context, event.adapter.to_s, shown?(event)
         )
       end
 
@@ -70,9 +101,46 @@ module Azu
               @@transactions.delete(fiber) if stack.empty?
             end
           end
-          error = event.error.try { |failure| failure.message.presence || failure.class.name }
+          error = event.error.try { |failure| error_text(failure) unless intentional?(failure) }
           store.record_transaction_end(event.id, event.state.commit?, event.duration.total_milliseconds, error)
         end
+      end
+
+      # `?` placeholders, or the bound values when they may be shown (and CQL captured them).
+      private def self.params(event : ::CQL::Telemetry::QueryEvent) : Array(String)
+        values = event.params if params_visible?
+        values.try(&.map { |value| describe(value) }) || Array.new(event.param_count) { "?" }
+      end
+
+      private def self.shown?(event : ::CQL::Telemetry::QueryEvent) : Bool
+        params_visible? && !event.params.nil?
+      end
+
+      private def self.describe(value : DB::Any) : String
+        value.is_a?(Bytes) ? "<#{value.size} bytes>" : truncate(value.inspect)
+      end
+
+      # CQL labels statements it builds itself (`:select`, `:insert`, ...); everything it cannot classify, such
+      # as raw `schema.exec`, is `:ddl`, so the first keyword of the SQL decides there.
+      private def self.operation(event : ::CQL::Telemetry::QueryEvent) : String
+        event.operation == :ddl ? QueryAnalysis.operation(event.sql) : event.operation.to_s.upcase
+      end
+
+      # Time spent waiting for a pooled connection, reported by CQL releases that measure it.
+      private def self.pool_wait_ms(event : ::CQL::Telemetry::QueryEvent) : Float64
+        {% if ::CQL::Telemetry::QueryEvent.has_method?("pool_wait") %}
+          event.pool_wait.total_milliseconds
+        {% else %}
+          0.0
+        {% end %}
+      end
+
+      private def self.error_text(error : Exception) : String
+        params_visible? ? (error.message.presence || error.class.name) : QueryAnalysis.safe_error(error)
+      end
+
+      private def self.intentional?(error : Exception) : Bool
+        error.is_a?(DB::Rollback) || error.is_a?(IntentionalRollback)
       end
 
       private def self.current_transaction : Int64?

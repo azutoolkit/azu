@@ -280,4 +280,16 @@ describe Azu::Configuration do
       end
     end
   end
+
+  describe "database.show_params" do
+    it "is off by default and follows AZU_DB_SHOW_PARAMS" do
+      Azu::Configuration.new.database.show_params?.should be_false
+      begin
+        ENV["AZU_DB_SHOW_PARAMS"] = "true"
+        Azu::Configuration.new.database.show_params?.should be_true
+      ensure
+        ENV.delete("AZU_DB_SHOW_PARAMS")
+      end
+    end
+  end
 end

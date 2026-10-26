@@ -236,6 +236,11 @@ module Azu
     # Database integration settings (see `azu/cql`)
     getter database : DatabaseConfiguration = DatabaseConfiguration.new
 
+    # Whether the dashboard may show bound values and unredacted database errors: `database.show_params` in development only.
+    def show_database_params? : Bool
+      database.show_params? && env.development?
+    end
+
     # Cache configuration and manager
     getter cache : Cache::Manager do
       initialize_cache_with_retry
@@ -337,6 +342,10 @@ module Azu
     property driver : String? = Env.fetch?("AZU_CQL_DRIVER")
     # Record queries/transactions into `Azu::QueryStore`.
     property? instrument : Bool = ENV.fetch("AZU_DB_INSTRUMENT", "true") == "true"
+    # Show the bound values of each statement in the dashboard and keep database error text as the server wrote it.
+    # Off by default, and only honoured in development: values often hold personal data or secrets. Turning it on
+    # also turns on `CQL::Telemetry.capture_params` (CQL leaves values out of its events otherwise).
+    property? show_params : Bool = ENV.fetch("AZU_DB_SHOW_PARAMS", "false") == "true"
     # Same query shape this many times in one request raises an N+1 alert.
     property n_plus_one_threshold : Int32 = ENV.fetch("AZU_DB_N_PLUS_ONE_THRESHOLD", "3").to_i
     # Queries slower than this (ms) are flagged as slow.
