@@ -2,7 +2,7 @@
 
 Azu provides built-in template helpers for common web development tasks like building forms, generating links, formatting dates, and handling internationalization.
 
-Renders run concurrently, each with its own variables: a helper you write may do IO, such as a query or an HTTP call, or render another template, without holding up other requests' renders.
+Renders run concurrently, each with its own variables: a helper you write may do IO, such as a query or an HTTP call, or render another template, without holding up other requests' renders. A template a helper renders (`Azu::CONFIG.templates.render(name, data)`, or `view` without a request) starts from the global context: it sees the globals and the data you pass, not the outer page's variables (`csrf_token`, `current_path`, its view data), so the fragment can be cached for everyone. Pass what it needs explicitly. `templates.load(name).render(data)` is Crinja's own render and inherits the current render's variables; helpers should call `render`.
 
 ## Quick Reference
 

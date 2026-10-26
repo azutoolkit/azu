@@ -59,7 +59,14 @@ which every request shares, with the defaults it evaluated: `{% from "m.jinja" i
 earlier request defined, its values included. `{% include "x.jinja" without context %}` rendered in the environment's
 global context, so its `{% set %}` reached every later render. Both now belong to their own render: an imported file's
 macros and top-level variables still reach the importing page (an imported macro can call its file's other macros), and
-an `import` of a plain text template (`m.txt`) no longer turns escaping off for the rest of the page.
+an `import` of a plain text template (`m.txt`) no longer turns escaping off for the rest of the page. As in 0.5.120, those
+copied names replace the page's own of the same name (view data, macros defined before the import), so a macro library
+needs names no page uses: see [Import macros](templates/engine.md#import-macros).
+
+**A template a helper renders starts from the global context.** `templates.render(...)`, or `view` without a request,
+called inside another render (a helper that renders a fragment) sees only the globals and the data it is given: not the
+outer page's view data, `csrf_token` or `current_path`. Before, it inherited them, and a fragment cached with
+`Azu.cache.fetch(key) { ... }` could hold one user's values for everyone. Pass what the fragment needs explicitly.
 
 **`urlize` is Azu's own.** It escapes the text around the links and links only `http`, `https` and `www.` addresses
 (Crinja's linked any `scheme://`, `javascript://` too, and did not escape the rest of the text). `button_to` and

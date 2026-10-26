@@ -239,7 +239,8 @@ module Azu
 
     # Renders `template` with `data` (nil, a Hash or a NamedTuple). Renders run concurrently: each fiber renders in
     # its own Crinja context (see templates/crinja_patches.cr). A render starts from the global context even inside
-    # another one (a helper that renders a fragment), so it never sees the outer request's variables.
+    # another one (a helper that renders a fragment), so it never sees the outer request's variables: helpers that
+    # render fragments should call this, not `load(name).render(data)`.
     def render(template : String, data = nil) : String
       scope = Crinja::Context.new(crinja.global_context)
       scope.merge!(data) if data
@@ -255,6 +256,8 @@ module Azu
 
     # With reload on (development) every call may re-read changed files, see `check_for_changes`. Without it the
     # templates are compiled: each one was read and parsed once (`compile`), and this is a hash lookup.
+    # `load(name).render(hash)` is Crinja's own render: inside another render (a helper) it inherits that render's
+    # variables. Render fragments with `render`, which starts from the global context.
     def load(template : String)
       unless @hot_reload_enabled
         loader = @compiled || compile(strict: false)
