@@ -261,6 +261,24 @@ describe "Azu::Templates autoescape" do
       end
     end
 
+    it "does not call TEMPLATE_AUTOESCAPE unrecognised when code set template_autoescape" do
+      old = ENV["TEMPLATE_AUTOESCAPE"]?
+      begin
+        ENV["TEMPLATE_AUTOESCAPE"] = "false"
+        backend = ::Log::MemoryBackend.new
+        config = Azu::Configuration.new
+        config.log = ::Log.new("spec.autoescape", backend, :warn)
+        config.template_autoescape = true
+        config.warn_about_template_autoescape
+        backend.entries.should be_empty
+        config.template_autoescape = false
+        config.warn_about_template_autoescape
+        backend.entries.map(&.message).first.should contain "template_autoescape is off"
+      ensure
+        old ? (ENV["TEMPLATE_AUTOESCAPE"] = old) : ENV.delete("TEMPLATE_AUTOESCAPE")
+      end
+    end
+
     it "reads TEMPLATE_AUTOESCAPE=false, and keeps escaping for any other value" do
       old = ENV["TEMPLATE_AUTOESCAPE"]?
       begin

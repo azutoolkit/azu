@@ -202,6 +202,15 @@ describe "helper output encoding" do
     end
   end
 
+  describe "truncate_html omission" do
+    it "escapes the omission when the input is safe (the result is marked safe)" do
+      out = render("{{ (x | safe) | truncate_html(30, omission=o) }}", {"x" => "<p>Hello world, this is a long text</p>", "o" => "<script>alert(1)</script>"})
+      out.should eq "Hello&lt;script&gt;alert(1)&lt;/script&gt;"
+      render("{{ (x | safe) | truncate_html(8) }}", {"x" => "<p>Hello world</p>"}).should eq "Hello..."
+      render("{{ (x | safe) | truncate_html(50) }}", {"x" => "<p>Hello</p>"}).should eq "<p>Hello</p>"
+    end
+  end
+
   describe "urlize (Crinja's builds links from raw text and accepts any scheme)" do
     it "escapes the text around the links" do
       render("{{ x | urlize }}", {"x" => "<script>alert(1)</script> https://example.com/a?x=1&y=2 <b>"}).should eq(
@@ -212,6 +221,12 @@ describe "helper output encoding" do
       render("{{ x | urlize }}", {"x" => "javascript://%0aalert(1) data://x vbscript://y"}).should_not contain "<a "
       render("{{ x | urlize }}", {"x" => "go www.example.com now"}).should contain %(<a href="http://www.example.com" rel="noopener">www.example.com</a>)
       render("{{ x | urlize }}", {"x" => "HTTPS://EXAMPLE.COM"}).should contain %(<a href="HTTPS://EXAMPLE.COM")
+    end
+
+    it "leaves tags, attributes and existing links of safe markup alone" do
+      html = %(<a href="https://a.com">https://a.com</a> <img src="https://b.com/x.png" alt="https://c.com"> see https://d.com)
+      render("{{ (x | safe) | urlize }}", {"x" => html}).should eq(
+        %(<a href="https://a.com">https://a.com</a> <img src="https://b.com/x.png" alt="https://c.com"> see <a href="https://d.com" rel="noopener">https://d.com</a>))
     end
 
     it "keeps a quote out of the href" do
