@@ -277,9 +277,9 @@ module Azu
 
     private def bind(http : HTTP::Server) : Nil
       if @config.tls?
-        Azu.bind_tls http, @config.host, @config.port, @config.tls, @config.port_reuse?, @config.websocket.tcp_nodelay?
+        Azu.bind_tls http, @config.host, @config.port, @config.tls, @config.port_reuse?, @config.websocket.tcp_nodelay?, @config.limits
       else
-        http.bind_tcp @config.host, @config.port, @config.port_reuse?
+        ServerLimits.bind_tcp http, @config.limits, @config.host, @config.port, @config.port_reuse?
       end
     end
 

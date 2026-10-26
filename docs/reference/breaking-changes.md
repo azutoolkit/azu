@@ -12,6 +12,14 @@ release to the current API, with old and new code side by side; every release is
 
 ## Next release
 
+**The server cuts slow connections and caps their number.** `App#start` bound a plain `HTTP::Server` listener: a client could hold
+a connection open for ever by sending a header byte at a time, never finishing a body, or never sending anything, and the number of
+connections was unbounded. The accepted sockets now carry the new `config.limits`: `header_timeout` 10 s (answered `408`),
+`read_timeout` 30 s with a `min_body_rate` of 1 KB/s after it, `write_timeout` 60 s, `keep_alive_timeout` 60 s and
+`max_connections` 10 000 (the next connection gets `503`). WebSockets are exempt once upgraded. An app that takes uploads over a
+very slow link, or a stream that waits on the client for more than 30 s, raises the matching limit; `SERVER_*` variables set them.
+A server you bind yourself (`server.bind_tcp`) is unchanged; use `Azu::ServerLimits.bind_tcp` to give it the same limits.
+
 **`CSRF` walks a multipart body in one pass, and reads at most 1 MB of a form.** The search for `_csrf` in a multipart body
 cost more than the body's size for a body of thousands of tiny parts (seconds of CPU for a request with any cookie); it now
 looks at each byte a bounded number of times, gives up after 64 parts, and a `csrf_token` cookie that is not a token the

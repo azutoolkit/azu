@@ -45,4 +45,19 @@ module Azu
     end
     tcp_server.local_address
   end
+
+  # Binds *server* to a TLS listener like `HTTP::Server#bind_tls`, on a TCP listener whose sockets are limited by *limits*
+  # (the time limits that do not read the request, `max_connections`) and have `TCP_NODELAY` set with *nodelay*.
+  def self.bind_tls(server : HTTP::Server, host : String, port : Int32, context : OpenSSL::SSL::Context::Server, reuse_port : Bool, nodelay : Bool, limits : ServerLimitsConfiguration) : Socket::IPAddress
+    tcp_server = LimitedTCPServer.new(host, port, limits, reuse_port, nodelay, inspect: false)
+    begin
+      listener = OpenSSL::SSL::Server.new(tcp_server, context)
+      listener.start_immediately = false
+      server.bind(listener)
+    rescue ex
+      tcp_server.close
+      raise ex
+    end
+    tcp_server.local_address
+  end
 end
