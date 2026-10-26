@@ -247,8 +247,8 @@ Behaviour seen by running it:
   checked again. With no public directory and `fallthrough: true`, a plain path (no `%`, NUL, backslash, `//`, `/.` or trailing
   slash) falls through before any path work and allocates nothing; any other path takes the full route (decode, refuse or redirect).
 - With a public directory and `fallthrough: true`, a plain path whose first segment names no top-level entry of it (compared
-  ignoring ASCII case; a non-ASCII segment always takes the full route) also falls through, with no file system call and no
-  allocation per request. Files added below an existing entry are served at once. A new top-level file or directory is
+  ignoring ASCII case and trailing dots; a non-ASCII segment always takes the full route, and so does every path when a
+  top-level name is not ASCII) also falls through, with no file system call and no allocation per request. Files added below an existing entry are served at once. A new top-level file or directory is
   served from the handler's next read of the names: it looks at most once a second and reads them again when the
   directory's modification time or identity (device and inode, so a swapped `public` symlink counts) changed, and every
   60 seconds regardless. That assumes adding a name moves the directory's modification time, as local file systems do;

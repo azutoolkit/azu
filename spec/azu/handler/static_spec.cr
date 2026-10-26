@@ -798,6 +798,19 @@ describe Azu::Handler::Static do
         end
       end
 
+      it "looks up a path whose first segment names an entry but for trailing dots, which Windows ignores" do
+        with_temp_dir({"robots.txt" => "robots", "assets/app.css" => "body {}"}) do |dir|
+          ["/robots.txt.", "/assets../app.css"].each { |path| static_bytes(dir, path).should be > 0 }
+        end
+      end
+
+      it "keeps no names for a directory with a non-ASCII one, which a file system may fold or normalize" do
+        # U+212A KELVIN SIGN folds to an ASCII "k": a case-insensitive file system can serve "/key.txt" from it
+        with_temp_dir({"\u212Aey.txt" => "kelvin", "robots.txt" => "robots"}) do |dir|
+          ["/key.txt", "/plaintext"].each { |path| static_bytes(dir, path).should be > 0 }
+        end
+      end
+
       it "keeps no names for a directory with more than MAX_ENTRIES of them, so every path takes the full route" do
         with_temp_dir({"robots.txt" => "robots"}) do |dir|
           Azu::Handler::Static::MAX_ENTRIES.times { |index| File.touch(File.join(dir, "file-#{index}.txt")) }

@@ -212,7 +212,8 @@ module Azu
 
       # Whether the first segment of a plain path may name an entry of the public directory: its fingerprint is
       # one of the entries'. The root may (`index.html`), and so may a segment with a non-ASCII byte, which a
-      # case-insensitive or normalizing file system can resolve to a name spelled otherwise.
+      # case-insensitive or normalizing file system can resolve to a name spelled otherwise (and no ASCII name of
+      # the directory resolves to it: a directory with a non-ASCII name keeps none).
       private def maybe_entry?(path : String) : Bool
         segment = path.to_slice[1, (path.byte_index('/'.ord, 1) || path.bytesize) - 1]
         return true if segment.empty? || segment.any? { |byte| byte >= 0x80 }
@@ -238,20 +239,26 @@ module Azu
         @entries.set(nil)
       end
 
-      # Fingerprints of the public directory's entry names; nil past MAX_ENTRIES.
+      # Fingerprints of the public directory's entry names; nil past MAX_ENTRIES, or when one name is not ASCII: how a
+      # file system folds or normalizes those (NFD, NTFS case tables) is not modelled, so every path takes the full lookup.
       private def entry_fingerprints : Set(UInt64)?
         fingerprints = Set(UInt64).new
         Dir.each_child(@public_dir) do |name|
-          return if fingerprints.size >= MAX_ENTRIES
-          fingerprints << fingerprint(name.downcase(:fold).to_slice)
+          return if fingerprints.size >= MAX_ENTRIES || !name.ascii_only?
+          fingerprints << fingerprint(name.to_slice)
         end
         fingerprints
       end
 
-      # Two names that differ only in ASCII case share a fingerprint, as a case-insensitive file system would
-      # resolve one to the other. A name that shares one by chance only takes its request down the full lookup.
+      # Two names that differ only in ASCII case or in trailing dots share a fingerprint, as a case-insensitive file
+      # system, or Windows (which ignores trailing dots), would resolve one to the other. A name that shares one by
+      # chance only takes its request down the full lookup.
       private def fingerprint(name : Bytes) : UInt64
-        name.reduce(FINGERPRINT_BASIS) do |hash, byte|
+        size = name.size
+        while size > 0 && name[size - 1] === '.'
+          size -= 1
+        end
+        name[0, size].reduce(FINGERPRINT_BASIS) do |hash, byte|
           byte += 32 if 'A'.ord <= byte <= 'Z'.ord
           (hash ^ byte) &* FINGERPRINT_PRIME
         end
