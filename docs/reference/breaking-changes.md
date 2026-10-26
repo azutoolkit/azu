@@ -100,9 +100,9 @@ line) instead of failing its first request, including a file that is not a templ
 those in `template_compile_ignore`). Set `template_hot_reload = true` (or `TEMPLATE_HOT_RELOAD=true`) to keep
 reloading in an environment. See [Configuration](configuration/options.md#templates).
 
-**`Router#path_cache` is internal.** It is `:nodoc:` and its `get`/`set` now take the method and the path
-(`get("GET", "/x")`) instead of one `"GET:/x"` key; `path_cache.stats` and `clear_path_cache` are unchanged. Nothing
-outside the router should call `get` or `set`.
+**The router has no path cache.** `Router#path_cache` and its `stats` are gone, and `clear_path_cache` does nothing: the
+router finds routes in a tree of path segments that reads the request path in place (a static route allocates nothing),
+so there is nothing left to cache. Remove calls to `path_cache`; calls to `clear_path_cache` can stay.
 
 **`Azu::CQL.schema` runs PostgreSQL on CQL's native engine pool.** With a CQL release that has
 `CQL::Postgres::EngineSource`, schemas for `postgres://` and `postgresql://` URLs use CQL's own wire driver and

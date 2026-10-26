@@ -229,15 +229,12 @@ end
 Azu::App.default.router.path_of(PathEndpoint) # => "/path"
 ```
 
-### Path Caching
+### Lookup Cost
 
-The router caches the radix lookup key of the first 1000 distinct method and path pairs. The cache has two levels
-(method, then path), and reads take no lock: a lookup is two hash reads and allocates nothing. Once 1000 entries are
-cached, new paths are no longer added (there is no eviction). `clear_path_cache` empties it:
-
-```crystal
-Azu::App.default.router.clear_path_cache
-```
+The router keeps no cache. It finds a route by walking a tree of path segments, reading the request path in place: a
+static route allocates nothing, and a route with parameters allocates only their values and the params hash. A path
+with more segments than any route is refused before it is read whole. `clear_path_cache` is kept for the code that
+calls it and does nothing.
 
 ## Route Groups
 

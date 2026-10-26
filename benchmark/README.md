@@ -71,8 +71,8 @@ One program per framework in `benchmark/apps/<name>/src/app.cr`, built with `cry
   request (and builds a `Crinja::Value` hash per call); the baseline, Kemal and Athena run ECR that the compiler
   turned into straight code. The scenario measures the template systems, not the routers. A compile-time Azu
   variant (`Azu::Component`) is not included yet.
-- In the `routing` scenario Azu's path cache (1000 entries, no eviction) fills at once: the script requests
-  99,700 distinct paths (100 routes x 997 ids), so the scenario measures mostly uncached radix lookups.
+- The `routing` scenario requests 99,700 distinct paths (100 routes x 997 ids). Azu has no path cache since its
+  segment tree replaced radix, so every request is a lookup either way.
 
 Add `--apps` to choose; the manifest is `benchmark/apps/manifest.json`. An app that cannot be built here is
 skipped and said so in the result (`--require-all` turns that into a failure).
@@ -218,7 +218,7 @@ mkdir -p bin && crystal build --release --no-debug benchmark/micro/hot_path.cr -
 ```
 
 prints one row per stack and scenario (`/plaintext`, one parameterised URL, and `routing (cycling)`, the URLs of
-`routing.lua`, warmed past the router's 1000-entry path cache so every measured path misses it): bytes and nanoseconds
+`routing.lua`, warmed with 1200 of them so that every measured path is new to the router): bytes and nanoseconds
 per request through the same `HTTP::Server::RequestProcessor` that serves a connection, without a socket or `wrk`.
 `baseline` is a hand-written handler, `azu-min` the router, endpoint and Rescuer, and `azu` the default stack without
 the Logger handler, with Static pointed at a fixed non-existent directory; what they add over `baseline` is the
