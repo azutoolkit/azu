@@ -1,3 +1,7 @@
+---
+description: "Track who is in a topic across processes with `Azu::Presence`, and receive join and leave diffs."
+---
+
 # Presence
 
 `Azu::Presence` answers "who is in this topic right now?" across processes. A *key* (a user id, a session) is
@@ -49,7 +53,7 @@ The wire format is the JSON of `Azu::Presence::Diff`.
 
 Include `Azu::Presence::Tracked` in a channel to tie presence to its socket. `track_presence` remembers what it
 tracked and `teardown` untracks it, however the socket ends (close frame, dropped peer, a handler that raised).
-Existing channels are unaffected unless they include the module.
+A channel that does not include the module tracks nothing.
 
 ```crystal
 require "azu"
@@ -97,7 +101,18 @@ Azu::Presence.default = Azu::Presence::Tracker.new(Azu::Presence::Store::Redis.n
 
 Both build their connections with [`Azu::Redis`](redis.md) and share one pool when they use the same URL; to choose
 the pool yourself pass an `Azu::Redis::Client` instead of the URL (`Store::Redis.new(client)`). Without an argument
-they read `PRESENCE_REDIS_URL` (`PUBSUB_REDIS_URL` for the backend), then `REDIS_URL`.
+`Store::Redis` reads `PRESENCE_REDIS_URL`, then `PUBSUB_REDIS_URL`, then `REDIS_URL`; the backend reads
+`PUBSUB_REDIS_URL`, then `REDIS_URL`.
+[Real-time across processes](../../how-to/deployment/scale-horizontally.md#real-time-across-processes) sets both up
+for several nodes.
+
+`Store::Redis.new(url, prefix, server_time: true)` (prefix `"azu:presence:"` by default) keeps a topic in the hash
+`<prefix>t:<topic>` (`ref` => meta JSON), an index per key in `<prefix>k:<topic>\u001f<key>` and the leases in
+`<prefix>nodes`. Each write gives the topic and index hashes one day to live (`RETENTION`).
+
+{% hint style="warning" %}
+Environments that share a Redis need distinct prefixes.
+{% endhint %}
 
 `Tracker.new(store, node:, ttl:, heartbeat:, interval:, pub_sub:, max_meta_bytes:, max_entries:)`:
 
@@ -110,7 +125,11 @@ they read `PRESENCE_REDIS_URL` (`PUBSUB_REDIS_URL` for the backend), then `REDIS
 | `max_meta_bytes` | 1024 | Largest meta, as JSON. |
 | `max_entries` | 10 000 | Most metas this node tracks. |
 
-`unwatch(topic)` is deprecated: it drops every claim on the topic at once. `watch(topic)` returns a `Watch` and `subscribe` a `Subscription`; both are counted per topic, and the node stops
+{% hint style="warning" %}
+`unwatch(topic)` is deprecated: it drops every claim on the topic at once.
+{% endhint %}
+
+`watch(topic)` returns a `Watch` and `subscribe` a `Subscription`; both are counted per topic, and the node stops
 following a topic (and drops its subscription and its remembered view) when the last of them is cancelled. A
 `Tracked` channel gives its watches back in `teardown`.
 
@@ -121,10 +140,6 @@ neither departs nor arrives). `shutdown` untracks everything this node tracked a
 A store is a Strategy: implement `Azu::Presence::Store` (`put`, `delete`, `stored`, `renew`, `leases`, `forget`,
 `evict`, and optionally `shutdown`, `now` and `present?`) and the shared expiry logic in `live` comes with it.
 
-Redis data written by an earlier, unreleased revision with `key\u001fref` fields in the `t:` hashes is not read by
-field name: such entries are filtered out once their node's lease lapses and disappear when the hash expires
-(`RETENTION`, one day without writes); delete the `<prefix>t:*` hashes once if you ran that revision.
-
 ## Guarantees
 
 - **Merging.** Each node owns the metas it tracked and is the only one to add or remove them, so a topic is the
@@ -133,13 +148,18 @@ field name: such entries are filtered out once their node's lease lapses and dis
 - **Crashes.** Every node renews a lease every `ttl / 3` and re-asserts its metas then. When a lease is older
   than `ttl` (SIGKILL, power loss, partition), `list` stops returning the node's metas on every other node and
   the next sweep of a node that watches the topic (`subscribe` or `watch`) publishes the `leaves`; `list` itself
-  publishes nothing. A node that was only paused (or whose Redis was flushed) re-asserts its metas on its next beat
-  and the watching nodes publish their `joins` again, with the key `arrived`. Nodes that do not watch a topic
-  publish nothing for it, so some node must subscribe for diffs to exist at all.
+  publishes nothing. A node that was only paused (or whose Redis was restarted or flushed) re-asserts its metas on
+  its next beat and the watching nodes publish their `joins` again, with the key `arrived`. Nodes that do not watch
+  a topic publish nothing for it, so some node must subscribe for diffs to exist at all.
+- **Redis outages.** A failed beat is logged at `warn` and retried at the next interval. When Redis stays away for
+  longer than `ttl`, the other nodes treat this node as gone and publish its keys as `departed`, then as `arrived`
+  again after its first beat that succeeds.
+- **Reconnects.** When the `PubSub::Redis` subscriber connection drops, the listener reconnects with jittered
+  exponential backoff (0.5 seconds, doubling up to 15). Diffs and broadcasts published in the meantime are lost.
 - **Diffs are hints.** They are not queued: a subscriber that was disconnected misses them and the same leave
-  can arrive from several nodes. Apply them by `ref` and call `list` after a reconnect. `arrived` and
-  `departed` are decided by the node that made the change, so two nodes tracking the same new key at the same
-  instant may both report `arrived`.
+  can arrive from several nodes. Apply them by `ref`, and after a reconnect fetch the current state (`list`, or the
+  page) instead of assuming every diff arrived. `arrived` and `departed` are decided by the node that made the
+  change, so two nodes tracking the same new key at the same instant may both report `arrived`.
 - **Clocks.** `Store::Redis` writes and judges leases with the Redis `TIME`, so nodes need no synchronized
   clocks. `Store::Memory` and `Store::Redis.new(..., server_time: false)` follow `Azu::Clock`: specs install
   `Azu::Clock::Fake`, advance it and call `sweep`.
@@ -154,3 +174,9 @@ field name: such entries are filtered out once their node's lease lapses and dis
   topic with millions of metas. `track` and `untrack` read only the small index of the key (`Store::Redis`
   keeps one hash per key), and a sweep writes only what the store lost, then extends the retention of the rest
   in one pipelined call per topic.
+
+## See also
+
+- [Real-time across processes](../../how-to/deployment/scale-horizontally.md#real-time-across-processes)
+- [Channel](channel.md)
+- [Redis](redis.md)

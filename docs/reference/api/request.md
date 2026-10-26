@@ -1,6 +1,8 @@
-# Request Reference
+---
+description: Request contracts define the expected shape of incoming request data and the validation rules it must pass.
+---
 
-Request contracts define the expected shape of incoming request data with validation.
+# Request
 
 ## Including Request
 
@@ -21,7 +23,7 @@ Including `Azu::Request` adds `JSON::Serializable`, `URI::Params::Serializable` 
 `MyRequest.new`, `MyRequest.from_json(string)` or `MyRequest.from_www_form(string)`
 (`from_query` is an alias of `from_www_form`).
 
-## Validation Macros
+## Validation macros
 
 ### validate
 
@@ -160,7 +162,7 @@ struct UsernameRequest
 end
 ```
 
-## Instance Methods
+## Instance methods
 
 ### valid?
 
@@ -229,7 +231,7 @@ end
 NamedRequest.new(name: "").validate! # raises Schema::Validation::ValidationError
 ```
 
-## Custom Validators
+## Custom validators
 
 Rules that need code subclass `Schema::Validator`, return the errors from `valid?` and are registered with
 `use`. The validator receives the request as `@record`.
@@ -261,7 +263,7 @@ class UniqueEmailValidator < Schema::Validator
 end
 ```
 
-## Error Class
+## Error class
 
 ### Schema::Error
 
@@ -275,7 +277,7 @@ Schema::Error.new(:email, "is already taken")
 - `field : Symbol` - Field name
 - `message : String` - Error message
 
-## Requests Without a Contract
+## Requests without a contract
 
 Use the bare `Azu::Request` module for endpoints that have no body data to validate. They are not affected by
 contract enforcement.
@@ -300,16 +302,22 @@ struct GetUserEndpoint
 end
 ```
 
-## Request Parsing
+## Request parsing
 
 The contract is built once per call from:
 - JSON body (`application/json`), with `from_json`
 - Form data (`application/x-www-form-urlencoded`) and the query string, with `from_www_form`
 
-A request that breaks its validations never reaches `call`: the router answers `422` (see
-[Response Reference](response.md#validationerror)). A body that cannot be parsed into the request type answers `400`.
+A request that breaks its contract never reaches `call`: the endpoint answers it itself, with `400` when the body
+or a field cannot be read as the contract's types and `422` with the failing fields when a validation rule fails (see
+[Response Reference](response.md#validationerror)).
 
-## File Uploads
+{% hint style="warning" %}
+Neither `Rescuer` nor the router answers these, so a handler that rescues `Azu::Response::ValidationError` never
+sees them; handlers around the endpoint still see the final status code.
+{% endhint %}
+
+## File uploads
 
 Uploaded files are not part of the contract. Read them from `params.files` in the endpoint; each one is an
 `Azu::Params::Multipart::File`:
@@ -353,35 +361,7 @@ end
 - `size : UInt64?` - Size in bytes
 - `headers : HTTP::Headers` - File headers
 
-## Complete Example
-
-```crystal
-struct CreateUserRequest
-  include Azu::Request
-
-  getter name : String
-  getter email : String
-  getter password : String
-  getter age : Int32?
-  getter role : String
-
-  def initialize(
-    @name = "",
-    @email = "",
-    @password = "",
-    @age = nil,
-    @role = "user",
-  )
-  end
-
-  validate name, size: 2..100
-  validate email, match: /@/, message: "must be an email address"
-  validate password, size: 8..128, message: "must have at least 8 characters"
-  validate role, in: %w(user admin moderator)
-end
-```
-
-## See Also
+## See also
 
 - [Endpoint Reference](endpoint.md)
 - [Response Reference](response.md)

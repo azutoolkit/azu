@@ -1,3 +1,7 @@
+---
+description: "The one Redis layer the cache, PubSub and Presence share: its config, pool, retries, health check and shutdown."
+---
+
 # Redis
 
 `Azu::Redis` is the one place Azu opens connections to Redis. The cache (`Cache::RedisStore`), the PubSub backend
@@ -48,10 +52,11 @@ URL variable in front of `REDIS_URL`: `PUBSUB_REDIS_URL` for PubSub, and `PRESEN
 `PUBSUB_REDIS_URL`, for Presence. With none of them set, `REDIS_URL` is used, then
 `redis://localhost:6379/0`.
 
-> **The cache never reads `REDIS_URL` and has no default URL.** `REDIS_URL` often names the Redis of sessions or a
-> job queue. A Redis cache needs `CACHE_REDIS_URL`, `cache_config.redis_url` or a client you hand it, and raises
-> an `ArgumentError` when built without one. `Cache#clear` only removes keys under the cache's `key_prefix`.
-
+{% hint style="warning" %}
+**The cache never reads `REDIS_URL` and has no default URL.** `REDIS_URL` often names the Redis of sessions or a
+job queue. A Redis cache needs `CACHE_REDIS_URL`, `cache_config.redis_url` or a client you hand it, and raises
+an `ArgumentError` when built without one. `Cache#clear` only removes keys under the cache's `key_prefix`.
+{% endhint %}
 
 ## Sharing one pool
 
@@ -72,8 +77,8 @@ connection settings (`url`, `pool_size`, the three timeouts, `health_check_after
 
 The URL constructors do the same for you: `PubSub::Redis.new(url)` and `Store::Redis.new(url)` acquire a client for
 the URL (a pool of 2, 5 second connect and command timeouts), so the two share a pool when they use the same URL.
-`Cache::RedisStore.new(url, pool_size, timeout, ttl, operation_timeout)` keeps its signature and uses
-`operation_timeout` as its command timeout, so with the default 2 seconds it has a pool of its own; pass the shared
+`Cache::RedisStore.new(url, pool_size, timeout, ttl, operation_timeout)` uses `operation_timeout` as its command
+timeout, so with the default 2 seconds it has a pool of its own; pass the shared
 client (`Cache::RedisStore.new(redis)` or `cache_config.redis_client = redis`) to put the cache on the same pool.
 A client you pass is yours to close; one a backend or store built from a URL is closed by its `shutdown` or `close`.
 
@@ -195,4 +200,4 @@ client raises `Azu::Redis::ClosedError`.
 
 ## See also
 
-- [Cache](cache.md), [Presence](presence.md), [Scale out real-time](../../how-to/deployment/scale-out-realtime.md)
+- [Cache](cache.md), [Presence](presence.md), [Real-time across processes](../../how-to/deployment/scale-horizontally.md#real-time-across-processes)

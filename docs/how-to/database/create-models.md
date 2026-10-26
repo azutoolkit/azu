@@ -1,12 +1,16 @@
-# How to Create Models
+---
+description: Create CQL models that map to your database tables.
+---
 
-This guide shows you how to create CQL models that map to your database tables. A model is a class that includes
-`CQL::ActiveRecord::Model(PrimaryKeyType)` and points at a table of a [schema](define-schema.md) with `db_context`.
+# Create models
+
+A model is a class that includes `CQL::ActiveRecord::Model(PrimaryKeyType)` and points at a table of a
+[schema](define-schema.md) with `db_context`.
 
 Every example is self-contained: it defines the schema it needs first. In an application the schema lives in
 `src/db/schema.cr` and the models `require` it.
 
-## Basic Model
+## Basic model
 
 Declare one property per column. `DB::Serializable` fills the properties from the result set, so names and types must
 match the table; nullable columns are `T?`:
@@ -51,7 +55,11 @@ type in the `include` (`Int64`, `Int32` or `UUID`); it must match the `primary` 
 
 To check at boot that every property matches its column, run the app with `CQL_VALIDATE_SCHEMA_MAPPINGS=1`.
 
-## Model with Validations
+## Model with validations
+
+Model rules protect the table. Checks on incoming HTTP data belong to the request contract (see
+[Validate requests](../validation/validate-requests.md)); a request that passes its contract can still build a record
+that fails here, so keep both.
 
 `validate` takes the attribute and one or more predicates; `message:` overrides the default message. The predicates
 are `presence`, `required`, `size`, `match`, `gt`, `gte`, `lt`, `lte`, `eq`, `in`, `exclude`, `confirmation` and
@@ -91,8 +99,71 @@ user.valid?                          # => false
 user.errors.map(&.message)           # => ["name must have a size of 2..100", "must be an email address"]
 ```
 
-There is no uniqueness validation; enforce it with a `unique: true` column and rescue the database error, or check
-with `User.exists?(email: email)` in a [custom validator](../validation/validate-models.md#custom-validators).
+### Check uniqueness and answer 422
+
+There is no uniqueness rule. Check it in a
+[custom validator](../../reference/database/validations.md#custom-validators) attached with `use`, and turn the
+model's errors into Azu's `422`, so clients get the same body as for a request-contract failure:
+
+```crystal
+require "cql"
+require "sqlite3"
+
+AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+    column :email, String, unique: true
+  end
+end
+
+class UniqueEmail < CQL::ActiveRecord::Validations::CustomValidator
+  def initialize(@record : User)
+  end
+
+  def valid? : Array(CQL::ActiveRecord::Validations::Error)
+    errors = [] of CQL::ActiveRecord::Validations::Error
+    if @record.new_record? && User.exists?(email: @record.email)
+      errors << CQL::ActiveRecord::Validations::Error.new(:email, "has already been taken")
+    end
+    errors
+  end
+end
+
+class User
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AcmeDB, :users
+
+  property name : String
+  property email : String
+
+  validate :name, presence: true
+  validate :email, match: /@/
+  use UniqueEmail
+
+  def initialize(@name : String, @email : String)
+  end
+end
+
+def save_or_422(user : User) : User
+  return user if user.save
+  raise Azu::Response::ValidationError.new({"base" => ["could not be saved"]})
+rescue ex : CQL::ActiveRecord::Validations::ValidationError
+  fields = Hash(String, Array(String)).new { |hash, key| hash[key] = [] of String }
+  user.errors.each { |error| fields[error.field.to_s] << error.message }
+  raise Azu::Response::ValidationError.new(fields.to_h)
+end
+
+save_or_422(User.new("Alice", "alice@example.com"))
+```
+
+`save` raises `CQL::ActiveRecord::Validations::ValidationError` for an invalid record and returns `false` only when a
+callback halts it.
+
+{% hint style="warning" %}
+The uniqueness check races: two requests can pass it at the same time, so the `unique: true` column is the last line
+of defence; rescue the database error it raises as well.
+{% endhint %}
 
 ## Associations
 
@@ -168,12 +239,13 @@ Post.find!(1_i64).user               # => User? (belongs_to is optional unless y
 ```
 
 Pass `foreign_key:` on `has_many` and `has_one`: without it CQL guesses `<model_name>_id` from the class name.
-`dependent:` is accepted (`:destroy`, `:delete_all`, `:nullify`, `:restrict_with_error` for `has_many`) but
-`delete!` does not apply it, so children are not removed with their parent. Declare `on_delete: :cascade` on the
-foreign key in the [schema](define-schema.md) and let the database do it (SQLite only enforces foreign keys when
-`PRAGMA foreign_keys = ON`). `preload` only works for `has_many`.
+`dependent:` (`:destroy`, `:delete_all`, `:nullify`, `:restrict_with_error` for `has_many`; `:destroy`, `:delete`,
+`:nullify` for `has_one`) is applied by `delete!`, in the same transaction as the parent's own delete. An
+`on_delete: :cascade` foreign key in the [schema](define-schema.md) also covers rows deleted with plain SQL (SQLite
+only enforces foreign keys when `PRAGMA foreign_keys = ON`). `preload` works for `has_many`, `has_one` and
+`belongs_to`.
 
-### Many to Many
+### Many to many
 
 `many_to_many` goes through a join model:
 
@@ -287,8 +359,15 @@ user.save
 puts user.normalized_email           # => "alice@example.com"
 ```
 
-Callbacks run for `save` (instance) and `delete!`. `User.create!(...)` and `update!` write directly and skip both
-validations and callbacks; use `User.new(...).save` when you need them.
+Callbacks run for `save` (instance) and `delete!`.
+
+{% hint style="warning" %}
+`User.create!(...)` and `update!` write directly and skip both validations and callbacks; use `User.new(...).save`
+when you need them.
+{% endhint %}
+
+To normalize values before they are validated, use `before_validation`; the
+[validation lifecycle](../../reference/database/validations.md#validation-lifecycle) gives the order.
 
 ## Scopes
 
@@ -330,7 +409,7 @@ Post.published.recent.all
 Post.by_user(1_i64).published.limit(5).all
 ```
 
-## Custom Methods
+## Custom methods
 
 Add behaviour with ordinary methods. Properties that are not columns need `@[DB::Field(ignore: true)]`:
 
@@ -399,7 +478,7 @@ user.authenticate("secret")
 user.recent_posts(3)
 ```
 
-## JSON Serialization
+## JSON serialization
 
 Include `JSON::Serializable` next to the model and ignore sensitive fields:
 
@@ -438,8 +517,8 @@ User.new("Alice", "alice@example.com").to_json
 Inside an Azu endpoint you usually return a response object built from the model instead of serializing the model
 directly; see [Working with Databases](../../tutorials/working-with-databases.md).
 
-## See Also
+## See also
 
 - [Define Schema](define-schema.md)
 - [Query Data](query-data.md)
-- [Validate Models](../validation/validate-models.md)
+- [Database validations](../../reference/database/validations.md)

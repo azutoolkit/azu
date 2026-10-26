@@ -1,8 +1,10 @@
-# Working with Databases
+---
+description: Connect Azu to a database using CQL, Crystal's type-safe ORM.
+---
 
-This tutorial teaches you how to connect Azu to a database using CQL, Crystal's type-safe ORM.
+# Working with databases
 
-## What You'll Build
+## What you'll build
 
 By the end of this tutorial, you'll have:
 
@@ -18,10 +20,11 @@ By the end of this tutorial, you'll have:
 - Crystal 1.22.1 or newer
 - SQLite (included on most systems), or PostgreSQL if you prefer it
 
-## Step 1: Add CQL Dependencies
+## Step 1: Add CQL dependencies
 
 CQL is a separate shard; Azu core does not depend on it. Update your `shard.yml` with `cql` and a database driver:
 
+{% code title="shard.yml" %}
 ```yaml
 name: user_api
 version: 0.1.0
@@ -29,7 +32,7 @@ version: 0.1.0
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.5.52
+    version: ~> 0.5.119
   cql:
     github: azutoolkit/cql
   # Choose your database driver:
@@ -41,6 +44,7 @@ dependencies:
 crystal: ">= 1.22.1"
 license: MIT
 ```
+{% endcode %}
 
 Install dependencies:
 
@@ -48,10 +52,13 @@ Install dependencies:
 shards install
 ```
 
-## Step 2: Define the Schema
+## Step 2: Define the schema
 
 Create `src/db/schema.cr`. The schema names the tables and columns CQL knows about, and holds the connection:
 
+{% tabs %}
+{% tab title="SQLite" %}
+{% code title="src/db/schema.cr" %}
 ```crystal
 require "cql"
 require "sqlite3"
@@ -71,11 +78,13 @@ AppDB = CQL::Schema.define(
   end
 end
 ```
+{% endcode %}
+{% endtab %}
 
-Columns are `NOT NULL` unless you pass `null: true`, and `unique: true` creates a `UNIQUE` constraint (and so an index).
-
+{% tab title="PostgreSQL" %}
 For PostgreSQL, `require "pg"` instead of `sqlite3`, use `CQL::Adapter::Postgres` and a `postgres://` URL:
 
+{% code title="src/db/schema.cr" %}
 ```crystal
 require "cql"
 require "pg"
@@ -95,29 +104,41 @@ AppDB = CQL::Schema.define(
   end
 end
 ```
+{% endcode %}
+{% endtab %}
+{% endtabs %}
 
-## Step 3: Create the Database
+Columns are `NOT NULL` unless you pass `null: true`, and `unique: true` creates a `UNIQUE` constraint (and so an index).
 
-For PostgreSQL create the database first:
+## Step 3: Create the database
 
-```bash
-createdb user_api_dev
-```
-
+{% tabs %}
+{% tab title="SQLite" %}
 SQLite creates the file on first connection, but the directory must exist:
 
 ```bash
 mkdir -p db
 ```
+{% endtab %}
+
+{% tab title="PostgreSQL" %}
+For PostgreSQL create the database first:
+
+```bash
+createdb user_api_dev
+```
+{% endtab %}
+{% endtabs %}
 
 The tables themselves are created by `AppDB.build` (Step 5), which runs `CREATE TABLE IF NOT EXISTS` for every table in
 the schema. Once your schema changes over time, use [migrations](../how-to/database/run-migrations.md) instead.
 
-## Step 4: Create the Model
+## Step 4: Create the model
 
 Create `src/models/user.cr`. A model is a class that includes `CQL::ActiveRecord::Model(PrimaryKeyType)`, points at
 its table with `db_context`, and declares one property per column:
 
+{% code title="src/models/user.cr" %}
 ```crystal
 require "cql"
 require "sqlite3"
@@ -173,17 +194,19 @@ user.deactivate!
 user.activate!
 User.active.recent.limit(20).all
 ```
+{% endcode %}
 
 `save!` validates and raises `CQL::ActiveRecord::Validations::ValidationError` for an invalid record. `User.create!(...)`
 writes straight to the database without validations or callbacks, so the tutorial builds records with `new` and
 `save!`.
 
-## Step 5: The Complete Application
+## Step 5: The complete application
 
 Replace `src/user_api.cr` with the application below. It reuses the contracts and responses from the User API tutorial
 and swaps the in-memory store for CQL. Read it in the order it is written: schema, model, contracts, responses, the
 five endpoints, then the server.
 
+{% code title="src/user_api.cr" %}
 ```crystal
 require "azu"
 require "cql"
@@ -397,11 +420,6 @@ end
 
 module UserAPI
   include Azu
-
-  configure do |config|
-    config.port = ENV.fetch("PORT", "4000").to_i
-    config.host = ENV.fetch("HOST", "0.0.0.0")
-  end
 end
 
 # Create the tables if they do not exist yet
@@ -409,11 +427,12 @@ AppDB.build
 
 UserAPI.start [
   Azu::Handler::RequestId.new,
-  Azu::Handler::Rescuer.new,
   Azu::Handler::Logger.new,
+  Azu::Handler::Rescuer.new,
   Azu::Handler::CORS.new,
 ] of HTTP::Handler
 ```
+{% endcode %}
 
 What changed from the in-memory version:
 
@@ -424,6 +443,10 @@ What changed from the in-memory version:
 - **Update** assigns only the fields the client sent and saves; `update!(name: ...)` would skip validations.
 - **Delete** calls `delete!`, which returns `false` if the row was already gone.
 - Endpoints register themselves with the router when their struct is defined, so they are not listed in `start`.
+- The handlers follow the default stack's order: `Logger` sits outside `Rescuer`, so a request that raised is logged
+  with its final status.
+- Azu reads `PORT` (4000 by default) and `HOST` (`127.0.0.1` in development, `0.0.0.0` in other environments) from
+  the environment.
 
 Run it:
 
@@ -434,7 +457,7 @@ curl -X POST localhost:4000/users -H 'Content-Type: application/json' \
 curl localhost:4000/users
 ```
 
-## Step 6: Adding Relationships
+## Step 6: Adding relationships
 
 Add a `posts` table to the schema and a model for it. `belongs_to` and `has_many` name the foreign key explicitly, and the
 foreign key must be a property of the model that holds it:
@@ -518,11 +541,12 @@ Post.find!(1_i64).publish!
 User.find!(1_i64).posts.to_a
 ```
 
-The `on_delete: :cascade` on the foreign key makes the database remove a user's posts with the user. (CQL's
-`dependent:` option on `has_many` is not applied by `delete!`, so let the database do it; SQLite enforces foreign keys
-only when `PRAGMA foreign_keys = ON`.)
+The `on_delete: :cascade` on the foreign key makes the database remove a user's posts with the user; SQLite enforces
+foreign keys only when `PRAGMA foreign_keys = ON`. CQL can do it instead: with
+`has_many :posts, Post, foreign_key: :user_id, dependent: :destroy`, `user.delete!` deletes the posts and then the
+user, in one transaction.
 
-## Step 7: Query Examples
+## Step 7: Query examples
 
 ```crystal
 require "cql"
@@ -619,111 +643,47 @@ User.where(active: true).count
 Post.published.count
 ```
 
-## Environment Configuration
+## Environment configuration
 
-Create a `.env` file (or export the variables) for development:
+Export the variables for development, or keep them in a `.env` file. Azu does not read `.env` by itself: call
+`Azu::Env.load_all` before `require "azu"` (see [Azu::Env](../reference/configuration/env.md)).
 
+{% tabs %}
+{% tab title="Development" %}
 ```bash
 DATABASE_URL=sqlite3://./db/development.db
 PORT=4000
 ```
+{% endtab %}
 
+{% tab title="Production" %}
 For production with PostgreSQL:
 
 ```bash
 DATABASE_URL=postgres://user:password@db.example.com:5432/user_api_prod
 PORT=8080
 ```
+{% endtab %}
+{% endtabs %}
 
 `DATABASE_URL` is read by the schema's `uri:` argument shown in Step 2. To pick the adapter from the URL automatically,
 configure the connection pool and see every query in the dev dashboard, `require "azu/cql"` and define the schema with
 `Azu::CQL.schema`; see [Database dashboard](../reference/database-dashboard.md).
 
-## Key Concepts Learned
+## Next steps
 
-### Schema Definition
+{% content-ref url="building-live-components.md" %}
+[building-live-components.md](building-live-components.md)
+{% endcontent-ref %}
 
-```crystal
-require "cql"
-require "sqlite3"
+{% content-ref url="testing-your-app.md" %}
+[testing-your-app.md](testing-your-app.md)
+{% endcontent-ref %}
 
-DemoDB = CQL::Schema.define(:demo, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/demo.db") do
-  table :items do
-    primary :id, Int64
-    column :label, String
-    column :note, String, null: true
-    timestamps
-  end
-end
-```
+{% content-ref url="deploying-to-production.md" %}
+[deploying-to-production.md](deploying-to-production.md)
+{% endcontent-ref %}
 
-### Model Definition
-
-```crystal
-require "cql"
-require "sqlite3"
-
-DemoDB = CQL::Schema.define(:demo, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/demo.db") do
-  table :items do
-    primary :id, Int64
-    column :label, String
-  end
-end
-
-class Item
-  include CQL::ActiveRecord::Model(Int64)
-  db_context DemoDB, :items
-
-  property label : String
-
-  validate :label, presence: true
-  scope :labelled, ->(text : String) { where(label: text) }
-
-  def initialize(@label : String)
-  end
-end
-```
-
-### CRUD Operations
-
-```crystal
-require "cql"
-require "sqlite3"
-
-DemoDB = CQL::Schema.define(:demo, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/demo.db") do
-  table :items do
-    primary :id, Int64
-    column :label, String
-  end
-end
-
-class Item
-  include CQL::ActiveRecord::Model(Int64)
-  db_context DemoDB, :items
-
-  property label : String
-
-  def initialize(@label : String)
-  end
-end
-
-item = Item.new("first")
-item.save!                      # Create (validates)
-Item.find?(1_i64)               # Read
-item.label = "renamed"
-item.save!                      # Update
-item.delete!                    # Delete
-```
-
-## Next Steps
-
-Your API now persists data to a database. Continue learning with:
-
-- [Building Live Components](building-live-components.md) - Create real-time UI
-- [Testing Your App](testing-your-app.md) - Test database operations
-- [Deploying to Production](deploying-to-production.md) - Production database setup
-- [CQL API Reference](../reference/database/cql-api.md) - Everything CQL offers
-
----
-
-**Database integration complete!** Your application now stores data persistently with type-safe queries.
+{% content-ref url="../reference/database/cql-api.md" %}
+[cql-api.md](../reference/database/cql-api.md)
+{% endcontent-ref %}

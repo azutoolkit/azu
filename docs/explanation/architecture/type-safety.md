@@ -1,150 +1,66 @@
-# Type Safety in Azu
+---
+description: Azu uses Crystal's type system so that the shape of every request, response and endpoint is checked when the application compiles.
+---
 
-This document explains how Azu leverages Crystal's type system to catch errors at compile time rather than runtime.
+# Type safety
 
-## The Problem with Dynamic Types
+A typo, a missing field or an unhandled `nil` stops the build instead of reaching a user. This
+page explains where Azu puts types, what the compiler checks with them, and what they cost.
 
-In dynamically typed frameworks, common errors only appear at runtime:
+## Errors at compile time
+
+In a dynamically typed framework, common errors only appear at runtime:
 
 ```ruby
-# Ruby/Rails - These errors happen at runtime
-def create
-  user = User.create(params[:user])
-  render json: user.to_josn  # Typo not caught until runtime
+# Ruby/Rails: the typo is found when a user calls this action
+def show
+  user = User.find(params[:id])
+  render json: user.to_josn
 end
 ```
 
-You might deploy this code and only discover the bug when a user hits it.
-
-## Crystal's Static Typing
-
-Crystal catches errors at compile time:
+Such an error happens in production, affects a real user, needs monitoring to be noticed and a hotfix to be resolved.
+Crystal resolves every method call when it compiles, so the same typo stops the build:
 
 ```text
-# This won't compile - typo caught immediately
+# Does not compile: the typo is caught immediately
 user.to_josn  # Error: undefined method 'to_josn' for User
 
 # Correct
 user.to_json
 ```
 
-## Type-Safe Endpoints
+## Request contracts
 
-Azu uses generics to enforce types:
+A request contract declares the input an endpoint accepts, field by field:
 
+<!-- prelude -->
 ```crystal
 struct CreateUserRequest
   include Azu::Request
 
-  getter name : String
-
-  def initialize(@name = "")
-  end
-end
-
-struct UserResponse
-  include Azu::Response
-
-  def initialize(@name : String)
-  end
-
-  def render
-    {name: @name}.to_json
-  end
-end
-
-struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, UserResponse)
-  #                     ↑ Input type       ↑ Output type
-
-  post "/users"
-
-  def call : UserResponse # ← Must return this type
-    UserResponse.new(create_user_request.name)
-  end
-end
-```
-
-The compiler ensures:
-- `call` returns `UserResponse`
-- All code paths return the correct type
-- The request object has the expected shape
-
-### What Happens If You Return Wrong Type
-
-This endpoint does not compile, which is the point:
-
-<!-- skip -->
-```crystal
-def call : UserResponse
-  if user = find_user
-    UserResponse.new(user)
-  else
-    "Not found" # Error: expected UserResponse, got String
-  end
-end
-```
-
-This error is caught at compile time, not after deployment.
-
-## Type-Safe Requests
-
-Request contracts define expected input:
-
-```crystal
-struct CreateUserRequest
-  include Azu::Request
-
-  getter name : String  # Required string
-  getter email : String # Required string
-  getter age : Int32?   # Optional integer
+  getter name : String  # required
+  getter email : String # required
+  getter age : Int32?   # optional
 
   def initialize(@name = "", @email = "", @age = nil)
   end
+
+  validate name, presence: true
+  validate email, presence: true, match: /@/
 end
 ```
 
-Benefits:
-- Clear documentation of expected input
-- Automatic parsing into correct types: input that cannot be converted is answered with `400`
-- Validation runs before your code
+The contract is the documentation of the expected input, and the compiler holds the code to it: every use of `name`
+is a `String`, and `age` is checked for `nil` before use. At runtime Azu parses the request into those types and
+answers `400` for input that cannot be converted, then runs the `validate` rules and answers `422` for input that
+breaks them, both before `call` runs. [Contracts](../concepts/contracts.md) explains the pattern in full.
 
-### Accessing Request Data
+## Responses
 
-```crystal
-struct CreateUserRequest
-  include Azu::Request
+A response defines the shape of the output:
 
-  getter name : String
-  getter age : Int32?
-
-  def initialize(@name = "", @age = nil)
-  end
-end
-
-struct CreateUserEndpoint
-  include Azu::Endpoint(CreateUserRequest, Azu::Response::Empty)
-
-  post "/users"
-
-  def call : Azu::Response::Empty
-    # Type is known - no nil checks needed
-    name = create_user_request.name # String, not String?
-
-    # Optional fields are nil-able
-    if age = create_user_request.age
-      age + 1 # age is an Int32 here
-    end
-
-    Azu::Response::Empty.new
-  end
-end
-```
-
-## Type-Safe Responses
-
-Responses define output shape:
-
+<!-- prelude -->
 ```crystal
 struct User
   getter id : Int64
@@ -152,6 +68,10 @@ struct User
   getter email : String
 
   def initialize(@id, @name, @email)
+  end
+
+  def self.find?(id : Int64) : User?
+    new(id, "Ada", "ada@example.com") if id == 1
   end
 end
 
@@ -171,79 +91,86 @@ struct UserResponse
 end
 ```
 
-The compiler verifies:
-- All fields exist on `User`
-- Types are correct for JSON serialization
+The compiler verifies that every field exists on `User` and that its type can be serialized to JSON.
 
-## Type-Safe Parameters
+## Endpoints
 
-Route parameters are always strings, but conversion is explicit:
+An endpoint names its input and output types as the generic arguments of `Azu::Endpoint`:
 
 ```crystal
-struct UserResponse
-  include Azu::Response
+struct CreateUserEndpoint
+  include Azu::Endpoint(CreateUserRequest, UserResponse)
+  #                     ↑ Input type       ↑ Output type
 
-  def initialize(@id : Int64)
-  end
+  post "/users"
 
-  def render
-    {id: @id}.to_json
-  end
-end
+  def call : UserResponse # ← Must return this type
+    name = create_user_request.name # String, not String?: no nil check needed
 
-struct ShowUserEndpoint
-  include Azu::Endpoint(Azu::Request, UserResponse)
+    # Optional fields are nilable: inside the `if`, age is an Int32
+    if age = create_user_request.age
+      age + 1
+    end
 
-  get "/users/:id"
-
-  def call : UserResponse
-    # params["id"] is String
-    id = params["id"].to_i64 # Explicit conversion to Int64
-
-    UserResponse.new(id)
+    UserResponse.new(User.new(1_i64, name, create_user_request.email))
   end
 end
 ```
 
-## Nil Safety
+The compiler ensures:
+- `call` returns `UserResponse`
+- All code paths return the correct type
+- The request object has the expected shape
 
-Crystal's nil-safety prevents null pointer errors:
+The declaration is also documentation that cannot go out of date. A Ruby method says nothing about what it takes:
+
+```ruby
+def process_order(order, options)
+  # What is order? What are options?
+  # Must read the implementation to understand
+end
+```
+
+The first line of `CreateUserEndpoint` says what it accepts and what it returns, and the build fails as soon as the
+code disagrees with it.
+
+### What happens if you return the wrong type
+
+This endpoint does not compile, which is the point:
+
+<!-- skip -->
+```crystal
+def call : UserResponse
+  if user = find_user
+    UserResponse.new(user)
+  else
+    "Not found" # Error: method ShowUserEndpoint#call must return UserResponse but it is returning (String | UserResponse)
+  end
+end
+```
+
+The error is caught at compile time, not after deployment. A path that has no response to return raises an error
+response instead, as the next example does.
+
+## Nil safety
+
+Route parameters are always strings, so converting one is explicit, and a lookup that can find nothing returns a
+nilable type that the compiler makes you check:
 
 ```crystal
-struct User
-  getter name : String
-
-  def initialize(@name)
-  end
-
-  def self.find?(id : String) : User?
-    new("Ada") if id == "1"
-  end
-end
-
-struct UserResponse
-  include Azu::Response
-
-  def initialize(@user : User)
-  end
-
-  def render
-    @user.name
-  end
-end
-
 struct ShowUserEndpoint
   include Azu::Endpoint(Azu::Request, UserResponse)
 
   get "/users/:id"
 
   def call : UserResponse
-    user = User.find?(params["id"])
+    # params["id"] is a String; to_i64? is nil when it is not a number
+    user = params["id"].to_i64?.try { |id| User.find?(id) }
 
-    # user is User? (might be nil), so `user.name` here would not compile:
-    # undefined method 'name' for Nil
+    # user is a User? (it might be nil), so `user.name` here would not compile:
+    # Error: undefined method 'name' for Nil (compile-time type is (User | Nil))
 
-    # Must handle nil case
+    # The nil case must be handled
     if user
       UserResponse.new(user)
     else
@@ -253,7 +180,10 @@ struct ShowUserEndpoint
 end
 ```
 
-## Union Types
+In Ruby, calling a method on `nil` raises `NoMethodError` (`undefined method for nil:NilClass`) in production; in
+Crystal it is a build error.
+
+## Union types
 
 Handle multiple cases explicitly. When an endpoint answers with more than one response type, declare the union as its
 response type:
@@ -286,130 +216,69 @@ struct ItemEndpoint
 end
 ```
 
-## Generic Helpers
+## Why Azu uses types
 
-Create reusable, type-safe helpers with generics:
-
-```crystal
-struct Profile
-  include JSON::Serializable
-
-  getter name : String
-
-  def initialize(@name)
-  end
-end
-
-class JsonCache(T)
-  def initialize(@ttl : Time::Span = 5.minutes)
-  end
-
-  # Returns a T whether it comes from the cache or from the block
-  def fetch(key : String, & : -> T) : T
-    if cached = Azu.cache.get(key)
-      return T.from_json(cached)
-    end
-
-    value = yield
-    Azu.cache.set(key, value.to_json, ttl: @ttl)
-    value
-  end
-end
-
-struct ProfileResponse
-  include Azu::Response
-
-  def initialize(@profile : Profile)
-  end
-
-  def render
-    @profile.to_json
-  end
-end
-
-struct ProfileEndpoint
-  include Azu::Endpoint(Azu::Request, ProfileResponse)
-
-  get "/profile"
-
-  def call : ProfileResponse
-    profile = JsonCache(Profile).new.fetch("profile") { Profile.new("Ada") }
-    ProfileResponse.new(profile)
-  end
-end
-```
-
-## Error Messages
-
-Crystal's error messages help identify issues:
-
-```text
-Error: no overload matches 'User.find' with types (String)
-
-Overloads are:
- - User.find(id : Int64)
-```
+A web application serves users, so a crash affects real people, and a bug found by the compiler costs less than one
+found in production. An API is a contract with its clients, and a type is a contract the compiler enforces. A team's
+code is read by more people than wrote it, and the types tell each of them what a value is. Crystal compiles to
+native code, and the types let the compiler dispatch methods directly, lay out values compactly and specialize
+generic code instead of checking types at runtime (for measurements, see
+[the benchmark suite](https://github.com/azutoolkit/azu/blob/master/benchmark/README.md)).
 
 ## Trade-offs
 
 ### Advantages
 
-- Catch bugs before deployment
-- Self-documenting code
-- Better IDE support
-- Refactoring confidence
+- Bugs are caught before deployment
+- The code documents itself: types are documentation the compiler verifies
+- Refactoring confidence: renaming a method or adding a constructor argument makes the build list every call site to
+  update, where a dynamic language needs extensive test coverage or a text search
+- Better IDE support: autocompletion, go to definition, find all references, inline documentation and rename
+  refactoring work from the types
 
 ### Considerations
 
-- More upfront type declarations
-- Learning curve for dynamic language developers
-- Some patterns require more verbose code
+- More upfront type declarations: every field and constructor argument has a type, as `UserResponse` above shows
+- A learning curve for developers from dynamic languages: union types, explicit `nil` handling and generics
+- Less flexibility: some dynamic patterns do not translate. Ruby can call a method whose name arrives at runtime:
 
-## Best Practices
+  ```ruby
+  # Ruby metaprogramming
+  user.send(method_name)
+  ```
+
+  Crystal needs to know the method at compile time, so dispatching on input is written out as a `case`, as
+  `ItemEndpoint` does with `params["action"]`.
+
+### Comparison
+
+| Aspect | Dynamic (Ruby) | Static (Crystal) |
+|--------|---------------|------------------|
+| Error discovery | Runtime | Compile time |
+| Refactoring | Manual/risky | Compiler-assisted |
+| Documentation | Comments (outdated) | Types (verified) |
+| IDE support | Limited | Full |
+| Flexibility | High | Moderate |
+
+## Best practices
 
 1. **Be explicit about types**
    ```text
    def call : UserResponse  # Always specify return type
    ```
 
-2. **Use meaningful type aliases**
+2. **Use union types sparingly; prefer one explicit type**
+
+   Convert input to one type where it enters (a request contract does this for its fields) instead of accepting
+   several types everywhere:
+
    ```text
-   alias UserId = Int64
-   alias Email = String
-   ```
-
-3. **Handle all cases**
-
-   `case ... in` on an enum is checked for exhaustiveness: leaving out a member is a compile error.
-
-   ```crystal
-   enum Status
-     Pending
-     Active
-     Archived
-   end
-
-   def label(status : Status) : String
-     case status
-     in .pending?
-       "Pending"
-     in .active?
-       "Active"
-     in .archived?
-       "Archived"
-     end
+   def find(id : Int64)  # rather than id : Int64 | String
    end
    ```
 
-4. **Leverage union types for flexibility**
-   ```text
-   def find(id : Int64 | String)
-     # Accept either type
-   end
-   ```
+## See also
 
-## See Also
-
-- [Why Type Safety](../design-decisions/why-type-safety.md)
-- [Request Reference](../../reference/api/request.md)
-- [Response Reference](../../reference/api/response.md)
+- [Contracts](../concepts/contracts.md)
+- [Request](../../reference/api/request.md)
+- [Response](../../reference/api/response.md)

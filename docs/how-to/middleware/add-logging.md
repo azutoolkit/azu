@@ -1,9 +1,13 @@
-# How to Add Logging
+---
+description: Log requests and your own events in an Azu application.
+---
 
-This guide shows how to log requests and your own events in an Azu application. Azu logs through Crystal's
-standard `Log`; there is nothing to learn beyond configuring `Log` and, if you want, writing a handler.
+# Add logging
 
-## Built-in Logger
+Azu logs through Crystal's standard `Log`; there is nothing to learn beyond configuring `Log` and, if you want,
+writing a handler.
+
+## Built-in logger
 
 `Azu::Handler::Logger` writes one line per request, after the rest of the chain has run. It is part of the default
 stack, so an app started with `MyApp.start` already has it. To choose the handlers yourself:
@@ -35,11 +39,13 @@ Azu::Handler::Logger.new(Log.for("my_app.http"))
 
 Put `Logger` outside `Rescuer` (as above) so a request that raised is logged with the `500` the client received.
 
-## Set Up Log Output
+## Set up log output
 
 Requiring `azu` does not touch `Log`, so by default Crystal's own defaults apply (`Info` and above to standard
 output). Two ways to take control, both once at boot before `start`:
 
+{% tabs %}
+{% tab title="Azu's format" %}
 Azu's format at `Debug`:
 
 ```crystal
@@ -47,8 +53,10 @@ require "azu"
 
 Azu.setup_logging
 ```
+{% endtab %}
 
-or your own backend and level per source:
+{% tab title="Your own backend" %}
+Your own backend and level per source:
 
 ```crystal
 require "azu"
@@ -58,12 +66,14 @@ Log.setup do |config|
   config.bind "*", Azu::CONFIG.env.production? ? Log::Severity::Info : Log::Severity::Debug, backend
 end
 ```
+{% endtab %}
+{% endtabs %}
 
 Azu's own messages come from the sources `Azu` (request lines), `Azu::Rescuer` (errors answered by `Rescuer`),
 `Azu::Router` (unrouted paths) and `Azu::Cache::MemoryStore` / `Azu::Cache::RedisStore`, so you can bind those names to
 different levels or backends.
 
-## Logging in Endpoints
+## Logging in endpoints
 
 Log with your own `Log` source inside endpoints:
 
@@ -112,7 +122,7 @@ end
 
 The block is only evaluated when the severity is enabled for that source.
 
-## Log Backends
+## Log backends
 
 ### File
 
@@ -126,6 +136,11 @@ Log.setup do |config|
   config.bind "*", Log::Severity::Info, file
 end
 ```
+
+{% hint style="warning" %}
+Azu does not rotate log files. Rotate them outside the process (with logrotate, `copytruncate` avoids having to
+reopen the file).
+{% endhint %}
 
 ### JSON
 
@@ -159,7 +174,7 @@ Log.setup do |config|
 end
 ```
 
-### Several Backends
+### Several backends
 
 ```crystal
 require "azu"
@@ -173,7 +188,7 @@ Log.setup do |config|
 end
 ```
 
-## Request Context in Every Log Line
+## Request context in every log line
 
 `Azu::Handler::RequestId` registers the request being served for the current fiber. Anywhere below it,
 `Azu::RequestContext.current?` returns its id, method and path, so a log call deep inside your code can say
@@ -206,7 +221,7 @@ end
 
 Place it after `RequestId`. A backend such as the JSON one above then sees `request_id` in `entry.context`.
 
-## A Structured Request Logger
+## A structured request logger
 
 If `Logger`'s line is not what you want, replace it with a handler. This one logs a single JSON line with the
 fields most dashboards need:
@@ -242,7 +257,7 @@ end
 
 Use it instead of `Azu::Handler::Logger`, outside `Rescuer`, so the status is the final one.
 
-## Logging Slow Requests Only
+## Logging slow requests only
 
 ```crystal
 class SlowRequestLogger
@@ -267,44 +282,27 @@ class SlowRequestLogger
 end
 ```
 
-## What Not to Log
+## What not to log
 
-`Azu::Handler::Logger` logs the path of the request line (`context.request.resource`, so with the query string)
-and never headers or bodies. Keep it that way in your own handlers: a query string can carry tokens, and
-`Authorization`, cookies and form bodies carry credentials. If you must log a request-derived hash, remove the
-sensitive keys first:
+`Azu::Handler::Logger` logs the request target with its query string, and never headers or bodies. It passes the
+target through `Azu::Env.redact_url` first, which replaces the value of a credential-looking query parameter and the
+password of a URL: `/data?token=abc123&page=2&api_key=zzz` is logged as
+`/data?token=[FILTERED]&page=2&api_key=[FILTERED]`.
+
+{% hint style="danger" %}
+Keep your own handlers as careful: `Authorization`, cookies and form bodies carry credentials.
+{% endhint %}
+
+If you must log a request-derived hash, filter it with `Azu::Env.redacted`, which replaces the values of keys that
+look like secrets (`password`, `token`, `api_key`, `authorization`, ...) with `[FILTERED]` and redacts URLs in the
+other values:
 
 ```crystal
-module LogFilter
-  SENSITIVE = %w(password token secret api_key authorization)
-
-  def self.filter(params : Hash(String, String)) : Hash(String, String)
-    params.to_h do |key, value|
-      {key, SENSITIVE.any? { |word| key.downcase.includes?(word) } ? "[FILTERED]" : value}
-    end
-  end
-end
+Azu::Env.redacted({"name" => "Ada", "password" => "hunter2", "next" => "https://u:p@example.com/x?token=1"})
+# => {"name" => "Ada", "password" => "[FILTERED]", "next" => "https://u:[FILTERED]@example.com/x?token=[FILTERED]"}
 ```
 
-## Log Rotation
-
-Azu writes to whatever backend you configure and does not rotate files. Rotate them outside the process, for
-example with logrotate; `copytruncate` avoids having to reopen the file:
-
-```text
-# /etc/logrotate.d/myapp
-/var/log/myapp/*.log {
-    daily
-    rotate 14
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-}
-```
-
-## See Also
+## See also
 
 - [Create Custom Middleware](create-custom-middleware.md)
 - [Built-in handlers](../../reference/handlers/built-in.md)

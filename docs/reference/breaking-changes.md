@@ -1,6 +1,8 @@
-# Breaking Changes
+---
+description: The breaking changes between Azu versions, and how to migrate across each one.
+---
 
-This document lists breaking changes between Azu versions and migration guides.
+# Breaking changes
 
 ## Version 0.5.x
 
@@ -158,6 +160,12 @@ Check these before upgrading:
   made directly with `CQL::Schema.define` or `.new` is unaffected. An unknown `AZU_CQL_DRIVER` value raises `ArgumentError` for every schema.
 - **New:** `Azu::CQL.health_check(schema)`, `Azu::CQL.engine(schema)`, `Azu::CQL.shutdown`, `.track`/`.untrack`, `Azu.on_shutdown`. A schema made
   twice under the same name closes the first one.
+
+**`Azu::CQL.schema` applies CQL's SQLite settings.** For a `sqlite3://` URL taken from `CQL.config`, the `c.sqlite` settings
+(`journal_mode` WAL, `foreign_keys` on, `busy_timeout` 5000, ...) are appended to the URL. Before, such a schema ran with
+SQLite's own defaults (foreign keys off, no busy timeout), so rows or fixtures that violate a foreign key now fail with
+`FOREIGN KEY constraint failed`. Opt out with `CQL.configure { |c| c.sqlite.foreign_keys = false }`, or per URL with
+`?foreign_keys=0`. See [Database dashboard](database-dashboard.md).
 
 **`Handler::Static` redirects to the right path.** The redirect for a directory requested without its trailing slash answered
 `Location: /subdir//` (two slashes), and one for a path that was not in its normal form (`/a/../b.txt`) answered `/b.txt/` (a slash added to a
@@ -354,6 +362,30 @@ themselves must move to a session store.
 keeps its token: `CookieTokenStore` (default, unchanged) or `SessionTokenStore`, which uses
 `Azu.session_adapter` so the token never reaches the client as a cookie.
 
+**The CSRF cookie is sent to every path (fix).** `Handler::CSRF` set its token cookie without a `Path`, so browsers kept it
+for the directory of the page that issued it (the RFC 6265 default path): a token issued on `GET /auth/login` was stored for
+`/auth`, was not sent with `POST /session`, and that form was refused with `403 CSRF token validation failed` under
+`SignedDoubleSubmit`, `DoubleSubmit` and `SynchronizerToken` with the default `CookieTokenStore`. A form that posts into its
+own directory (`/posts/new` to `POST /posts`) worked, which hid it. The cookie now carries `Path=/`. Nothing needs to be done.
+Until the old cookies expire (`cookie_max_age`, 24 hours by default) a browser can hold an old directory cookie next to the
+new one, and it sends both to paths inside that directory, the longer path first (RFC 6265 section 5.4).
+`HTTP::Cookies.from_client_headers` keeps the last cookie of a name, so the handler compares against the new `Path=/`
+cookie, the one the page's token was issued with. `SignedDoubleSubmit` and `DoubleSubmit` set a new cookie with every
+token, so their forms work from the first page rendered after the upgrade. `SynchronizerToken` with `CookieTokenStore`
+reuses the token a request already carries and sets no cookie, so a browser that holds only an old `/auth` cookie keeps that
+token, and is refused on `POST /session` as before, until the cookie expires or a page outside `/auth` issues a new token.
+`SessionTokenStore` sets no cookie and is not affected. To drop the old cookies at once, give the handler a new
+`cookie_name:`; forms rendered before the deploy are then refused once.
+
+**The test client's cookies follow the browser's paths (`azu/testing`).** `Azu::Testing::CookieJar` sent a cookie set
+without `Path` to every path, where a browser keeps it for the directory of the request that set it (RFC 6265 default
+path), which is how the CSRF bug above passed the client. Now a cookie set without `Path` on `GET /auth/login` goes to
+`/auth/...` only; a name is held once per path (an expired `Set-Cookie` removes that name and path, `delete(name)`
+every path of it); a request carries longer paths first; and `client.cookies["name"]` / `to_h` give the shortest
+path's value. `CookieJar#absorb` takes the request path as a second argument (default `/`). A spec that now misses a
+cookie had a page that sets it without `Path` in a subdirectory: the app should set `Path` (a browser would not have
+sent it either).
+
 **Routes can belong to an app** (additive; the endpoint macros keep registering on `Azu::App.default`). The
 macros now record their routes on the endpoint type (`.routes`) and `App.default` registers them lazily, the first
 time its router is read, instead of when the class body runs; `Router::Builder#endpoint(Type)` registers a type on any
@@ -515,7 +547,8 @@ Nothing changes for an app that does not call it. A custom `Routable` that alrea
 
 **Graceful shutdown** (behaviour fix). On SIGTERM or SIGINT, `start` stops accepting connections and waits for
 the requests in flight, up to `config.shutdown_timeout` (`SHUTDOWN_TIMEOUT` seconds, default 30), before it
-shuts the rest down. Before, it exited as soon as the listener closed. The restart branch of the server loop
+shuts the rest down. It traps `TERM` as well as `INT`, and then calls `Azu.shutdown`. Before, it exited as soon as the
+listener closed. The restart branch of the server loop
 (`e == Errno`) could never run and is gone: a failure of the listener is logged and `start` returns.
 `Azu::App#stop(timeout)` does the same from code and specs (bind the server on `bind_unused_port`).
 Requests that arrive on connections that stay open after the listener closed get `503` with `Connection: close`.
@@ -529,6 +562,25 @@ responses (SSE) still count as in flight until the handler returns, but can now 
 and `Azu.shutdown_signal` report the shutdown of the app serving the request. New: `App#track_socket`,
 `App#shutdown_signal`, `Azu.current_app`, `Azu.with_app`. A handler that ignores the signal behaves as before.
 See [Shut Down Gracefully](../how-to/deployment/graceful-shutdown.md).
+
+**Spark replaces the Preact/jQuery client; channels check origins and sizes.**
+
+- `Azu::Spark` is a module. `ComponentRegistry`, `Spark.javascript_tag`, the `live-*` attribute protocol and the
+  `spark_tag()`, `live_click`, `live_change`, `live_input` and `live_value` template helpers are removed. Use
+  `Azu::Spark.script_tag` and the binding macros (`spark_click`, ...); see [Spark JavaScript client](spark-client.md).
+- `Azu::Component` is a static `Markup` component: `mount`, `every`, `on_event` and `refresh` are removed. Stateful
+  components inherit `Azu::Spark::Component` (see [Component](api/component.md)).
+- `Markup` omits `disabled: false` and renders `disabled: true` as a bare attribute (the same for the other boolean
+  attributes, such as `checked` and `required`).
+- Channels refuse cross-origin browser upgrades with `403`. Behind a proxy that rewrites `Host`, list the public
+  origin in `WEBSOCKET_ALLOWED_ORIGINS`.
+- A message over 1 MB closes the connection (`CloseCode::MessageTooBig`), and the server pings every 30 seconds
+  (`websocket.ping_interval`).
+- `Channel#initialize` sets up mutexes: a subclass that overrides it must call `super`.
+- New `Channel` methods (`context`, `params`, `headers`, `send`, `close`, `subscribe`, `broadcast`) may clash with
+  methods of the same name in subclasses.
+- `Router#ws` registers a `Channel::Upgrader`, so the `Route#endpoint` of a WebSocket route is the upgrader, not the
+  channel (`route_info["handler"]` names the channel class).
 
 **Fixes** (behaviour changes that make the code do what it documented):
 
@@ -595,7 +647,7 @@ end
 ```
 
 **Migration:**
-1. Add request type as first parameter (use `EmptyRequest` for no body)
+1. Add request type as first parameter (use `Azu::Request` for no body)
 2. Add response type as second parameter
 3. Add return type annotation to `call`
 
@@ -722,13 +774,11 @@ end
 
 ### Deprecated in 0.5.x
 
-- `Azu::Handler::Base#next` - Use `call_next(context)` instead
 - Implicit request types - Always specify request type parameter
 
 ### Removed in 0.5.x
 
 - `Azu::Endpoint` without type parameters
-- `Azu.start` without handler array
 
 ## Migration Tools
 
@@ -744,7 +794,7 @@ crystal build --warnings=all src/app.cr
 
 | Azu Version | Crystal Version |
 |-------------|-----------------|
-| 0.5.x | 1.22.1 and newer (CI runs 1.22.1 and the latest release; releases up to 0.5.123 asked for 1.19.1) |
+| 0.5.x | 1.22.1 and newer (tested on 1.22.1 and the latest release; releases up to 0.5.123 asked for 1.19.1) |
 | 0.4.x | 0.35.0 - 1.0.0 |
 | 0.3.x | 0.35.0 - 0.36.x |
 
@@ -752,6 +802,6 @@ crystal build --warnings=all src/app.cr
 
 If you encounter issues during migration:
 
-1. Check the [GitHub Issues](https://github.com/azutopia/azu/issues)
-2. Review the [CHANGELOG](https://github.com/azutopia/azu/blob/master/CHANGELOG.md)
+1. Check the [GitHub Issues](https://github.com/azutoolkit/azu/issues)
+2. Review the [release notes](https://github.com/azutoolkit/azu/releases)
 3. Ask in the [Crystal Forum](https://forum.crystal-lang.org/)

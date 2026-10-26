@@ -1,8 +1,10 @@
-# How to Handle Errors Gracefully
+---
+description: Catch, format, log and report errors in your Azu application.
+---
 
-This guide shows you how to implement robust error handling in your Azu application.
+# Handle errors gracefully
 
-## Built-in Error Handling
+## Built-in error handling
 
 Azu provides a Rescuer handler for catching exceptions. It renders an `Azu::Response::Error` with its own status and
 turns any other exception into a `500`, in the format the `Accept` header asks for (HTML, JSON, XML or plain text).
@@ -19,7 +21,7 @@ MyApp.start [
 ] of HTTP::Handler
 ```
 
-## HTTP Error Responses
+## HTTP error responses
 
 Use built-in error responses:
 
@@ -59,11 +61,17 @@ Available error responses:
 See the [Error Types Reference](../../reference/errors/error-types.md) for all of them, and for statuses that have no class
 of their own.
 
-## Custom Error Handler
+## Custom error handler
 
 Create a handler that answers errors in your own format. A handler is an `HTTP::Handler`: it calls `call_next` and
 rescues what the rest of the chain raises. Put it after `Rescuer` to see errors first, or instead of it to own the
-format:
+format.
+
+A handler sees only the errors raised inside `call` (and by the handlers after it). A request that breaks its contract
+never reaches `call`: the endpoint answers it itself, with `400` when the body or a field cannot be read as the
+contract's types and `422` with the failing fields when a validation rule fails. Neither reaches this handler, which
+sees only the final status code on the way out. Its `JSON::ParseException` and `KeyError` branches are for code in
+`call` that parses JSON or reads `params["name"]` itself:
 
 ```crystal
 class ErrorHandler
@@ -104,7 +112,7 @@ class ErrorHandler
 end
 ```
 
-## Endpoint-Level Error Handling
+## Endpoint-level error handling
 
 Handle errors within endpoints:
 
@@ -166,7 +174,7 @@ end
 When an endpoint can answer with more than one response type, declare the union as its response type, as above.
 For failures, raising an `Azu::Response::Error` subclass is usually simpler: the status and body come from the error.
 
-## Error Response Format
+## Error response format
 
 Create a consistent error response:
 
@@ -192,7 +200,7 @@ struct ApiErrorResponse
 end
 ```
 
-## Logging Errors
+## Logging errors
 
 Log errors with context:
 
@@ -226,7 +234,7 @@ end
 
 Put it after `Rescuer` in the handler list so it sees the exception before `Rescuer` turns it into a response.
 
-## Error Monitoring
+## Error monitoring
 
 Send errors to external monitoring. The `ExternalTracker` module below stands in for your tracker's SDK (Sentry,
 Honeybadger, ...):
@@ -258,171 +266,6 @@ class ErrorReporter
 end
 ```
 
-## Retry Logic
-
-Implement retry for transient errors:
-
-```crystal
-def with_retry(max_attempts = 3, &)
-  attempts = 0
-
-  loop do
-    attempts += 1
-    return yield
-  rescue ex : IO::TimeoutError | IO::Error
-    raise ex if attempts >= max_attempts
-
-    Log.for("retry").warn { "Attempt #{attempts} failed, retrying..." }
-    sleep (2 ** attempts).seconds
-  end
-end
-
-struct DataResponse
-  include Azu::Response
-
-  def initialize(@data : String)
-  end
-
-  def render
-    @data
-  end
-end
-
-struct FetchEndpoint
-  include Azu::Endpoint(Azu::Request, DataResponse)
-
-  get "/fetch"
-
-  def call : DataResponse
-    data = with_retry do
-      fetch_data
-    end
-    DataResponse.new(data)
-  end
-
-  private def fetch_data : String
-    "data"
-  end
-end
-```
-
-## Circuit Breaker
-
-Prevent cascading failures:
-
-```crystal
-class CircuitOpenError < Azu::Response::Error
-  def initialize
-    super(
-      title: "Service Unavailable",
-      status: HTTP::Status::SERVICE_UNAVAILABLE,
-      errors: [] of String
-    )
-    @detail = "The circuit is open; try again later"
-  end
-end
-
-class CircuitBreaker
-  enum State
-    Closed
-    Open
-    HalfOpen
-  end
-
-  def initialize(
-    @failure_threshold = 5,
-    @reset_timeout = 30.seconds,
-  )
-    @state = State::Closed
-    @failures = 0
-    @last_failure_time = Time.utc
-    @lock = Mutex.new
-  end
-
-  def call(&)
-    @lock.synchronize do
-      if @state.open?
-        raise CircuitOpenError.new unless Time.utc - @last_failure_time > @reset_timeout
-        @state = State::HalfOpen
-      end
-    end
-
-    begin
-      result = yield
-      on_success
-      result
-    rescue ex
-      on_failure
-      raise ex
-    end
-  end
-
-  private def on_success
-    @lock.synchronize do
-      @failures = 0
-      @state = State::Closed
-    end
-  end
-
-  private def on_failure
-    @lock.synchronize do
-      @failures += 1
-      @last_failure_time = Time.utc
-      @state = State::Open if @failures >= @failure_threshold
-    end
-  end
-end
-```
-
-A `CircuitOpenError` is an `Azu::Response::Error`, so `Rescuer` answers it with a `503` without more code.
-
-## Graceful Degradation
-
-Provide fallback behavior:
-
-```crystal
-class ServiceUnavailableError < Exception
-end
-
-struct ProfileResponse
-  include Azu::Response
-
-  def initialize(@data : String)
-  end
-
-  def render
-    @data
-  end
-end
-
-struct ProfileEndpoint
-  include Azu::Endpoint(Azu::Request, ProfileResponse)
-
-  get "/profile"
-
-  def call : ProfileResponse
-    ProfileResponse.new(fetch_from_primary)
-  rescue ex : ServiceUnavailableError
-    Log.for("profile").warn { "Primary service unavailable, using cache" }
-
-    unless data = fetch_from_cache
-      Log.for("profile").error { "No cached data available" }
-      raise ex
-    end
-
-    ProfileResponse.new(data)
-  end
-
-  private def fetch_from_primary : String
-    raise ServiceUnavailableError.new("primary is down")
-  end
-
-  private def fetch_from_cache : String?
-    Azu.cache.get("profile")
-  end
-end
-```
-
-## See Also
+## See also
 
 - [Create Custom Errors](create-custom-errors.md)

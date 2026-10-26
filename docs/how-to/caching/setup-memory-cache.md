@@ -1,11 +1,13 @@
-# How to Set Up Memory Cache
+---
+description: "The memory store is the default: with no configuration `Azu.cache` already stores up to 1000 entries for an hour each, evicting the least recently used."
+---
 
-This guide shows how to use the in-process cache. The memory store is the default: with no configuration
-`Azu.cache` already stores up to 1000 entries for an hour each, evicting the least recently used. It lives in the
-memory of one process, so each process of a deployment has its own copy (use [Redis](setup-redis-cache.md) to
-share).
+# Set up a memory cache
 
-## Basic Setup
+The memory store lives in the memory of one process, so each process of a deployment has its own copy (use
+[Redis](setup-redis-cache.md) to share).
+
+## Basic setup
 
 Set the options before the first use of `Azu.cache`; the store is built on first use and later changes do not
 rebuild it:
@@ -29,9 +31,9 @@ end
 The same options come from the environment: `CACHE_STORE`, `CACHE_MAX_SIZE`, `CACHE_DEFAULT_TTL`,
 `CACHE_CLEANUP_INTERVAL`, `CACHE_KEY_PREFIX`. There is no `config.cache = MemoryStore.new(...)`.
 
-## Using the Cache
+## Using the cache
 
-### Store and Retrieve Values
+### Store and retrieve values
 
 Values are strings. Serialize objects yourself:
 
@@ -50,10 +52,9 @@ end
 Azu.cache.set("session:abc123", "data", 30.minutes)
 ```
 
-An entry that has outlived its TTL is never returned, even before the background cleanup removes it
-(a 100 ms TTL returned the value before the deadline and `nil` after it).
+An entry that has outlived its TTL is never returned, even before the background cleanup removes it.
 
-### Fetch Pattern
+### Fetch pattern
 
 `fetch` returns the cached value, or runs the block, stores its result and returns it:
 
@@ -68,7 +69,7 @@ puts report
 
 Two fibers asking for the same missing key at the same moment compute it once; the second waits for the first.
 
-### Delete Keys
+### Delete keys
 
 ```crystal
 require "azu"
@@ -81,7 +82,7 @@ Azu.cache.delete("user:1")
 There is no pattern deletion. To invalidate a group of keys, delete each key you know, or put a version in the
 key (`"users:v#{version}:list"`) and bump it.
 
-### Check Existence
+### Check existence
 
 ```crystal
 require "azu"
@@ -91,7 +92,7 @@ if Azu.cache.exists?("user:1")
 end
 ```
 
-### Clear All
+### Clear all
 
 ```crystal
 require "azu"
@@ -99,7 +100,7 @@ require "azu"
 Azu.cache.clear
 ```
 
-## Caching in Endpoints
+## Caching in endpoints
 
 Cache the rendered body of an expensive endpoint and answer from it:
 
@@ -135,10 +136,10 @@ struct ProductEndpoint
 end
 ```
 
-Requesting `/products/7` twice returned the same `loaded_at` both times (the block ran once), and `/products/8`
-computed its own entry.
+Within the ten minutes, a second request for `/products/7` gets the same `loaded_at` (the block runs once per
+key), and `/products/8` computes its own entry.
 
-## How Eviction Works
+## How eviction works
 
 When the store holds `max_size` entries and a new key arrives, the entry that was read or written longest ago is
 removed. Reading a key counts as using it:
@@ -156,25 +157,7 @@ puts store.get("b").inspect # => nil
 puts store.get("a")         # => 1
 ```
 
-## Namespacing Keys
-
-Use one helper per kind of key so the format lives in one place:
-
-```crystal
-module CacheKeys
-  def self.user(id : Int64) : String
-    "users:#{id}"
-  end
-
-  def self.user_posts(user_id : Int64) : String
-    "users:#{user_id}:posts"
-  end
-end
-
-puts CacheKeys.user(1_i64)
-```
-
-## Cache Invalidation
+## Cache invalidation
 
 Invalidate where the data changes. Azu has no model callbacks of its own, so do it in the code that writes
 (a service, an endpoint, or your ORM's callbacks):
@@ -189,13 +172,13 @@ def rename_user(id : Int64, name : String) : Nil
 end
 ```
 
-## Thread Safety
+## Thread safety
 
 The store is protected by a mutex, so any number of fibers can use `Azu.cache` at the same time.
 
-## Observing the Cache
+## Observing the cache
 
-`stats` reports the size of the store:
+`stats` reports the size of the store and its hit rate:
 
 ```crystal
 require "azu"
@@ -203,10 +186,12 @@ require "azu"
 stats = Azu.cache.stats
 puts stats["size"]      # entries
 puts stats["max_size"]  # limit
+puts stats["hit_rate"]  # percent of lookups that found an entry
 ```
 
-Its `hit_rate` is how full the store is, not a measured hit rate; Azu does not count hits and misses. To count them,
-subscribe to the cache operations:
+`hit_rate` is the memory store's hits divided by its lookups, times 100, counted since the store was created (`0.0`
+before the first lookup; `clear` does not reset it): three hits and one miss give `75.0`. To count hits and misses yourself, for example per
+key, subscribe to the cache operations:
 
 ```crystal
 require "azu"
@@ -220,7 +205,7 @@ Azu::Instrumentation.on_cache do |operation|
 end
 ```
 
-## When to Use the Memory Cache
+## When to use the memory cache
 
 **Good for:**
 - A single process or a single server
@@ -232,7 +217,7 @@ end
 - A cache that survives restarts
 - More entries than one process should hold
 
-## See Also
+## See also
 
 - [Set Up Redis Cache](setup-redis-cache.md)
 - [Cache reference](../../reference/api/cache.md)

@@ -164,4 +164,47 @@ describe Azu::Handler::CSRF do
       context.response.status_code.should eq(403)
     end
   end
+
+  describe "token cookie" do
+    # Without a Path a browser keeps the cookie for the directory of the page that set it (RFC 6265
+    # default-path): a token issued on GET /auth/login would not be sent with POST /session.
+    {% for strategy in %w(SignedDoubleSubmit DoubleSubmit SynchronizerToken) %}
+      it "is set for every path with {{strategy.id}}" do
+        handler = Azu::Handler::CSRF.new(
+          strategy: Azu::Handler::CSRF::Strategy::{{strategy.id}},
+          secret_key: "test-secret",
+        )
+        context, io = create_context("GET", "/auth/login")
+
+        handler.token(context)
+
+        context.response.cookies["csrf_token"].path.should eq("/")
+        context.response.close
+        io.rewind
+        set_cookie = io.gets_to_end.lines.find!(&.starts_with?("Set-Cookie: csrf_token="))
+        set_cookie.should match(/;\s*path=\/(;|$)/i)
+      end
+    {% end %}
+
+    # A browser that still holds a cookie of an earlier version (Path=/auth) sends it before the
+    # Path=/ one (longer paths first); the handler compares against the last of the name.
+    it "validates against the Path=/ cookie when an older directory cookie comes first" do
+      handler = Azu::Handler::CSRF.new(secret_key: "test-secret")
+      next_handler, verify = create_next_handler(1)
+      handler.next = next_handler
+
+      stale = handler.token(create_context("GET", "/auth/login")[0])
+      fresh = handler.token(create_context("GET", "/auth/login")[0])
+
+      headers = HTTP::Headers{
+        "Cookie"       => "csrf_token=#{stale}; csrf_token=#{fresh}",
+        "X-CSRF-TOKEN" => fresh,
+      }
+      context, _ = create_context("POST", "/auth/login", headers)
+      handler.call(context)
+
+      context.response.status_code.should eq(200)
+      verify.call
+    end
+  end
 end

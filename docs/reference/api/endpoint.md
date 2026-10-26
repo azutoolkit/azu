@@ -1,6 +1,8 @@
-# Endpoint Reference
+---
+description: "Endpoints handle HTTP requests with type-safe request and response contracts: route macros, the helpers of `call`, request access and redirects."
+---
 
-Endpoints handle HTTP requests with type-safe request and response contracts.
+# Endpoint
 
 ## Including Endpoint
 
@@ -30,7 +32,7 @@ end
 
 An endpoint is a plain struct (or class). It is not an `HTTP::Handler`: it is `Azu::Routable`, and the router dispatches to it.
 
-## HTTP Method Macros
+## HTTP method macros
 
 `get`, `post`, `put`, `patch`, `delete`, `head`, `options`, `connect` and `trace` register the endpoint with the
 router of `Azu::App.default` when the struct is defined. A `get` route also answers `HEAD`.
@@ -94,7 +96,9 @@ struct DeleteUserEndpoint
 end
 ```
 
+{% hint style="warning" %}
 Each struct declares one route: the path is remembered per type for `Endpoint.path`, so give an endpoint one verb macro.
+{% endhint %}
 
 To register an endpoint on an app of your own instead, route it explicitly (see [Router Reference](router.md)):
 
@@ -111,7 +115,7 @@ app = Azu::App.new
 app.routes { get "/status", StatusEndpoint }
 ```
 
-## Instance Methods
+## Instance methods
 
 The helpers below are private methods of the endpoint, available inside `call`.
 
@@ -166,7 +170,12 @@ For a JSON body the typed request applies the same rule to the keys the body alr
 value replaces that key (compared decoded, so `"\u0069d"` is `id`; a field renamed with `@[JSON::Field(key:)]` is
 replaced by the URL parameter named like the field) and keeps the JSON type the body used (a number stays a number; a
 URL value that cannot take that type, such as `?price=nan`, makes the request a `400`). Numbers keep their raw text (integers beyond Int64, float notation); strings and nested values are re-serialized as equivalent JSON, and a body in which no top-level key matches is passed on untouched. Only top-level keys are replaced. When `?user_name=` and `?name=` both target a field renamed to `user_name`, the real field name wins. Keys the body does not have are **not added**: a JSON contract does not receive a path parameter its
-body lacks. So **authorize on `params["id"]` (the route), not on a field of the contract** that a body may also carry.
+body lacks.
+
+{% hint style="danger" %}
+So **authorize on `params["id"]` (the route), not on a field of the contract** that a body may also carry.
+{% endhint %}
+
 The CSRF handler reads its token on its own (header, form body, then query) and is not affected by this order.
 
 
@@ -292,7 +301,7 @@ end
 `csrf_token`, `csrf_tag` and `csrf_metatag` return the token of the current request, the hidden input
 tag and the meta tag. They need the `Azu::Handler::CSRF` handler in the chain.
 
-## Request Access
+## Request access
 
 The validated request is available through a method named after the request type. It is parsed once
 per call, and a request that breaks its validations never reaches `call` (see [Request Reference](request.md)):
@@ -360,9 +369,9 @@ end
 - `to : String` - Redirect URL
 - `status : Int32 = 301` - HTTP status code
 
-## Route Parameters
+## Route parameters
 
-### Path Parameters
+### Path parameters
 
 ```crystal
 struct PostEndpoint
@@ -378,7 +387,7 @@ struct PostEndpoint
 end
 ```
 
-### Wildcard Parameters
+### Wildcard parameters
 
 ```crystal
 struct FilesEndpoint
@@ -393,53 +402,7 @@ struct FilesEndpoint
 end
 ```
 
-## Complete Example
-
-```crystal
-struct User
-  getter id : Int64
-  getter name : String
-  getter email : String
-
-  def initialize(@id, @name, @email)
-  end
-
-  def self.find?(id : Int64) : User?
-    new(id, "Ada", "ada@example.com") if id == 1
-  end
-end
-
-struct ShowUserResponse
-  include Azu::Response
-
-  def initialize(@user : User)
-  end
-
-  def render
-    {
-      id:    @user.id,
-      name:  @user.name,
-      email: @user.email,
-    }.to_json
-  end
-end
-
-struct ShowUserEndpoint
-  include Azu::Endpoint(Azu::Request, ShowUserResponse)
-
-  get "/users/:id"
-
-  def call : ShowUserResponse
-    user_id = params["id"].to_i64
-    user = User.find?(user_id) || raise Azu::Response::NotFound.new("/users/#{user_id}")
-
-    content_type "application/json"
-    ShowUserResponse.new(user)
-  end
-end
-```
-
-## See Also
+## See also
 
 - [Request Reference](request.md)
 - [Response Reference](response.md)

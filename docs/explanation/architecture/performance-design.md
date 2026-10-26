@@ -1,10 +1,10 @@
-# Performance Design
+---
+description: What Azu does to keep the work per request small, what it does not do, and how to measure your own application.
+---
 
-This document describes what Azu does to keep requests cheap, what it does not do, and how to measure your own
-application. It contains only properties that were read in the source or measured, and says how each number was
-obtained.
+# Performance design
 
-## What Azu Builds On
+## What Azu builds on
 
 Azu is compiled by Crystal to native code. Method calls on concrete types are resolved at compile time, and generics
 (`Endpoint(Request, Response)`) are specialized per type, so there is no reflection on the request path. The HTTP
@@ -17,7 +17,7 @@ Routes live in a tree of path segments (`Azu::Router::Tree`): a node per segment
 the segment's bytes, at most one parameter child and one wildcard child, and one route per HTTP method on the node a
 path ends at. The method is matched by comparing it with the verbs as written.
 
-### Lookup Cost
+### Lookup cost
 
 A lookup reads the request path in place. The offsets of its slashes are kept on the stack, and a static segment is
 looked up by a slice of the path, so finding a static route allocates nothing; a route with parameters allocates
@@ -26,22 +26,21 @@ node is visited at most once. A path with more segments than any route is refuse
 route could use, so a path of thousands of slashes costs no more than a short one. There is no path cache: a site
 with an id per page costs the same per request as one with a handful of URLs.
 
-## Request Processing
+## Request processing
 
 - **The request is parsed once per call**, before `call`, because the contract is enforced before the endpoint
   runs. Parsing is not lazy: an endpoint with a request type pays for parsing and validation, even when `call`
   never reads the request. Two exceptions read params on first use: an endpoint declared with the bare
   `Azu::Request` module, which has no contract, and a contract with no fields, no rules and no methods of its
   own, for a request without a `Content-Type`.
-- **Endpoints are copied per call.** The router holds one endpoint value per route; a `struct` endpoint is copied for
-  every request, so the instance variables `call` sets (the context, the params) belong to that request. A `class`
-  endpoint is one object shared by all concurrent requests, and its params and context are overwritten by the next
-  request that arrives while the first one waits. Three simultaneous requests to a class endpoint that slept in
-  `call` all saw the params of the last one. Declare endpoints as `struct`s.
+- **Endpoints are copied per call.** The router holds one endpoint value per route and every request runs on a copy
+  of it, so the instance variables `call` sets (the context, the params) belong to that request: a `struct`
+  endpoint is copied by value, a `class` endpoint is copied with `dup`. The `dup` of a class is one heap allocation per
+  request (48 bytes for an endpoint with no instance variables of its own) that the copy of a struct does not make.
 - **Handlers are created once.** The handler array is built at startup and every request goes through the same
   instances, so handler state is shared by all requests (use `Atomic` or `Mutex`).
 
-## Response Generation
+## Response generation
 
 An endpoint returns an object whose `render` produces the body; it is written to the connection by `<<`. Small
 bodies are buffered by the standard library and written when the endpoint returns, large ones leave while they are
@@ -85,9 +84,8 @@ earlier. The upload, cache cleanup and heartbeat tasks are fibers of the same pr
 
 ## Measured
 
-Numbers below come from `crystal run --release` (Crystal 1.22.0) on a 4-core virtual machine that was running other
-containers at the same time, so treat them as an order of magnitude, not as a benchmark of Azu on dedicated
-hardware. The program is this one; it was run three times (the first time as an earlier copy of the same loops):
+The numbers below come from this program, built with `crystal run --release` (Crystal 1.22.0) on a shared 4-core
+virtual machine. Treat them as an order of magnitude, not as a benchmark of Azu on dedicated hardware:
 
 ```crystal
 require "azu"
@@ -165,7 +163,7 @@ The loopback figure is one sequential client: it measures latency per request, n
 server, and it includes the client's own work. Requests that parse a body, render a template or query a database
 cost what that work costs; measure those in your own application.
 
-## Measuring Your Application
+## Measuring your application
 
 With `require "azu/dev"`, `Azu::Handler::PerformanceMonitor` records every request that passes through it
 (endpoint, status, processing time, memory) and `metrics.aggregate_stats` summarizes them:
@@ -218,26 +216,16 @@ slow queries and N+1 patterns (see [Database dashboard](../../reference/database
 Without `require "azu/dev"` none of this is loaded: core calls `Azu::Instrumentation`, which costs a nil check until
 something subscribes.
 
-## Profiling
+## Practical rules
 
-Build with `--release` before measuring anything, and use the profiler of your platform on the binary:
-
-```bash
-crystal build --release src/app.cr -o app
-perf record -g ./app
-perf report
-```
-
-## Practical Rules
-
-1. **Declare endpoints as `struct`s** (see above).
+1. **Declare endpoints as `struct`s**: a `class` endpoint is as safe, but its per-request copy is a heap allocation
+   (see above).
 2. **Paginate and limit** what an endpoint reads; the work of an endpoint is usually its database access, which the
    dashboard's database tab shows per request.
 3. **Cache rendered or computed values** with `Azu.cache.fetch`, and give every entry a TTL.
-4. **Build strings with `String.build`** instead of `+=` in loops.
-5. **Keep CPU-bound work out of request fibers.**
+4. **Keep CPU-bound work out of request fibers.**
 
-## See Also
+## See also
 
 - [Architecture Overview](overview.md)
 - [How to Optimize Endpoints](../../how-to/performance/optimize-endpoints.md)

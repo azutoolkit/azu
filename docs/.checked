@@ -5,7 +5,6 @@ docs/README.md
 README.md
 docs/tutorials/getting-started.md
 docs/reference/api/app.md
-docs/reference/api/core.md
 docs/reference/api/endpoint.md
 docs/reference/api/openapi.md
 docs/reference/api/request.md
@@ -23,14 +22,11 @@ docs/how-to/errors/create-custom-errors.md
 docs/explanation/concepts/endpoints.md
 docs/explanation/concepts/contracts.md
 docs/explanation/architecture/type-safety.md
-docs/explanation/design-decisions/why-contracts.md
-docs/explanation/design-decisions/why-type-safety.md
 docs/how-to/database/create-models.md
 docs/how-to/database/define-schema.md
 docs/how-to/database/handle-transactions.md
 docs/how-to/database/run-migrations.md
 docs/how-to/database/query-data.md
-docs/how-to/validation/validate-models.md
 docs/how-to/performance/optimize-database-queries.md
 docs/reference/database/validations.md
 docs/reference/database/cql-api.md
@@ -86,7 +82,6 @@ docs/reference/api/content-negotiation.md
 docs/reference/api/streaming.md
 docs/reference/api/testing.md
 docs/reference/api/presence.md
-docs/how-to/deployment/scale-out-realtime.md
 docs/reference/spark-client.md
 # background-jobs.md: every block is skipped (the checker does not install JoobQ); its blocks were type-checked by hand against JoobQ 0.4.2 with `crystal build --no-codegen` together with Azu
 docs/how-to/jobs/background-jobs.md

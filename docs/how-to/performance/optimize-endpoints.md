@@ -1,14 +1,19 @@
-# How to Optimize Endpoints
+---
+description: Make Azu endpoints faster.
+---
 
-This guide shows ways to make Azu endpoints faster, each one with a version that compiles and was run. For what
-the framework itself costs and how to measure it, see [Performance Design](../../explanation/architecture/performance-design.md).
+# Optimize endpoints
 
-## Declare Endpoints as Structs
+For what the framework itself costs and how to measure it, see
+[Performance Design](../../explanation/architecture/performance-design.md).
 
-The router keeps one endpoint value per route. A `struct` is copied for every request, so the params and context
-`call` sees are its own. A `class` is a single object shared by all concurrent requests: when its `call` waits (a
-query, a `sleep`), the next request overwrites its params. Three simultaneous requests to a class endpoint that
-slept in `call` all read the params of the last one; the same three to a struct each read their own.
+## Declare endpoints as structs
+
+The router keeps one endpoint value per route, and each request works on its own copy: a `struct` is copied on
+dispatch, and a `class` is `dup`ed before `call`. So the params and context `call` sees are its own either way, even
+while `call` waits (a query, a `sleep`) and other requests to the same route run. A `struct` copy needs no extra heap
+object, which the `dup` of a class does. Both copies are shallow: an object that an instance variable points to is
+shared by every request, so keep request state in local variables.
 
 ```crystal
 require "azu"
@@ -35,7 +40,7 @@ struct EchoEndpoint
 end
 ```
 
-## Cache Computed Responses
+## Cache computed responses
 
 `Azu.cache.fetch` runs the block on a miss and stores the result; many simultaneous misses of one key compute it
 once. Cache the rendered body:
@@ -76,7 +81,7 @@ Include everything that changes the answer in the key (page, locale, filters), a
 `Azu.cache.delete` where the data is written. The cache is in memory by default; see
 [Set Up Memory Cache](../caching/setup-memory-cache.md).
 
-## HTTP Caching Headers
+## HTTP caching headers
 
 Let clients and proxies reuse responses: send `Cache-Control` and an `ETag`, and answer `304 Not Modified`, without a
 body, when the client already has the current version:
@@ -117,93 +122,11 @@ struct ArticleEndpoint
 end
 ```
 
-A repeated request with `If-None-Match` set to the `ETag` was answered `304` with an empty body. For files in
+A repeated request with `If-None-Match` set to the `ETag` gets `304` with an empty body. For files in
 `public/`, `Azu::Handler::Static` already does this (weak `ETag`, `Cache-Control: public, no-cache` and, for names
 with a content hash such as `app-3f2a9c1b.css`, `max-age=31536000, immutable`).
 
-## Pagination
-
-Never return an unbounded collection. Read the page and the page size from the query string, bound them, and return
-the total so a client can page:
-
-```crystal
-require "azu"
-
-struct PageResponse
-  include Azu::Response
-
-  def initialize(@items : Array(String), @page : Int32, @limit : Int32, @total : Int32)
-  end
-
-  def render
-    {items: @items, page: @page, limit: @limit, total: @total}.to_json
-  end
-end
-
-struct ItemsEndpoint
-  include Azu::Endpoint(Azu::Request, PageResponse)
-
-  ITEMS         = (1..250).map { |i| "item #{i}" }
-  DEFAULT_LIMIT =  20
-  MAX_LIMIT     = 100
-
-  get "/items"
-
-  def call : PageResponse
-    content_type "application/json"
-    page = Math.max(params["page"]?.try(&.to_i?) || 1, 1)
-    limit = (params["limit"]?.try(&.to_i?) || DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
-
-    PageResponse.new(ITEMS[(page - 1) * limit, limit]? || [] of String, page, limit, ITEMS.size)
-  end
-end
-```
-
-With a database, push the limit and offset into the query. See
-[Optimize Database Queries](optimize-database-queries.md) for indexes, eager loading and counting, and the
-dashboard's Database tab for finding the queries that matter.
-
-## Run Independent Work Concurrently
-
-Work that waits on I/O (HTTP calls to other services, database queries on separate connections) can overlap. Start a
-fiber per call with `spawn`, collect with channels:
-
-```crystal
-require "azu"
-
-struct ProfileResponse
-  include Azu::Response
-
-  def initialize(@name : String, @orders : Int32)
-  end
-
-  def render
-    {name: @name, orders: @orders}.to_json
-  end
-end
-
-struct ProfileEndpoint
-  include Azu::Endpoint(Azu::Request, ProfileResponse)
-
-  get "/profile"
-
-  def call : ProfileResponse
-    content_type "application/json"
-    names = Channel(String).new
-    orders = Channel(Int32).new
-
-    spawn { sleep 100.milliseconds; names.send("Ada") }  # stands in for a service call
-    spawn { sleep 100.milliseconds; orders.send(3) }     # stands in for a second call
-
-    ProfileResponse.new(names.receive, orders.receive)
-  end
-end
-```
-
-Two calls that each wait 100 ms answered in about 100 ms instead of 200 ms. An exception raised inside a spawned
-fiber does not reach the endpoint: rescue inside the fiber and send the failure over the channel.
-
-## Compress Responses
+## Compress responses
 
 Put `Azu::Handler::Compression` after `Static` in the handler array. It gzips or deflates responses for clients that
 send `Accept-Encoding`:
@@ -223,10 +146,12 @@ MyApp.start [
 ] of HTTP::Handler
 ```
 
-A 2000 byte body requested with `Accept-Encoding: gzip` came back with `Content-Encoding: gzip` and 35 bytes. Do not
-write a handler that compresses by reading `context.response.output` after `call_next`; that is not where the body is.
+{% hint style="warning" %}
+Do not write a handler that compresses by reading `context.response.output` after `call_next`; that is not where the
+body is.
+{% endhint %}
 
-## Stream Large Responses
+## Stream large responses
 
 An endpoint can write to `context.response` itself and flush as it goes; with no `Content-Length` the server sends the
 body chunked. Return `Azu::Response::Empty` so nothing more is written:
@@ -261,7 +186,7 @@ flight until it finishes, which `shutdown_timeout` waits for. End the loop when 
 wait on `Azu.shutdown_signal`) so a stop does not wait for it; see
 [Shut Down Gracefully](../deployment/graceful-shutdown.md).
 
-## Do Not Block Requests on Slow Side Work
+## Do not block requests on slow side work
 
 Work the client does not wait for (analytics, emails) can run after you answer. Start it in a fiber that rescues its
 own errors, and use `Azu.spawn_scoped` so the fiber keeps this app's configuration:
@@ -296,9 +221,11 @@ struct TrackedSignupEndpoint
 end
 ```
 
+{% hint style="warning" %}
 For work that must not be lost when the process stops, use a job queue; a fiber dies with the process.
+{% endhint %}
 
-## Time Limits
+## Time limits
 
 Crystal has no request timeout setting in Azu. Bound a slow call with `select` and `timeout`, and raise
 `Azu::Response::TimeoutError` so `Rescuer` answers `408`:
@@ -323,7 +250,8 @@ struct SlowEndpoint
   get "/slow"
 
   def call : SlowResponse
-    result = Channel(String).new
+    # One slot of buffer: the fiber can deliver its result and finish even after the timeout
+    result = Channel(String).new(1)
 
     spawn do
       sleep 2.seconds # stands in for a slow upstream
@@ -340,8 +268,8 @@ struct SlowEndpoint
 end
 ```
 
-The fiber keeps running after the timeout and blocks forever on `result.send`, because nobody receives. Give the channel
-a buffer (`Channel(String).new(1)`) when the caller may give up first.
+The spawned fiber keeps running after the timeout; with the buffer, its `send` does not wait for a receiver, so the
+fiber ends when the slow call does.
 
 ## Measure
 
@@ -349,7 +277,7 @@ Do not guess where time goes. With `require "azu/dev"`, `Azu::Handler::Performan
 request and `Azu::Instrumentation.on_cache` every cache operation; see
 [Performance Design](../../explanation/architecture/performance-design.md#measuring-your-application).
 
-## See Also
+## See also
 
 - [Performance Design](../../explanation/architecture/performance-design.md)
 - [Optimize Database Queries](optimize-database-queries.md)

@@ -1,8 +1,10 @@
-# Error Types Reference
+---
+description: Azu's built-in error types, the status each one answers with, and the body it is written as.
+---
 
-Complete reference for Azu's built-in error types.
+# Error types
 
-## Base Error Class
+## Base error class
 
 ### Azu::Response::Error
 
@@ -25,7 +27,7 @@ error.title       # => "Payment failed"
 - `error_id : String` - Unique id of this error, sent as `X-Error-ID`
 - `fingerprint : String` - Stable hash of class, title, detail and source, sent as `X-Error-Fingerprint`
 
-## Client Errors (4xx)
+## Client errors (4xx)
 
 ### BadRequest (400)
 
@@ -76,7 +78,8 @@ Resource not found. The argument is the path, which is kept in `source`.
 raise Azu::Response::NotFound.new("/users/123")
 ```
 
-**Usage:** Resource doesn't exist. The router raises it for paths no route matches.
+**Usage:** Resource doesn't exist. The router answers paths no route matches with it (it writes the error itself,
+without raising it).
 
 ### TimeoutError (408)
 
@@ -94,7 +97,9 @@ raise Azu::Response::PayloadTooLarge.new
 
 ### ValidationError (422)
 
-Validation error with the failing fields. The router raises it for you when a request breaks its contract.
+Validation error with the failing fields. When a request breaks a validation rule of its contract, the endpoint
+answers this `422` itself before `call` runs, so neither `Rescuer` nor the router is involved and a handler that
+rescues `ValidationError` never sees it. Raise it yourself inside `call` for checks the contract cannot express.
 
 ```crystal
 raise Azu::Response::ValidationError.new({
@@ -124,7 +129,7 @@ raise Azu::Response::ValidationError.new("email", "is invalid")
 }
 ```
 
-With `config.error_format = Azu::ErrorFormat::Legacy` the body keeps its pre-0.6 shape (`FieldErrors`, `ErrorId`,
+With `config.error_format = Azu::ErrorFormat::Legacy` the body is PascalCase (`FieldErrors`, `ErrorId`,
 `Fingerprint`, ...).
 
 ### RateLimitError (429)
@@ -138,7 +143,7 @@ raise Azu::Response::RateLimitError.new(60)
 
 **Usage:** Rate limiting
 
-## Server Errors (5xx)
+## Server errors (5xx)
 
 ### DatabaseError (500)
 
@@ -159,7 +164,7 @@ raise Azu::Response::ExternalServiceError.new("Payments", "Payment gateway error
 
 **Usage:** Proxy/gateway errors, failing third-party APIs
 
-## Statuses Without a Class
+## Statuses without a class
 
 There is no class for 405, 409, 410, 501, 503 and 504. Build an `Azu::Response::Error` with the status, or define a
 subclass (see [Creating Custom Errors](#creating-custom-errors)):
@@ -186,7 +191,7 @@ raise Azu::Response::Forbidden.new(context)
 `ErrorContext.from_http_context(context, request_id)` fills the request fields from an `HTTP::Server::Context`.
 Context is shown to clients only in the development environment.
 
-## Creating Custom Errors
+## Creating custom errors
 
 Subclass `Azu::Response::Error`, pass the title, status and messages to `super`, and set `detail` for the explanation:
 
@@ -215,10 +220,11 @@ end
 raise InsufficientFundsError.new(100.0, 25.0)
 ```
 
-## Error Response Format
+## Error response format
 
-`Rescuer` (and the router, for an unrouted path) writes an error in the format the `Accept` header asks for: HTML (an
-error page), JSON, XML or plain text. The JSON body is an RFC 7807 problem document, the same shape the `422`
+`Rescuer` (and the router, for an unrouted path, and the endpoint, for a broken contract) writes an error in the
+format the first entry of the `Accept` header asks for: HTML (an error page), JSON, XML or plain text. With no
+`Accept`, or `*/*`, the body is plain text. The JSON body is an RFC 7807 problem document, the same shape the `422`
 of a broken request contract uses, and it is the same for every JSON client (see the `Content-Type` note below):
 
 ```json
@@ -239,11 +245,11 @@ of a broken request contract uses, and it is the same for every JSON client (see
   messages there.
 - `error_id` is the value of the `X-Error-ID` response header.
 - In development `context` and `backtrace` are added. Production bodies never carry them.
-- `error_format = Legacy` keeps the pre-0.6 PascalCase body (`Status`, `Link`, `Title`, `Detail`, `Source`, `Errors`,
+- `error_format = Legacy` writes a PascalCase body (`Status`, `Link`, `Title`, `Detail`, `Source`, `Errors`,
   `ErrorId`, `Fingerprint`, `Context`, `Backtrace`, `Timestamp`) as `application/json`, for validation failures and for
   every other error.
 
-## HTTP Status Codes Summary
+## HTTP status codes summary
 
 | Code | Name | Class |
 |------|------|-------|
@@ -251,6 +257,7 @@ of a broken request contract uses, and it is the same for every JSON client (see
 | 401 | Unauthorized | `AuthenticationError` |
 | 403 | Forbidden | `AuthorizationError`, `Forbidden` |
 | 404 | Not Found | `NotFound` |
+| 406 | Not Acceptable | `NotAcceptable` |
 | 408 | Request Timeout | `TimeoutError` |
 | 413 | Payload Too Large | `PayloadTooLarge` |
 | 422 | Unprocessable Entity | `ValidationError` |
@@ -258,7 +265,7 @@ of a broken request contract uses, and it is the same for every JSON client (see
 | 500 | Internal Server Error | `Error`, `DatabaseError` |
 | 502 | Bad Gateway | `ExternalServiceError` |
 
-## See Also
+## See also
 
 - [How to Handle Errors Gracefully](../../how-to/errors/handle-errors-gracefully.md)
 - [How to Create Custom Errors](../../how-to/errors/create-custom-errors.md)

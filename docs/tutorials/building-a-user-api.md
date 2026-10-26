@@ -1,8 +1,10 @@
-# Building a User API
+---
+description: Build a complete RESTful API for user management with type-safe endpoints, validation, and proper error handling.
+---
 
-This tutorial walks you through building a complete RESTful API for user management with type-safe endpoints, validation, and proper error handling.
+# Building a user API
 
-## What You'll Build
+## What you'll build
 
 By the end of this tutorial, you'll have:
 
@@ -16,7 +18,7 @@ By the end of this tutorial, you'll have:
 - Completed the [Getting Started](getting-started.md) tutorial
 - Azu installed and working
 
-## Step 1: Project Setup
+## Step 1: Project setup
 
 Create a new project:
 
@@ -27,6 +29,7 @@ cd user_api
 
 Update `shard.yml`:
 
+{% code title="shard.yml" %}
 ```yaml
 name: user_api
 version: 0.1.0
@@ -34,11 +37,12 @@ version: 0.1.0
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.5.70
+    version: ~> 0.5.119
 
 crystal: ">= 1.22.1"
 license: MIT
 ```
+{% endcode %}
 
 Install dependencies:
 
@@ -49,11 +53,12 @@ shards install
 This tutorial keeps everything in one file, `src/user_api.cr`, built up step by step. Each step adds to the file; the
 steps that stand alone compile on their own, and the last one needs the types of the earlier ones.
 
-## Step 2: The Model and the Responses
+## Step 2: The model and the responses
 
 Open `src/user_api.cr`. The model keeps users in memory so the tutorial needs no database. Responses turn data into
 the body that is sent:
 
+{% code title="src/user_api.cr" %}
 ```crystal
 require "azu"
 
@@ -132,11 +137,14 @@ struct UsersListResponse
   end
 end
 ```
+{% endcode %}
 
-> **Note:** This tutorial uses in-memory storage for simplicity (a class variable is shared by every request, so it
-> is only suitable for a single process). See [Working with Databases](working-with-databases.md) for a database.
+{% hint style="info" %}
+This tutorial uses in-memory storage for simplicity (a class variable is shared by every request, so it
+is only suitable for a single process). See [Working with Databases](working-with-databases.md) for a database.
+{% endhint %}
 
-## Step 3: Request Contracts
+## Step 3: Request contracts
 
 A request contract declares the fields a request may carry and the rules they must satisfy. An endpoint whose
 contract has rules never runs for a request that breaks them: the client gets a `422` with the failing fields.
@@ -145,6 +153,7 @@ Fields need default values (`= ""`) so that a body with a missing field becomes 
 a parse error. `validate` rules check required fields; for optional fields (`Int32?`) write a `Schema::Validator`
 and attach it with `use`. Add to the file:
 
+{% code title="src/user_api.cr" %}
 ```crystal
 require "azu"
 
@@ -156,7 +165,7 @@ module UserRules
     errors = [] of Schema::Error
     errors << Schema::Error.new(:name, "Name must be between 2 and 50 characters") if name && !(2..50).includes?(name.size)
     errors << Schema::Error.new(:email, "Email must be a valid email address") if email && !EMAIL.matches?(email)
-    errors << Schema::Error.new(:age, "Age must be between 1 and 150") if age && !(1..149).includes?(age)
+    errors << Schema::Error.new(:age, "Age must be between 1 and 150") if age && !(1..150).includes?(age)
     errors
   end
 end
@@ -201,6 +210,7 @@ struct UpdateUserRequest
   use UpdateUserValidator
 end
 ```
+{% endcode %}
 
 `size: 2..50` is a `Range` rule for the length of a string, `match:` takes a regular expression, and `message:`
 replaces the default text. See [Validate Requests](../how-to/validation/validate-requests.md) for all rules.
@@ -210,6 +220,7 @@ replaces the default text. See [Validate Requests](../how-to/validation/validate
 Add the five endpoints to the file. Every endpoint is a `struct`, so each request gets its own instance:
 
 <!-- skip -->
+{% code title="src/user_api.cr" %}
 ```crystal
 struct CreateUserEndpoint
   include Azu::Endpoint(CreateUserRequest, UserResponse)
@@ -287,37 +298,38 @@ struct DeleteUserEndpoint
   end
 end
 ```
+{% endcode %}
 
 `create_user_request` is the contract parsed from the body (JSON, form or query string), named after the request
 type. `params["id"]` reads the `:id` segment of the path. `status 201` and `status 204` set the response code.
 Raising an `Azu::Response::Error` such as `NotFound` or `ValidationError` ends the request; `Azu::Handler::Rescuer`
 turns it into the response, in the format the `Accept` header asks for.
 
-## Step 5: Start the Application
+## Step 5: Start the application
 
 Add to the end of the file:
 
+{% code title="src/user_api.cr" %}
 ```crystal
 require "azu"
 
 module UserAPI
   include Azu
-
-  configure do |config|
-    config.port = ENV.fetch("PORT", "4000").to_i
-    config.host = ENV.fetch("HOST", "0.0.0.0")
-  end
 end
 
 Azu.setup_logging
 UserAPI.start
 ```
+{% endcode %}
 
 `UserAPI.start` without arguments serves the default stack: `RequestId`, `Logger`, `Rescuer`, `SecurityHeaders` and
 `Static`, with the router (and so the endpoints, which register themselves) last. `Azu.setup_logging` turns on Azu's
 log format; requiring `azu` does not touch `Log`.
 
-## Step 6: Run and Test
+Azu reads the address from the environment: `PORT` (4000 by default) and `HOST` (`127.0.0.1` in development,
+`0.0.0.0` in other environments). In a container, set `HOST=0.0.0.0`.
+
+## Step 6: Run and test
 
 Start the server:
 
@@ -325,9 +337,12 @@ Start the server:
 crystal run src/user_api.cr
 ```
 
-Send `Accept: application/json` to get JSON error bodies (otherwise the `Rescuer` answers with plain text).
+{% hint style="info" %}
+Send `Accept: application/json` to get JSON error bodies (without an `Accept` header, or with curl's default `*/*`,
+error bodies are plain text).
+{% endhint %}
 
-### Create a User
+### Create a user
 
 ```bash
 curl -X POST http://localhost:4000/users \
@@ -341,7 +356,7 @@ Response (`201`):
 {"id":1,"name":"Alice Smith","email":"alice@example.com","age":30,"created_at":"2026-10-23T18:02:44Z","updated_at":"2026-10-23T18:02:44Z"}
 ```
 
-### List, Show, Update and Delete
+### List, show, update and delete
 
 ```bash
 curl -H "Accept: application/json" http://localhost:4000/users
@@ -354,7 +369,7 @@ curl -X DELETE http://localhost:4000/users/1
 
 Deleting answers `204`; asking for a user that does not exist answers `404`.
 
-### Test Validation
+### Test validation
 
 ```bash
 curl -X POST http://localhost:4000/users \
@@ -373,45 +388,15 @@ Response (`422`, a problem document):
   "errors": {
     "name": ["Name must be between 2 and 50 characters"],
     "email": ["Email must be a valid email address"]
-  }
+  },
+  "instance": "/users"
 }
 ```
 
 A body that cannot be parsed into the contract at all (for example `"age": "x"`) answers `400`. Registering a second
 user with the same email raises `ValidationError` from the endpoint and also answers `422`.
 
-## Key Concepts Learned
-
-### Type-Safe Contracts
-
-Every endpoint declares exactly what it accepts and returns:
-
-```text
-include Azu::Endpoint(CreateUserRequest, UserResponse)
-```
-
-### Automatic Validation
-
-Request contracts are validated before your `call` runs, and a failure never reaches it:
-
-```text
-validate name, size: 2..50
-```
-
-### Structured Error Responses
-
-Errors are rendered by `Rescuer` with their status code, as JSON, HTML or text.
-
-### Route Parameters
-
-Access URL segments with `params`:
-
-```text
-get "/users/:id"
-# params["id"] contains the value
-```
-
-## Project Structure
+## Project structure
 
 ```text
 user_api/
@@ -424,15 +409,20 @@ user_api/
 As the app grows, split the file by layer (`models/`, `requests/`, `responses/`, `endpoints/`) and `require` them
 from `src/user_api.cr`.
 
-## Next Steps
+## Next steps
 
-You've built a complete REST API. Continue learning with:
+{% content-ref url="adding-websockets.md" %}
+[adding-websockets.md](adding-websockets.md)
+{% endcontent-ref %}
 
-- [Adding WebSockets](adding-websockets.md) - Add real-time notifications
-- [Working with Databases](working-with-databases.md) - Replace in-memory storage with PostgreSQL
-- [Testing Your App](testing-your-app.md) - Write tests for your endpoints
-- [Deploying to Production](deploying-to-production.md)
+{% content-ref url="working-with-databases.md" %}
+[working-with-databases.md](working-with-databases.md)
+{% endcontent-ref %}
 
----
+{% content-ref url="testing-your-app.md" %}
+[testing-your-app.md](testing-your-app.md)
+{% endcontent-ref %}
 
-**Your API is ready!** You now understand how to build type-safe, validated REST APIs with Azu.
+{% content-ref url="deploying-to-production.md" %}
+[deploying-to-production.md](deploying-to-production.md)
+{% endcontent-ref %}

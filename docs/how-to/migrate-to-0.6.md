@@ -1,16 +1,20 @@
+---
+description: "0.6 makes an application a value: `Azu::App` owns a configuration and a router, and nothing starts when you `require \"azu\"`."
+---
+
 # Migrate to 0.6
 
-0.6 makes an application a value: `Azu::App` owns a configuration and a router, and nothing starts
-when you `require "azu"`. The global shim (`include Azu`, `configure`, `Azu::CONFIG`, the endpoint
-verb macros) is a supported single-app facade: it drives `Azu::App.default`, logs no warning and is not
-scheduled for removal. It keeps one global configuration, so a process has one facade app; move to
-`Azu::App` when you need a second app, a configuration that is not global, or an app you start from code.
-This page shows each old form next to its replacement. The full list of behaviour changes is in
+The global shim (`include Azu`, `configure`, `Azu::CONFIG`, the endpoint verb macros) is a supported single-app
+facade: it drives `Azu::App.default`, logs no warning and is not scheduled for removal. It keeps one global
+configuration, so a process has one facade app; move to `Azu::App` when you need a second app, a configuration that
+is not global, or an app you start from code. The full list of behaviour changes is in
 [breaking changes](../reference/breaking-changes.md).
 
 ## Configuration
 
-Before, one global configuration:
+{% tabs %}
+{% tab title="Before" %}
+One global configuration:
 
 ```crystal
 require "azu"
@@ -23,8 +27,10 @@ module MyApp
   end
 end
 ```
+{% endtab %}
 
-After, a configuration that belongs to an app:
+{% tab title="After" %}
+A configuration that belongs to an app:
 
 ```crystal
 require "azu"
@@ -33,6 +39,8 @@ app = Azu::App.new
 app.config.port = 3000
 app.config.env = Azu::Environment::Production
 ```
+{% endtab %}
+{% endtabs %}
 
 Code that runs while a request is handled finds the serving app's configuration with
 `Azu.current_config`; use it instead of reading `Azu::CONFIG`.
@@ -78,10 +86,12 @@ app.routes do
 end
 ```
 
+{% hint style="warning" %}
 The verb macros (`get "/"` inside an endpoint) keep registering on `Azu::App.default`, because an
 endpoint type is not tied to an app. That is a known limit of 0.6: use `app.routes` for any app that
 is not the default one. `Channel.ws` is global in the same way, while `ws` inside `app.routes` is
 per app.
+{% endhint %}
 
 A second app can be mounted below a prefix with its own configuration:
 
@@ -111,8 +121,15 @@ their own parameter names.
 
 ## Handlers
 
-Pass the handlers when you build the server. Without an argument you get the default stack
-(`RequestId, Logger, Rescuer, SecurityHeaders, Static`); an array is used exactly as given.
+Pass the handlers when you build the server; an array is used exactly as given.
+
+{% hint style="warning" %}
+`app.server` without an argument serves the router with no handlers in front of it: no request id, logging or error
+pages.
+{% endhint %}
+
+Only `start` without an argument uses the default stack, `app.default_handlers` (`RequestId, Logger, Rescuer,
+SecurityHeaders, Static`).
 
 ```crystal
 require "azu"
@@ -165,14 +182,14 @@ Azu.setup_logging
 ## Dev tools
 
 The dashboard and performance monitor are opt-in. Require them after `azu` and add the handlers to
-the chain in development only:
+the chain in development only, after the default stack so the request id, logging and error pages stay:
 
 ```crystal
 require "azu"
 require "azu/dev"
 
 app = Azu::App.new
-handlers = [] of HTTP::Handler
+handlers = app.default_handlers
 if app.config.env.development?
   handlers << Azu::Handler::DevDashboard.new
   handlers << Azu::Handler::PerformanceMonitor.new
@@ -182,8 +199,10 @@ server = app.server(handlers)
 
 ## Contracts answer 422
 
-An endpoint whose request type has validations no longer runs when the request breaks them: the router
-answers `422` with an RFC 7807 problem body before `call` (`Content-Type: application/problem+json` only when the client's `Accept` names it, `application/json` otherwise). To keep the pre-0.6 body
+An endpoint whose request type has validations no longer runs when the request breaks them: the endpoint
+answers `422` itself, before `call`. The first `Accept` entry picks the format of the body: a JSON client gets an
+RFC 7807 problem body (`application/problem+json` when it names that type, `application/json` otherwise), `text/html`
+an HTML page, an XML type XML, and a request without `Accept`, or with `*/*`, `text/plain`. To keep the pre-0.6 body
 for one more minor release:
 
 ```crystal

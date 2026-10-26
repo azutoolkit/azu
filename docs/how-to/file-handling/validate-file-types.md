@@ -1,14 +1,19 @@
-# How to Validate File Types
+---
+description: Validate uploaded file types for security.
+---
 
-This guide shows you how to validate uploaded file types for security. Everything the client sends about a file is
-untrusted: the file name and the `Content-Type` of the part are chosen by the client. The only evidence you can
-check yourself is the content.
+# Validate file types
+
+{% hint style="warning" %}
+Everything the client sends about a file is untrusted: the file name and the `Content-Type` of the part are chosen by
+the client. The only evidence you can check yourself is the content.
+{% endhint %}
 
 Uploaded files arrive in `params.files` as `Azu::Params::Multipart::File` objects, already written to a temp file
 (see [Handle File Uploads](handle-file-uploads.md)). The size limit is enforced before your endpoint runs:
 set `config.upload.max_file_size`.
 
-## Basic Extension Validation
+## Basic extension validation
 
 Check file extensions:
 
@@ -27,7 +32,7 @@ module FileValidator
 end
 ```
 
-## Content-Type Validation
+## Content-Type validation
 
 The declared content type must agree with the extension. This catches mistakes, not attacks, because the client
 writes both:
@@ -50,13 +55,13 @@ def valid_content_type?(upload : Azu::Params::Multipart::File) : Bool
 end
 ```
 
-## Magic Number Validation
+## Magic number validation
 
 Check the file signature (magic number), the first bytes of the content, for the true file type. Read from the temp file
 and rewind so that the file can be read again afterwards. The `MagicNumber` module is the first part of the example in
 the next section.
 
-## Comprehensive File Validation
+## Comprehensive file validation
 
 Combine the checks. A failure raises `Azu::Response::ValidationError`, which `Azu::Handler::Rescuer` answers with `422`
 and the field name. The endpoint validates, then keeps the file under a name you chose, and removes the temp file on
@@ -162,55 +167,9 @@ end
 ```
 
 A file that is too large never gets to the endpoint: it is refused with `413` while it is being received. To allow a
-smaller limit for one endpoint, check `upload.size` and raise `Azu::Response::PayloadTooLarge`.
+smaller limit for one endpoint, check `upload.size` and raise `Azu::Response::PayloadTooLarge`. The temp file has a
+path (`upload.temp_path`), so an external virus scanner can read it before you keep the file.
 
-## Security Considerations
-
-### Avoid Path Traversal
-
-Do not build a path from the client's file name. If you must keep it, reduce it to a safe form:
-
-```crystal
-require "uuid"
-
-def safe_filename(original : String) : String
-  name = File.basename(original.gsub('\\', '/'))
-  name = name.gsub(/[^a-zA-Z0-9._-]/, "_")
-  name = "_#{name}" if name.starts_with?(".")
-  "#{UUID.random}_#{name}"
-end
-```
-
-### Prevent Double Extensions
-
-Reject names such as `file.php.jpg` when your server might execute the inner extension:
-
-```crystal
-def valid_filename?(name : String) : Bool
-  parts = name.split(".")
-  return false if parts.size > 2
-
-  dangerous = [".php", ".exe", ".sh", ".bat", ".cmd", ".js"]
-  parts.none? { |part| dangerous.includes?(".#{part.downcase}") }
-end
-```
-
-Serving uploads from a directory that is not executable, with a content type you set, is the stronger defence.
-
-## Virus Scanning
-
-The temp file has a path, so an external scanner can read it. With ClamAV installed:
-
-```crystal
-module VirusScanner
-  def self.clean?(path : String) : Bool
-    Process.run("clamscan", ["--no-summary", path]).success?
-  end
-end
-```
-
-`clamscan` exits with `0` when nothing was found.
-
-## See Also
+## See also
 
 - [Handle File Uploads](handle-file-uploads.md)

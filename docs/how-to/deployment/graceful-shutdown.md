@@ -1,9 +1,10 @@
-# How to Shut Down Gracefully
+---
+description: See what happens to requests, streams and WebSockets when an Azu app is told to stop, and make a long-lived response cooperate.
+---
 
-This guide shows what happens to requests, streams and WebSockets when an Azu app is told to stop, and how to make a
-long-lived response cooperate.
+# Shut down gracefully
 
-## What a Stop Does
+## What a stop does
 
 `SIGTERM` and `SIGINT` (and `Azu::App#stop` from code) run these steps, all bounded by one
 `config.shutdown_timeout` (`SHUTDOWN_TIMEOUT` seconds, 30 by default):
@@ -22,7 +23,7 @@ long-lived response cooperate.
 Closing the sockets at the start, rather than after the requests, means a quiet WebSocket never holds up the drain,
 and clients start reconnecting while the slow requests are still finishing.
 
-## Server-Sent Events and Other Streams
+## Server-sent events and other streams
 
 A streamed response is a request in flight until its handler returns. Without help it would hold the drain until the
 timeout, so a long-lived handler asks whether the app is shutting down:
@@ -80,18 +81,18 @@ Nothing to write: `Azu::Channel` sockets are registered with the app that accept
 frame, `on_close` runs with the code the peer answers with (normally 1001 too), and subscriptions are released. A peer that never
 answers is waited for until `shutdown_timeout`.
 
-## Several Apps
+## Several apps
 
 Each `Azu::App` tracks its own sockets and requests. `Azu.start` drains `Azu::App.default`; for another app call
 `app.stop` (or `begin_shutdown` then `drain`) yourself. A mounted app belongs to the app that owns the server.
 
-## Testing It
+## Testing it
 
 `app.stop(timeout)` returns true when nothing was left. Bind the server on `bind_unused_port`, open an
 `HTTP::WebSocket` and an `HTTP::Client` request against it, call `stop`, and assert the close code is
-`HTTP::WebSocket::CloseCode::GoingAway` (see `spec/azu/graceful_shutdown_spec.cr`).
+`HTTP::WebSocket::CloseCode::GoingAway`.
 
-## See Also
+## See also
 
 - [Scale Horizontally](scale-horizontally.md)
 - [Deploying to production](../../tutorials/deploying-to-production.md)

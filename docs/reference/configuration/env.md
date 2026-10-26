@@ -1,7 +1,10 @@
+---
+description: "The one place an application reads its environment: `.env` files, typed accessors and secrets."
+---
+
 # Azu::Env
 
-`Azu::Env` is the one place an application reads its environment: `.env` files, typed accessors and secrets.
-It uses only the standard library, so `require "azu/env"` works on its own, and nothing happens when it is
+`Azu::Env` uses only the standard library, so `require "azu/env"` works on its own, and nothing happens when it is
 required. Files are read only when you call `load` or `load_all`.
 
 ```crystal
@@ -75,9 +78,11 @@ be able to change how processes start or how the toolchain, TLS and proxies beha
 Pass `unsafe: true` to load them anyway; set them in the real environment otherwise. The `azu` CLI applies the same
 list to the `.env` of whatever project you run it in, and never lets a file override the real environment.
 
+{% hint style="warning" %}
 **Watch the pattern names.** `*FLAGS` matches every name that ends in `FLAGS`, so application settings called
 `FEATURE_FLAGS`, `LOG_FLAGS` or `MY_CFLAGS` are skipped too; rename them (for example `FEATURES`). The same goes for
 `PYTHON*`, `RUBY*`, `XDG_*`, `BUNDLE_*`, `CARGO_*` and the other starred families.
+{% endhint %}
 
 The warning is logged by `Log.for("azu.env")` at `warn` level, so it only shows once logging is configured. It is not
 written when the real environment already has the name (the file could not override it anyway).
@@ -112,13 +117,17 @@ Errors name the variable and never its value: `PORT is not an integer`, `DATABAS
 outside production (the same value for the life of the process, so two readers of one name agree); an
 `Azu::Env::MissingError` (`CSRF_SECRET is not set`) in production.
 
+{% hint style="warning" %}
 **The random fallback is per process.** Two processes, or one process after a restart, get different values, so signed
 cookies, CSRF tokens and sessions stop validating. `secret` logs one warning per name when it falls back; set the
 variable in `.env` in development.
+{% endhint %}
 
+{% hint style="warning" %}
 **Only `production` is strict by default.** Staging gets random secrets unless you list it: set
 `AZU_STRICT_ENVS=production,staging` or `Azu::Env.strict_environments = ["production", "staging"]` (`nil` restores
 the default), and `secret` raises there too.
+{% endhint %}
 
 ```crystal
 require "azu"

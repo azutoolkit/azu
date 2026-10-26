@@ -1,9 +1,10 @@
-# Architecture Overview
+---
+description: "How the parts of Azu fit together: the app, the handler chain, the router, endpoints and the real-time layer."
+---
 
-This document explains the high-level architecture of Azu and how its parts work together. Everything stated here
-is a property of the code in this repository; where a number appears, the page says how it was measured.
+# Architecture overview
 
-## Design Philosophy
+## Design philosophy
 
 Azu is a web framework for Crystal. Its design choices:
 
@@ -14,66 +15,56 @@ Azu is a web framework for Crystal. Its design choices:
    requires (`azu/cql`, `azu/dev`) and cost nothing when not required.
 4. **Real-time built in** - WebSocket channels, a pub/sub bus and server-rendered live components (Spark).
 
-## Core Components
+## Core components
 
-### An App is a Value
+### An app is a value
 
 An `Azu::App` bundles a `Configuration` and a `Router`. The endpoint macros, `include Azu` and `Azu.start` use the
 default app, `Azu::App.default`, which wraps the global `Azu::CONFIG`; you can build more (`Azu::App.new`) and
 `mount` one below a prefix of another, each with its own configuration. `app.server(handlers)` returns the
 `HTTP::Server` that serves it.
 
-### Request/Response Cycle
+### Request/response cycle
 
-```text
-Client request
-      ↓
-HTTP::Server (Crystal standard library)
-      ↓
-App::Scope            marks the request in flight, makes the app's configuration current
-      ↓
-Handler chain         the handlers you pass to start, outermost first
-      ↓
-Router                segment tree: method + path → endpoint (or channel upgrader)
-      ↓
-Endpoint
-   ├─ request contract   parsed and validated; 400 / 422 before call
-   ├─ call               your code
-   └─ response           render is written to the connection
-      ↓
-Handler chain, in reverse
-      ↓
-Client response
+```mermaid
+flowchart TD
+    request["Client request"] --> server["HTTP::Server (Crystal standard library)"]
+    server --> scope["App::Scope<br/>marks the request in flight, makes the app's configuration current"]
+    scope --> chain["Handler chain<br/>the handlers you pass to start, outermost first"]
+    chain --> router["Router<br/>segment tree: method + path → endpoint (or channel upgrader)"]
+    subgraph endpoint["Endpoint"]
+        direction TB
+        contract["request contract<br/>parsed and validated; 400 / 422 before call"] --> handle["call<br/>your code"]
+        handle --> response["response<br/>render is written to the connection"]
+    end
+    router --> endpoint
+    endpoint --> reverse["Handler chain, in reverse"]
+    reverse --> client["Client response"]
 ```
 
 [Request Lifecycle](request-lifecycle.md) walks through each step with a program that prints the order.
 
 ### Components
 
-```text
-┌──────────────────────────────────────────────────────┐
-│                        Azu::App                      │
-├──────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │
-│  │  Endpoints  │  │  Channels   │  │    Spark    │   │
-│  │    HTTP     │  │  WebSocket  │  │  live views │   │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘   │
-│         └────────────────┼────────────────┘          │
-│  ┌───────────────────────┴───────────────────────┐   │
-│  │                    Router                     │   │
-│  └───────────────────────┬───────────────────────┘   │
-│  ┌───────────────────────┴───────────────────────┐   │
-│  │                 Handler chain                 │   │
-│  └───────────────────────────────────────────────┘   │
-├──────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │
-│  │    Cache    │  │  Templates  │  │Configuration│   │
-│  │ memory/redis│  │   Crinja    │  │ environment │   │
-│  └─────────────┘  └─────────────┘  └─────────────┘   │
-└──────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph app["Azu::App"]
+        direction TB
+        endpoints["Endpoints<br/>HTTP"] --- router["Router"]
+        channels["Channels<br/>WebSocket"] --- router
+        spark["Spark<br/>live views"] --- router
+        router --- chain["Handler chain"]
+        subgraph support[" "]
+            direction LR
+            cache["Cache<br/>memory/redis"]
+            templates["Templates<br/>Crinja"]
+            settings["Configuration<br/>environment"]
+        end
+        chain ~~~ support
+    end
 ```
 
-## Type-Safe Request Handling
+## Type-safe request handling
 
 An endpoint names its request and response types, and its `call` returns the response type:
 
@@ -120,7 +111,7 @@ end
 The compiler checks that `call` returns a `UserResponse` and that `create_user_request` has the fields of
 `CreateUserRequest`. At run time a request that breaks the contract is answered with `422` before `call`.
 
-## Handler Chain
+## Handler chain
 
 Handlers are `HTTP::Handler`s that wrap every request. The chain is an array, outermost first:
 
@@ -164,37 +155,36 @@ from an app's `routes` block (`get`, `post`, ..., `ws`, `scope`, `mount`). It su
 
 An unmatched request is answered with a `404` error response by the router itself.
 
-## Real-Time Architecture
+## Real-time architecture
 
-### WebSocket Channels
+### WebSocket channels
 
 A channel class (`ws "/chat"`) handles one WebSocket connection per instance, with callbacks for connect, message,
 binary, ping, pong and close. Channels talk to each other, and to the rest of the application, through topics of
 `Azu::PubSub`:
 
-```text
-Client 1 ←──┐
-            │
-Client 2 ←──┼──→ Channel instances ──→ Azu::PubSub topic ──→ the rest of the application
-            │
-Client 3 ←──┘
+```mermaid
+flowchart LR
+    client1["Client 1"] <--> channels["Channel instances"]
+    client2["Client 2"] <--> channels
+    client3["Client 3"] <--> channels
+    channels --> topic["Azu::PubSub topic"]
+    topic --> rest["the rest of the application"]
 ```
 
-### Spark Live Views
+### Spark live views
 
 Spark components keep their state on the server and send HTML patches over a WebSocket:
 
-```text
-┌─────────────────┐     WebSocket     ┌─────────────────┐
-│                 │ ←────────────────→│                 │
-│  Browser DOM    │  events →         │  Server state   │
-│                 │  ← diffs/patches  │                 │
-└─────────────────┘                   └─────────────────┘
+```mermaid
+flowchart LR
+    browser["Browser DOM"] -- "events (WebSocket)" --> state["Server state"]
+    state -- "diffs/patches (WebSocket)" --> browser
 ```
 
 See [Spark live views](../spark-live-views.md).
 
-## Module Structure
+## Module structure
 
 ```text
 Azu
@@ -223,9 +213,9 @@ Two directories are opt-in and are not loaded by `require "azu"`: `azu/cql` (the
 ## Performance
 
 What the code does for speed (the router, the handlers, the cache) and what it measurably costs is on one page:
-[Performance Design](performance-design.md). It lists only numbers that were measured there, with the method.
+[Performance Design](performance-design.md).
 
-## See Also
+## See also
 
 - [Request Lifecycle](request-lifecycle.md)
 - [Type Safety](type-safety.md)
