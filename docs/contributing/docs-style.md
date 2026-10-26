@@ -1,7 +1,10 @@
+---
+description: The rules every page under docs/ follows, and which GitBook block to use for what.
+---
+
 # Documentation style
 
-These are the rules every page under `docs/` follows. A reader who knows them can guess where a fact lives
-and what a page will contain. CI enforces the mechanical ones (see [Checks](#checks)); review enforces the rest.
+A reader who knows these rules can guess where a fact lives and what a page will contain. CI enforces the mechanical ones (see [Checks](#checks)); review enforces the rest.
 
 ## Sections
 
@@ -26,8 +29,9 @@ A page that does two of these jobs is split, and the parts link to each other.
 
 ## Openings and endings
 
-- The first paragraph says what the reader gets from the page, in one or two sentences. Do not open with
-  "This guide shows you how to…" or "This document explains…".
+- The page's front matter `description` says what the reader gets from the page, in one sentence (GitBook shows
+  it under the title). The first paragraph does not repeat it. Do not open with "This guide shows you how to…"
+  or "This document explains…".
 - A how-to page with prerequisites says so right after the opening: `Before you start: …`.
 - The last section is `## See also`, with 2 to 4 links, preferably to other sections (a how-to links its
   reference and its concept page). Tutorials end with `## Next steps` instead.
@@ -36,8 +40,9 @@ A page that does two of these jobs is split, and the parts link to each other.
 
 - State what the code does, in the present tense. Facts about speed need a measurement and its method, or a
   link to [the benchmark suite](https://github.com/azutoolkit/azu/blob/master/benchmark/README.md).
-- Do not use marketing adjectives ("blazing fast", "powerful", "robust"), comparisons with other frameworks or
-  languages, banners ("Your API is ready!") or recap lists ("Key takeaways").
+- Do not use marketing adjectives ("blazing fast", "powerful", "robust"), banners ("Your API is ready!") or
+  recap lists ("Key takeaways"). Comparisons with other frameworks or languages belong on Concepts pages, and
+  only where they explain an Azu design choice.
 - Do not write in a lab-notebook voice ("this was run", "came back 35 bytes", "in this checkout"), and do not
   mention Azu's own specs or the docs checker.
 - Changes between versions go in [Breaking changes](../reference/breaking-changes.md) only. Other pages
