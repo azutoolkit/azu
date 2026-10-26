@@ -33,10 +33,13 @@ module Azu
       Response::ValidationError.new(error.errors)
     end
 
-    # `Validations::ValidationError` (raised by `save`) keeps its errors in an ivar without a reader.
-    def self.unprocessable(error : ::CQL::ActiveRecord::Validations::ValidationError) : Response::ValidationError
-      unprocessable(error.@errors)
-    end
+    # `Validations::ValidationError` (raised by `save`) keeps its errors in an ivar without a reader. Since CQL 0.0.907
+    # it is a `RecordInvalid`, which the overload above reads through `validation_errors`.
+    {% unless ::CQL::ActiveRecord::Validations::ValidationError < ::CQL::RecordInvalid %}
+      def self.unprocessable(error : ::CQL::ActiveRecord::Validations::ValidationError) : Response::ValidationError
+        unprocessable(error.@errors)
+      end
+    {% end %}
   end
 end
 
