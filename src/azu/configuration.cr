@@ -378,23 +378,58 @@ module Azu
   # What the server does with a connection that is slow or one too many. Applied to the sockets the server accepts
   # (`App#start`; a server you bind yourself with `server.bind_tcp` has none of it).
   #
-  # With TLS only `read_timeout`, `write_timeout` and `max_connections` apply: the header and idle rules read the
-  # request, which only a plain connection shows.
+  # Over TLS the rules run on the decrypted request (`LimitedSSLSocket`), the handshake included in `header_timeout`.
   class ServerLimitsConfiguration
-    # From the first byte of a request (or of the connection) to the end of its headers. A client that sends them
-    # slowly, a byte at a time, is cut here however often it sends something.
-    property header_timeout : Time::Span = ENV.fetch("SERVER_HEADER_TIMEOUT", "10").to_f.seconds
-    # Without data from the client while the server waits for it: the body of a request, or a TLS handshake.
-    property read_timeout : Time::Span = ENV.fetch("SERVER_READ_TIMEOUT", "30").to_f.seconds
+    # A timeout of 0 or less is no timeout (like nginx's 0): the wait is not limited. The variables are seconds;
+    # a value that is not a number, or is not finite or longer than a year, is reported and the default kept.
+    #
+    # From the first byte of a request (or of the connection, TLS handshake included) to the end of its headers. A
+    # client that sends them slowly, a byte at a time, is cut here however often it sends something.
+    property header_timeout : Time::Span? = ServerLimitsConfiguration.seconds("SERVER_HEADER_TIMEOUT", 10)
+    # Without data from the client while the server waits for it: the body of a request.
+    property read_timeout : Time::Span? = ServerLimitsConfiguration.seconds("SERVER_READ_TIMEOUT", 30)
     # A write that the client does not take. Streaming responses write in pieces, each piece gets this long.
-    property write_timeout : Time::Span = ENV.fetch("SERVER_WRITE_TIMEOUT", "60").to_f.seconds
+    property write_timeout : Time::Span? = ServerLimitsConfiguration.seconds("SERVER_WRITE_TIMEOUT", 60)
     # How long a kept-alive connection may wait for the next request.
-    property keep_alive_timeout : Time::Span = ENV.fetch("SERVER_KEEP_ALIVE_TIMEOUT", "60").to_f.seconds
-    # The slowest a request body may arrive, in bytes per second, after `read_timeout` of grace: a body that comes in
-    # slower is cut even if every read is within `read_timeout`. 0 turns the rule off.
-    property min_body_rate : Int32 = ENV.fetch("SERVER_MIN_BODY_RATE", "1024").to_i
-    # Connections served at once; the next one is answered `503` with `Retry-After` and closed. 0 means no limit.
-    property max_connections : Int32 = ENV.fetch("SERVER_MAX_CONNECTIONS", "10000").to_i
+    property keep_alive_timeout : Time::Span? = ServerLimitsConfiguration.seconds("SERVER_KEEP_ALIVE_TIMEOUT", 60)
+    # The slowest a request body may arrive, in bytes per second, after `read_timeout` of grace (the credit a fast start
+    # buys is capped at ten times `read_timeout`): a body that comes in slower is cut even if every read is within
+    # `read_timeout`. 0 or less turns the rule off.
+    property min_body_rate : Int32 = ServerLimitsConfiguration.integer("SERVER_MIN_BODY_RATE", 1024)
+    # Connections served at once; the next one is closed (answered `503` with `Retry-After` on a plain connection).
+    # 0 or less means no limit. The default is 10 000, or the process's open-file limit less a margin when that is
+    # lower: a limit above it would never engage, and `accept` would fail with "too many open files" first.
+    property max_connections : Int32 = ServerLimitsConfiguration.integer("SERVER_MAX_CONNECTIONS", ServerLimitsConfiguration.default_max_connections)
+
+    LOG = ::Log.for("Azu::ServerLimits")
+
+    def self.seconds(name : String, default : Int32) : Time::Span?
+      value = ENV[name]?.try(&.strip)
+      return default.seconds if value.nil? || value.empty? # empty, as a compose .env leaves it, is unset
+      number = value.to_f?
+      if number.nil? || !number.finite? || number.abs > 31_536_000
+        LOG.warn { "#{name}=#{value.inspect} is not a number of seconds (up to a year); using #{default}" }
+        return default.seconds
+      end
+      number > 0 ? number.seconds : nil
+    end
+
+    def self.integer(name : String, default : Int32) : Int32
+      value = ENV[name]?.try(&.strip)
+      return default if value.nil? || value.empty?
+      value.to_i? || begin
+        LOG.warn { "#{name}=#{value.inspect} is not an integer; using #{default}" }
+        default
+      end
+    end
+
+    # 10 000, or what the open-file limit leaves after a margin for the files, sockets and pipes the process holds.
+    def self.default_max_connections : Int32
+      return 10_000 unless LibC.getrlimit(LibC::RLIMIT_NOFILE, out limit) == 0
+      current = limit.rlim_cur
+      return 10_000 if current >= 1_000_000 # also "unlimited"
+      Math.max(16, Math.min(10_000, current.to_i - 256))
+    end
   end
 
   class UploadConfiguration
