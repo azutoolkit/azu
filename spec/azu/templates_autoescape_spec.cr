@@ -11,7 +11,7 @@ end
 private ATTACK  = "<script>alert(1)</script>"
 private ESCAPED = "&lt;script&gt;alert(1)&lt;/script&gt;"
 
-# {compiled after prepare, compiled lazily on the first render, reloading from the file system}
+# {preloaded at prepare, preloaded lazily on the first render, reloading from the file system}
 private def each_mode(dir : String, & : String, Azu::Templates ->)
   yield "prepared", Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false).tap(&.prepare)
   yield "lazy", Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false)

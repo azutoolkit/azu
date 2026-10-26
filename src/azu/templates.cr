@@ -28,10 +28,10 @@ module Azu
     @hot_reload_enabled : Bool = false
     @helpers_revision : UInt64? = nil
     @builtin_crinja : Crinja?
-    @compiled : CompiledLoader?
-    @compile_lock : Mutex = Mutex.new
-    @compile_count : Int32 = 0
-    @compiled_strict : Bool = false
+    @preloaded : PreloadedLoader?
+    @preload_lock : Mutex = Mutex.new
+    @preload_count : Int32 = 0
+    @preloaded_strict : Bool = false
     @helpers_lock : Mutex = Mutex.new
 
     # Azu's own error pages, compiled into the binary. They are the last place the loader looks, so an app that
@@ -57,18 +57,18 @@ module Azu
     end
 
     # :nodoc:
-    # How many times the templates were compiled; for specs.
-    getter compile_count
+    # How many times the templates were preloaded; for specs.
+    getter preload_count
 
     # Template names (globs on the name relative to a template directory, e.g. `"vendor/**"` or `"swagger/*.html"`)
-    # that are not compiled at boot: a file below the template directories that is not a template (a vendored page
+    # that are not preloaded at boot: a file below the template directories that is not a template (a vendored page
     # with `{{ }}` in it) would otherwise stop the boot. They are still found by the file loader when asked for.
-    getter compile_ignore : Array(String) = [] of String
+    getter preload_ignore : Array(String) = [] of String
 
-    def compile_ignore=(patterns : Array(String))
-      @compile_lock.synchronize do
-        @compile_ignore = patterns
-        @compiled = nil
+    def preload_ignore=(patterns : Array(String))
+      @preload_lock.synchronize do
+        @preload_ignore = patterns
+        @preloaded = nil
         crinja.loader = @loader.not_nil!
       end
     end
@@ -78,7 +78,7 @@ module Azu
     # map. `Templates` publishes it with a single assignment, so a request only ever sees a complete map. Includes
     # and extends resolve through it too, because it is the Crinja environment's loader. A name that is not in the
     # map (a file added after boot, a path like `./a//b`, another extension) goes to the loader it wraps.
-    class CompiledLoader < Crinja::Loader
+    class PreloadedLoader < Crinja::Loader
       getter templates : Hash(String, Crinja::Template)
 
       def initialize(@templates : Hash(String, Crinja::Template), @fallback : Crinja::Loader)
@@ -99,7 +99,7 @@ module Azu
 
     # :nodoc:
     # Crinja's in-memory template cache behind a lock. Renders run on several threads under preview_mt, and a template
-    # the compiled map does not hold (hot reload, other extensions, `compile_ignore`, files added after boot, the
+    # the preloaded map does not hold (hot reload, other extensions, `preload_ignore`, files added after boot, the
     # built-in pages) is parsed and stored here by whichever render asks for it first.
     class SynchronizedCache < Crinja::TemplateCache
       @cache = Crinja::TemplateCache::InMemory.new
@@ -205,7 +205,7 @@ module Azu
       Crinja::Config::Autoescape.new(disabled_extensions: PLAIN_TEXT_EXTENSIONS, default_for_string: true, default: true)
     end
 
-    def initialize(@path : Array(String), @error_path : String, hot_reload : Bool? = nil, @compile_ignore : Array(String) = [] of String, autoescape : Bool = true)
+    def initialize(@path : Array(String), @error_path : String, hot_reload : Bool? = nil, @preload_ignore : Array(String) = [] of String, autoescape : Bool = true)
       @hot_reload_enabled = hot_reload.nil? ? development_environment? : hot_reload
       crinja.cache = SynchronizedCache.new
       self.autoescape = autoescape
@@ -213,7 +213,7 @@ module Azu
     end
 
     # Whether `.jinja`, `.j2` and string templates are autoescaped like `.html` (default). Decided at render time,
-    # so it applies to compiled templates too.
+    # so it applies to preloaded templates too.
     getter? autoescape : Bool = true
 
     def autoescape=(enabled : Bool)
@@ -255,12 +255,12 @@ module Azu
     end
 
     # With reload on (development) every call may re-read changed files, see `check_for_changes`. Without it the
-    # templates are compiled: each one was read and parsed once (`compile`), and this is a hash lookup.
+    # templates are preloaded: each one was read and parsed once (`preload`), and this is a hash lookup.
     # `load(name).render(hash)` is Crinja's own render: inside another render (a helper) it inherits that render's
     # variables. Render fragments with `render`, which starts from the global context.
     def load(template : String)
       unless @hot_reload_enabled
-        loader = @compiled || compile(strict: false)
+        loader = @preloaded || preload(strict: false)
         apply_helpers
         return loader.templates[template]? || crinja.get_template(template)
       end
@@ -272,15 +272,20 @@ module Azu
 
     # True when templates are read and parsed once instead of reloaded: every environment but development (and
     # `test` / `pipeline`, see `Configuration.hot_reload_default`), unless `template_hot_reload` says otherwise.
-    def compiled? : Bool
+    def preloaded? : Bool
       !@hot_reload_enabled
     end
 
+    @[Deprecated("Use `preloaded?`.")]
+    def compiled? : Bool
+      preloaded?
+    end
+
     # :nodoc:
-    # Compiles at boot (`App#prepare`) so a template with a syntax error stops the start instead of failing its
+    # Preloads at boot (`App#prepare`) so a template with a syntax error stops the start instead of failing its
     # first request. A no-op with reload on.
     def prepare : Nil
-      compile(strict: true) unless @hot_reload_enabled
+      preload(strict: true) unless @hot_reload_enabled
     end
 
     # :nodoc:
@@ -291,10 +296,10 @@ module Azu
 
     # Enable or disable hot reloading manually
     def hot_reload=(enabled : Bool)
-      @compile_lock.synchronize do
+      @preload_lock.synchronize do
         next if enabled == @hot_reload_enabled
         @hot_reload_enabled = enabled
-        @compiled = nil
+        @preloaded = nil
         crinja.loader = @loader.not_nil!
         update_template_mtimes if enabled
       end
@@ -303,24 +308,24 @@ module Azu
     # Reads and parses every template below the template directories and the error directory once, and makes the
     # result the environment's loader. Searched in order like the file system loader, the first directory that has
     # a name wins. `strict` (boot, `prepare`) raises `CompileError` naming the template that does not parse or cannot
-    # be read, and publishes nothing. Lazy (first render without `prepare`) logs it once and compiles the others;
+    # be read, and publishes nothing. Lazy (first render without `prepare`) logs it once and preloads the others;
     # the broken one stays with the file loader, which raises when it is rendered. An app `error.html` that does not
     # parse is left to the built-in fallback in both cases.
-    private def compile(strict : Bool) : CompiledLoader
-      @compile_lock.synchronize do
-        current = @compiled
-        # a strict compile after a lenient one (first render before `prepare`) validates again
-        return current if current && (@compiled_strict || !strict)
-        publish_compiled(parse_all(strict), strict)
+    private def preload(strict : Bool) : PreloadedLoader
+      @preload_lock.synchronize do
+        current = @preloaded
+        # a strict preload after a lenient one (first render before `prepare`) validates again
+        return current if current && (@preloaded_strict || !strict)
+        publish_preloaded(parse_all(strict), strict)
       end
     end
 
-    private def publish_compiled(templates : Hash(String, Crinja::Template), strict : Bool) : CompiledLoader
-      compiled = CompiledLoader.new(templates, @loader.not_nil!)
-      crinja.loader = compiled
-      @compile_count += 1
-      @compiled_strict = strict
-      @compiled = compiled
+    private def publish_preloaded(templates : Hash(String, Crinja::Template), strict : Bool) : PreloadedLoader
+      preloaded = PreloadedLoader.new(templates, @loader.not_nil!)
+      crinja.loader = preloaded
+      @preload_count += 1
+      @preloaded_strict = strict
+      @preloaded = preloaded
     end
 
     private def parse_all(strict : Bool) : Hash(String, Crinja::Template)
@@ -339,7 +344,7 @@ module Azu
         end
       end
       BUILTIN.each { |name, source| templates[name] ||= Crinja::Template.new(source, crinja, name, name) }
-      Log.for("azu.templates").debug { "compiled #{templates.size} templates in #{(Time.instant - started).total_milliseconds.round(1)} ms" }
+      Log.for("azu.templates").debug { "preloaded #{templates.size} templates in #{(Time.instant - started).total_milliseconds.round(1)} ms" }
       templates
     end
 
@@ -361,7 +366,7 @@ module Azu
       names
     rescue ex : File::Error
       raise CompileError.new("template directory #{dir}: #{ex.message}", ex) if strict
-      Log.for("azu.templates").warn(exception: ex) { "template directory #{dir} was not compiled: #{ex.message}. Templates in it may be shadowed by later directories; requests for them fall back to the file loader" }
+      Log.for("azu.templates").warn(exception: ex) { "template directory #{dir} was not preloaded: #{ex.message}. Templates in it may be shadowed by later directories; requests for them fall back to the file loader" }
       names
     end
 
@@ -371,10 +376,10 @@ module Azu
     end
 
     private def ignored?(name : String) : Bool
-      @compile_ignore.any? { |pattern| File.match?(pattern, name) }
+      @preload_ignore.any? { |pattern| File.match?(pattern, name) }
     end
 
-    # False when the file was not compiled.
+    # False when the file was not preloaded.
     private def parse_into(templates, name : String, file : String, strict : Bool) : Bool
       templates[name] = Crinja::Template.new(File.read(file), crinja, name, file)
       true
@@ -384,7 +389,7 @@ module Azu
       elsif strict
         raise CompileError.new("template #{name} (#{file}): #{ex.message}", ex)
       else
-        Log.for("azu.templates").warn(exception: ex) { "template #{name} (#{file}) was not compiled: #{ex.message}" }
+        Log.for("azu.templates").warn(exception: ex) { "template #{name} (#{file}) was not preloaded: #{ex.message}" }
       end
       false
     end
@@ -395,7 +400,7 @@ module Azu
     end
 
     private def initialize_loader
-      @compile_lock.synchronize { rebuild_loader }
+      @preload_lock.synchronize { rebuild_loader }
     end
 
     private def rebuild_loader
@@ -404,7 +409,7 @@ module Azu
         BuiltinLoader.new(BUILTIN).as(Crinja::Loader),
       ])
       @loader = loader
-      @compiled = nil
+      @preloaded = nil
       crinja.loader = loader
       log_shadowed_error_pages
 
