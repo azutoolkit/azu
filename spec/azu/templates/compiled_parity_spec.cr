@@ -347,3 +347,46 @@ describe "Azu::Templates compiled templates (values written to io, loops without
     outputs[0].should eq outputs[1]
   end
 end
+
+describe "Azu::Templates compiled templates (which filters a loop without a scope trusts)" do
+  it "runs a loop in a scope, like Crinja, for Azu's active_class (it reads current_path)" do
+    outputs = {loops(hot_reload: false, compiled: true), loops(hot_reload: true)}.map do |templates|
+      templates.render("active_loop.jinja", {"paths" => ["/a", "/b"]})
+    end
+    outputs.should eq({"active,,", "active,,"})
+  end
+
+  it "trusts none of Azu's helper filters, and Crinja's own upper" do
+    filters = loops(hot_reload: true).crinja.filters
+    %w[active_class is_current_page urlize].each do |name|
+      Azu::Templates::CompiledTemplate::CONTEXT_FREE.none?(&.same?(filters[name])).should be_true, name
+    end
+    Azu::Templates::CompiledTemplate::CONTEXT_FREE.any?(&.same?(Crinja.new.filters["upper"])).should be_true
+  end
+
+  it "runs a loop in a scope, like Crinja, for a named override of a built-in that reads the scope" do
+    override = Crinja.filter(:upper) { "#{target}@#{env.resolve("item")}" }
+    outputs = {loops(hot_reload: false, compiled: true), loops(hot_reload: true)}.map do |templates|
+      templates.crinja.filters["upper"] = override
+      templates.render("loop_filter.jinja", {"items" => ["a", "b"], "item" => "top"})
+    end
+    outputs.should eq({"a@a,b@b,", "a@a,b@b,"})
+  ensure
+    Crinja::Filter::Library.defaults.delete(override) if override
+  end
+
+  it "runs a loop in a scope, like Crinja, when map calls a filter that reads the scope" do
+    outputs = {loops(hot_reload: false, compiled: true), loops(hot_reload: true)}.map do |templates|
+      templates.crinja.filters["probe"] = Crinja.filter { "#{target}@#{env.resolve("item")}" }
+      templates.render("map_loop.jinja", {"items" => ["a", "b"], "item" => "top"})
+    end
+    outputs.should eq({"a@a,a@b,", "a@a,a@b,"})
+  end
+
+  it "takes the fast path for Crinja's own filters" do
+    templates = loops(hot_reload: false, compiled: true)
+    template = templates.load("bench.jinja").as(Azu::Templates::CompiledTemplate)
+    templates.render("bench.jinja", {"items" => bench_items})
+    template.@state.get.try(&.own).should eq [true]
+  end
+end

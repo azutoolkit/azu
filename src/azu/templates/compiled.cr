@@ -15,9 +15,17 @@ class Azu::Templates
     # `CONTEXT_FREE`, so a loop calling it may skip the scope.
     alias Body = Proc(IO, Crinja, Array(Crinja::Callable?), Array(Bool), Nil)
 
-    # Crinja's own filters, shared by every environment, but those that read `env.context`: through other filters or
-    # tests (`map`, `select`, ...) or for the autoescape flag (`join`, `string`).
-    CONTEXT_FREE = Crinja::Filter::Library.new.try { |library| (library.keys - %w[map select reject selectattr rejectattr join string]).map { |name| library[name] } }
+    # Crinja's own filters that read nothing of `env.context` (`map`, `select`, ... call other filters or tests;
+    # `join` and `string` read only the autoescape flag, which a loop scope inherits).
+    CONTEXT_FREE_NAMES = %w[list batch slice first last length reverse sum random groupby escape forceescape safe urlize
+      urlencode tojson xmlattr join prepend append date abs float int filesizeformat round dictsort sort upper lower
+      capitalize center striptags format indent string title truncate wordcount replace trim wordwrap default attr pprint]
+
+    # Each the first registration of its name in `Library.defaults`: Crinja's, as any other `Crinja.filter(:name)`
+    # needs Crinja required first, so neither require order nor when this initialises lets another one in.
+    CONTEXT_FREE = CONTEXT_FREE_NAMES.each_with_object([] of Crinja::Callable) do |name, set|
+      Crinja::Filter::Library.defaults.find { |filter| filter.as?(Crinja::Callable::Instance).try(&.name) == name }.try { |own| set << own }
+    end
 
     # What renders share, built on the first and again when what it was built from changes: each filter (nil when
     # unknown or disabled: the call asks `env.filters`, which raises). `disabled` and `aliases` are copies, compared

@@ -119,11 +119,13 @@ module Azu::TemplateCompiler
   # `Runner#run_loop`: a scope per item. `plain` when the loops inside it have no fast path.
   private def self.scoped_loop(node, vars, looper, at, plain : Bool) : String
     outer, @@plain = @@plain, plain
-    unpack = vars.size == 1 ? "ctx[#{vars[0].inspect}] = item" : "ctx.unpack(#{looper}_vars, item)"
-    "#{looper}.each { |item| env.with_scope(::Crinja::Context.new(env.context)) { |ctx| " \
-    "ctx[::Crinja::Tag::For::LOOP_VARIABLE] = #{looper}; #{unpack}; #{nodes(node.block.children, at)}} }"
-  ensure
-    @@plain = outer unless outer.nil?
+    begin
+      unpack = vars.size == 1 ? "ctx[#{vars[0].inspect}] = item" : "ctx.unpack(#{looper}_vars, item)"
+      "#{looper}.each { |item| env.with_scope(::Crinja::Context.new(env.context)) { |ctx| " \
+      "ctx[::Crinja::Tag::For::LOOP_VARIABLE] = #{looper}; #{unpack}; #{nodes(node.block.children, at)}} }"
+    ensure
+      @@plain = outer
+    end
   end
 
   # The guard and code of the fast path of an outermost loop, or nil when its body can see the scope.
