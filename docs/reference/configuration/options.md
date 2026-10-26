@@ -126,7 +126,7 @@ Azu::CONFIG.log = Log.for("my_app")
 escapes `html`, `htm` and `xml`). Templates of other formats (`*.txt`, `*.json.jinja`, `*.md.jinja`, ... see [breaking changes](../breaking-changes.md)) are not
 escaped. `App#start` logs a warning while `template_autoescape` is off. Turn it off
 only for an app that cannot be migrated yet: `Azu::CONFIG.template_autoescape = false`, or `TEMPLATE_AUTOESCAPE=false`; any
-other value of the variable keeps it on. It applies to compiled templates too, because Crinja decides at render time.
+other value of the variable keeps it on. It applies to preloaded templates too, because Crinja decides at render time.
 
 The default template path resolves relative to the working directory, so set `TEMPLATES_PATH`
 or add your directory (relative entries are resolved against the working directory, so run the app from its root).
@@ -141,36 +141,36 @@ Azu::CONFIG.template_hot_reload = false
 ```
 
 With hot reload on, `templates` re-reads template files that changed (it checks at most once a second). With it off
-the templates are **compiled**: `Azu.prepare` (which `App#start` calls) finds every `*.html`, `*.jinja` and `*.j2`
+the templates are **preloaded**: `Azu.prepare` (which `App#start` calls) finds every `*.html`, `*.jinja` and `*.j2`
 file below the template directories, reads and parses each once, and a request only looks the parsed template up
 by name. Nothing is read from disk per request, so an edit to a template file needs a restart. A template with a
 syntax error stops the start, with its name and line, instead of failing its first request (an app `error.html`
-that does not parse is the exception: the built-in page is used). A file added after the compile is still
-found, by the file loader. Without `Azu.prepare` the compile happens on the first render.
+that does not parse is the exception: the built-in page is used). A file added after the preload is still
+found, by the file loader. Without `Azu.prepare` the preload happens on the first render.
 
 | Environment | Templates |
 |---|---|
 | `development` | reload (modification time checked at most once a second) |
 | `test`, `pipeline` | reload, so specs can write templates while running |
-| `staging`, `production`, any other | compiled |
-| `build`, `integration`, `acceptance` | compiled (only `development`, `test` and `pipeline` reload) |
+| `staging`, `production`, any other | preloaded |
+| `build`, `integration`, `acceptance` | preloaded (only `development`, `test` and `pipeline` reload) |
 | `template_hot_reload` / `TEMPLATE_HOT_RELOAD` set | wins over the environment, e.g. reload in staging |
 
 The default is read from `CRYSTAL_ENV` when the configuration is built; assigning `config.env = ...` afterwards does
 not change it. Assigning `config.template_hot_reload = ...` does, also for templates that were built already. All
-compiled templates stay in memory, and a template mounted from a volume or ConfigMap needs a restart to change.
+preloaded templates stay in memory, and a template mounted from a volume or ConfigMap needs a restart to change.
 
 **Files that are not templates.** Every `*.html`, `*.jinja` and `*.j2` file below the template directories is parsed
 at boot, so a vendored page (a Swagger UI `index.html`) or a templates directory that is really `public/` can stop the
 boot, with the file name, path and line in the message. Name what to skip with globs on the path relative to a
-template directory (`*` does not cross `/`, `**` does; `TEMPLATE_COMPILE_IGNORE` splits on commas, so brace
+template directory (`*` does not cross `/`, `**` does; `TEMPLATE_PRELOAD_IGNORE` splits on commas, so brace
 alternation such as `{a,b}` cannot be written there, use the Crystal setter); the files are still found when asked for.
 Dot directories and symlinked directories are not walked either, the file loader serves what is in them:
 
 ```crystal
 require "azu"
 
-Azu::CONFIG.template_compile_ignore = ["vendor/**", "swagger/*.html"] # or TEMPLATE_COMPILE_IGNORE=vendor/**,swagger/*.html
+Azu::CONFIG.template_preload_ignore = ["vendor/**", "swagger/*.html"] # or TEMPLATE_PRELOAD_IGNORE=vendor/**,swagger/*.html
 ```
 
 A directory that cannot be read stops the boot with its name (`Azu.prepare`); a first render without `prepare` logs a
@@ -338,7 +338,7 @@ live views is `SPARK_SECRET`.
 | `CRYSTAL_ENV` | `env` |
 | `PORT`, `HOST`, `PORT_REUSE`, `SHUTDOWN_TIMEOUT` | `port`, `host`, `port_reuse?`, `shutdown_timeout` |
 | `SSL_CERT`, `SSL_KEY`, `SSL_CA`, `SSL_MODE` | TLS |
-| `TEMPLATE_HOT_RELOAD`, `TEMPLATE_AUTOESCAPE`, `TEMPLATE_COMPILE_IGNORE`, `TEMPLATES_PATH`, `ERROR_TEMPLATE` | templates |
+| `TEMPLATE_HOT_RELOAD`, `TEMPLATE_AUTOESCAPE`, `TEMPLATE_PRELOAD_IGNORE`, `TEMPLATES_PATH`, `ERROR_TEMPLATE` | templates |
 | `CACHE_*` | `cache_config` |
 | `UPLOAD_*`, `WEBSOCKET_*`, `I18N_*`, `ASSETS_*`, `AZU_DB_*`, `AZU_CQL_DRIVER`, `DATABASE_URL`, `SPARK_*` | the matching section |
 | `PERFORMANCE_MONITORING`, `PERFORMANCE_PROFILING`, `PERFORMANCE_MEMORY_MONITORING` | performance tooling (`azu/dev`) |

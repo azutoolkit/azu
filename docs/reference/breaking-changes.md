@@ -130,13 +130,15 @@ that is not in it, add it with `Static.new(mime_types: {".heic" => "image/heic"}
 the others in the process-wide `MIME` registry; code that called `MIME.from_filename` for them must register them itself. Check any route that shares a path with a file of an unknown type: the
 router now answers it. See [Handler::Static](handlers/built-in.md#which-files-are-served).
 
-**Templates are compiled outside development.** With `template_hot_reload` off (the default for `staging`,
+**Templates are preloaded outside development.** With `template_hot_reload` off (the default for `staging`,
 `production` and any environment other than `development`, `test` and `pipeline`), `Azu.prepare` reads and parses
 every template once and requests no longer read template files: an edit to a template file needs a restart, where
 before it showed on the next request, and a template with a syntax error now stops the boot (with its name and
 line) instead of failing its first request, including a file that is not a template (a vendored `index.html`; list
-those in `template_compile_ignore`). Set `template_hot_reload = true` (or `TEMPLATE_HOT_RELOAD=true`) to keep
-reloading in an environment. See [Configuration](configuration/options.md#templates).
+those in `template_preload_ignore`). Set `template_hot_reload = true` (or `TEMPLATE_HOT_RELOAD=true`) to keep
+reloading in an environment. See [Configuration](configuration/options.md#templates). This mode was called "compiled"
+until the compiled templates of 0.6: `Templates#compiled?`, `template_compile_ignore` and `TEMPLATE_COMPILE_IGNORE` still
+work but are deprecated; use `preloaded?`, `template_preload_ignore` and `TEMPLATE_PRELOAD_IGNORE`.
 
 **The router finds routes in its own segment tree; the `radix` shard and `Router#radix` are gone.** Routes declared
 as before keep matching as before, with these differences:
@@ -645,7 +647,7 @@ See [Shut Down Gracefully](../how-to/deployment/graceful-shutdown.md).
   name a database host or user); the message stays in the log and in development bodies.
 - `Cache::RedisStore#increment` / `#decrement` set the TTL in one atomic Lua script, only when the key has
   none; `decrement` used to renew it on every call.
-- Not changed in this release: templates were not cached (`Templates#load` asked Crinja each time); see "Templates are compiled outside development" under Unreleased.
+- Not changed in this release: templates were not cached (`Templates#load` asked Crinja each time); see "Templates are preloaded outside development" under Unreleased.
 
 **Content negotiation.** New: [`Response::Negotiable`](api/content-negotiation.md). Endpoints now write their
 response with `Response#write_to(context)`, which prints `render` unless the type overrides it, so existing

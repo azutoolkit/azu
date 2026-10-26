@@ -39,7 +39,7 @@ A feature marked **opt-in** needs its own `require`; `require "azu"` alone does 
 
 ## Templates and helpers
 
-- **Jinja templates.** Crinja renders `.jinja` templates; outside development they are compiled once at boot, so a syntax error stops startup, and in development they reload on change. [Render HTML templates](../how-to/templates/render-html-templates.md), [Enable hot reload](../how-to/templates/enable-hot-reload.md), [Template engine](../reference/templates/engine.md).
+- **Jinja templates.** Crinja renders `.jinja` templates; outside development they are preloaded (read and parsed once) at boot, so a syntax error stops startup, and in development they reload on change. [Render HTML templates](../how-to/templates/render-html-templates.md), [Enable hot reload](../how-to/templates/enable-hot-reload.md), [Template engine](../reference/templates/engine.md).
 - **Built-in helpers.** Forms with CSRF fields, links, assets, dates, numbers and HTML filters; register your own with `Azu::Helpers.filter` and `.function`. [Template helpers](../reference/templates/helpers.md).
 - **Internationalization.** `t` and `l` helpers over YAML locale files, and `Handler::Locale` to pick the locale from `Accept-Language`. [i18n helpers](../reference/templates/helpers.md#i18n-helpers).
 - **Markup components.** `Azu::Component` and the `Azu::Markup` DSL write static HTML in plain Crystal (live, stateful ones are Spark components). [Component](../reference/api/component.md).
