@@ -60,6 +60,26 @@ private def with_server(limit : UInt64, handler : Azu::Handler::CSRF, probe : Co
   end
 end
 
+# Yields *head* and then fails the test if read again: a client that stalls after the token part.
+private class StalledBody < IO
+  getter stalled_reads = 0
+
+  def initialize(@head : String)
+    @io = IO::Memory.new(@head)
+    @served = false
+  end
+
+  def read(slice : Bytes) : Int32
+    return @io.read(slice).tap { @served = true } unless @served
+    @stalled_reads += 1
+    raise IO::TimeoutError.new("the client stalled")
+  end
+
+  def write(slice : Bytes) : NoReturn
+    raise IO::Error.new("read only")
+  end
+end
+
 private LIMIT = 4096_u64
 
 private def with_body_limit(limit : UInt64 = LIMIT, &)
@@ -206,6 +226,19 @@ describe "Azu::Handler::CSRF request bodies" do
       end
     end
 
+    it "reads no more than max_form_size, 1 MB by default, even where the endpoint would take more" do
+      Azu::Handler::CSRF.new.max_form_size.should eq 1_048_576
+      with_body_limit(10_000_000_u64) do
+        handler = csrf_handler
+        handler.max_form_size = 2_000_u64
+        token = issue_token(handler)
+        context, seen, read = post_through(handler, token, "application/x-www-form-urlencoded", "a=" + "x" * 3_000)
+        context.response.status_code.should eq 413
+        seen.should be_nil
+        read.should eq 0 # Content-Length said so
+      end
+    end
+
     it "keeps non-UTF-8 bytes of the body intact for the endpoint" do
       handler = csrf_handler
       token = issue_token(handler)
@@ -256,14 +289,61 @@ describe "Azu::Handler::CSRF request bodies" do
       end
     end
 
-    it "reads at most the scan limit of a large body" do
+    it "reads at most the scan limit of a large body whose walk never decides" do
+      with_body_limit(10_000_000_u64) do
+        handler = csrf_handler
+        token = issue_token(handler)
+        body = multipart(boundary, [text_part(boundary, "pad", "z" * 5_000_000)])
+        _, _, read = post_through(handler, token, type, body)
+        read.should eq Azu::Handler::CSRF::MULTIPART_SCAN_LIMIT.to_i64
+      end
+    end
+
+    it "stops reading as soon as the walk is decided: at the first file part" do
       with_body_limit(10_000_000_u64) do
         handler = csrf_handler
         token = issue_token(handler)
         body = multipart(boundary, [file_part(boundary, "doc", "z" * 5_000_000)])
         _, _, read = post_through(handler, token, type, body)
-        read.should eq Azu::Handler::CSRF::MULTIPART_SCAN_LIMIT.to_i64
+        read.should be <= 4096
       end
+    end
+
+    it "does not wait for a client that sent the token part and then stalled" do
+      handler = csrf_handler
+      token = issue_token(handler)
+      head = text_part("B", "_csrf", token)
+      stalled = StalledBody.new(head)
+      headers = HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=B", "Cookie" => "csrf_token=#{token}"}
+      request = HTTP::Request.new("POST", "/save", headers)
+      request.body = stalled
+      seen = nil.as(String?)
+      handler.next = ->(context : HTTP::Server::Context) { seen = "reached" }
+      context = HTTP::Server::Context.new(request, HTTP::Server::Response.new(IO::Memory.new))
+      handler.call(context)
+      context.response.status_code.should eq 200
+      seen.should eq "reached"
+      stalled.stalled_reads.should eq 0
+    end
+
+    it "walks at most 64 parts: the token as the 64th is found, as the 65th is not" do
+      handler = csrf_handler
+      token = issue_token(handler)
+      filler = ->(count : Int32) { (1..count).map { |n| text_part(boundary, "f#{n}", "v") } }
+      found = multipart(boundary, filler.call(63) + [text_part(boundary, "_csrf", token)])
+      missed = multipart(boundary, filler.call(64) + [text_part(boundary, "_csrf", token)])
+      post_through(handler, token, type, found)[0].response.status_code.should eq 200
+      post_through(handler, token, type, missed)[0].response.status_code.should eq 403
+    end
+
+    it "refuses a cookie that is not a token it signed before reading any body" do
+      handler = csrf_handler
+      context, seen, read = post_through(handler, "forged", type, multipart(boundary, [text_part(boundary, "_csrf", "forged")]))
+      context.response.status_code.should eq 403
+      read.should eq 0
+      seen.should be_nil
+      urlencoded = post_through(handler, "forged", "application/x-www-form-urlencoded", "_csrf=forged")
+      urlencoded[2].should eq 0
     end
 
     it "does not refuse on the total length: the limit applies to each file, and the endpoint checks it" do
@@ -320,6 +400,46 @@ describe "Azu::Handler::CSRF request bodies" do
       field.call("--B", "_csrf").should be_nil
       field.call("--B\r\n", "_csrf").should be_nil
       field.call("--B\xff\xfe\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\ntok\r\n--B--", "_csrf").should eq "tok"
+    end
+  end
+
+  describe "the multipart walk of hostile bodies" do
+    scan = ->(body : Bytes) { Azu::Handler::CSRF.scan_multipart(body, "B", "_csrf") }
+    limit = Azu::Handler::CSRF::MULTIPART_SCAN_LIMIT
+
+    bodies = {
+      "thousands of tiny parts with CRLF"       => ("--B\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n\r\n" * 2_500),
+      "thousands of tiny parts with LF only"    => ("--B\nContent-Disposition: form-data; name=\"a\"\n\nv\n" * 2_500),
+      "the same with non-ASCII bytes"           => ("--B\r\nContent-Disposition: form-data; name=\"é\"\r\n\r\nüüü\r\n" * 1_800),
+      "parts that carry no disposition"         => ("--B\n\n\n" * 10_000),
+      "only line breaks"                        => ("\n" * limit),
+      "only carriage returns and line breaks"   => ("\r\n" * (limit // 2)),
+      "near-miss delimiters"                    => ("\n--" + "B" * 3 + "x" + "\n--BB" * 10_000),
+      "an endless header block"                 => ("--B\r\n" + "X-H: y\r\n" * 10_000),
+      "one huge header line"                    => ("--B\r\nContent-Disposition: form-data; name=\"" + "a" * limit),
+      "a delimiter preceded by a long preamble" => ("p" * (limit - 100) + "\r\n--B\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\nt\r\n--B--"),
+    }
+
+    bodies.each do |name, body|
+      it "takes a bounded time on #{name}" do
+        bytes = body.to_slice[0, Math.min(body.bytesize, limit)]
+        started = Time.instant
+        20.times { scan.call(bytes) }
+        (Time.instant - started).should be < 1.5.seconds # the quadratic walk took 40 s for 20 of the first kind
+      end
+    end
+
+    it "still finds the field behind a preamble, and in a body without carriage returns" do
+      scan.call(bodies["a delimiter preceded by a long preamble"].to_slice).should eq({"t", true})
+      scan.call("--B\nContent-Disposition: form-data; name=\"_csrf\"\n\ntok\n--B--".to_slice).should eq({"tok", true})
+    end
+
+    it "is undecided while the field may still come, and decided once it cannot" do
+      scan.call("--B\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nv".to_slice).should eq({nil, false})
+      scan.call("--B\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nv\r\n--B\r\nContent-Dis".to_slice).should eq({nil, false})
+      scan.call("--B\r\nContent-Disposition: form-data; name=\"a\"; filename=\"f\"\r\n\r\nv\r\n--B--".to_slice).should eq({nil, true})
+      scan.call("--B--".to_slice).should eq({nil, true})
+      scan.call("".to_slice).should eq({nil, false})
     end
   end
 
@@ -398,7 +518,7 @@ describe "Azu::Handler::CSRF request bodies" do
       probe = CountBytes.new
       with_server(100_000_u64, handler, probe) do |address|
         head = "POST /save HTTP/1.1\r\nHost: x\r\nConnection: close\r\nCookie: csrf_token=#{token}\r\nContent-Type: multipart/form-data; boundary=B\r\nTransfer-Encoding: chunked"
-        piece = "--B\r\nContent-Disposition: form-data; name=\"doc\"; filename=\"a\"\r\n\r\n" + "x" * 8000
+        piece = "--B\r\nContent-Disposition: form-data; name=\"pad\"\r\n\r\n" + "x" * 8000
         status, sent = stream.call(address, head, piece, 200_000_000, true)
         status.to_s.should start_with("HTTP/1.1 403")
         probe.count.should eq Azu::Handler::CSRF::MULTIPART_SCAN_LIMIT.to_i64
