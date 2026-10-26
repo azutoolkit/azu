@@ -141,7 +141,30 @@ module MyApp
 end
 ```
 
-`UPLOAD_MAX_FILE_SIZE` (bytes), `UPLOAD_TEMP_DIR`, `UPLOAD_BUFFER_SIZE`, `UPLOAD_CLEANUP_INTERVAL` and
+A multipart request has limits of its own, checked while the body streams in, so a client that sends more is cut off
+after the limit and never fills the disk: `config.upload.max_request_size` (the whole request, 64 MB by default; a
+`Content-Length` over it is refused before a byte is read), `max_parts` (100: fields and files together) and
+`max_files` (20). A request over any of them is answered `413` and its temp files are removed. Raise them for an app that
+takes many or big files, together with `max_file_size`:
+
+```crystal
+module MyApp
+  include Azu
+
+  configure do |config|
+    config.upload.max_file_size = 50_u64 * 1024 * 1024
+    config.upload.max_request_size = 200_u64 * 1024 * 1024
+    config.upload.max_files = 50
+  end
+end
+```
+
+Temp files are created with mode `0600` and a name the client cannot choose (its file name is only a hint in the name,
+reduced to safe characters; `file.filename` keeps the original), and **they are deleted when the request is done**: copy
+the file you want to keep inside the endpoint, as the examples do, and do not hand `temp_path` to a background job.
+A second file under the same field name replaces the first.
+
+`UPLOAD_MAX_FILE_SIZE` (bytes), `UPLOAD_MAX_REQUEST_SIZE`, `UPLOAD_MAX_PARTS`, `UPLOAD_MAX_FILES`, `UPLOAD_TEMP_DIR`, `UPLOAD_BUFFER_SIZE`, `UPLOAD_CLEANUP_INTERVAL` and
 `UPLOAD_MAX_TEMP_AGE` (seconds) set the same from the environment. Put a limit on the request in your reverse proxy
 too (`client_max_body_size` in Nginx), so that the bytes never reach the application.
 
