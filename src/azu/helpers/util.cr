@@ -273,30 +273,47 @@ module Azu
 
       private URLIZE_PATTERN = /(?:https?:\/\/|www\.)[^\s<]+/i
 
+      # A comment, CDATA section or tag (a `>` inside a quoted attribute does not end it), what is left from an
+      # unterminated `<` to the end, or a run of text. A tag the browser would read differently is never linked into.
+      private URLIZE_TOKEN = /<!--.*?-->|<!\[CDATA\[.*?\]\]>|<(?:[^>"']|"[^"]*"|'[^']*')*>|<.*\z|[^<]+/m
+
+      # Text of these elements is not markup a reader sees as prose, so it is never linked.
+      private URLIZE_RAW_TEXT = /\A<(script|style|textarea)(?=[\s\/>])/i
+
       # Turns the http, https and `www.` addresses of *escaped_html_text* into links. Unlike Crinja's own `urlize`
       # it links no other scheme (`javascript://...` matches Crinja's pattern) and the text must already be escaped
       # (the `urlize` filter escapes it), so quotes in an address cannot leave the `href`. Markup in the text is
-      # tolerated: tags and their attributes are copied untouched and text inside an `<a>` is not linked again.
+      # tolerated: tags and their attributes are copied untouched, and so are the text inside an `<a>` and the
+      # contents of `<script>`, `<style>` and `<textarea>`.
       def urlize(escaped_html_text : String, trim_limit : Int32?, rel : Array(String), target : String?) : String
         rel_attr = rel.empty? ? "" : %( rel="#{escape_html(rel.join(' '))}")
         target_attr = target.nil? || target.empty? ? "" : %( target="#{escape_html(target)}")
         in_anchor = false
-        # Tags are copied as they are (so are attributes), and text inside an existing <a> is not linked again
-        escaped_html_text.gsub(/<[^>]*>|[^<]+/) do |piece|
+        raw_text : String? = nil
+        escaped_html_text.gsub(URLIZE_TOKEN) do |piece|
           if piece.starts_with?('<')
-            in_anchor = true if piece.matches?(/\A<a[\s>]/i)
-            in_anchor = false if piece.matches?(/\A<\/a\s*>/i)
+            in_anchor = true if piece.matches?(/\A<a[\s\/>]/i)
+            in_anchor = false if piece.matches?(/\A<\/a[\s\/>]/i)
+            if open_tag = raw_text
+              raw_text = nil if piece.matches?(/\A<\/#{open_tag}[\s\/>]/i)
+            elsif found = URLIZE_RAW_TEXT.match(piece)
+              raw_text = found[1].downcase
+            end
             piece
-          elsif in_anchor
+          elsif in_anchor || raw_text
             piece
           else
-            piece.gsub(URLIZE_PATTERN) do |address|
-              display = address
-              display = display[0..(trim_limit - 3)] + "..." if trim_limit && display.size >= trim_limit
-              href = address.downcase.starts_with?("www.") ? "http://#{address}" : address
-              %(<a href="#{href}"#{rel_attr}#{target_attr}>#{display}</a>)
-            end
+            link_addresses(piece, trim_limit, rel_attr, target_attr)
           end
+        end
+      end
+
+      private def link_addresses(text : String, trim_limit : Int32?, rel_attr : String, target_attr : String) : String
+        text.gsub(URLIZE_PATTERN) do |address|
+          display = address
+          display = display[0..(trim_limit - 3)] + "..." if trim_limit && display.size >= trim_limit
+          href = address.downcase.starts_with?("www.") ? "http://#{address}" : address
+          %(<a href="#{href}"#{rel_attr}#{target_attr}>#{display}</a>)
         end
       end
 

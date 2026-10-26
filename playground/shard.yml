@@ -1,6 +1,6 @@
 name: example_app
 version: 0.1.0
-crystal: ">= 0.35.0"
+crystal: ">= 1.22.1"
 
 dependencies:
   azu:

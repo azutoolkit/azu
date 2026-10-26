@@ -229,6 +229,53 @@ describe "helper output encoding" do
         %(<a href="https://a.com">https://a.com</a> <img src="https://b.com/x.png" alt="https://c.com"> see <a href="https://d.com" rel="noopener">https://d.com</a>))
     end
 
+    describe "markup that is safe on purpose" do
+      safe_urlize = ->(html : String) { render("{{ (x | safe) | urlize }}", {"x" => html}) }
+
+      it "does not end a tag at a > inside a quoted attribute" do
+        html = %(<img src=x alt="> http://x/onerror=alert(1)//"> end)
+        safe_urlize.call(html).should eq html
+        single = %(<img src=x alt='> http://x/onerror=alert(1)//'> end)
+        safe_urlize.call(single).should eq single
+      end
+
+      it "copies an unterminated tag as it is" do
+        html = %(<img alt="http://a.com)
+        safe_urlize.call(html).should eq html
+        safe_urlize.call("<b http://a.com").should_not contain "<a "
+      end
+
+      it "reads upper case tags" do
+        html = %(<A HREF="https://a.com">https://a.com</A> <IMG ALT="> https://b.com"> https://c.com)
+        safe_urlize.call(html).should eq(
+          %(<A HREF="https://a.com">https://a.com</A> <IMG ALT="> https://b.com"> <a href="https://c.com" rel="noopener">https://c.com</a>))
+      end
+
+      it "counts <a/href=x> as an anchor" do
+        html = %(<a/href=x>https://a.com</a> https://b.com)
+        safe_urlize.call(html).should eq(
+          %(<a/href=x>https://a.com</a> <a href="https://b.com" rel="noopener">https://b.com</a>))
+      end
+
+      it "does not link the text of script, style and textarea blocks" do
+        {"script", "style", "textarea", "SCRIPT"}.each do |tag|
+          html = "<#{tag}>var u = 'https://a.com';</#{tag}> https://b.com"
+          safe_urlize.call(html).should eq(
+            %(<#{tag}>var u = 'https://a.com';</#{tag}> <a href="https://b.com" rel="noopener">https://b.com</a>))
+        end
+      end
+
+      it "skips comments and CDATA" do
+        html = "<!-- https://a.com > https://b.com --> https://c.com <![CDATA[ https://d.com ]]>"
+        safe_urlize.call(html).should eq(
+          %(<!-- https://a.com > https://b.com --> <a href="https://c.com" rel="noopener">https://c.com</a> <![CDATA[ https://d.com ]]>))
+      end
+
+      it "links the text around a stray < and >" do
+        safe_urlize.call("x < y > https://a.com").should eq %(x < y > <a href="https://a.com" rel="noopener">https://a.com</a>)
+      end
+    end
+
     it "keeps a quote out of the href" do
       out = render("{{ x | urlize }}", {"x" => %(https://a.com/"onmouseover="alert(1))})
       out.should_not contain %(" onmouseover)
