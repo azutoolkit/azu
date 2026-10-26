@@ -97,8 +97,8 @@ server = app.server([*app.default_handlers, handler] of HTTP::Handler)
 - **Paths.** One operation per route that leads to an `Azu::Endpoint`. `:id` and `*path` become `{id}` and
   `{path}` and are declared as required path parameters, typed from the request field of the same name
   (a string when there is none). Routes inside `scope` carry the scope prefix. Apps added with `mount`
-  are included below their mount path, at any depth. The `HEAD` and `OPTIONS` routes registered for a `GET`
-  are not listed again.
+  are included below their mount path, at any depth. The `HEAD` route registered with a `GET` is not listed
+  again; an `options` route you declare is listed as an `options` operation.
 - **`operationId`** is the endpoint's type name with `::` written as `.`. If one endpoint is routed more
   than once, later ids get a number suffix. **`tags`** hold the namespace the endpoint is declared in:
   `Shop::Users::ShowEndpoint` is tagged `Users`.
