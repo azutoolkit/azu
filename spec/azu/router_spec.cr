@@ -95,6 +95,7 @@ describe Azu::Router do
 
       dispatch(router, "/plain").should contain "plain"
       dispatch(router, "/struct").should contain "routable"
+      dispatch(router, "/").should contain "routable"
     end
   end
 
@@ -205,9 +206,19 @@ describe Azu::Router do
 
       router.add "/duplicate", endpoint1, Azu::Method::Get
 
-      expect_raises(Azu::Router::DuplicateRoute) do
+      expect_raises(Azu::Router::DuplicateRoute, "http_method: Get, path: /duplicate, endpoint:") do
         router.add "/duplicate", endpoint2, Azu::Method::Get
       end
+    end
+
+    it "refuses a get \"/\" next to a root, in either order" do
+      rooted = Azu::Router.new
+      rooted.root RoutableStruct.new
+      expect_raises(Azu::Router::DuplicateRoute, "http_method: Get, path: /,") { rooted.get "/", RoutableStruct.new }
+
+      declared = Azu::Router.new
+      declared.get "/", RoutableStruct.new
+      expect_raises(Azu::Router::DuplicateRoute, "http_method: Get, path: /,") { declared.root RoutableStruct.new }
     end
   end
 
