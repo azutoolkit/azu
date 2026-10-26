@@ -140,7 +140,7 @@ module Azu
 
       # The segments of a route path, trailing slashes aside, checked before the tree changes.
       private def segments(path : String) : Array(String)
-        raise Error.new("#{path}: a route path must start with /") unless path.empty? || path.starts_with?('/')
+        raise Error.new("route path #{path.inspect} must start with /") unless path.starts_with?('/')
         segments = path.rstrip('/').split('/').skip(1)
         raise Error.new("#{path}: a glob must be the last segment") if segments[0...-1].any?(&.starts_with?('*'))
         segments

@@ -195,7 +195,8 @@ describe Azu::Router::Tree do
     end
 
     it "refuses a route path that does not start with a slash" do
-      expect_raises(Tree::Error, "users: a route path must start with /") { tree({GET, "users"}) }
+      expect_raises(Tree::Error, %(route path "users" must start with /)) { tree({GET, "users"}) }
+      expect_raises(Tree::Error, %(route path "" must start with /)) { tree({GET, ""}) }
     end
   end
 end
@@ -263,7 +264,7 @@ private FIND_DIFFERENCES = [
 private ADD_DIFFERENCES = [
   {["/a/:id", "/a/:name"], "GET /a/:name is already routed as /a/:id"}, # radix accepts both and finds neither
   {["/hello", "/hello/"], "GET /hello/ is already routed as /hello"},   # radix never finds the second
-  {["users"], "users: a route path must start with /"},                 # radix never finds it
+  {["users"], %(route path "users" must start with /)},                 # radix never finds it
   {["/a/*rest/b"], "/a/*rest/b: a glob must be the last segment"},      # radix names the glob "rest/b"
 ]
 
