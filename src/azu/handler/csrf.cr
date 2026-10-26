@@ -492,11 +492,13 @@ module Azu
         cookies[@cookie_name]?.try(&.value)
       end
 
-      # Set CSRF token cookie
+      # Set CSRF token cookie. `Path=/`: without a path the browser keeps it for the directory of the page that
+      # issued it (RFC 6265 default-path), and a form posting outside that directory is refused.
       protected def set_token_cookie(context : HTTP::Server::Context, token : String)
         cookie = HTTP::Cookie.new(
           name: @cookie_name,
           value: token,
+          path: "/",
           max_age: Time::Span.new(seconds: @cookie_max_age),
           secure: @secure_cookies && (context.request.headers["X-Forwarded-Proto"]? == "https"),
           http_only: true,
