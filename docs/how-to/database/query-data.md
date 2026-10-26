@@ -4,34 +4,48 @@ description: Query data with CQL models.
 
 # Query data
 
-Every example is self-contained: it defines the schema and the models it needs. In an application they live in their
-own files (see [Create Models](create-models.md)).
-
 Model queries return a `QueryBuilder`. Every method that adds a condition returns a new builder, so queries chain, and
 nothing touches the database until you ask for records (`all`, `first`, `count`, ...).
 
-## Finding records
+Before you start: a project made by `azu new` and models for your tables (see [Create models](create-models.md)). The
+examples on this page query these two models, laid out in the files `azu new` and `azu generate model` write:
 
-`find` and `find?` return the record or `nil`; `find!` and `find_by!` raise `DB::NoResultsError` when nothing matches.
-`first` and `last` order by the primary key unless you order the query yourself; `first!` and `last!` raise:
-
+<!-- prelude -->
 ```crystal
-require "cql"
+# src/initializers/cql_config.cr
 require "sqlite3"
+require "azu/cql"
 
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
+Azu::CQL.configure do |c|
+  c.db = ENV["DATABASE_URL"]? || "sqlite3://./db/acme.db"
+end
+
+# src/db/schema.cr
+AcmeDB = Azu::CQL.schema :acme do
   table :users do
     primary :id, Int64
-    column :name, String
-    column :email, String
+    text :name
+    text :email
     column :age, Int32, null: true
-    column :role, String, default: "user"
-    column :active, Bool, default: true
-    column :deleted_at, Time, null: true
+    text :role, default: "user"
+    boolean :active, default: true
+    timestamp :deleted_at, null: true
     timestamps
+  end
+
+  table :posts do
+    primary :id, Int64
+    bigint :user_id
+    text :title
+    boolean :published, default: false
+    integer :views, default: 0
+    timestamps
+
+    foreign_key :user_id, references: :users
   end
 end
 
+# src/models/user.cr
 class User
   include CQL::ActiveRecord::Model(Int64)
   db_context AcmeDB, :users
@@ -43,11 +57,44 @@ class User
   property active : Bool = true
   property deleted_at : Time?
   property created_at : Time?
+  property updated_at : Time?
+
+  has_many :posts, Post, foreign_key: :user_id
 
   def initialize(@name : String, @email : String, @age : Int32? = nil)
   end
 end
 
+# src/models/post.cr
+class Post
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AcmeDB, :posts
+
+  property user_id : Int64
+  property title : String
+  property published : Bool = false
+  property views : Int32 = 0
+  property created_at : Time?
+  property updated_at : Time?
+
+  belongs_to :user, User, :user_id
+
+  scope :published, -> { where(published: true) }
+  scope :recent, -> { order(created_at: :desc) }
+  scope :by_author, ->(user_id : Int64) { where(user_id: user_id) }
+  scope :popular, -> { where("views > ?", 100) }
+
+  def initialize(@user_id : Int64, @title : String)
+  end
+end
+```
+
+## Finding records
+
+`find` and `find?` return the record or `nil`; `find!` and `find_by!` raise `DB::NoResultsError` when nothing matches.
+`first` and `last` order by the primary key unless you order the query yourself; `first!` and `last!` raise:
+
+```crystal
 # By primary key
 user = User.find(1_i64)    # User?
 user = User.find?(1_i64)   # User?, same as find
@@ -73,38 +120,6 @@ model's typed columns: conditions combine with `&`, `|` and `.not`, and a column
 `like`, `in`, `between`, `null` and `not_null`. Repeated `where` calls are combined with `AND`:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String
-    column :age, Int32, null: true
-    column :role, String, default: "user"
-    column :active, Bool, default: true
-    column :deleted_at, Time, null: true
-    timestamps
-  end
-end
-
-class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property name : String
-  property email : String
-  property age : Int32?
-  property role : String = "user"
-  property active : Bool = true
-  property deleted_at : Time?
-  property created_at : Time?
-
-  def initialize(@name : String, @email : String, @age : Int32? = nil)
-  end
-end
-
 active_users = User.where(active: true).all
 staff = User.where(role: ["admin", "moderator"]).all
 admin_users = User.where(active: true, role: "admin").all
@@ -146,38 +161,6 @@ expression. `User.page(2, 20)` returns the second page of 20 records and `User.p
 `after_cursor` and `paginate_by` do keyset pagination, which stays fast on large tables:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String
-    column :age, Int32, null: true
-    column :role, String, default: "user"
-    column :active, Bool, default: true
-    column :deleted_at, Time, null: true
-    timestamps
-  end
-end
-
-class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property name : String
-  property email : String
-  property age : Int32?
-  property role : String = "user"
-  property active : Bool = true
-  property deleted_at : Time?
-  property created_at : Time?
-
-  def initialize(@name : String, @email : String, @age : Int32? = nil)
-  end
-end
-
 users = User.order(name: :asc).all
 users = User.order(created_at: :desc).all
 users = User.order(role: :asc, name: :desc).all
@@ -188,7 +171,7 @@ users = User.order(:id).reverse_order.all
 first_ten = User.limit(10).all
 page_two = User.order(:id).limit(10).offset(10).all
 
-page = User.page(2, 20)                 # Array(User)
+page = User.page(2, 20)                      # Array(User)
 next_page = User.after_cursor(100_i64, 20)   # ids greater than 100, ordered by id
 by_age = User.paginate_by(:age, 30, 20)      # age greater than 30
 ```
@@ -199,38 +182,6 @@ by_age = User.paginate_by(:age, 30, 20)      # age greater than 30
 the Crystal types with `as:` when you pluck several columns:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String
-    column :age, Int32, null: true
-    column :role, String, default: "user"
-    column :active, Bool, default: true
-    column :deleted_at, Time, null: true
-    timestamps
-  end
-end
-
-class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property name : String
-  property email : String
-  property age : Int32?
-  property role : String = "user"
-  property active : Bool = true
-  property deleted_at : Time?
-  property created_at : Time?
-
-  def initialize(@name : String, @email : String, @age : Int32? = nil)
-  end
-end
-
 rows = User.select(:id, :name).all
 rows.each { |row| puts "#{row.id} #{row.name}" }
 
@@ -244,53 +195,17 @@ roles = User.distinct(:role, as: String)
 ## Aggregations
 
 `count`, `sum`, `average`, `minimum` and `maximum` run in the database. The model builder has no grouped aggregates:
-build the query on the schema and read tuples:
+build the query on the schema and read tuples. With one admin and four other users:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String
-    column :age, Int32, null: true
-    column :role, String, default: "user"
-    column :active, Bool, default: true
-    column :deleted_at, Time, null: true
-    timestamps
-  end
-end
-
-class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property name : String
-  property email : String
-  property age : Int32?
-  property role : String = "user"
-  property active : Bool = true
-  property deleted_at : Time?
-  property created_at : Time?
-
-  def initialize(@name : String, @email : String, @age : Int32? = nil)
-  end
-end
-
 total = User.count                                   # Int64
 admin_count = User.where(role: "admin").count
 with_email = User.count(:email)
 oldest = User.maximum(:age)
 average_age = User.average(:age)
 
-counts = AcmeDB.query
-  .from(:users)
-  .select(:role)
-  .count(as: :total)
-  .group(:role)
-  .all(as: {String, Int64})   # [{"admin", 1}, {"user", 4}]
+counts = AcmeDB.query.from(:users).select(:role).count(as: :total).group(:role).all(as: {String, Int64})
+counts                                               # => [{"admin", 1}, {"user", 4}]
 
 busy_roles = AcmeDB.query
   .from(:users)
@@ -299,6 +214,7 @@ busy_roles = AcmeDB.query
   .group(:role)
   .having { count(:id) > 1 }
   .all(as: {String, Int64})
+busy_roles                                           # => [{"user", 4}]
 ```
 
 ## Joins, associations and scopes
@@ -307,66 +223,10 @@ busy_roles = AcmeDB.query
 from the foreign key and the query still returns the model it started from. An association is a collection you can read
 or narrow: `where` on it returns a `CQL::Query`, so pass the model to `all`.
 
-A `scope` is a named, chainable query defined on the model. Scopes compose with each other and with `where`, `order`
-and `limit`:
+A `scope` is a named, chainable query defined on the model (the four on `Post` above). Scopes compose with each other
+and with `where`, `order` and `limit`:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String
-  end
-
-  table :posts do
-    primary :id, Int64
-    column :user_id, Int64
-    column :title, String
-    column :published, Bool, default: false
-    column :views, Int32, default: 0
-    timestamps
-
-    foreign_key :user_id, references: :users
-  end
-end
-
-class Post
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :posts
-
-  property user_id : Int64
-  property title : String
-  property published : Bool = false
-  property views : Int32 = 0
-  property created_at : Time?
-
-  belongs_to :user, User, :user_id
-
-  scope :published, -> { where(published: true) }
-  scope :recent, -> { order(created_at: :desc) }
-  scope :by_author, ->(user_id : Int64) { where(user_id: user_id) }
-  scope :popular, -> { where("views > ?", 100) }
-
-  def initialize(@user_id : Int64, @title : String)
-  end
-end
-
-class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property name : String
-  property email : String
-
-  has_many :posts, Post, foreign_key: :user_id
-
-  def initialize(@name : String, @email : String)
-  end
-end
-
 published_with_authors = Post.query.joins(:user).where(published: true).all
 users_with_or_without_posts = User.query.left_joins(:posts).distinct.all
 
@@ -387,62 +247,6 @@ Reading an association per record runs one query per record (the N+1 problem). `
 of all records with one extra query. It works for `has_many`, `has_one` and `belongs_to`:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String
-  end
-
-  table :posts do
-    primary :id, Int64
-    column :user_id, Int64
-    column :title, String
-    column :published, Bool, default: false
-    column :views, Int32, default: 0
-    timestamps
-
-    foreign_key :user_id, references: :users
-  end
-end
-
-class Post
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :posts
-
-  property user_id : Int64
-  property title : String
-  property published : Bool = false
-  property views : Int32 = 0
-  property created_at : Time?
-
-  belongs_to :user, User, :user_id
-
-  scope :published, -> { where(published: true) }
-  scope :recent, -> { order(created_at: :desc) }
-  scope :by_author, ->(user_id : Int64) { where(user_id: user_id) }
-  scope :popular, -> { where("views > ?", 100) }
-
-  def initialize(@user_id : Int64, @title : String)
-  end
-end
-
-class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property name : String
-  property email : String
-
-  has_many :posts, Post, foreign_key: :user_id
-
-  def initialize(@name : String, @email : String)
-  end
-end
-
 # N+1: one query for users, then one per user
 User.all.each { |user| puts user.posts.size }
 
@@ -453,44 +257,15 @@ User.preload(:posts).all.each { |user| puts user.posts.size }
 Post.preload(:user).all.each { |post| puts post.user.try(&.name) }
 ```
 
+In development the dev dashboard's Database tab reports a `SELECT` that one request repeats, as the first loop does
+(see [N+1 detection](../../reference/database-dashboard.md#n1-detection)).
+
 ## Raw SQL
 
 `schema.exec_query` yields a `DB::Connection` that takes `?` parameters (`$1` on PostgreSQL). `schema.exec` runs one SQL
 string and takes no parameters, so bind values through the connection:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String
-    column :age, Int32, null: true
-    column :role, String, default: "user"
-    column :active, Bool, default: true
-    column :deleted_at, Time, null: true
-    timestamps
-  end
-end
-
-class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property name : String
-  property email : String
-  property age : Int32?
-  property role : String = "user"
-  property active : Bool = true
-  property deleted_at : Time?
-  property created_at : Time?
-
-  def initialize(@name : String, @email : String, @age : Int32? = nil)
-  end
-end
-
 names = AcmeDB.exec_query do |connection|
   connection.query_all("SELECT name FROM users WHERE age > ?", 21, as: String)
 end
@@ -533,38 +308,6 @@ none of them run callbacks.
 `delete_all` on a query loads the records and calls `delete!` on each, so their callbacks run:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String
-    column :age, Int32, null: true
-    column :role, String, default: "user"
-    column :active, Bool, default: true
-    column :deleted_at, Time, null: true
-    timestamps
-  end
-end
-
-class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property name : String
-  property email : String
-  property age : Int32?
-  property role : String = "user"
-  property active : Bool = true
-  property deleted_at : Time?
-  property created_at : Time?
-
-  def initialize(@name : String, @email : String, @age : Int32? = nil)
-  end
-end
-
 exists = User.exists?(email: "alice@example.com")
 any_admin = User.where(role: "admin").any?
 nobody_banned = User.where(role: "banned").empty?
@@ -587,6 +330,6 @@ User.where(active: false).delete_all
 
 ## See also
 
-- [Create Models](create-models.md)
-- [Handle Transactions](handle-transactions.md)
-- [Query Methods Reference](../../reference/database/query-methods.md)
+- [Create models](create-models.md)
+- [Handle transactions](handle-transactions.md)
+- [Query methods](../../reference/database/query-methods.md)
