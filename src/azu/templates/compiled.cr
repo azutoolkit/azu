@@ -27,6 +27,10 @@ class Azu::Templates
       Crinja::Filter::Library.defaults.find { |filter| filter.as?(Crinja::Callable::Instance).try(&.name) == name }.try { |own| set << own }
     end
 
+    # Crinja's own `escape` (`e` is its alias) and `safe`: a print of either is written straight to the io.
+    ESCAPE = CONTEXT_FREE.find { |filter| filter.as(Crinja::Callable::Instance).name == "escape" } || raise "no escape filter"
+    SAFE   = CONTEXT_FREE.find { |filter| filter.as(Crinja::Callable::Instance).name == "safe" } || raise "no safe filter"
+
     # What renders share, built on the first and again when what it was built from changes: each filter (nil when
     # unknown or disabled: the call asks `env.filters`, which raises). `disabled` and `aliases` are copies, compared
     # by value on every render, so an in-place change is seen.
@@ -47,6 +51,7 @@ class Azu::Templates
 
     def initialize(source : String, @filter_names : Array(String), @body : Body, env : Crinja, name : String, filename : String)
       super(source, env, name, filename)
+      @extension = Crinja::Config::Autoescape.extension(filename)
     end
 
     # `a.b` (`key` is the member name) and `a[key]`, as `Crinja::Evaluator` resolves them; the block names `a`.
@@ -61,6 +66,36 @@ class Azu::Templates
       value
     end
 
+    # `Crinja::Finalizer.stringify(io, value, escape)`, writing an escaped String without building it.
+    def self.print(io : IO, value : Crinja::Value, escape : Bool) : Nil
+      raw = value.raw
+      return HTML.escape(raw, io) if escape && raw.is_a?(String)
+      Crinja::Finalizer.stringify(io, value, escape)
+    end
+
+    # Prints what Crinja's `escape` (`safe` when `escape` is false) returns for `value`: a SafeString as it is.
+    def self.print_filtered(io : IO, value : Crinja::Value, escape : Bool) : Nil
+      raw = value.raw
+      if raw.is_a?(Crinja::SafeString)
+        raw.to_s(io)
+      elsif !escape
+        io << value.to_s
+      elsif raw.is_a?(String)
+        HTML.escape(raw, io)
+      else
+        HTML.escape(raw.to_s, io)
+      end
+    end
+
+    # The items `Crinja::Tag::For::ForLoop` yields for `collection` (and its errors), without it for an array.
+    def self.each(collection : Crinja::Value, & : Crinja::Value ->) : Nil
+      if (raw = collection.raw).is_a?(Array(Crinja::Value))
+        raw.each { |item| yield item }
+      else
+        Crinja::Tag::For::ForLoop.new(collection).each { |item| yield item }
+      end
+    end
+
     # `Crinja::Context#unpack` of `item` into `size` (2 or more) variables, with its errors.
     def self.unpack(size : Int32, item : Crinja::Value) : Array(Crinja::Value)
       raise Crinja::RuntimeError.new("cannot unpack multiple values of type #{item.class}") unless item.iterable?
@@ -72,7 +107,7 @@ class Azu::Templates
     # so far. Azu's own render paths go through a `String`, so they are unaffected.
     def render(io : IO, env : Crinja)
       state = state(env)
-      env.context.autoescape = env.config.autoescape?(filename) # as Crinja's renderer does, on every render
+      env.context.autoescape = env.config.autoescape.autoescape?(filename, @extension) # as Crinja's renderer does, on every render
       @body.call(io, env, state.filters, state.own)
     rescue e : Crinja::Error
       e.template ||= self

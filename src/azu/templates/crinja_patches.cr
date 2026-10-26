@@ -123,3 +123,33 @@ abstract class Crinja::FeatureLibrary(T)
     previous_def
   end
 end
+
+# Crinja's rule, split so the filename's part is computed once per compiled template: a render then reads the rule
+# (changed in place or not) without allocating. Crinja's renderer goes through the same two methods.
+class Crinja::Config::Autoescape
+  # :nodoc:
+  # The extension the lists are matched against (`"html"` for `page.html.j2`), or nil, as `match_extension?` finds it.
+  def self.extension(filename : String) : String?
+    filename = filename.downcase
+    extname = File.extname(filename)
+    extname = File.extname(filename[0..(-extname.size - 1)]) if {".jinja", ".j2"}.includes?(extname)
+    extname[1..] unless extname.empty?
+  end
+
+  def autoescape?(filename : String? = nil) : Bool
+    autoescape?(filename, filename.try { |name| self.class.extension(name) })
+  end
+
+  # :nodoc:
+  def autoescape?(filename : String?, extension : String?) : Bool
+    if filename.nil? || filename.empty?
+      default_for_string
+    elsif extension && enabled_extensions.includes?(extension)
+      true
+    elsif extension && disabled_extensions.includes?(extension)
+      false
+    else
+      default
+    end
+  end
+end
