@@ -1,4 +1,4 @@
-# Request Reference
+# Request
 
 Request contracts define the expected shape of incoming request data with validation.
 

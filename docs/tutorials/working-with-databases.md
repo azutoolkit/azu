@@ -1,4 +1,4 @@
-# Working with Databases
+# Working with databases
 
 This tutorial teaches you how to connect Azu to a database using CQL, Crystal's type-safe ORM.
 

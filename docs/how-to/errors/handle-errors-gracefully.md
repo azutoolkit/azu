@@ -1,4 +1,4 @@
-# How to Handle Errors Gracefully
+# Handle errors gracefully
 
 This guide shows you how to implement robust error handling in your Azu application.
 

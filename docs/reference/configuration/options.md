@@ -1,4 +1,4 @@
-# Configuration Options Reference
+# Configuration options
 
 Every option of `Azu::Configuration`, with its type, default and environment variable. Defaults are read when the
 configuration object is built, which for the global one happens when `azu` is required, so set environment

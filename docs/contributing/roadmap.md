@@ -1,4 +1,4 @@
-# Development Roadmap
+# Development roadmap
 
 Where Azu is heading and where contributions help most. This page lists directions, not promises: there are
 no dates, and no API on this page exists unless the [API reference](../reference/api/core.md) documents it.

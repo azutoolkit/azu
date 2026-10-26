@@ -1,4 +1,4 @@
-# Unified JoobQ + Dashforge DSL: audit and implementation plan
+# Unified JoobQ and Dashforge DSL
 
 Status: proposal, nothing implemented or pushed. Evidence: shallow clones of `azutoolkit/joobq` (v0.4.2, HEAD 6ea07e1, 2026-01-31) and `azutoolkit/dashforge` (v0.2.0, last commit 2022-05-30), Crystal 1.22.0 via Docker, and a macro spike (scratchpad `dsl/t.cr`, results quoted in section 3).
 

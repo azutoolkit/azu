@@ -1,4 +1,4 @@
-# Architecture Overview
+# Architecture overview
 
 This document explains the high-level architecture of Azu and how its parts work together. Everything stated here
 is a property of the code in this repository; where a number appears, the page says how it was measured.

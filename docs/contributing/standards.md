@@ -1,4 +1,4 @@
-# Code Standards
+# Code standards
 
 The conventions used in the Azu source. They are enforced by `crystal tool format`, Ameba (`.ameba.yml`) and
 review; when in doubt, follow the file you are editing.

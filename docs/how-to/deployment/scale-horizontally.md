@@ -1,4 +1,4 @@
-# How to Scale Horizontally
+# Scale horizontally
 
 This guide shows you how to scale your Azu application across multiple servers.
 

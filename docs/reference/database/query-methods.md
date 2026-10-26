@@ -1,4 +1,4 @@
-# Query Methods Reference
+# Query methods
 
 Reference for CQL model query methods. A model class (or a `QueryBuilder`) answers all of them; methods that add
 conditions return a new `QueryBuilder`, so they chain. Nothing runs until a method that returns records or a value is

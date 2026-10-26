@@ -1,4 +1,4 @@
-# How to Set Up Redis Cache
+# Set up a Redis cache
 
 This guide shows how to make `Azu.cache` use Redis, so several processes or servers share one cache that survives
 restarts.

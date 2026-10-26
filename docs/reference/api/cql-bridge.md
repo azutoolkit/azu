@@ -1,4 +1,4 @@
-# CQL bridge: contracts, models and transactions
+# CQL bridge
 
 `require "azu/cql"` (opt-in, see [Database dashboard](../database-dashboard.md)) also connects Azu's request and
 response contracts to CQL models. It is plain compile-time code: no runtime reflection, no CQL patches beyond one

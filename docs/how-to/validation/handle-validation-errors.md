@@ -1,4 +1,4 @@
-# How to Handle Validation Errors
+# Handle validation errors
 
 This guide shows you how to handle and respond to validation errors in your Azu application.
 

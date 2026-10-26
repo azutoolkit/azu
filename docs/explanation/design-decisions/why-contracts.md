@@ -1,4 +1,4 @@
-# Why Contracts?
+# Why contracts?
 
 This document explains why Azu uses explicit request and response contracts, and the benefits this pattern provides.
 

@@ -1,4 +1,4 @@
-# Understanding Components
+# Components
 
 This page explains the ideas behind Azu's components. For the API see the
 [Component Reference](../../reference/api/component.md); for the architecture, wire protocol and

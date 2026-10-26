@@ -1,4 +1,4 @@
-# How to run background jobs
+# Run background jobs
 
 You will enqueue work from an endpoint and process it in a separate worker process. Azu has no job queue of its own; [JoobQ](https://github.com/azutoolkit/joobq) is a separate shard that keeps jobs in Redis, so **you need a Redis server** for this guide (Redis is optional for Azu itself). `azu new` includes JoobQ by default, and `--no-joobq` leaves it out.
 

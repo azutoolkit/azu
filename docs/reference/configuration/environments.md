@@ -1,4 +1,4 @@
-# Environments Reference
+# Environments
 
 `Azu::Configuration#env` names the environment the application runs in. Azu changes a small, specific set of
 behaviours with it; everything else is configured explicitly. This page lists exactly what depends on the

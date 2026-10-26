@@ -1,4 +1,4 @@
-# Building a User API
+# Building a user API
 
 This tutorial walks you through building a complete RESTful API for user management with type-safe endpoints, validation, and proper error handling.
 

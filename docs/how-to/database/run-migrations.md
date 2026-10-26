@@ -1,4 +1,4 @@
-# How to Run Migrations
+# Run migrations
 
 This guide shows you how to create and run database migrations with CQL.
 

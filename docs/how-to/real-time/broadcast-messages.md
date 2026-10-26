@@ -1,4 +1,4 @@
-# How to Broadcast Messages
+# Broadcast messages
 
 Channels and Spark components exchange messages through topics of `Azu::PubSub`. This guide shows the
 common broadcasting patterns.

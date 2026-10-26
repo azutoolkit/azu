@@ -1,4 +1,4 @@
-# How to Create Custom Middleware
+# Create custom middleware
 
 This guide shows how to write your own handlers. A handler is any class that includes `HTTP::Handler` and
 implements `call(context)`; Azu has no base class of its own. Before writing one, check

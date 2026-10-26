@@ -1,4 +1,4 @@
-# Error Types Reference
+# Error types
 
 Complete reference for Azu's built-in error types.
 

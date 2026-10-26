@@ -1,4 +1,4 @@
-# Performance Design
+# Performance design
 
 This document describes what Azu does to keep requests cheap, what it does not do, and how to measure your own
 application. It contains only properties that were read in the source or measured, and says how each number was

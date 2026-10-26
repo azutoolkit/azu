@@ -1,4 +1,4 @@
-# How to Use Template Helpers
+# Use template helpers
 
 This guide shows how to use Azu's built-in template helpers for common web development tasks.
 

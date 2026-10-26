@@ -1,4 +1,4 @@
-# Built-in Handlers Reference
+# Built-in handlers
 
 Azu ships handlers for the common middleware needs. They are all `HTTP::Handler`s in the `Azu::Handler`
 namespace and are used the same way: build them, put them in the array given to `start`.

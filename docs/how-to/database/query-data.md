@@ -1,4 +1,4 @@
-# How to Query Data
+# Query data
 
 This guide shows you how to query data with CQL models. Every example is self-contained: it defines the schema and the
 models it needs. In an application they live in their own files (see [Create Models](create-models.md)).

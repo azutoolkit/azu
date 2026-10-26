@@ -1,4 +1,4 @@
-# Database Validations Reference
+# Database validations
 
 Reference for CQL model validations (`CQL::ActiveRecord::Validations`). For validating HTTP input see the
 [Request Reference](../api/request.md); the two systems are independent.

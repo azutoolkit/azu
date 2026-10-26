@@ -1,4 +1,4 @@
-# Response Reference
+# Response
 
 Response objects define how endpoint results are rendered to clients.
 

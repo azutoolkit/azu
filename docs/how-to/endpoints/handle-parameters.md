@@ -1,4 +1,4 @@
-# How to Handle Parameters
+# Handle parameters
 
 This guide shows you how to extract and work with request parameters.
 

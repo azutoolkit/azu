@@ -1,4 +1,4 @@
-# Endpoint Reference
+# Endpoint
 
 Endpoints handle HTTP requests with type-safe request and response contracts.
 

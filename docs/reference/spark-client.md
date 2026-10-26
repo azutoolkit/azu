@@ -1,4 +1,4 @@
-# Spark JavaScript client and reconnects
+# Spark JavaScript client
 
 `azu_spark.js` is the browser half of [Spark](../explanation/spark-live-views.md). It has no
 dependencies, needs no build step in your application and is served by it, never by a CDN, so the script

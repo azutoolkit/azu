@@ -1,4 +1,4 @@
-# How to monitor performance in development
+# Monitor performance in development
 
 You will turn on request, cache and component metrics and read them in the dev dashboard. This is development tooling, not production monitoring.
 

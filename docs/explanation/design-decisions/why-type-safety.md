@@ -1,4 +1,4 @@
-# Why Type Safety?
+# Why type safety?
 
 This document explains why Azu embraces Crystal's type system and how it benefits web application development.
 

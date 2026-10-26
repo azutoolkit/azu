@@ -1,4 +1,4 @@
-# Request Lifecycle
+# Request lifecycle
 
 This document follows an HTTP request through an Azu application, from the socket to the response. Every step
 below was observed by running a real request through an in-process server; the program at the end prints the

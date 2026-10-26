@@ -1,4 +1,4 @@
-# How to Create an Endpoint
+# Create an endpoint
 
 This guide shows you how to create type-safe HTTP endpoints in Azu.
 

@@ -59,11 +59,11 @@ This page lists what Azu ships today, grouped by what you are trying to do, with
 - **Graceful shutdown.** On SIGINT or SIGTERM Azu refuses new requests, closes WebSockets with a close frame and waits for requests in flight. [Shut down gracefully](../how-to/deployment/graceful-shutdown.md).
 - **Instrumentation.** `Azu::Instrumentation` is the hook that metrics and APM code plug into; without a subscriber it costs a nil check. [Performance design](architecture/performance-design.md).
 - **Injectable clock.** `Azu::Clock` drives every TTL and window, so specs advance time instead of sleeping. [Testing reference](../reference/api/testing.md).
-- **Benchmark suite.** A reproducible comparison with other Crystal frameworks. [benchmark/README.md](../../benchmark/README.md).
+- **Benchmark suite.** A reproducible comparison with other Crystal frameworks. [benchmark/README.md](https://github.com/azutoolkit/azu/blob/master/benchmark/README.md).
 
 ## Developer experience
 
-- **Project generator.** The [Azu CLI](https://github.com/azutoolkit/azu_cli) creates projects and generates models, scaffolds, endpoints, channels and authentication, and has `azu dev`, `azu routes` and `azu doctor`. It is a separate tool. [Get started in 5 minutes](../../README.md#get-started-in-5-minutes).
+- **Project generator.** The [Azu CLI](https://github.com/azutoolkit/azu_cli) creates projects and generates models, scaffolds, endpoints, channels and authentication, and has `azu dev`, `azu routes` and `azu doctor`. It is a separate tool. [Get started in 5 minutes](https://github.com/azutoolkit/azu#get-started-in-5-minutes).
 - **Dev dashboard (opt-in: `azu/dev`).** Routes, configuration, logs, request timings, cache and component metrics in the browser, in development only. [Getting started](../tutorials/getting-started.md#5-the-development-dashboard), [Performance design](architecture/performance-design.md).
 - **SQL and N+1 insight (opt-in: `azu/cql`).** Every CQL query is tied to the request that ran it, with slow-query and N+1 detection and a SQL playground in the dashboard. [CQL bridge](../reference/api/cql-bridge.md), [Database dashboard](../reference/database-dashboard.md).
 - **Test client (opt-in: `azu/testing`).** Sends requests through the real handler chain and router, without a socket, and drives WebSockets and Spark components. [Testing](../reference/api/testing.md), [Test endpoints](../how-to/testing/test-endpoints.md), [Test WebSockets](../how-to/testing/test-websockets.md).

@@ -1,4 +1,4 @@
-# How to Optimize Database Queries
+# Optimize database queries
 
 This guide shows you how to improve database performance in an Azu application that uses CQL. To see what your app
 actually runs, `require "azu/cql"`: the dev dashboard's Database tab lists every statement tagged with its request,

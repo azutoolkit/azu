@@ -1,4 +1,4 @@
-# How to Define a Schema
+# Define a schema
 
 This guide shows you how to describe your database with CQL's schema DSL.
 

@@ -1,4 +1,4 @@
-# Use Sessions
+# Use sessions
 
 Azu has no session store of its own. It reads sessions through a small seam, `Azu::SessionAdapter`, and the
 [`session` shard](https://github.com/azutoolkit/session) fills it: signed and encrypted cookies (or a

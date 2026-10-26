@@ -1,4 +1,4 @@
-# How to Test WebSockets
+# Test WebSockets
 
 This guide shows how to test `Azu::Channel`s and Spark live components. Channels are tested over a real
 socket: an in-process `HTTP::Server` on a free port and `HTTP::WebSocket` as the client. That exercises

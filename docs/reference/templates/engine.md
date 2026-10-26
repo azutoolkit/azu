@@ -1,4 +1,4 @@
-# Template Engine Reference
+# Template engine
 
 Azu uses Crinja, a Jinja2-compatible template engine.
 

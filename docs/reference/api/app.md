@@ -1,4 +1,4 @@
-# App Reference
+# App
 
 `Azu::App` is an application as a value: its own configuration, router, handler chain and lifecycle. Two of them
 can live in one process. `include Azu` is the supported single-app facade over the same class: it drives

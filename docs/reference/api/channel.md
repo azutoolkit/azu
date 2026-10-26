@@ -1,4 +1,4 @@
-# Channel Reference
+# Channel
 
 `Azu::Channel` handles one WebSocket connection. Azu builds a new instance for every client that
 connects, so instance variables are per connection. Topic broadcasting is provided by

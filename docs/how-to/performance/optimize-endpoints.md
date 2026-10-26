@@ -1,4 +1,4 @@
-# How to Optimize Endpoints
+# Optimize endpoints
 
 This guide shows ways to make Azu endpoints faster, each one with a version that compiles and was run. For what
 the framework itself costs and how to measure it, see [Performance Design](../../explanation/architecture/performance-design.md).

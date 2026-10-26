@@ -1,4 +1,4 @@
-# Cache Reference
+# Cache
 
 `Azu.cache` is the application's cache: an `Azu::Cache::Manager` that stores strings under keys, with a TTL, in
 memory (the default) or in Redis. Values are strings; serialize richer data yourself (`to_json` / `from_json`).

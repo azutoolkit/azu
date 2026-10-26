@@ -1,4 +1,4 @@
-# Building Live Components
+# Building live components
 
 This tutorial teaches you how to create real-time, interactive UI with Azu's live components, called
 Spark components. The state lives on the server; the browser only sends events and applies the HTML the

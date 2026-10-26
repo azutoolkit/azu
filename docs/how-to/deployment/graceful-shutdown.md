@@ -1,4 +1,4 @@
-# How to Shut Down Gracefully
+# Shut down gracefully
 
 This guide shows what happens to requests, streams and WebSockets when an Azu app is told to stop, and how to make a
 long-lived response cooperate.

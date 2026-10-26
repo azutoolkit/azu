@@ -1,4 +1,4 @@
-# How to Test Endpoints
+# Test endpoints
 
 This guide shows how to write specs for Azu endpoints with the tools Crystal and Azu already provide:
 an in-process `HTTP::Server` bound to a free port, and `HTTP::Client`. The requests go through the real

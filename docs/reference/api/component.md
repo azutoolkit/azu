@@ -1,4 +1,4 @@
-# Component Reference
+# Component
 
 Azu has two kinds of components:
 

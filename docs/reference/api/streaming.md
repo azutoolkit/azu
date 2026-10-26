@@ -1,4 +1,4 @@
-# Streaming and Server-Sent Events
+# Streaming and server-sent events
 
 Two responses keep the connection open and write the body in pieces: `Azu::Response::Stream` for any
 chunked body, and `Azu::Response::EventStream` for [server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html)

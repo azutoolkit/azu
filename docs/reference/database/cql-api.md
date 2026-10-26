@@ -1,4 +1,4 @@
-# CQL API Reference
+# CQL API
 
 CQL (Crystal Query Language) is the ORM used with Azu for database operations. It is a separate shard
 ([`azutoolkit/cql`](https://github.com/azutoolkit/cql)): add `cql` and a driver shard (`sqlite3`, `pg` or `mysql`) to your

@@ -1,4 +1,4 @@
-# How to Configure Production
+# Configure production
 
 This guide shows you how to configure your Azu application for production deployment.
 

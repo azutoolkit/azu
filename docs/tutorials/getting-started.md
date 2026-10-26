@@ -9,7 +9,7 @@ crystal --version
 # Crystal 1.19.1 (...)
 ```
 
-Prefer a generator? `azu new` writes a whole project for you; see [Get started in 5 minutes](../../README.md#get-started-in-5-minutes). This tutorial builds the pieces by hand so you see how they fit.
+Prefer a generator? `azu new` writes a whole project for you; see [Get started in 5 minutes](https://github.com/azutoolkit/azu#get-started-in-5-minutes). This tutorial builds the pieces by hand so you see how they fit.
 
 ## 1. Create the project
 

@@ -1,4 +1,4 @@
-# How to Validate File Types
+# Validate file types
 
 This guide shows you how to validate uploaded file types for security. Everything the client sends about a file is
 untrusted: the file name and the `Content-Type` of the part are chosen by the client. The only evidence you can

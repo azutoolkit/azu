@@ -1,4 +1,4 @@
-# How to Add Logging
+# Add logging
 
 This guide shows how to log requests and your own events in an Azu application. Azu logs through Crystal's
 standard `Log`; there is nothing to learn beyond configuring `Log` and, if you want, writing a handler.

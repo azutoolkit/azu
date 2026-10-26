@@ -1,4 +1,4 @@
-# OpenAPI Reference
+# OpenAPI
 
 `Azu::OpenAPI` generates an [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0) document from the
 `Endpoint(Request, Response)` contracts of an app and can serve it. The request and response types are

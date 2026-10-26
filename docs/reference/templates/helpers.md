@@ -1,4 +1,4 @@
-# Template Helpers Reference
+# Template helpers
 
 Azu provides built-in template helpers for common web development tasks like building forms, generating links, formatting dates, and handling internationalization.
 

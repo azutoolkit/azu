@@ -1,4 +1,4 @@
-# Type Safety in Azu
+# Type safety
 
 This document explains how Azu leverages Crystal's type system to catch errors at compile time rather than runtime.
 

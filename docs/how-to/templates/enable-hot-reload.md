@@ -1,4 +1,4 @@
-# How to Enable Hot Reload
+# Enable hot reload
 
 This guide shows you how to see template changes without restarting the server during development.
 

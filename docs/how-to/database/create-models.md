@@ -1,4 +1,4 @@
-# How to Create Models
+# Create models
 
 This guide shows you how to create CQL models that map to your database tables. A model is a class that includes
 `CQL::ActiveRecord::Model(PrimaryKeyType)` and points at a table of a [schema](define-schema.md) with `db_context`.

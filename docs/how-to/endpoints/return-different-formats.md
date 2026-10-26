@@ -1,4 +1,4 @@
-# How to Return Different Formats
+# Return different formats
 
 This guide shows you how to return JSON, HTML, text, and other response formats.
 

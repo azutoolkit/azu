@@ -1,4 +1,4 @@
-# Understanding Endpoints
+# Endpoints
 
 This document explains the concept of endpoints in Azu and how they provide a structured approach to handling HTTP requests.
 

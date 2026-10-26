@@ -1,4 +1,4 @@
-# Content Negotiation
+# Content negotiation
 
 One response type can render itself as HTML, JSON, XML or plain text and let the request's `Accept`
 header pick. `Azu::Response::Negotiable` finds the formats a type defines, `Azu::Negotiation` chooses

@@ -1,4 +1,4 @@
-# How to Validate Requests
+# Validate requests
 
 This guide shows you how to add validation to your request contracts.
 

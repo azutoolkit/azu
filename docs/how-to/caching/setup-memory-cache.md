@@ -1,4 +1,4 @@
-# How to Set Up Memory Cache
+# Set up a memory cache
 
 This guide shows how to use the in-process cache. The memory store is the default: with no configuration
 `Azu.cache` already stores up to 1000 entries for an hour each, evicting the least recently used. It lives in the

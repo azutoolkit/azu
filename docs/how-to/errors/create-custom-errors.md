@@ -1,4 +1,4 @@
-# How to Create Custom Errors
+# Create custom errors
 
 This guide shows you how to create custom error types for your Azu application.
 

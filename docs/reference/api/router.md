@@ -1,4 +1,4 @@
-# Router Reference
+# Router
 
 The router handles HTTP request routing using a radix tree.
 

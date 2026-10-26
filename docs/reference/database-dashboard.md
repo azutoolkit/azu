@@ -1,4 +1,4 @@
-# Database dashboard (CQL integration)
+# Database dashboard
 
 The dev dashboard's **Database** tab shows every SQL statement an Azu app runs: KPIs, N+1 analysis,
 recent queries tagged with the request that ran them, slow queries, query patterns, transactions,

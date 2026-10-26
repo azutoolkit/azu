@@ -1,4 +1,4 @@
-# Breaking Changes
+# Breaking changes
 
 This document lists breaking changes between Azu versions and migration guides.
 

@@ -1,4 +1,4 @@
-# Spark Live Views
+# Spark live views
 
 Spark keeps server-rendered components in sync with the browser over a WebSocket, in the spirit
 of Phoenix LiveView. State lives on the server; the browser sends events; the server renders

@@ -1,4 +1,4 @@
-# Understanding Middleware
+# Middleware
 
 This document explains Azu's middleware, called handlers, and how they enable cross-cutting concerns.
 

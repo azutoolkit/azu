@@ -1,4 +1,4 @@
-# How to Handle Transactions
+# Handle transactions
 
 This guide shows you how to use database transactions with CQL for atomic operations.
 

@@ -1,4 +1,4 @@
-# Understanding Real-Time Features
+# Real-time
 
 This page explains how Azu does real-time communication: WebSocket channels for your own message
 protocol, the PubSub bus that connects them, and Spark live components for server-rendered UI.

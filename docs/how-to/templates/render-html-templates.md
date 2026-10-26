@@ -1,4 +1,4 @@
-# How to Render HTML Templates
+# Render HTML templates
 
 This guide shows you how to render HTML templates using Azu's Crinja template engine (Jinja2 syntax).
 

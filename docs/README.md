@@ -66,7 +66,7 @@ curl "http://127.0.0.1:3000/hello?name=Ada"  # Hello, Ada!
 
 - `hello_request` is the `HelloRequest` Azu built for this request. Reading a field the contract does not declare, or returning anything but a `HelloResponse`, is a compile error.
 - The handler array is used exactly as given. `MyApp.start` with no argument uses the default stack: request id, logging, error pages, security headers and static files.
-- The project setup (`shard.yml`, a test, templates) is in [Getting started](tutorials/getting-started.md). To have a project generated for you, see [Get started in 5 minutes](../README.md#get-started-in-5-minutes).
+- The project setup (`shard.yml`, a test, templates) is in [Getting started](tutorials/getting-started.md). To have a project generated for you, see [Get started in 5 minutes](https://github.com/azutoolkit/azu#get-started-in-5-minutes).
 
 ## Design pillars
 
@@ -78,7 +78,7 @@ curl "http://127.0.0.1:3000/hello?name=Ada"  # Hello, Ada!
 | **Spark live views** | `Azu::Spark::Component` with `prop`, `state`, `event def` | The browser can trigger only `event def` methods, and their arguments arrive as the declared types. Joining needs a signed, expiring token. The server sends back only the HTML that changed. | Every event |
 | **Opt-in extras** | `require "azu/dev"`, `"azu/cql"`, `"azu/testing"` | `require "azu"` alone does not load them. Core reaches optional subsystems through `Azu::Instrumentation`, which costs one nil check when nothing subscribes. | Compile time |
 
-Details: [Endpoint](reference/api/endpoint.md), [Request](reference/api/request.md), [Validate requests](how-to/validation/validate-requests.md), [Router](reference/api/router.md), [Spark live views](explanation/spark-live-views.md), [Performance design](explanation/architecture/performance-design.md). This page has no speed figures. The reproducible suite and its method are in [Benchmarks](../benchmark/README.md).
+Details: [Endpoint](reference/api/endpoint.md), [Request](reference/api/request.md), [Validate requests](how-to/validation/validate-requests.md), [Router](reference/api/router.md), [Spark live views](explanation/spark-live-views.md), [Performance design](explanation/architecture/performance-design.md). This page has no speed figures. The reproducible suite and its method are in [Benchmarks](https://github.com/azutoolkit/azu/blob/master/benchmark/README.md).
 
 ## Request lifecycle
 
@@ -228,6 +228,6 @@ Also: [Everything in the box](explanation/features.md) (every feature, with its 
 
 ## Contributing
 
-- [Development setup](contributing/setup.md) · [Code standards](contributing/standards.md) · [Roadmap](contributing/roadmap.md)
-- [Benchmarks](../benchmark/README.md): how Azu is measured against other frameworks.
-- Design plans: [Azu 0.6, apps as values](plans/0.6-architecture.md) · [Unified JoobQ and Dashforge DSL](plans/joobq-dashforge-dsl.md)
+- [Development setup](contributing/setup.md) · [Code standards](contributing/standards.md) · [Documentation style](contributing/docs-style.md) · [Roadmap](contributing/roadmap.md)
+- [Benchmarks](https://github.com/azutoolkit/azu/blob/master/benchmark/README.md): how Azu is measured against other frameworks.
+- Design plans: [Azu 0.6, apps as values](plans/0.6-architecture.md) · [Unified JoobQ and Dashforge DSL](plans/joobq-dashforge-dsl.md) · [Documentation overhaul](plans/docs-overhaul.md)

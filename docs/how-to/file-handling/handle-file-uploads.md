@@ -1,4 +1,4 @@
-# How to Handle File Uploads
+# Handle file uploads
 
 This guide shows you how to accept and process file uploads in Azu.
 

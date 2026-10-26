@@ -1,4 +1,4 @@
-# Testing Your App
+# Testing your app
 
 This tutorial teaches you how to write tests for an Azu application: endpoints, request contracts,
 WebSocket channels and live components. Every example runs with the tools that ship with Crystal

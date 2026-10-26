@@ -1,4 +1,4 @@
-# How to Validate Models
+# Validate models
 
 This guide shows you how to add validation to your CQL database models. These rules belong to the model and protect the
 database; validation of incoming HTTP data belongs to the request contract (see

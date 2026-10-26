@@ -1,4 +1,4 @@
-# FAQ & Troubleshooting
+# FAQ and troubleshooting
 
 Common questions, issues, and solutions when working with Azu.
 

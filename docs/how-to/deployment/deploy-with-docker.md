@@ -1,4 +1,4 @@
-# How to Deploy with Docker
+# Deploy with Docker
 
 This guide shows you how to containerize and deploy your Azu application with Docker.
 

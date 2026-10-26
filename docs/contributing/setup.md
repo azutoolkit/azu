@@ -1,4 +1,4 @@
-# Development Setup
+# Development setup
 
 How to get a working checkout of Azu, run its specs and checks, and try a change.
 

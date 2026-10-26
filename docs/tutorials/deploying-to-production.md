@@ -1,4 +1,4 @@
-# Deploying to Production
+# Deploying to production
 
 This tutorial teaches you how to deploy an Azu application to a production environment. It uses the `UserAPI`
 from [Building a User API](building-a-user-api.md), but nothing here depends on it.

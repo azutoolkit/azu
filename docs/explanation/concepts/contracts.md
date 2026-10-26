@@ -1,4 +1,4 @@
-# Understanding Contracts
+# Contracts
 
 This document explains the contract pattern in Azu, where explicit request and response types create clear interfaces between components.
 

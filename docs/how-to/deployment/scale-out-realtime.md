@@ -1,4 +1,4 @@
-# How to Scale Real-Time Features Out
+# Scale real-time features out
 
 This guide shows how to run several Azu processes that share WebSocket broadcasts and
 [presence](../../reference/api/presence.md). The rest of scaling is in [Scale Horizontally](scale-horizontally.md).

@@ -1,4 +1,4 @@
-# Core Module Reference
+# Core module
 
 The `Azu` module is the main entry point for creating Azu applications.
 
