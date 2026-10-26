@@ -217,7 +217,7 @@ Features marked *opt-in* need their own `require`. The [full list](docs/explanat
 | Contracts | `Azu::Request` with validation rules, typed params, uploads, `422` problem documents | [Request](docs/reference/api/request.md) |
 | Responses | Content negotiation, streaming and server-sent events, error classes and pages | [Response](docs/reference/api/response.md), [Streaming](docs/reference/api/streaming.md) |
 | Real-time | Channels, `PubSub` (memory or Redis), presence, Spark live views | [Channel](docs/reference/api/channel.md), [Presence](docs/reference/api/presence.md), [Spark](docs/explanation/spark-live-views.md) |
-| Templates | Jinja (Crinja), compiled at boot outside development, form, link, asset, date, number, HTML and i18n helpers | [Helpers](docs/reference/templates/helpers.md) |
+| Templates | Jinja (Crinja), preloaded at boot outside development, form, link, asset, date, number, HTML and i18n helpers | [Helpers](docs/reference/templates/helpers.md) |
 | Security | CSRF, security headers, CORS, throttling, IP spoofing guard, session seam, secrets | [Handlers](docs/reference/handlers/built-in.md), [Env](docs/reference/configuration/env.md) |
 | Operations | Memory and Redis cache, static files, compression, health check, request ids, graceful shutdown | [Cache](docs/reference/api/cache.md), [Shutdown](docs/how-to/deployment/graceful-shutdown.md) |
 | Testing and docs | Test client (*opt-in* `azu/testing`), OpenAPI 3.1 from your contracts | [Testing](docs/reference/api/testing.md), [OpenAPI](docs/reference/api/openapi.md) |

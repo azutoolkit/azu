@@ -259,10 +259,10 @@ The dev dashboard, performance monitor, profiler and reporter live in `src/azu/d
 - Router: no path cache. A static route is found without allocating; a route with parameters allocates only their
   values and the params hash (`clear_path_cache` is kept and does nothing)
 - No component pooling: components are plain objects created where they are rendered
-- Templates: with `template_hot_reload` off (default outside development/test/pipeline) they are compiled:
+- Templates: with `template_hot_reload` off (default outside development/test/pipeline) they are preloaded:
   `Azu.prepare` reads and parses every template file once into an immutable name => template map (the Crinja
   environment's loader, so includes/extends use it too) and `Templates#load` is a hash lookup; a syntax error
-  fails the boot (`template_compile_ignore` globs opt files out). With it on (development) `Templates#load` checks mtimes and Crinja re-reads the file
+  fails the boot (`template_preload_ignore` globs opt files out). With it on (development) `Templates#load` checks mtimes and Crinja re-reads the file
 - Multi-store cache: Memory (default), Redis (production)
 
 ### Optimization Checklist

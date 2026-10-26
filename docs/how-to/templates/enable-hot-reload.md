@@ -31,13 +31,13 @@ With hot reload on, at most once per second a template render checks the modific
 `*.jinja` and `*.j2` files below the template directories (and Azu's own error pages). When one is new or changed,
 Azu rebuilds its template loader, and files that are added or deleted count as changes too. No restart is needed.
 
-With hot reload off, templates are compiled instead: at boot (`Azu.prepare`) every template below the template
+With hot reload off, templates are preloaded instead: at boot (`Azu.prepare`) every template below the template
 directories is read and parsed once, and a render is a lookup by name. An edited template file is not read again until
 the app restarts, and a template with a syntax error stops the boot with its name and line. This is the default in
 every environment except `development`, `test` and `pipeline`; `template_hot_reload` (or `TEMPLATE_HOT_RELOAD`) wins
 over the environment, so you can turn reload on in staging. Changes to `.cr` files, including the data a response
 passes to a template, need a restart in both modes. A file below the template directories that is not a template
-(a vendored `index.html`) stops the boot as well; list it in `template_compile_ignore` (see
+(a vendored `index.html`) stops the boot as well; list it in `template_preload_ignore` (see
 [Configuration](../../reference/configuration/options.md#templates)).
 
 ## Development vs production

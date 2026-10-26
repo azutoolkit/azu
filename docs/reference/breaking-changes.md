@@ -392,6 +392,18 @@ Each line also names the client (the address of the connection) and the `Origin`
 line saying how many it left out (`suppressed 40 similar refusals in the last second`). The other three log every refusal.
 
 ## 0.5.108
+**Templates are preloaded outside development.** With `template_hot_reload` off (the default for `staging`,
+`production` and any environment other than `development`, `test` and `pipeline`), `Azu.prepare` reads and parses
+every template once and requests no longer read template files: an edit to a template file needs a restart, where
+before it showed on the next request, and a template with a syntax error now stops the boot (with its name and
+line) instead of failing its first request, including a file that is not a template (a vendored `index.html`; list
+those in `template_preload_ignore`). Set `template_hot_reload = true` (or `TEMPLATE_HOT_RELOAD=true`) to keep
+reloading in an environment. See [Configuration](configuration/options.md#templates). This mode was called "compiled"
+in 0.5.113 to 0.5.133; the word is reserved for templates compiled to Crystal code (planned). The old names still work but are
+deprecated: `Templates#compiled?`, `Templates#compile_ignore` / `compile_ignore=`, `Templates.new(..., compile_ignore:)`,
+`Configuration#template_compile_ignore` / `template_compile_ignore=` and `TEMPLATE_COMPILE_IGNORE` (read when
+`TEMPLATE_PRELOAD_IGNORE` is not set); use `preloaded?`, `preload_ignore`, `preload_ignore:`, `template_preload_ignore`
+and `TEMPLATE_PRELOAD_IGNORE`.
 
 **Azu's error pages no longer depend on the working directory.** `error.html` and `error_debug.html` are compiled into
 the binary (`Azu::Templates::BUILTIN`), and `ERROR_TEMPLATE` defaults to the directory they live in inside the azu source
@@ -760,7 +772,45 @@ with Azu's formatter, created the upload temp directory and started seven backgr
 - `Router#ws` registers a `Channel::Upgrader`, so the `Route#endpoint` of a WebSocket route is the upgrader, not the
   channel (`route_info["handler"]` names the channel class).
 
-## 0.5.0
+**Fixes** (behaviour changes that make the code do what it documented):
+
+- `class` endpoints are request-safe. The router holds one instance per route and a class was shared by
+  concurrent requests, so a request that waited (database, service) could read the parameters of a later
+  one. Each request now runs on a copy (`dup`) of the registered instance, as structs always did: state an
+  endpoint object keeps in its own instance variables no longer carries over from one request to the next.
+- `Cache::RedisStore` returns values: `get`, `exists?`, `delete`, `increment`, `size` and `ping` always
+  answered `nil`/`false`/`0`, and the start-up check turned `store = "redis"` into a `NullStore` after its
+  retries. `size` counts the keys of the database in the URL (it only looked at `db0`).
+- `Handler::CORS` no longer keeps the request's `Origin` in the shared handler, so overlapping requests on
+  parallel threads cannot answer with each other's `Access-Control-Allow-Origin`.
+  API change: `Handler::Origin` (the struct behind `CORS`) is stateless now. `#request_origin` and
+  `#origin_header?` are removed, `#match?(request)` became `#match?(origin : String)`, and `#of(request)`
+  returns the request's `Origin` (or `X-Origin`) header. Code that called these directly must pass the
+  origin around itself.
+- `Cache::MemoryStore#increment` sets the expiry when the counter is created (it was renewed on every call,
+  so a counter hit more often than its TTL never expired) and evicts the least recently used key when a new
+  counter would exceed `max_size`. `MemoryStore#stats["hit_rate"]` is a real hit rate (hits / lookups); it
+  used to be the fill percentage. The router's `path_cache.stats` now calls its figure `fill_percent`.
+- The HTML error page renders in production for unexpected exceptions (it raised "can't wrap
+  Azu::ErrorContext" and the client got a bare `500`). The development JSON `Backtrace` shows the original
+  exception's message and backtrace instead of ` (Azu::Response::Error)`. Production bodies still carry no
+  backtrace, request context or environment, and for exceptions that are not `Response::Error` they now
+  carry a generic title and detail ("Internal Server Error") instead of the exception's message (which could
+  name a database host or user); the message stays in the log and in development bodies.
+- `Cache::RedisStore#increment` / `#decrement` set the TTL in one atomic Lua script, only when the key has
+  none; `decrement` used to renew it on every call.
+- Not changed in this release: templates were not cached (`Templates#load` asked Crinja each time); see "Templates are preloaded outside development" under Unreleased.
+
+**Content negotiation.** New: [`Response::Negotiable`](api/content-negotiation.md). Endpoints now write their
+response with `Response#write_to(context)`, which prints `render` unless the type overrides it, so existing
+responses are unchanged; a hand written response type that defines its own `write_to` is now called. The
+undocumented `Azu::ContentNegotiator`, which nothing called, is removed.
+
+### 0.5.28
+
+**No breaking changes.** This version includes documentation improvements.
+
+### 0.5.0
 
 **Endpoint Type Parameters**
 
@@ -908,10 +958,20 @@ end
 
 ## Crystal versions
 
-Azu releases from 0.5.124 on require Crystal 1.22.1 or newer (`shard.yml`: `crystal: '>= 1.22.1'`). On an older Crystal,
-`shards install` fails on the version check; pass `--ignore-crystal-version` only if you accept an untested compiler.
-Azu's own CI moved to 1.22.1 because the CQL release it resolved (0.0.798, a development dependency of Azu) does not compile
-on Crystal 1.19.1. Your application resolves CQL from its own `shard.yml`, not from Azu's.
+### Deprecated in 0.5.x
+
+- Implicit request types - Always specify request type parameter
+- The template preload names of 0.5.113 to 0.5.133: `Templates#compiled?`, `Templates#compile_ignore`, the
+  `compile_ignore:` keyword, `Configuration#template_compile_ignore` and `TEMPLATE_COMPILE_IGNORE` (see "Templates are
+  preloaded outside development")
+
+### Removed in 0.5.x
+
+- `Azu::Endpoint` without type parameters
+
+## Migration Tools
+
+### Checking for Deprecations
 
 Apps that stay on Crystal 1.19.1 must use Azu 0.5.123 or older and a CQL release that compiles on 1.19.1 (0.0.766 or older,
 or 0.0.879 or newer; 0.0.798 and 0.0.808 do not build). Pin it in your own `shard.yml`, for example

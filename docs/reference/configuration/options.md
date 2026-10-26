@@ -136,6 +136,16 @@ Azu::CONFIG.log = Log.for("my_app")
 also changes templates that were built already; the default of `template_hot_reload` is read from `CRYSTAL_ENV` when
 the configuration is built, so assigning `config.env` afterwards does not change it. What each option does
 (reloading, compiling at boot, escaping) is on [Templates and Renderable](../templates/renderable.md).
+`template_autoescape` makes `.jinja`, `.j2` and string templates escape `{{ }}` output like `.html` (Crinja alone only
+escapes `html`, `htm` and `xml`). Templates of other formats (`*.txt`, `*.json.jinja`, `*.md.jinja`, ... see [breaking changes](../breaking-changes.md)) are not
+escaped. `App#start` logs a warning while `template_autoescape` is off. Turn it off
+only for an app that cannot be migrated yet: `Azu::CONFIG.template_autoescape = false`, or `TEMPLATE_AUTOESCAPE=false`; any
+other value of the variable keeps it on. It applies to preloaded templates too, because Crinja decides at render time.
+
+The default template path resolves relative to the working directory, so set `TEMPLATES_PATH`
+or add your directory (relative entries are resolved against the working directory, so run the app from its root).
+Azu's own `error.html` and `error_debug.html` are compiled into the binary and found from any working directory;
+an `error.html` in your template directories overrides them. `templates.path = "..."` **adds** a directory to the list:
 
 ```crystal
 require "azu"
@@ -144,7 +154,47 @@ Azu::CONFIG.templates.path = "./public/templates"
 Azu::CONFIG.template_hot_reload = false
 ```
 
-### Request contracts
+With hot reload on, `templates` re-reads template files that changed (it checks at most once a second). With it off
+the templates are **preloaded**: `Azu.prepare` (which `App#start` calls) finds every `*.html`, `*.jinja` and `*.j2`
+file below the template directories, reads and parses each once, and a request only looks the parsed template up
+by name. Nothing is read from disk per request, so an edit to a template file needs a restart. A template with a
+syntax error stops the start, with its name and line, instead of failing its first request (an app `error.html`
+that does not parse is the exception: the built-in page is used). A file added after the preload is still
+found, by the file loader. Without `Azu.prepare` the preload happens on the first render.
+
+| Environment | Templates |
+|---|---|
+| `development` | reload (modification time checked at most once a second) |
+| `test`, `pipeline` | reload, so specs can write templates while running |
+| `staging`, `production`, any other | preloaded |
+| `build`, `integration`, `acceptance` | preloaded (only `development`, `test` and `pipeline` reload) |
+| `template_hot_reload` / `TEMPLATE_HOT_RELOAD` set | wins over the environment, e.g. reload in staging |
+
+The default is read from `CRYSTAL_ENV` when the configuration is built; assigning `config.env = ...` afterwards does
+not change it. Assigning `config.template_hot_reload = ...` does, also for templates that were built already. All
+preloaded templates stay in memory, and a template mounted from a volume or ConfigMap needs a restart to change.
+
+**Files that are not templates.** Every `*.html`, `*.jinja` and `*.j2` file below the template directories is parsed
+at boot, so a vendored page (a Swagger UI `index.html`) or a templates directory that is really `public/` can stop the
+boot, with the file name, path and line in the message. Name what to skip with globs on the path relative to a
+template directory (`*` does not cross `/`, `**` does; `TEMPLATE_PRELOAD_IGNORE` splits on commas, so brace
+alternation such as `{a,b}` cannot be written there, use the Crystal setter); the files are still found when asked for.
+Dot directories and symlinked directories are not walked either, the file loader serves what is in them:
+
+```crystal
+require "azu"
+
+Azu::CONFIG.template_preload_ignore = ["vendor/**", "swagger/*.html"] # or TEMPLATE_PRELOAD_IGNORE=vendor/**,swagger/*.html
+```
+
+A directory that cannot be read stops the boot with its name (`Azu.prepare`); a first render without `prepare` logs a
+warning once and skips it, and because the names inside are unknown, a valid copy of one of them in a later directory
+is served instead of falling back to the file loader's precedence. A name that does not parse in one directory is not
+replaced by a copy in a later directory; `Azu.prepare` validates again even when a first render preloaded earlier.
+A directory that does not exist is skipped (an API-only app costs nothing); a very broad one such as `.` is scanned
+whole at boot, with the count and time logged at debug level.
+
+## Request contracts
 
 | Option | Type | Default |
 |---|---|---|
@@ -317,7 +367,7 @@ live views is `SPARK_SECRET`.
 | `CRYSTAL_ENV` | `env` |
 | `PORT`, `HOST`, `PORT_REUSE`, `SHUTDOWN_TIMEOUT`, `KUBERNETES_SERVICE_HOST` | `port`, `host`, `port_reuse?`, `shutdown_timeout`, `container?` |
 | `SSL_CERT`, `SSL_KEY`, `SSL_CA`, `SSL_MODE` | TLS |
-| `TEMPLATE_HOT_RELOAD`, `TEMPLATE_AUTOESCAPE`, `TEMPLATE_COMPILE_IGNORE`, `TEMPLATES_PATH`, `ERROR_TEMPLATE` | templates |
+| `TEMPLATE_HOT_RELOAD`, `TEMPLATE_AUTOESCAPE`, `TEMPLATE_PRELOAD_IGNORE`, `TEMPLATES_PATH`, `ERROR_TEMPLATE` | templates |
 | `CACHE_*` | `cache_config` |
 | `UPLOAD_*`, `WEBSOCKET_*`, `I18N_*`, `ASSETS_*`, `AZU_DB_*`, `AZU_CQL_DRIVER`, `DATABASE_URL` | the matching section |
 | `SPARK_*` | [Spark configuration](spark.md) |

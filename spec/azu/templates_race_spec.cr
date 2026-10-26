@@ -34,7 +34,7 @@ end
 describe "Azu::Templates under concurrent requests" do
   it "keeps each render's variables when a helper yields the fiber mid-render" do
     TemplatesRaceSpec.register_pause
-    with_compiled_templates({"race.jinja" => "{{ name }}-{{ race_pause() }}{{ name }}"}) do |config|
+    with_preloaded_templates({"race.jinja" => "{{ name }}-{{ race_pause() }}{{ name }}"}) do |config|
       results = Channel(String).new(2)
 
       {"A", "B"}.each do |name|
@@ -48,7 +48,7 @@ describe "Azu::Templates under concurrent requests" do
   it "leaves no request's variables behind when a direct render overlaps a view" do
     files = {"secret.jinja" => "{{ secret }}{{ race_pause() }}", "direct.jinja" => "{{ race_pause() }}{{ x }}", "later.jinja" => "[{{ secret }}]"}
     TemplatesRaceSpec.register_pause
-    with_compiled_templates(files) do |config|
+    with_preloaded_templates(files) do |config|
       env = config.templates.crinja
       done = Channel(String).new(2)
 
@@ -63,7 +63,7 @@ describe "Azu::Templates under concurrent requests" do
   end
 
   it "lets a helper wait for a render in another fiber" do
-    with_compiled_templates({"outer.jinja" => "<{{ race_elsewhere() }}>", "inner.jinja" => "inner"}) do |config|
+    with_preloaded_templates({"outer.jinja" => "<{{ race_elsewhere() }}>", "inner.jinja" => "inner"}) do |config|
       templates = config.templates
       elsewhere = Crinja.function { TemplatesRaceSpec.within_a_second { templates.render("inner.jinja") } }
       Azu::Helpers::Registry.register_function(:race_elsewhere, elsewhere)
@@ -75,7 +75,7 @@ describe "Azu::Templates under concurrent requests" do
   it "renders a page whose helper reads a fragment another request is caching" do
     files = {"sidebar.jinja" => "<aside>{{ n }}</aside>", "page.jinja" => "{{ race_pause() }}{{ race_sidebar() }}"}
     TemplatesRaceSpec.register_pause
-    with_compiled_templates(files) do |config|
+    with_preloaded_templates(files) do |config|
       key = "race-sidebar-#{Random::Secure.hex(4)}"
       # An endpoint caching a rendered fragment (`Azu.cache.fetch(key) { view(...) }`), and a page helper reading it
       fragment = -> { config.cache.fetch(key) { config.templates.render("sidebar.jinja", {"n" => 1}) } }
@@ -95,7 +95,7 @@ describe "Azu::Templates between requests" do
   it "does not hand a macro one request defined to the next" do
     files = {"macros.jinja" => "{% if admin %}{% macro panel(note=secret) %}[{{ note }}]{% endmacro %}{% endif %}",
              "page.jinja"   => %({% from "macros.jinja" import panel %}{{ panel() }})}
-    with_compiled_templates(files) do
+    with_preloaded_templates(files) do
       TemplatesRaceSpec::Page.new("page.jinja", {"admin" => "yes", "secret" => "A-SECRET"}).render.should eq "[A-SECRET]"
 
       # This request defines no macro: the import finds none, not the previous request's (and its secret)
@@ -106,7 +106,7 @@ describe "Azu::Templates between requests" do
   it "keeps what an include without context sets out of later renders" do
     files = {"set.jinja" => "{% set banner = 'leaked' %}", "page.jinja" => %({% include "set.jinja" without context %}a),
              "later.jinja" => "b:{{ banner }}"}
-    with_compiled_templates(files) do
+    with_preloaded_templates(files) do
       TemplatesRaceSpec::Page.new("page.jinja").render.should eq "a"
       TemplatesRaceSpec::Page.new("later.jinja").render.should eq "b:"
     end
@@ -114,7 +114,7 @@ describe "Azu::Templates between requests" do
 
   it "starts a render a helper makes from the global context, not from the outer request's" do
     # A fragment a helper renders may be cached and served to everyone (`Azu.cache.fetch(key) { ... }`)
-    with_compiled_templates({"page.jinja" => "{{ race_fragment() }}", "frag.jinja" => "[{{ secret }}]"}) do |config|
+    with_preloaded_templates({"page.jinja" => "{{ race_fragment() }}", "frag.jinja" => "[{{ secret }}]"}) do |config|
       templates = config.templates
       fragment = Crinja.function { templates.render("frag.jinja") + TemplatesRaceSpec::Page.new("frag.jinja").render }
       Azu::Helpers::Registry.register_function(:race_fragment, fragment)

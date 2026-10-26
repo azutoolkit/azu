@@ -138,8 +138,10 @@ module Azu
     end
 
     @template_hot_reload : Bool = ENV.fetch("TEMPLATE_HOT_RELOAD", Configuration.hot_reload_default.to_s) == "true"
-    # Template names not compiled at boot (see `Templates#compile_ignore`); `TEMPLATE_COMPILE_IGNORE` takes a comma separated list.
-    @template_compile_ignore : Array(String) = ENV.fetch("TEMPLATE_COMPILE_IGNORE", "").split(',').map(&.strip).reject(&.empty?)
+    # Template names not preloaded at boot (see `Templates#preload_ignore`); `TEMPLATE_PRELOAD_IGNORE` takes a comma separated
+    # list (`TEMPLATE_COMPILE_IGNORE`, its name in 0.5.113 to 0.5.133, now deprecated, is read when it is not set).
+    @template_preload_ignore : Array(String) = ENV.fetch("TEMPLATE_PRELOAD_IGNORE") { ENV.fetch("TEMPLATE_COMPILE_IGNORE", "") }
+      .split(',').map(&.strip).reject(&.empty?)
 
     def template_hot_reload? : Bool
       @template_hot_reload
@@ -179,11 +181,21 @@ module Azu
       @templates.try(&.autoescape = enabled)
     end
 
-    getter template_compile_ignore : Array(String)
+    getter template_preload_ignore : Array(String)
 
+    def template_preload_ignore=(patterns : Array(String))
+      @template_preload_ignore = patterns
+      @templates.try(&.preload_ignore = patterns)
+    end
+
+    @[Deprecated("Use `template_preload_ignore`.")]
+    def template_compile_ignore : Array(String)
+      template_preload_ignore
+    end
+
+    @[Deprecated("Use `template_preload_ignore=`.")]
     def template_compile_ignore=(patterns : Array(String))
-      @template_compile_ignore = patterns
-      @templates.try(&.compile_ignore = patterns)
+      self.template_preload_ignore = patterns
     end
 
     property ssl_cert : String = ENV.fetch("SSL_CERT", "")
@@ -220,7 +232,7 @@ module Azu
         ENV.fetch("TEMPLATES_PATH", Path[TEMPLATES_PATH].expand.to_s).split(","),
         ENV.fetch("ERROR_TEMPLATE", Path[ERROR_TEMPLATE].expand.to_s),
         template_hot_reload?,
-        template_compile_ignore,
+        template_preload_ignore,
         template_autoescape?
       )
     end
