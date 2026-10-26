@@ -77,6 +77,9 @@ module Azu
 
     # Raised by `add`, `root`, `ws`, `mount` and `register` once the router is frozen (see `freeze`).
     class Frozen < Exception
+      def self.for(route : String) : self
+        new("#{route}: a router takes no routes once its app is serving; declare them before App#start")
+      end
     end
 
     # Takes no more routes. `App#start` calls it before it listens, so the tree and the registry are never changed
@@ -218,7 +221,7 @@ module Azu
 
     private def open!(route : String) : Nil
       return unless @frozen.get
-      raise Frozen.new("#{route}: a router takes no routes once its app is serving; declare them before App#start")
+      raise Frozen.for(route)
     end
 
     # Into the tree, which refuses a path without its leading "/": no request could reach it, and a route meant to
