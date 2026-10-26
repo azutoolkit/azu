@@ -208,6 +208,12 @@ module Azu
     private def route_method(context) : Azu::Method?
       method = context.request.method
       return (Azu::Method::WebSocket if method == "GET") if upgrade?(context)
+      verb(method)
+    end
+
+    # The method named by a verb spelled exactly, as a literal `case` and never `Azu::Method.parse?`, which ignores
+    # case and underscores and would read `WEBSOCKET` as the WebSocket slot.
+    private def verb(method : String) : Azu::Method?
       case method
       when "GET"     then Azu::Method::Get
       when "POST"    then Azu::Method::Post

@@ -866,6 +866,24 @@ describe Azu::Router do
       answer.call("POST /chat HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade")[0].should eq 404
     end
 
+    it "reaches a WebSocket channel through a GET upgrade" do
+      answer.call("GET /chat HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade")[0].should_not eq 404
+    end
+
+    it "takes no method name for the WebSocket slot, with an upgrade or without" do
+      {"WEBSOCKET", "web_socket", "websocket"}.each do |method|
+        {"", "\r\nUpgrade: websocket\r\nConnection: Upgrade"}.each do |upgrade|
+          request = HTTP::Request.from_io(IO::Memory.new("#{method} /chat HTTP/1.1#{upgrade}\r\nHost: example.com\r\n\r\n")).as(HTTP::Request)
+          response = HTTP::Server::Response.new(IO::Memory.new)
+          router.process(HTTP::Server::Context.new(request, response))
+
+          response.status_code.should eq 404
+          # A channel reached without an upgrade answers 404 too: what tells is that the router found no route
+          request.headers["X-Azu-Endpoint"]?.should be_nil
+        end
+      end
+    end
+
     it "treats the method as case-sensitive" do
       answer.call("get /admin/secret HTTP/1.1")[0].should eq 404
     end
