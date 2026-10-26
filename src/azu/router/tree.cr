@@ -20,10 +20,6 @@ module Azu
       class DuplicateError < Error
       end
 
-      # Two routes of one method name the parameter at the same position differently.
-      class ConflictError < Error
-      end
-
       # What `find` returns: the route's payload and, when its path has parameters, their raw values.
       struct Match(T)
         getter params : Hash(String, String)?
@@ -66,8 +62,6 @@ module Azu
         @static : Hash(Bytes, Node(T))?
         @dynamic : Node(T)?
         @glob : Node(T)?
-        # On a dynamic or glob node, the segment each method's routes name it with and the first path that did
-        @names : Hash(Azu::Method, {String, String})?
         # One slot per `Azu::Method`, indexed by its value
         {% begin %}
           @entries = StaticArray(Entry(T)?, {{ Azu::Method.constants.size }}).new(nil)
@@ -87,12 +81,6 @@ module Azu
 
         def entry(method : Azu::Method) : Entry(T)?
           @entries[method.value]
-        end
-
-        def name(method : Azu::Method, segment : String, path : String) : Nil
-          named, by = (@names ||= {} of Azu::Method => {String, String})[method] ||= {segment, path}
-          return if named == segment
-          raise ConflictError.new("#{method.to_s.upcase} #{path}: #{segment} conflicts with #{named} of #{by}")
         end
 
         def add(method : Azu::Method, entry : Entry(T)) : Nil
@@ -128,7 +116,6 @@ module Azu
             glob = segment.starts_with?('*')
             params << Param.new(intern(segment), index, glob)
             node = glob ? node.glob : node.dynamic
-            node.name method, segment, path
           else
             node = node.static(segment)
           end
@@ -151,8 +138,7 @@ module Azu
         Match(T).new(entry, entry.params(path, bounds)) if entry
       end
 
-      # The segments of a route path, trailing slashes aside. Checked before the tree changes, so a refused path leaves
-      # no parameter names behind.
+      # The segments of a route path, trailing slashes aside, checked before the tree changes.
       private def segments(path : String) : Array(String)
         raise Error.new("#{path}: a route path must start with /") unless path.empty? || path.starts_with?('/')
         segments = path.rstrip('/').split('/').skip(1)

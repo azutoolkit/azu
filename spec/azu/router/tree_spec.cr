@@ -14,8 +14,10 @@ private def payload(tree : Tree, method : Azu::Method, path : String) : String?
   tree.find(method, path).try(&.payload)
 end
 
-private GET  = Azu::Method::Get
-private POST = Azu::Method::Post
+private GET     = Azu::Method::Get
+private HEAD    = Azu::Method::Head
+private OPTIONS = Azu::Method::Options
+private POST    = Azu::Method::Post
 
 describe Azu::Router::Tree do
   describe "static segments" do
@@ -91,6 +93,25 @@ describe Azu::Router::Tree do
       routes.find(POST, "/posts/1/comments").try(&.params).should eq({"post_id" => "1"})
     end
 
+    it "finds nested routes of one method, each with its own parameter names" do
+      routes = tree({GET, "/posts/new"}, {GET, "/posts/:id"}, {GET, "/posts/:post_id/comments"}, {GET, "/posts/:post_id/comments/:id"})
+
+      payload(routes, GET, "/posts/new").should eq "Get /posts/new"
+      routes.find(GET, "/posts/1").try(&.params).should eq({"id" => "1"})
+      routes.find(GET, "/posts/1/comments").try(&.params).should eq({"post_id" => "1"})
+      routes.find(GET, "/posts/1/comments/2").try(&.params).should eq({"post_id" => "1", "id" => "2"})
+    end
+
+    it "lets a declared route name a parameter unlike the HEAD and OPTIONS routes Router#get adds" do
+      routes = tree({GET, "/posts/:id"}, {HEAD, "/posts/:id"}, {OPTIONS, "/posts/:id"})
+      routes.add OPTIONS, "/posts/:post_id/comments", "Options comments"
+      routes.add HEAD, "/posts/:post_id/comments", "Head comments"
+
+      routes.find(OPTIONS, "/posts/1/comments").try(&.params).should eq({"post_id" => "1"})
+      routes.find(HEAD, "/posts/1/comments").try(&.params).should eq({"post_id" => "1"})
+      routes.find(HEAD, "/posts/1").try(&.params).should eq({"id" => "1"})
+    end
+
     it "interns the parameter names and allocates only the values and the params hash" do
       routes = Tree.new
       100.times { |i| routes.add GET, "/api/v1/resource#{i}/:id", "resource#{i}" }
@@ -155,11 +176,11 @@ describe Azu::Router::Tree do
       expect_raises(Tree::DuplicateError, "POST /hello is already routed as /hello/") { routes.add POST, "/hello", "again" }
     end
 
-    it "refuses two names for one parameter of one method's routes, naming both paths" do
-      routes = tree({GET, "/a/:id"}, {POST, "/a/:name/b"}, {GET, "/f/*path"})
+    it "refuses two routes of one method and shape whatever their parameter names, naming both paths" do
+      routes = tree({GET, "/a/:id"}, {GET, "/f/*path"})
 
-      expect_raises(Tree::ConflictError, "GET /a/:name/b: :name conflicts with :id of /a/:id") { routes.add GET, "/a/:name/b", "x" }
-      expect_raises(Tree::ConflictError, "GET /f/*rest: *rest conflicts with *path of /f/*path") { routes.add GET, "/f/*rest", "x" }
+      expect_raises(Tree::DuplicateError, "GET /a/:name is already routed as /a/:id") { routes.add GET, "/a/:name", "x" }
+      expect_raises(Tree::DuplicateError, "GET /f/*rest is already routed as /f/*path") { routes.add GET, "/f/*rest", "x" }
     end
 
     it "refuses a route path that does not start with a slash" do
@@ -218,16 +239,18 @@ private FIND_DIFFERENCES = [
    {"/get/api/*mount_path", {"id" => "1", "mount_path" => "v1/resource5/1/x"}}},
   # radix misses an empty glob once another route has split the node before it
   {[{GET, "/files/*path"}, {GET, "/files/new"}], "/files", {"/get/files/*path", {"path" => ""}}, nil},
+  # radix finds neither nested route (after a static sibling such as /posts/new it raises SharedKeyError instead)
+  {[{GET, "/posts/:id"}, {GET, "/posts/:post_id/comments"}], "/posts/1", {"/get/posts/:id", {"id" => "1"}}, nil},
+  {[{GET, "/posts/:id"}, {GET, "/posts/:post_id/comments"}], "/posts/1/comments",
+   {"/get/posts/:post_id/comments", {"post_id" => "1"}}, nil},
 ]
 
 # GET routes radix accepts and the tree refuses: {paths, the tree's error}.
 private ADD_DIFFERENCES = [
-  # radix accepts both and finds neither (after a static sibling such as /posts/new, it raises SharedKeyError instead)
-  {["/posts/:id", "/posts/:post_id/comments"], "GET /posts/:post_id/comments: :post_id conflicts with :id of /posts/:id"},
-  {["/a/:id", "/a/:name"], "GET /a/:name: :name conflicts with :id of /a/:id"}, # radix accepts both and finds neither
-  {["/hello", "/hello/"], "GET /hello/ is already routed as /hello"},           # radix never finds the second
-  {["users"], "users: a route path must start with /"},                         # radix never finds it
-  {["/a/*rest/b"], "/a/*rest/b: a glob must be the last segment"},              # radix names the glob "rest/b"
+  {["/a/:id", "/a/:name"], "GET /a/:name is already routed as /a/:id"}, # radix accepts both and finds neither
+  {["/hello", "/hello/"], "GET /hello/ is already routed as /hello"},   # radix never finds the second
+  {["users"], "users: a route path must start with /"},                 # radix never finds it
+  {["/a/*rest/b"], "/a/*rest/b: a glob must be the last segment"},      # radix names the glob "rest/b"
 ]
 
 private def router(routes : Array) : Azu::Router
