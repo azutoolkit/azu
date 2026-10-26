@@ -4,7 +4,6 @@ You will turn on request, cache and component metrics and read them in the dev d
 
 The dashboard, the performance monitor, the profiler and the memory leak detector are not part of `require "azu"`. Add them with one line; an app that does not need them does not load them.
 
-<!-- skip -->
 ```crystal
 require "azu"
 require "azu/dev" # Handler::DevDashboard, Handler::PerformanceMonitor, PerformanceMetrics, DevelopmentTools, ...
@@ -26,7 +25,6 @@ Building with `PERFORMANCE_MONITORING=true` or `--define=performance_monitoring`
 
 ## Add the handlers
 
-<!-- skip -->
 ```crystal
 require "azu"
 require "azu/dev"
@@ -35,17 +33,14 @@ module MyApp
   include Azu
 end
 
-handlers = [
-  Azu::Handler::PerformanceMonitor.new,
-  Azu::Handler::DevDashboard.new,
-  Azu::Handler::Logger.new,
-  Azu::Handler::Static.new,
-] of HTTP::Handler
+handlers = Azu::App.default.default_handlers
+handlers.unshift Azu::Handler::PerformanceMonitor.new
+handlers.unshift Azu::Handler::DevDashboard.new if MyApp.env.development?
 
 MyApp.start handlers
 ```
 
-`DevDashboard` serves only when the environment is development, whatever the list says. Open `/dev-dashboard`.
+`default_handlers` is the stack `start` uses on its own (request id, logging, error pages, security headers, static files); the monitor and the dashboard go in front of it. `DevDashboard` serves only when the environment is development, whatever the list says. Open `/dev-dashboard`.
 
 ## What you get
 
@@ -58,8 +53,10 @@ Core only calls `Azu::Instrumentation`, a nil check when nobody listens, so with
 
 ## Read the numbers from code
 
-<!-- skip -->
 ```crystal
+require "azu"
+require "azu/dev"
+
 if monitor = Azu::CONFIG.performance_monitor
   stats = monitor.stats
   puts "Average response time: #{stats.avg_response_time}ms"

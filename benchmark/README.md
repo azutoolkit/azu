@@ -2,7 +2,7 @@
 
 A reproducible suite that measures Azu next to other Crystal web frameworks on the same machine, with the
 same responses, the same compiler and the same load. It exists so that any statement about Azu's speed has a
-source: a command, a result file and a stated machine. **This page contains no numbers on purpose.** Numbers
+source: a command, a result file and a stated machine. **This page contains no numbers on purpose.** (One run is committed as a snapshot under `benchmark/snapshots/`, and the repository README quotes it. That run used an uncommitted bump of the `azu` app to CQL 0.0.732 on a dirty working tree; the committed app pins CQL 0.0.541, so the snapshot is not reproducible from a commit. Its `azu 0.5.99` label is a stale path-dependency label.) Numbers
 belong to a result file (`benchmark/results/`, git-ignored) and to the machine that produced it. The suite
 does not declare winners: it reports medians with their spread, and says when a run was too noisy to quote.
 

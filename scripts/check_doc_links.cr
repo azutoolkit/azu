@@ -12,17 +12,33 @@ module DocLinks
   # GitHub's anchor for a heading: lowercase, markup and punctuation dropped, spaces turned into hyphens.
   def self.slug(heading : String) : String
     text = heading.gsub(/\[([^\]]*)\]\([^)]*\)/, "\\1").downcase
-    text.gsub(/[^\p{L}\p{N}\s\-_]/, "").gsub(' ', '-')
+    text.gsub(/[^\p{L}\p{N}\s\-_]/, "").gsub(/\s/, "-")
+  end
+
+  # A code fence opens with three or more backticks or tildes and closes with at least as many of the same
+  # character, so a four-backtick fence can contain a three-backtick one.
+  class Fences
+    @marker : String? = nil
+
+    # True when `line` is inside a fence or is a fence line itself.
+    def skip?(line : String) : Bool
+      stripped = line.lstrip
+      if marker = @marker
+        @marker = nil if stripped.starts_with?(marker) && stripped.chars.all? { |char| char == marker[0] || char.whitespace? }
+        return true
+      end
+      if match = /\A(`{3,}|~{3,})/.match(stripped)
+        @marker = match[1]
+        return true
+      end
+      false
+    end
   end
 
   def self.each_line_outside_fences(path : String, &)
-    fenced = false
+    fences = Fences.new
     File.each_line(path) do |line|
-      if line.lstrip.starts_with?("```")
-        fenced = !fenced
-        next
-      end
-      yield line unless fenced
+      yield line unless fences.skip?(line)
     end
   end
 
@@ -44,14 +60,10 @@ module DocLinks
     problems = [] of String
     files.each do |file|
       number = 0
-      fenced = false
+      fences = Fences.new
       File.each_line(file) do |line|
         number += 1
-        if line.lstrip.starts_with?("```")
-          fenced = !fenced
-          next
-        end
-        next if fenced
+        next if fences.skip?(line)
         line.scan(LINK) do |match|
           target = match[1]
           next if target.starts_with?("http://") || target.starts_with?("https://") || target.starts_with?("mailto:")

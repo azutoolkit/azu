@@ -11,7 +11,7 @@ Azu is a web framework for Crystal built on typed contracts and real-time. These
 
 ## Tutorials
 
-Lessons that take you from zero to a working feature. Do them in order.
+Lessons that take you from zero to a working feature. Do them mostly in order.
 
 - [Getting started](tutorials/getting-started.md): your first app.
 - [Building a user API](tutorials/building-a-user-api.md): a complete JSON CRUD API.
