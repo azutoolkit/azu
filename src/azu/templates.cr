@@ -57,6 +57,10 @@ module Azu
     end
 
     # :nodoc:
+    # Its name in 0.5.113 to 0.5.132.
+    CompileError = PreloadError
+
+    # :nodoc:
     # How many times the templates were preloaded; for specs.
     getter preload_count
 

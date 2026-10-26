@@ -137,7 +137,7 @@ before it showed on the next request, and a template with a syntax error now sto
 line) instead of failing its first request, including a file that is not a template (a vendored `index.html`; list
 those in `template_preload_ignore`). Set `template_hot_reload = true` (or `TEMPLATE_HOT_RELOAD=true`) to keep
 reloading in an environment. See [Configuration](configuration/options.md#templates). This mode was called "compiled"
-in 0.5.113 to 0.5.132; the word now belongs to templates compiled to Crystal code. The old names still work but are
+in 0.5.113 to 0.5.132; the word is reserved for templates compiled to Crystal code (planned). The old names still work but are
 deprecated: `Templates#compiled?`, `Templates#compile_ignore` / `compile_ignore=`, `Templates.new(..., compile_ignore:)`,
 `Configuration#template_compile_ignore` / `template_compile_ignore=` and `TEMPLATE_COMPILE_IGNORE` (read when
 `TEMPLATE_PRELOAD_IGNORE` is not set); use `preloaded?`, `preload_ignore`, `preload_ignore:`, `template_preload_ignore`
