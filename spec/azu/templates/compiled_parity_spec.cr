@@ -165,6 +165,18 @@ describe "Azu::Templates compiled templates, fallbacks and parity" do
   end
 end
 
+describe "Azu::Templates compiled templates (for with if, recursive or else)" do
+  {"for_if.jinja" => "for ... if", "for_recursive.jinja" => "for ... recursive", "for_else.jinja" => "for ... else"}.each do |name, reason|
+    it "falls back to Crinja for #{reason}, rendering like it" do
+      COMPILED_FIXTURES.fallbacks[name].should eq "#{name}:1:1: #{reason}"
+      data = {"xs" => ["a", "b"], "ys" => [] of String}
+      output = build(hot_reload: false, compiled: true).render(name, data)
+      output.should_not be_empty
+      output.should eq build(hot_reload: true).render(name, data)
+    end
+  end
+end
+
 describe "Azu::Templates compiled templates next to one that does not parse" do
   it "leaves it out of the build and to Crinja, which fails it as it does without a compiled set" do
     COMPILED_BROKEN.templates.keys.should eq ["good.jinja"]
@@ -219,6 +231,8 @@ describe "Azu::Templates compiled templates (for, member and index access, filte
     "nested_for.jinja" => {"rows" => [["a", "b&"], ["c"], [] of String]},
     "for_scope.jinja"  => {"item" => "outer<", "items" => ["1", "2&"]},
     "for_hash.jinja"   => {"table" => {"k1" => "v1", "k2" => "v2"}},
+    "loop.jinja"       => {"rows" => [["a", "b"], ["c"]]},
+    "emitters.jinja"   => {"s" => "a\nb", "row" => {"k" => "v"}, "key" => "k"},
   }.each do |name, data|
     it "renders #{name} as a CompiledTemplate, byte-identical to Crinja" do
       compiled = loops(hot_reload: false, compiled: true)
@@ -260,5 +274,37 @@ describe "Azu::Templates compiled templates (for, member and index access, filte
     compiled.render("for_scope.jinja", {"item" => "outer"}).should eq "outer||outer"
     compiled.render("for_scope.jinja", {"item" => "outer"}).should eq reloading.render("for_scope.jinja", {"item" => "outer"})
     compiled.render("for_scope.jinja").should eq reloading.render("for_scope.jinja")
+  end
+end
+
+describe "Azu::Templates compiled templates (whitespace options, errors)" do
+  {"trim_blocks" => ->(c : Crinja::Config) { c.trim_blocks = true }, "lstrip_blocks" => ->(c : Crinja::Config) { c.lstrip_blocks = true }}.each do |option, set|
+    it "renders like Crinja with #{option} on" do
+      compiled = loops(hot_reload: false, compiled: true)
+      reloading = loops(hot_reload: true)
+      set.call(compiled.crinja.config)
+      set.call(reloading.crinja.config)
+      compiled.render("blocks.jinja", {"xs" => ["a", "b"]}).should eq reloading.render("blocks.jinja", {"xs" => ["a", "b"]})
+    end
+  end
+
+  {
+    {"unknown_filter.jinja", {"x" => 1}},
+    {"member_error.jinja", {"v" => 1}},             # u undefined
+    {"member_error.jinja", {"u" => {"x" => 1}}},    # u.a undefined
+    {"loop_error.jinja", {"xs" => [[{"k" => 1}]]}}, # a.c undefined in the loop body
+    {"loop_error.jinja", {"xs" => nil}},
+    {"loop_error.jinja", {"xs" => 1}},
+    {"loop_error.jinja", {"xs" => [1]}},           # bad unpack
+    {"undefined_name.jinja", {"u" => {"a" => 1}}}, # the error names u.missing
+  }.each do |name, data|
+    it "raises like Crinja for #{name} with #{data}" do
+      loops(hot_reload: false, compiled: true).load(name).should be_a Azu::Templates::CompiledTemplate
+      errors = {loops(hot_reload: false, compiled: true), loops(hot_reload: true)}.map do |templates|
+        expect_raises(Crinja::Error) { templates.render(name, data) }
+      end
+      compiled, crinja = errors.map { |e| {e.class, e.message, e.location_start, e.template.try(&.name)} }
+      compiled.should eq crinja
+    end
   end
 end

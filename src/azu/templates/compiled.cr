@@ -27,6 +27,8 @@ class Azu::Templates
       value
     end
 
+    # Unlike Crinja, which renders to a buffer first, it writes to `io` as it goes: on an error `io` holds the output
+    # so far. Azu's own render paths go through a `String`, so they are unaffected.
     def render(io : IO, env : Crinja)
       env.context.autoescape = env.config.autoescape?(filename) # as Crinja's renderer does
       @body.call(io, env)

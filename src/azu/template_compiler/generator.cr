@@ -37,13 +37,15 @@ module Azu::TemplateCompiler
     end
   end
 
-  # `Crinja::Tag::For`'s own argument parse, for a plain loop only: its item variables and collection, or nil.
+  # `Crinja::Tag::For`'s own argument parse: a plain loop's item variables and collection, or what it has besides.
+  # It relies on Crinja's private `parse_identifier_list`, which the `~> 0.9.0` pin keeps.
   private class ForParser < Crinja::Tag::ArgumentsParser
-    def parse_for : {Array(String), Crinja::AST::ExpressionNode}?
+    def parse_for : {Array(String), Crinja::AST::ExpressionNode} | String
       vars = parse_identifier_list.map(&.name)
       expect Kind::IDENTIFIER, "in"
       collection = parse_expression
-      {vars, collection} if current_token.kind.eof? && !vars.includes?(Crinja::Tag::For::LOOP_VARIABLE)
+      return "for ... #{current_token.value}" unless current_token.kind.eof? # `if` or `recursive`
+      vars.includes?(Crinja::Tag::For::LOOP_VARIABLE) ? "for loop" : {vars, collection}
     end
   end
 
@@ -55,6 +57,8 @@ module Azu::TemplateCompiler
     unsupported(e.at, e.message.to_s)
   rescue e : Crinja::Error
     unsupported(e.location_start, e.message.to_s.lines.first? || e.class.name)
+  rescue e : ArgumentError # Crinja's parser, for a number literal out of range
+    unsupported(nil, e.message.to_s)
   end
 
   # Crinja does not locate a `{# note #}`: it takes the end of the node before.
@@ -77,8 +81,10 @@ module Azu::TemplateCompiler
 
   # `Crinja::Tag::For` without `if`, `recursive` or `else`: its `ForLoop`, and `Runner#run_loop`'s scope per item.
   private def self.for_loop(node : Crinja::AST::TagNode, at) : String
-    parsed = ForParser.new(node.arguments, Crinja::Config.new).parse_for if node.name == "for" && node.end_tag
-    raise Fallback.new(at, node.name) unless parsed
+    raise Fallback.new(at, node.name) unless node.name == "for" && node.end_tag
+    raise Fallback.new(at, "for ... else") if node.block.children.any? { |child| child.is_a?(Crinja::AST::TagNode) && child.name == "else" }
+    parsed = ForParser.new(node.arguments, Crinja::Config.new).parse_for
+    raise Fallback.new(at, parsed) if parsed.is_a?(String)
     vars, collection = parsed
     "::Crinja::Tag::For::ForLoop.new(#{value(collection, at)}).try { |looper| looper.each { |item| " \
     "env.with_scope({::Crinja::Tag::For::LOOP_VARIABLE => looper}) { |ctx| ctx.unpack(#{vars.inspect}, item); " \

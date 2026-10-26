@@ -45,4 +45,10 @@ describe Azu::TemplateCompiler do
     status.success?.should be_false
     error.to_s.should contain "broken.jinja"
   end
+
+  it "leaves a number literal Crinja cannot parse to Crinja" do
+    Dir.mkdir_p(dir = File.join(Dir.tempdir, "azu_compiled_numbers"))
+    File.write(File.join(dir, "big.jinja"), "{{ 99999999999999999999 }}")
+    Azu::TemplateCompiler.generate(dir).should contain %("big.jinja" => "big.jinja:Invalid Int64)
+  end
 end
