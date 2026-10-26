@@ -105,7 +105,7 @@ module Azu
             # Add confirm dialog via data attribute
             unless confirm.none?
               form_attrs["data-confirm"] = confirm.to_s
-              form_attrs["onsubmit"] = "return confirm('#{Util.escape_html(confirm.to_s).gsub("'", "\\'")}');"
+              form_attrs["onsubmit"] = "return confirm('#{Util.js_string_escape(confirm.to_s)}');"
             end
 
             # Build button

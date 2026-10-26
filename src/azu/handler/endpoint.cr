@@ -286,7 +286,7 @@ module Azu
           text = "Delete" if text.empty?
 
           confirm_val = arguments["confirm"]
-          confirm_attr = confirm_val.none? ? "" : %( onclick="return confirm('#{HTML.escape(confirm_val.to_s)}')")
+          confirm_attr = confirm_val.none? ? "" : %( onclick="return confirm('#{HTML.escape(Azu::Helpers::Util.js_string_escape(confirm_val.to_s))}')")
 
           css_class = arguments["class"]
           class_attr = css_class.none? ? "" : %( class="#{HTML.escape(css_class.to_s)}")

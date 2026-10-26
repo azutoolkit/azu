@@ -21,6 +21,7 @@ module Azu
           register_strip_tags
           register_word_wrap
           register_auto_link
+          register_urlize
           register_cycle
           register_content_tag
         end
@@ -178,6 +179,21 @@ module Azu
             Crinja::SafeString.new(result)
           end
           Registry.register_filter(:auto_link, filter)
+        end
+
+        # Replaces Crinja's `urlize`, which does not escape the text around the links and links any `scheme://`.
+        private def self.register_urlize : Nil
+          filter = Crinja.filter({trim_url_limit: nil, nofollow: false, target: nil, rel: nil}, :urlize) do
+            rel = arguments["rel"].to_s.split(' ')
+            rel << "nofollow" if arguments["nofollow"].truthy?
+            rel |= env.policies.fetch("urlize.rel", "noopener").to_s.split(' ')
+            target_attr = arguments.fetch("target") { env.policies.fetch("urlize.target", nil) }.raw.as(String?)
+            limit = arguments["trim_url_limit"].raw.as?(Int).try(&.to_i)
+
+            text = target.raw.is_a?(Crinja::SafeString) ? target.to_s : Util.escape_html(target.to_s)
+            Crinja::SafeString.new(Util.urlize(text, limit, rel.reject(&.empty?).uniq!, target_attr))
+          end
+          Registry.register_filter(:urlize, filter)
         end
 
         private def self.register_cycle : Nil

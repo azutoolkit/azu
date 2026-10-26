@@ -201,4 +201,45 @@ describe "helper output encoding" do
       out.should contain %(class="c")
     end
   end
+
+  describe "urlize (Crinja's builds links from raw text and accepts any scheme)" do
+    it "escapes the text around the links" do
+      render("{{ x | urlize }}", {"x" => "<script>alert(1)</script> https://example.com/a?x=1&y=2 <b>"}).should eq(
+        %(&lt;script&gt;alert(1)&lt;/script&gt; <a href="https://example.com/a?x=1&amp;y=2" rel="noopener">https://example.com/a?x=1&amp;y=2</a> &lt;b&gt;))
+    end
+
+    it "links only http, https and www. addresses" do
+      render("{{ x | urlize }}", {"x" => "javascript://%0aalert(1) data://x vbscript://y"}).should_not contain "<a "
+      render("{{ x | urlize }}", {"x" => "go www.example.com now"}).should contain %(<a href="http://www.example.com" rel="noopener">www.example.com</a>)
+      render("{{ x | urlize }}", {"x" => "HTTPS://EXAMPLE.COM"}).should contain %(<a href="HTTPS://EXAMPLE.COM")
+    end
+
+    it "keeps a quote out of the href" do
+      out = render("{{ x | urlize }}", {"x" => %(https://a.com/"onmouseover="alert(1))})
+      out.should_not contain %(" onmouseover)
+      out.should_not match(/href="[^"]*"[^>]*onmouseover/)
+    end
+
+    it "takes target, rel, nofollow and trim_url_limit, and text that is already safe as it is" do
+      render("{{ x | urlize(target='_blank', nofollow=true) }}", {"x" => "https://a.com"}).should eq %(<a href="https://a.com" rel="nofollow noopener" target="_blank">https://a.com</a>)
+      render("{{ x | urlize(trim_url_limit=10) }}", {"x" => "https://example.com/long/path"}).should contain ">https://...</a>"
+      render("{{ (x | e) | urlize }}", {"x" => "a<b https://a.com"}).should eq %(a&lt;b <a href="https://a.com" rel="noopener">https://a.com</a>)
+    end
+  end
+
+  describe "confirm text in a JavaScript attribute" do
+    attack = "x'); alert(1); ('"
+
+    it "Util.js_string_escape leaves plain text alone and escapes what can end a string or a script" do
+      Azu::Helpers::Util.js_string_escape("Are you sure?").should eq "Are you sure?"
+      Azu::Helpers::Util.js_string_escape("a'b\"c\\d\ne</script>&").should eq(
+        "a\\u0027b\\u0022c\\u005cd\\u000ae\\u003c\\u002fscript\\u003e\\u0026")
+    end
+
+    it "button_to cannot be broken out of the confirm string (HTML decodes entities before JavaScript runs)" do
+      out = render("{{ button_to('Del', '/x', confirm=c) }}", {"c" => attack})
+      out.should contain %{onsubmit="return confirm(&#39;x\\u0027); alert(1); (\\u0027&#39;);"}
+      out.should_not contain "&amp;#39;"
+    end
+  end
 end
