@@ -1,7 +1,13 @@
+---
+description: Typed request and response contracts, radix routing and built-in real-time for Crystal web apps.
+icon: house
+---
+
 # Azu Web Framework Overview
 
-> [!NOTE]
-> Azu is a strongly typed web framework for Crystal. Every endpoint declares the request contract it accepts and the response it returns: the compiler checks the types, and Azu validates each request against its contract before your code runs. Routing is a radix tree, and WebSocket channels, pub/sub, presence and Spark live views are built in.
+{% hint style="info" %}
+Azu is a strongly typed web framework for Crystal. Every endpoint declares the request contract it accepts and the response it returns: the compiler checks the types, and Azu validates each request against its contract before your code runs. Routing is a radix tree, and WebSocket channels, pub/sub, presence and Spark live views are built in.
+{% endhint %}
 
 ---
 
@@ -9,6 +15,7 @@
 
 Azu replaces untyped params hashes with explicit **Request Contracts** and **Response Objects**.
 
+{% code title="src/hello.cr" %}
 ```crystal
 require "azu"
 
@@ -57,12 +64,15 @@ MyApp.start [
   Azu::Handler::Rescuer.new,
 ] of HTTP::Handler
 ```
+{% endcode %}
 
+{% code title="Terminal" %}
 ```bash
 crystal run src/hello.cr
 curl "http://127.0.0.1:3000/hello"           # Hello, World!
 curl "http://127.0.0.1:3000/hello?name=Ada"  # Hello, Ada!
 ```
+{% endcode %}
 
 - `hello_request` is the `HelloRequest` Azu built for this request. Reading a field the contract does not declare, or returning anything but a `HelloResponse`, is a compile error.
 - The handler array is used exactly as given. `MyApp.start` with no argument uses the default stack: request id, logging, error pages, security headers and static files.
@@ -82,26 +92,20 @@ Details: [Endpoint](reference/api/endpoint.md), [Request](reference/api/request.
 
 ## Request lifecycle
 
-```text
-client ── HTTP ──▶ HTTP::Server
-                        │
-                        ▼
-                 handler chain          the array given to start, outermost first
-                        │
-                        ▼
-                 radix router           method + path ──▶ endpoint │ channel upgrade │ 404
-                        │
-                        ▼
-                 build contract ─────── field missing or wrong type ──▶ 400
-                        │
-                        ▼
-                 validate rules ─────── a rule fails ─────────────────▶ 422 + field errors
-                        │
-                        ▼
-                 call : Response        your code
-                        │
-                        ▼
-                 render ──▶ body ──▶ handler chain, in reverse ──▶ client
+```mermaid
+flowchart TD
+    client["Client"] -- HTTP --> server["HTTP::Server"]
+    server --> chain["Handler chain<br/>the array given to start, outermost first"]
+    chain --> router{"Radix router<br/>method + path"}
+    router -- no route --> notfound["404"]
+    router -- WebSocket upgrade --> channel["Channel"]
+    router --> build{"Build contract"}
+    build -- field missing or wrong type --> bad["400"]
+    build --> validate{"Validate rules"}
+    validate -- a rule fails --> invalid["422 + field errors"]
+    validate --> handle["call : Response<br/>your code"]
+    handle --> body["render → body"]
+    body --> back["Handler chain, in reverse → client"]
 ```
 
 Step by step, with a program that prints the order: [Request lifecycle](explanation/architecture/request-lifecycle.md). Components and the handler chain: [Architecture overview](explanation/architecture/overview.md).
@@ -169,10 +173,12 @@ Multi-node setup: [Scale real-time features out](how-to/deployment/scale-out-rea
 
 ## Documentation map
 
-| [Tutorials](#tutorials) | [How-to guides](#how-to-guides) | [Reference](#reference) | [Concepts](#concepts) |
-|---|---|---|---|
-| Learn by building, in order | One task per page | Exact signatures, options and behavior | Why Azu works the way it does |
-| Start with [Getting started](tutorials/getting-started.md) | Start with [Create an endpoint](how-to/endpoints/create-endpoint.md) | Start with [Endpoint](reference/api/endpoint.md) | Start with [Architecture overview](explanation/architecture/overview.md) |
+<table data-view="cards"><thead><tr><th></th><th></th><th data-hidden data-card-target data-type="content-ref"></th></tr></thead><tbody>
+<tr><td><strong>Tutorials</strong></td><td>Learn by building, in order. Start with a validated endpoint in about 15 minutes.</td><td><a href="tutorials/getting-started.md">getting-started.md</a></td></tr>
+<tr><td><strong>How-to guides</strong></td><td>One task per page: endpoints, validation, templates, real-time, data, deployment.</td><td><a href="how-to/endpoints/create-endpoint.md">create-endpoint.md</a></td></tr>
+<tr><td><strong>Reference</strong></td><td>Exact signatures, options, defaults and behavior.</td><td><a href="reference/api/endpoint.md">endpoint.md</a></td></tr>
+<tr><td><strong>Concepts</strong></td><td>Why Azu works the way it does, and how the parts fit.</td><td><a href="explanation/architecture/overview.md">overview.md</a></td></tr>
+</tbody></table>
 
 Also: [Everything in the box](explanation/features.md) (every feature, with its guide) · [FAQ and troubleshooting](faq.md) · [Migrate to 0.6](how-to/migrate-to-0.6.md) · [Breaking changes](reference/breaking-changes.md)
 
