@@ -37,6 +37,13 @@ describe Azu::RequestContext do
       id.split('_')[1].to_i64.should be <= after
     end
 
+    it "takes the time of each call, not of an earlier call that formatted the prefix" do
+      first = Azu::RequestContext.generate_id.split('_')[1].to_i64
+      until Time.utc.to_unix_ms > first
+      end
+      Azu::RequestContext.generate_id.split('_')[1].to_i64.should be > first
+    end
+
     it "refuses a number of random bytes it cannot serve" do
       expect_raises(ArgumentError) { Azu::RequestContext.generate_id(0) }
       expect_raises(ArgumentError) { Azu::RequestContext.generate_id(513) }
