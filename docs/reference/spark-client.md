@@ -651,7 +651,7 @@ with the code `invalid_snapshot`, nothing is mounted and the client joins again 
 | Check | Refused as |
 | --- | --- |
 | HMAC-SHA256 signature with `config.secret` | tampered |
-| `exp` (`token_ttl`, measured with `Azu::Clock`) | expired |
+| `exp` (`snapshot_ttl`, measured with `Azu::Clock`) | expired |
 | state is a JSON object | malformed |
 | size at most `config.max_snapshot_size` (default 4096 bytes) | too large (it is also not issued above the limit) |
 | format `v` equals `Snapshot::VERSION` | unsupported version |

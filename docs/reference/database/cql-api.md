@@ -5,7 +5,7 @@ CQL (Crystal Query Language) is the ORM used with Azu for database operations. I
 `shard.yml`. Azu core does not depend on it; the optional bridge `require "azu/cql"` connects CQL to the dev dashboard
 (see [Database dashboard](../database-dashboard.md)).
 
-This page lists the API as it exists in the CQL release Azu is tested against (0.0.536; the bridge specs also pass on 0.0.604, which adds `CQL.build_schema`, `CQL.build_migrator` and SQLite defaults). For task-oriented guides see
+This page describes CQL 0.0.766, the release Azu's `shard.lock` pins (its `shard.yml` accepts `cql >= 0.0.609`). For task-oriented guides see
 [Define Schema](../../how-to/database/define-schema.md), [Create Models](../../how-to/database/create-models.md),
 [Query Data](../../how-to/database/query-data.md), [Handle Transactions](../../how-to/database/handle-transactions.md)
 and [Run Migrations](../../how-to/database/run-migrations.md).
@@ -74,8 +74,8 @@ Inside `table :name do ... end`:
 **Column types:** `String`, `Int32`, `Int64`, `UInt32`, `UInt64`, `Float32`, `Float64`, `Bool`, `Time`, `Time::Span`,
 `JSON::Any`, `Slice(UInt8)`, `UUID`. Columns are `NOT NULL` unless `null: true`; `default:` takes a literal value.
 
-`index [...]` and `index: true` in a `table` block do not create indexes. Use `schema.alter(:users) { create_index :name, [:col] }`
-or a migration.
+`index [:a, :b], unique:, name:` and a column's `index: true` declare an index; `create!` and `Schema#build` create it
+after the table, named `idx_<table>_<columns>` unless `name:` is given.
 
 ## Model Definition
 
@@ -296,7 +296,9 @@ Post.find!(1_i64).user             # User?
 - `belongs_to assoc, Class, foreign_key, optional:, cache:` adds `assoc`, `assoc=`, `build_assoc`, `create_assoc`.
 - `many_to_many name, Class, join_through: JoinModel, foreign_key:, association_foreign_key:` adds the collection and
   `name_ids`, `name_count`, `add_<singular>`, `remove_<singular>`.
-- `dependent:` is accepted but not applied by `delete!`; declare `on_delete: :cascade` on the foreign key.
+- `delete!` applies `dependent:` in the same transaction as the record's own delete. `has_many` takes `:destroy`,
+  `:delete_all`, `:nullify` or `:restrict_with_error` (`delete!` raises `RelationError` and deletes nothing while
+  records exist); `has_one` takes `:destroy`, `:delete` or `:nullify`.
 - A collection's `where`, `limit` and `order` return a `CQL::Query`: finish with `.all(Post)`.
 
 ## Callbacks
@@ -551,9 +553,11 @@ end
 | `CQL::Migrator::Error` | migration failures |
 | `DB::Error` and subclasses | driver errors: constraint violations, lost connections |
 
-Azu does not translate CQL errors into HTTP responses. Rescue them in the endpoint (or a handler) and raise an
-`Azu::Response` error, for example `Azu::Response::NotFound` when `find` returns `nil`; see
-[Working with Databases](../../tutorials/working-with-databases.md).
+With `require "azu/cql"`, `model.valid_or_422!` raises `Azu::Response::ValidationError` (422) for an invalid record,
+and `Azu::CQL::Middleware` turns an escaping `CQL::RecordInvalid`, `CQL::ValidationError` or model validation error
+into that 422 (see [CQL bridge](../api/cql-bridge.md)). Azu translates no other CQL error: rescue it in the endpoint
+(or a handler) and raise an `Azu::Response` error, for example `Azu::Response::NotFound` when `find` returns `nil`;
+see [Working with Databases](../../tutorials/working-with-databases.md).
 
 ## See Also
 

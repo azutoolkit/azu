@@ -131,7 +131,8 @@ User.query.where_gt(:age, 18)
 User.query.where_lt(:age, 65)
 ```
 
-`where(deleted_at: nil)` compares with `= NULL` and matches nothing; use `where { deleted_at.null }`.
+`where(deleted_at: nil)` emits `IS NULL` and matches the rows whose column is NULL, like `where { deleted_at.null }`.
+Reject a `nil` that comes from untrusted input before passing it.
 
 ### Excluding and OR
 
@@ -290,10 +291,11 @@ Grouped aggregates are built on the schema's query builder, which returns tuples
 key. The block form of `join` takes an explicit condition. They are methods of the builder, so start with `query`.
 
 
-`preload(:posts)` loads a `has_many` association for all returned records in one extra query.
+`preload(:posts)` loads a `has_many`, `has_one` or `belongs_to` association for all returned records in one extra
+query.
 
 
-There is no `includes` and no string-condition `join`/`left_join`; `preload` supports `has_many` only.
+There is no `includes` and no string-condition `join`/`left_join`.
 
 ## Existence
 

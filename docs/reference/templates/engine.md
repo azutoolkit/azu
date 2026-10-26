@@ -155,9 +155,15 @@ Include another template:
 
 ### include with context
 
+An included template sees the variables of the template that includes it. `include` takes `with context` (the
+default) or `without context`, and no `name=value` pairs. To pass a value under another name, wrap the include in
+a `with` block:
+
 ```html
-{% include "partials/user_card.html" with user=current_user %}
-{% include "partials/item.html" with item=item, index=loop.index %}
+{% include "partials/footer.html" without context %}
+{% with user=current_user, index=loop.index %}
+  {% include "partials/user_card.html" %}
+{% endwith %}
 ```
 
 ### include with ignore missing
@@ -262,7 +268,6 @@ Test values with `is`:
 ```html
 {% if number is even %}
 {% if name is defined %}
-{% if items is empty %}
 {% if value is none %}
 {% if text is string %}
 ```
@@ -274,12 +279,14 @@ Test values with `is`:
 | `defined` | Variable is defined |
 | `undefined` | Variable is undefined |
 | `none` | Value is nil |
-| `empty` | Collection is empty |
 | `even` | Number is even |
 | `odd` | Number is odd |
 | `string` | Value is string |
 | `number` | Value is number |
 | `iterable` | Value is iterable |
+
+There is no `empty` test, and an empty list or string is truthy, so `{% if not items %}` does not catch it. Test
+the length: `{% if items | length == 0 %}`.
 
 ## Operators
 

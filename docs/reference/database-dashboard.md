@@ -108,12 +108,11 @@ CQL's types are also reachable under the Azu namespace (`Azu::CQL::Schema`,
 * `User.create!(...)` needs a CQL release that includes the PostgreSQL fix (cql#13, newer than 0.0.536; checked on 0.0.604).
   Older releases insert the row and then fail looking up id 0; build records with `User.new(...)` and `save!` there.
 * Use `Model(Int64)` with `primary :id, Int64`, and `class` for models.
-* Declare real indexes with `schema.alter(:users) { create_index :users_email, [:email], unique: true }`. `index:` inside
-  `schema.table` emits no SQL.
+* Indexes declared in `schema.table` (`index [...]`, a column's `index: true`) are created with the table.
 * `CQL::Migrator` writes the database URI into `src/schemas/app_schema.cr` while `auto_sync` is on; pass
   `MigratorConfig.new(auto_sync: false)`. Its tracking table is `cql_schema_migrations`.
 * Pass association foreign keys explicitly: `has_many :posts, Post, foreign_key: :user_id`.
-  `dependent:` is never applied (use `on_delete: :cascade` on the foreign key) and `preload` works for `has_many` only.
+  `delete!` applies `dependent:`, and `preload` works for `has_many`, `has_one` and `belongs_to`.
 * `CRYSTAL_ENV` must be set before CQL's configuration is first created: its environment defaults (pool sizes, SSL) are applied
   at that moment, not when `c.env` is assigned.
 

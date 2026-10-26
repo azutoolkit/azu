@@ -41,7 +41,7 @@ Azu provides built-in template helpers for common web development tasks like bui
 
 ### form_tag
 
-Opens a form with CSRF protection:
+Opens a form. It adds no CSRF token: put [`{{ csrf_field() }}`](#csrf_field) inside the form.
 
 ```jinja
 {{ form_tag("/users", method="post", class="form") }}
@@ -80,6 +80,11 @@ Generates a hidden CSRF token input:
 {{ csrf_field() }}
 {# Output: <input type="hidden" name="_csrf" value="token123..." /> #}
 ```
+
+The value comes from the template variable `csrf_token`, which `view` injects only when the type that calls it has
+a `context` method. A response has none, so in a response's `render` the value is empty. Pass the endpoint's
+`context` to the response and render with `view_with_context(template, @context, data)`, which injects it.
+`csrf_meta` reads the same variable.
 
 ### csrf_meta
 
@@ -565,7 +570,7 @@ The helper name is derived from the endpoint class name:
 | `UserEndpoint` | `user` |
 | `CreateUserEndpoint` | `create_user` |
 | `Admin::UsersEndpoint` | `admin_users` |
-| `Api::V1::UserEndpoint` | `api_v1_user` |
+| `Api::V1::UserEndpoint` | `v1_user` |
 
 ### Benefits
 
@@ -758,9 +763,10 @@ Filter that formats bytes as human-readable:
 Filter that formats large numbers with words:
 
 ```jinja
-{{ 1234 | number_to_human }}        {# 1.23 thousand #}
-{{ 1234567 | number_to_human }}     {# 1.23 million #}
-{{ 1234567890 | number_to_human }}  {# 1.23 billion #}
+{{ 1234 | number_to_human }}                {# 1.2 thousand #}
+{{ 1234567 | number_to_human }}             {# 1.2 million #}
+{{ 1234567890 | number_to_human }}          {# 1.2 billion #}
+{{ 1234 | number_to_human(precision=2) }}   {# 1.23 thousand #}
 ```
 
 ---
