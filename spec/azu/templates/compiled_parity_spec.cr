@@ -178,3 +178,16 @@ describe "Azu::Templates compiled templates next to one that does not parse" do
     errors[0].should eq errors[1]
   end
 end
+
+describe "Azu::Templates compiled templates (fallbacks)" do
+  it "records the templates that fell back to Crinja" do
+    fallbacks = COMPILED_FIXTURES.fallbacks
+    fallbacks.should be_a Hash(String, String)
+    fallbacks.keys.should contain "comment.jinja"
+    fallbacks.keys.should contain "raw.jinja"
+    fallbacks.keys.should contain "if.jinja"
+    {"hello.jinja", "text.jinja", "empty.jinja", "trim.jinja", "quotes.jinja"}.each do |name|
+      fallbacks.keys.should_not contain name
+    end
+  end
+end
