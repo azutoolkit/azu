@@ -1,6 +1,8 @@
-# How to Create a WebSocket Channel
+---
+description: Accept WebSocket connections with `Azu::Channel`.
+---
 
-This guide shows how to accept WebSocket connections with `Azu::Channel`.
+# Create a WebSocket channel
 
 ## Basic channel
 
@@ -69,6 +71,8 @@ end
 
 ## Connect a client
 
+{% tabs %}
+{% tab title="Browser" %}
 From a browser:
 
 ```javascript
@@ -78,7 +82,9 @@ socket.onopen = () => socket.send("hello");
 socket.onmessage = (event) => console.log(JSON.parse(event.data));
 socket.onclose = (event) => console.log("closed", event.code, event.reason);
 ```
+{% endtab %}
 
+{% tab title="Crystal" %}
 From Crystal, for a script or a test, use `HTTP::WebSocket`:
 
 ```crystal
@@ -92,10 +98,14 @@ socket.send "hello"
 sleep 100.milliseconds
 socket.close
 ```
+{% endtab %}
+{% endtabs %}
 
+{% hint style="warning" %}
 A browser sends an `Origin` header and Azu refuses the upgrade (403) unless it is the application's own
 origin or listed in `Azu::CONFIG.websocket.allowed_origins`. Clients without an `Origin` header, such as
 the Crystal client above, are accepted.
+{% endhint %}
 
 ## Handle different message types
 
@@ -175,9 +185,10 @@ class CounterChannel < Azu::Channel
 end
 ```
 
-State shared between connections, such as a list of everyone online, lives in a class-level variable
-guarded by a `Mutex`; see [Broadcast Messages](broadcast-messages.md) for topics, which avoid most of
-that.
+A list of everyone online is [`Azu::Presence`](../../reference/api/presence.md#channels): include
+`Azu::Presence::Tracked` in the channel. Other state shared between connections lives in a class-level
+variable guarded by a `Mutex`; see [Broadcast Messages](broadcast-messages.md) for topics, which avoid most
+of that.
 
 ## Query parameters, headers and path parameters
 
@@ -218,6 +229,8 @@ the browser sends with the upgrade request. Check it in `on_connect` and close t
 not valid:
 
 ```crystal
+require "crypto/subtle"
+
 class PrivateChannel < Azu::Channel
   @user : String?
 
@@ -251,12 +264,19 @@ class PrivateChannel < Azu::Channel
 
   # Replace with a real check: a signed token, a session lookup, ...
   private def authenticate(token : String?) : String?
-    "alice" if token == ENV.fetch("CHANNEL_TOKEN", "change-me")
+    expected = ENV["CHANNEL_TOKEN"]?
+    return nil if token.nil? || expected.nil? || expected.empty?
+    "alice" if Crypto::Subtle.constant_time_compare(token, expected)
   end
 end
 ```
 
+`authenticate` refuses every connection while `CHANNEL_TOKEN` is unset, and compares in constant time so the
+response time does not reveal how much of the token matched.
+
+{% hint style="danger" %}
 `on_message` checks `@user` again because a client can send frames before the close handshake completes.
+{% endhint %}
 
 ## Rooms
 

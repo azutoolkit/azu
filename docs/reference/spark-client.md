@@ -1,4 +1,8 @@
-# Spark JavaScript client and reconnects
+---
+description: "The browser half of Spark: serving the script, the connection lifecycle, event delivery, compressed frames, the client API, accessibility, patches, CSP and rehydration."
+---
+
+# Spark JavaScript client
 
 `azu_spark.js` is the browser half of [Spark](../explanation/spark-live-views.md). It has no
 dependencies, needs no build step in your application and is served by it, never by a CDN, so the script
@@ -20,28 +24,8 @@ Azu::Spark.script_tag  # <script src="..." data-spark-path="/spark" defer></scri
 The tag has no inline code, so `script-src 'self'` is enough. The served script is minified: about
 30 KB, about 11,000 bytes gzipped (it includes the patch engine, the HTML sanitiser, the delivery layer,
 the observability counters, the live region and the decoder of compressed frames, see the security
-model). A spec keeps it under 11,264 bytes (11 KB) gzipped. Options go on the tag as `data-spark-*` attributes (see
-[Hidden tabs](#hidden-tabs), [Accessibility](#accessibility)):
-
-## How the client is built
-
-The readable source is `js/azu-spark.js` (an ES2022 module with JSDoc types). The script the shard
-embeds and serves, `src/azu/spark/client/azu_spark.js`, is generated from it with esbuild and checked
-in, so **application developers never need node**: `shards install` brings the built script.
-Only people who change the client need node 22 or newer:
-
-```sh
-cd js
-npm install        # esbuild, typescript and happy-dom, pinned by package-lock.json
-npm run build      # rewrites azu_spark.js (minified IIFE) and azu-spark.d.ts (typings from the JSDoc)
-npm run check      # fails when azu_spark.js is stale, without writing
-npm test           # node:test unit tests on happy-dom
-```
-
-The first line of the built script records the SHA-256 of `js/azu-spark.js`. `crystal spec` (no node
-involved) compares that hash with the source and fails with the rebuild instructions when you edited
-the source and forgot to rebuild; it also enforces the gzip size budget. The `Spark client` CI job
-rebuilds the script and fails on any diff. Commit the source, the script and the typings together.
+model). Options go on the tag as `data-spark-*` attributes (see [Hidden tabs](#hidden-tabs),
+[Accessibility](#accessibility)).
 
 ## Connection lifecycle
 
@@ -62,24 +46,38 @@ one it left, so no timer outlives its state.
 | `hidden-idle` | closed on purpose (code 1000) after the tab was hidden for the idle window; the tab's return rejoins | `disconnected` | none |
 | `stopped` | stopped until `connect()`: `disconnect()`, or a token that can never join | `disconnected` | none |
 
-```text
-            connect                 hello                joins answered
-   idle ------------> connecting ---------> joining ---------------------> open
-                          ^  |                 |  ^                          |  |
-          retry elapsed / |  | lost, or        |  | a root is added          |  |
-          visible         |  | no hello in 10 s|  +--------------------------+  |
-                          |  v                 v                                |
-                       backoff <---------- (connection lost: close, dead, ... ) <+
-                          |  ^
-          offline event   |  | online: retry after a short jittered delay, attempts kept
-                          v  |
-                        offline
+```mermaid
+stateDiagram-v2
+    state "hidden-idle" as hidden_idle
 
-   any state with a socket --stop / pagehide--> closing --closed--> stopped / idle
-   open / joining / connecting / backoff / offline --hidden for idleMs--> closing(1000) --closed--> hidden-idle
-   hidden-idle --visible / focus / pageshow / an event is made--> connecting (attempts kept)
-   stopped / idle --connect / pageshow--> connecting
-   closing --pageshow (restored from the bfcache)--> connecting once the close finished
+    idle --> connecting : connect / pageshow
+    connecting --> joining : hello
+    joining --> open : joins answered
+    open --> joining : a root is added
+
+    connecting --> backoff : lost, or no hello in 10 s
+    joining --> backoff : connection lost (close, dead, ...)
+    open --> backoff : connection lost (close, dead, ...)
+    backoff --> connecting : retry elapsed / visible
+    backoff --> offline : offline event
+    offline --> backoff : online, retry after a short jittered delay, attempts kept
+
+    connecting --> closing : stop / pagehide
+    joining --> closing : stop / pagehide
+    open --> closing : stop / pagehide
+    closing --> stopped : closed
+    closing --> idle : closed
+
+    open --> closing : hidden for idleMs, close 1000
+    joining --> closing : hidden for idleMs, close 1000
+    connecting --> closing : hidden for idleMs, close 1000
+    backoff --> closing : hidden for idleMs, close 1000
+    offline --> closing : hidden for idleMs, close 1000
+    closing --> hidden_idle : closed, after the 1000 close
+    hidden_idle --> connecting : visible / focus / pageshow / an event is made (attempts kept)
+
+    stopped --> connecting : connect / pageshow
+    closing --> connecting : pageshow (restored from the bfcache), once the close finished
 ```
 
 - **Backoff.** After a lost connection the client waits a random time between 0 and
@@ -145,7 +143,7 @@ a lost connection, so persisted state survives (see [Rehydration](#rehydration))
   `state` event (`to: "hidden-idle"`), or keep such a banner hidden while `document.hidden`.
 - **Server.** A client close with `1000` is an ordinary disconnect: the connection ends without a
   warning or error log, its components are unmounted and their subscriptions released, exactly as
-  for any other close. The idle close needs no server change.
+  for any other close.
 
 ## Events and delivery
 
@@ -213,8 +211,7 @@ The server keeps one number per root of the **connection**, the highest it took,
 below it with a `reply` that has `"dup": true` and does nothing. So a repeat or an older number that arrives
 on the same connection is ignored, and nothing grows with the number of events. A resend after a reconnect
 arrives on a *new* connection with no such number, by design (see "What once covers" below): its protection
-comes from the snapshot the page is mounted from and from `gen`. An event without `eid` (an older client) is
-always applied: protocol v1 is unchanged.
+comes from the snapshot the page is mounted from and from `gen`. An event without `eid` is always applied.
 
 | Frame | Field | Meaning |
 | --- | --- | --- |
@@ -234,9 +231,12 @@ with already holds.
 What "once" covers: the *state of the components*. After a reconnect the server mounts the page from the last
 snapshot the client holds, and applies the resent event to it, so a component that persists its state ends
 up with the event applied exactly once whether or not the first attempt reached the old connection.
+
+{% hint style="warning" %}
 Side effects *outside* the component (a payment, an email, an insert) are different: the old connection
 may have run the handler before it was cut, and the new one runs it again. Make such handlers idempotent,
 or mark them `spark-delivery="at-most-once"`.
+{% endhint %}
 
 ```crystal
 class Checkout < Azu::Spark::Component
@@ -285,14 +285,15 @@ with `stale_event` and dropped; that is the intended outcome, not a bug.
   coalesced value event that is refused (say the last keystroke of a burst) is lost until the control changes again.
 - A compressed frame inflates to at most 1 MiB, see [Compressed frames](#compressed-frames).
 - A frame above `max_message_size` is refused by the client (`too_large`) and, if it gets to the server,
-  closes the connection as before. The rate limit (`events_per_second`, `event_burst`) counts a resent
+  closes the connection. The rate limit (`events_per_second`, `event_burst`) counts a resent
   event like any other. Event numbers add about 10 bytes to a frame.
 - `event_dropped` reasons: `queue_full`, `expired`, `disconnect` (an at-most-once event in flight),
   `stale`, `rate_limited`, `stopped` (`Spark.disconnect()`).
 
 ## Compressed frames
 
-A diff that replaces a big component is mostly repeated markup, and it compresses about four to one.
+A diff that replaces a big component is mostly repeated markup, and it compresses about four to one (the diffs
+of a 150-row report table: 12.1 KB as text, 3.0 KB compressed).
 Spark can send such a diff compressed, **if the browser says it can read it**. Nothing changes for
 any other client.
 
@@ -305,9 +306,9 @@ end
 ### Negotiation
 
 1. The client puts `"enc": ["gzip"]` in its `join` when `DecompressionStream` exists. A browser
-   without it announces nothing, and so does a client that is older than this feature.
+   without it announces nothing.
 2. The server notes it for the connection and answers the join with `"enc": "gzip"` (a client that
-   announced nothing gets the reply it always got).
+   announced nothing gets a reply without `enc`).
 3. From then on a `diff` frame of at least `compress_threshold` bytes is sent as **one binary
    WebSocket frame holding the gzip of the exact JSON** the text frame would have carried, but only
    when that is smaller. Everything else (`reply`, `error`, `heartbeat`, `redirect`, small diffs) stays text.
@@ -315,9 +316,8 @@ end
 `enc` is a choice of the *connection*, not of a root: the latest `join` decides. A later join that
 announces nothing turns compression off for the whole connection, and one that announces `gzip` turns it on.
 
-A client that announced no encoding is sent text frames only, byte for byte as before; an old client
-never receives a binary frame. The protocol version stays 1: `enc` is an optional field both sides ignore
-when they do not know it.
+A client that announced no encoding is sent text frames only, never a binary frame. The protocol version
+is 1: `enc` is an optional field both sides ignore when they do not know it.
 
 ### Why not `permessage-deflate`
 
@@ -334,7 +334,7 @@ that works with the standard library.
   inflated every frame behind it waits, and frames are applied strictly in the order they arrived.
   A text `reply` that follows a binary diff is handled after the diff's patches, so the
   acknowledgement rules of [Numbers, acknowledgements and resending](#numbers-acknowledgements-and-resending)
-  hold unchanged. A text frame with nothing ahead of it is handled at once, as before.
+  hold unchanged. A text frame with nothing ahead of it is handled at once.
 - **Compressed size.** A binary frame larger than 524,288 bytes (`Protocol::MAX_COMPRESSED`) on the wire is
   rejected before anything is inflated (Chrome's `DecompressionStream` may emit many chunks before a cancel
   lands), and the server sends such a frame as text.
@@ -345,9 +345,8 @@ that works with the standard library.
 - **Failure.** A frame that cannot be inflated (corrupt, truncated or over the limit) is reported as the
   `patch_failed` error; the client resets the connection and rejoins from its last snapshot (so the lost diff
   is not skipped), and **asks for plain frames for the rest of the page's life**, so a frame that fails
-  once cannot make the page loop. A frame that has not inflated after 5 seconds (not configurable;
-  `config.inflateTimeout` in the source) is treated the same way: otherwise it would hold every later
-  frame, heartbeats included, behind it.
+  once cannot make the page loop. A frame that has not inflated after 5 seconds (not configurable) is
+  treated the same way: otherwise it would hold every later frame, heartbeats included, behind it.
 - **Proxies that dislike binary frames.** If a connection ends (other than a normal or going-away close)
   after the first binary frame it received and before any text frame was applied since, the client
   concludes that something on the path rejects binary frames and asks for plain frames for the rest of
@@ -363,13 +362,9 @@ that works with the standard library.
 
 Open DevTools, Network, filter WS and pick the `/spark` socket. Messages: a text frame shows its JSON,
 a compressed one is listed as "Binary Message" with its (small) length. The join frame shows
-`"enc":["gzip"]`, and the reply to it `"enc":"gzip"`. To see the old behaviour in the same browser,
-run `delete window.DecompressionStream` in a script that runs before the page's (or the Playwright
-`addInitScript` of `spec/browser/spark_compress.cjs`) and reload: the join announces nothing and every
-frame is text. Measured on the demo app's report component (150 rows, one "Next page" click): 12.1 KB as
-text, 3.0 KB compressed. To reproduce, run `spec/browser/run.sh` (or `node spec/browser/spark_compress.cjs`
-with the same environment): it prints the bytes of the six diffs of each tab and the totals on the wire
-(DevTools protocol frame sizes: payload bytes, no WebSocket headers).
+`"enc":["gzip"]`, and the reply to it `"enc":"gzip"`. To see uncompressed frames in the same browser,
+run `delete window.DecompressionStream` in a script that runs before the page's and reload: the join
+announces nothing and every frame is text.
 
 ## Client API
 
@@ -484,8 +479,7 @@ Spark.configure({ text: { stale: "Diese Seite ist vielleicht veraltet." } });
 
 **Visually hidden without an inline style.** The client hides its region by setting CSSOM
 properties (`element.style.position = "absolute"`, ...), which a `style-src` without
-`'unsafe-inline'` allows (a `style=""` attribute in markup would not be); it is verified in
-Chromium under `default-src 'none'`. If you would rather own the look, or supply your own region,
+`'unsafe-inline'` allows (a `style=""` attribute in markup would not be). If you would rather own the look, or supply your own region,
 this is all it needs:
 
 ```css
@@ -633,6 +627,7 @@ end
 
 Only `persist: true` state travels, `draft` above starts empty again.
 
+{% hint style="danger" %}
 **Persisted state is not authority.** The snapshot is signed, not encrypted, so the browser can
 read it, and it can replay an old one until it expires (`config.snapshot_ttl`, default one hour,
 `SPARK_SNAPSHOT_TTL`; the join token lives for `token_ttl`). On rejoin the restored state
@@ -640,6 +635,7 @@ overwrites what `mount` computed. Never persist secrets or anything that grants 
 (`is_admin`, `user_id`, prices, permissions): keep those in the session claims of the join token
 or look them up again in `mount` and `event` handlers. A snapshot that expired before a reconnect
 is refused and the page starts afresh.
+{% endhint %}
 
 A snapshot token is sent with a diff only when the persisted state changed (it is not debounced:
 persist small, rarely changing state). Joining a root that is already mounted is refused with
@@ -651,7 +647,7 @@ with the code `invalid_snapshot`, nothing is mounted and the client joins again 
 | Check | Refused as |
 | --- | --- |
 | HMAC-SHA256 signature with `config.secret` | tampered |
-| `exp` (`token_ttl`, measured with `Azu::Clock`) | expired |
+| `exp` (`snapshot_ttl`, measured with `Azu::Clock`) | expired |
 | state is a JSON object | malformed |
 | size at most `config.max_snapshot_size` (default 4096 bytes) | too large (it is also not issued above the limit) |
 | format `v` equals `Snapshot::VERSION` | unsupported version |
@@ -661,7 +657,7 @@ with the code `invalid_snapshot`, nothing is mounted and the client joins again 
 
 Because the ids are unique per rendered page and the session digest is part of the signature, a
 snapshot cannot be replayed on another page, for another user or against another component.
-Connection limits are unchanged: the join counts as one frame for the rate limiter, and the
+Connection limits still apply: the join counts as one frame for the rate limiter, and the
 components still count against `max_components`. The components of the dropped connection are
 unmounted when its socket closes (their subscriptions and timers end with it).
 
@@ -671,43 +667,3 @@ Azu::Spark.configure do |config|
   config.snapshot_ttl = 30.minutes
 end
 ```
-
-## Browser test
-
-`spec/browser/run.sh` drives the example app with Chromium through a TCP proxy that cuts the
-connection, refuses new ones, swallows traffic and sends a 1012 close, and asserts backoff,
-rehydration, exactly-once delivery of a queued click, heartbeat detection and the probe of a tab
-that becomes visible. It starts the app on free ports with `SPARK_HEARTBEAT_INTERVAL=1` and fails at
-once, naming the cause, when the server does not propose a 1 s heartbeat: a command that runs the
-app in a container has to forward that variable. It needs
-`npm i playwright` with a chromium and prints `SKIP` (exit 0) when they are missing; it is not part
-of `crystal spec`. `SPARK_SERVER_CMD`, `CHROMIUM_PATH` and `PLAYWRIGHT_MODULE` adapt it to other setups.
-
-`spec/browser/spark_compress.cjs` (also run by `run.sh`) opens the example app twice, once as a modern
-browser and once with `DecompressionStream` removed, and makes the same clicks on its 150-row report.
-The two tabs must show the same page; the modern one receives binary frames that interleave with text
-replies, the old one text only, and the bytes on the wire are printed. A gzip bomb delivered to the modern tab must
-fail as `patch_failed`, after which the tab rejoins without announcing gzip and keeps working.
-
-`spec/browser/spark_patch.cjs` (run by the same `run.sh`) checks the patch engine in Chromium: with
-two tabs on the example app, a patch lands while the other tab has a half typed value, a caret
-selection, an open IME composition (driven through the DevTools `Input.imeSetComposition`) and a
-scrolled list, and none of them may change. Scripted pages then check keyed moves with and without
-`moveBefore`, scripts with and without the opt-in, and patches under a Content-Security-Policy that
-enforces Trusted Types, with and without `azu-spark` in the `trusted-types` list.
-
-`spec/browser/spark_idle.cjs` (also run by `run.sh`) gives the example app's script tag a 1.5 s
-`data-spark-hidden-idle` and fakes a hidden tab by overriding `document.visibilityState` (headless
-Chromium has no hidden tabs): a short absence leaves the socket alone, a long one closes it with
-code 1000 and `hidden idle` (checked on what the client asked for: the browser reports the server's
-echo, which carries no status, as 1005), no socket is opened while it idles, and the return rejoins
-with the counter intact. An event made while idle wakes the connection and takes effect once. A
-scripted page under `default-src 'none'` checks `aria-busy` (absent for a 50 ms answer, present
-after 150 ms), that exactly one live region exists, is 1x1 px and absolute without a CSP violation,
-announces the lost and the restored connection, and that focus stays where it was.
-
-`spec/browser/spark_delivery.cjs` (also run by `run.sh`) checks event delivery on the example app through the
-same kind of proxy: 22 keystrokes typed faster than the server answers (it takes 120 ms per edit) become
-a handful of events whose last value wins, with increasing numbers and the field keeping what was typed;
-and a slow event (`+1 (slow)`) whose connection is cut while the server works is sent again after the
-reconnect with the same number on another connection, and the counter ends up one higher, exactly once.

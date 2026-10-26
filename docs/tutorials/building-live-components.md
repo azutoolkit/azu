@@ -1,10 +1,13 @@
-# Building Live Components
+---
+description: Create real-time, interactive UI with Azu's live components, called Spark components.
+---
 
-This tutorial teaches you how to create real-time, interactive UI with Azu's live components, called
-Spark components. The state lives on the server; the browser only sends events and applies the HTML the
+# Building live components
+
+The state lives on the server; the browser only sends events and applies the HTML the
 server sends back.
 
-## What You'll Build
+## What you'll build
 
 By the end of this tutorial, you'll have:
 
@@ -20,7 +23,7 @@ By the end of this tutorial, you'll have:
 - Understanding of WebSocket basics
 - Crystal 1.22.1 or newer
 
-## Step 1: Understanding Live Components
+## Step 1: Understanding live components
 
 A live component (`Azu::Spark::Component`) gives you:
 
@@ -32,10 +35,11 @@ A live component (`Azu::Spark::Component`) gives you:
 You never write the WebSocket handling or the DOM patching: the framework serves a small client script
 (`Azu::Spark.script_tag`) that does it.
 
-## Step 2: Create a Counter Component
+## Step 2: Create a counter component
 
 Create `src/components/counter.cr`:
 
+{% code title="src/components/counter.cr" %}
 ```crystal
 class Counter < Azu::Spark::Component
   mountable
@@ -61,6 +65,7 @@ class Counter < Azu::Spark::Component
   end
 end
 ```
+{% endcode %}
 
 - `mountable` allows the component to be rendered from a page.
 - `prop` is an input from the page, read only. `state` is owned by the server; assigning it
@@ -72,11 +77,12 @@ end
 - `render` describes the HTML with the same DSL as `Azu::Component`. Note that `p` is not a tag helper;
   write `tag(:p) { text "..." }` when you need a paragraph.
 
-## Step 3: Show It on a Page
+## Step 3: Show it on a page
 
 Create `src/endpoints/counter_page.cr`. The endpoint renders the component with `Azu::Spark.render` and
 adds the script tag:
 
+{% code title="src/endpoints/counter_page.cr" %}
 ```crystal
 class Counter < Azu::Spark::Component
   mountable
@@ -124,39 +130,38 @@ struct CounterPageEndpoint
   end
 end
 ```
+{% endcode %}
 
-Then, once while booting (in `src/user_api.cr` or your main file), configure the signing secret and
-install Spark:
+Then, once while booting (in `src/user_api.cr` or your main file), install Spark:
 
+{% code title="src/user_api.cr" %}
 ```crystal
 require "azu"
 
 module UserAPI
   include Azu
-
-  configure do |config|
-    config.port = ENV.fetch("PORT", "4000").to_i
-  end
 end
 
-Azu::Spark.configure { |spark| spark.secret = ENV.fetch("SPARK_SECRET", "development-only-secret") }
 Azu::Spark.install
 
 UserAPI.start
 ```
+{% endcode %}
 
 `Azu::Spark.install` registers the WebSocket route (`/spark`) and serves the client script from your own
-application (`/_spark/azu_spark.js`), so there is no CDN and no inline script. The secret signs the
-tokens that let a browser join a component; production and staging refuse to start without
-`SPARK_SECRET`.
+application (`/_spark/azu_spark.js`), so there is no CDN and no inline script. The tokens that let a browser
+join a component are signed with `SPARK_SECRET`, which Spark reads itself. Without it, development and test use
+a random secret per process; production and staging raise `Azu::Spark::ConfigurationError` the first time a token
+is signed or verified (the first `Azu::Spark.render`), not at boot. Set `SPARK_SECRET` there.
 
-Run the app, open `http://localhost:4000/counter` and click the buttons. Open the page in two tabs: each
+Run the app (Azu listens on `PORT`, 4000 by default), open `http://localhost:4000/counter` and click the buttons. Open the page in two tabs: each
 tab has its own counter, because each connection owns its components.
 
-## Step 4: Create a Chat Component
+## Step 4: Create a chat component
 
 A chat room has to reach every open tab, so it uses a PubSub topic. Create `src/components/chat_room.cr`:
 
+{% code title="src/components/chat_room.cr" %}
 ```crystal
 class ChatRoom < Azu::Spark::Component
   mountable
@@ -195,6 +200,7 @@ class ChatRoom < Azu::Spark::Component
   end
 end
 ```
+{% endcode %}
 
 - `mount` subscribes the component to the topic. Subscriptions end by themselves when the component
   goes away.
@@ -205,7 +211,7 @@ end
 Serve it with an endpoint like Step 3's (`Azu::Spark.render(ChatRoom)`), open the page in two tabs and
 talk to yourself.
 
-## Step 5: Component Lifecycle
+## Step 5: Component lifecycle
 
 ```crystal
 class Clock < Azu::Spark::Component
@@ -231,16 +237,22 @@ class Clock < Azu::Spark::Component
 end
 ```
 
-```text
-mount (HTTP render) -> render -> mount (WebSocket join) -> render
-   -> [events, handle_info, timers] -> render -> ... -> unmount
+```mermaid
+flowchart LR
+    http["mount (HTTP render)"] --> render1["render"]
+    render1 --> join["mount (WebSocket join)"]
+    join --> render2["render"]
+    render2 --> events["events, handle_info, timers"]
+    events --> render3["render"]
+    render3 -- "..." --> events
+    render3 --> unmount["unmount"]
 ```
 
 `mount` runs on the initial HTTP render, where `socket.connected?` is `false` and timers and
 subscriptions are not started yet, and again when the browser joins. `handle_info` receives PubSub
 broadcasts, timers (`every`, `send_after`) and messages from `send_info`.
 
-## Step 6: State Management
+## Step 6: State management
 
 ```crystal
 class Settings < Azu::Spark::Component
@@ -274,7 +286,7 @@ end
 - `persist: true` keeps the value in a signed snapshot held by the browser, so `visits` survives a
   reconnect and a server restart. Persist only small, non-secret, JSON-serializable values.
 
-## Step 7: Form Components
+## Step 7: Form components
 
 A form event can take an `Azu::Request` as its parameter. The payload is turned into the request exactly
 like a submitted form, so the contract you already use for endpoints validates it.
@@ -325,7 +337,7 @@ end
 `errors_on(request, field)` returns the messages of the failed validations for a field. Use
 `spark_change(:event, debounce: 300)` on an input for validation as the user types.
 
-## Step 8: Composing Components
+## Step 8: Composing components
 
 Split the page into components that update independently. `live` embeds a child; `key` identifies it among
 its siblings, and `container` chooses the element that wraps it.
@@ -362,7 +374,7 @@ end
 Toggling one item re-renders that item only, not the list and not its siblings. Use a stable key (an id,
 not a list index that can shift).
 
-## Step 9: Test Your Components
+## Step 9: Test your components
 
 `Azu::Spark::Testing` mounts a component with a real session and no WebSocket, so mounting, events,
 `handle_info` and children behave as in production:
@@ -399,24 +411,7 @@ end
 `view.broadcast(topic, payload)` delivers a PubSub message to the mounted component and `view.send_info`
 sends it a message; both return after the component has handled them.
 
-## Key Concepts Learned
-
-### Component structure
-
-- `prop` for inputs, `state` for server-owned values, `mountable` to render from a page.
-- `mount`, `handle_info` and `unmount` for the lifecycle; `render` for the HTML.
-
-### Events
-
-- Only `event def` methods can be triggered from the browser, with typed parameters.
-- Bindings (`spark_click`, `spark_submit`, `spark_change`, ...) wire DOM events to them.
-
-### Updates
-
-- Assigning state re-renders the component; the server sends the new HTML of the components that
-  changed and the client morphs the DOM.
-
-## Best Practices
+## Best practices
 
 1. Keep state small; derive what you can in `render`.
 2. Treat every `event def` like an endpoint: validate its input and check that the user may do it.
@@ -425,8 +420,16 @@ sends it a message; both return after the component has handled them.
 4. Use stable keys for child components.
 5. Serve the socket over `wss` in production.
 
-## Next Steps
+## Next steps
 
-- [Spark live views](../explanation/spark-live-views.md) - architecture, wire protocol, security model
-- [Component Reference](../reference/api/component.md) - every macro and socket method
-- [Testing Your App](testing-your-app.md) - testing endpoints, channels and components
+{% content-ref url="../explanation/spark-live-views.md" %}
+[spark-live-views.md](../explanation/spark-live-views.md)
+{% endcontent-ref %}
+
+{% content-ref url="../reference/api/component.md" %}
+[component.md](../reference/api/component.md)
+{% endcontent-ref %}
+
+{% content-ref url="testing-your-app.md" %}
+[testing-your-app.md](testing-your-app.md)
+{% endcontent-ref %}

@@ -1,6 +1,8 @@
-# Response Reference
+---
+description: "Response objects define how endpoint results are rendered to clients: built-in types, errors, headers and status."
+---
 
-Response objects define how endpoint results are rendered to clients.
+# Response
 
 ## Including Response
 
@@ -17,7 +19,7 @@ struct MyResponse
 end
 ```
 
-## Required Methods
+## Required methods
 
 ### render
 
@@ -38,10 +40,18 @@ end
 
 **Returns:** `String`
 
-## Built-in Response Types
+## Built-in response types
 
-Azu ships one response type for endpoints that send no body. Everything else is a response struct of your own
-that includes `Azu::Response`; set the content type in the endpoint with `content_type`.
+Azu ships these response types:
+
+- `Azu::Response::Empty`, for an endpoint that sends no body (below);
+- the `Azu::Response::Negotiable` module, which renders one response as HTML, JSON, XML or text by the `Accept`
+  header, and answers `Azu::Response::NotAcceptable` (406) when none fits: see [Content negotiation](content-negotiation.md);
+- `Azu::Response::Stream` and `Azu::Response::EventStream`, which write a chunked body or server-sent events while
+  the endpoint runs: see [Streaming and server-sent events](streaming.md).
+
+Anything else is a response struct of your own that includes `Azu::Response`; set the content type in the endpoint
+with `content_type`.
 
 ### JSON, text and HTML
 
@@ -124,7 +134,7 @@ struct DeleteEndpoint
 end
 ```
 
-## Error Responses
+## Error responses
 
 ### Azu::Response::Error
 
@@ -141,7 +151,7 @@ error.status_code # => 400
 error.detail      # => "Payment failed"
 ```
 
-### Built-in Errors
+### Built-in errors
 
 | Class | Status | Usage |
 |-------|--------|-------|
@@ -150,6 +160,7 @@ error.detail      # => "Payment failed"
 | `AuthorizationError` | 403 | Insufficient permissions |
 | `Forbidden` | 403 | Access denied (an `AuthorizationError`) |
 | `NotFound` | 404 | Resource not found |
+| `NotAcceptable` | 406 | The client accepts none of the formats a [negotiated response](content-negotiation.md) renders (the body lists them in `supported`) |
 | `TimeoutError` | 408 | Request timeout |
 | `PayloadTooLarge` | 413 | Request body too large |
 | `ValidationError` | 422 | Request contract broken |
@@ -157,7 +168,7 @@ error.detail      # => "Payment failed"
 | `DatabaseError` | 500 | Database operation failed |
 | `ExternalServiceError` | 502 | A service this one depends on is unavailable |
 
-### Using Error Responses
+### Using error responses
 
 ```crystal
 struct FindUserEndpoint
@@ -178,8 +189,10 @@ end
 
 ### ValidationError
 
-Answers `422` with the failing fields. The router raises it for you when a request breaks its contract, and
-you can raise it yourself for checks the contract cannot express.
+Answers `422` with the failing fields. When a request breaks a validation rule of its contract, the endpoint
+answers this `422` itself before `call` runs (neither `Rescuer` nor the router is involved, and a handler that
+rescues `ValidationError` never sees it). Raise it yourself inside `call` for checks the contract cannot express;
+`Rescuer` renders that one.
 
 ```crystal
 raise Azu::Response::ValidationError.new({
@@ -202,65 +215,10 @@ Every other `Response::Error` (a `404` from the router, `BadRequest`, `Authentic
 turned into a `500`, ...) answers JSON clients with the same envelope, `errors` being a list of messages (the
 `Content-Type` is `application/problem+json` for a client that names it in `Accept`, `application/json` otherwise): see [Error Types](../errors/error-types.md#error-response-format).
 
-Set `config.error_format = Azu::ErrorFormat::Legacy` to keep the pre-0.6 bodies (`FieldErrors`, `ErrorId`, ... and the
-PascalCase body of the other errors) as `application/json` for one more minor release.
+With `config.error_format = Azu::ErrorFormat::Legacy` the bodies are PascalCase instead (`FieldErrors`, `ErrorId`, ...
+for a validation failure), sent as `application/json`.
 
-## Custom Response Example
-
-```crystal
-struct User
-  getter id : Int64
-  getter name : String
-  getter email : String
-  getter created_at : Time?
-
-  def initialize(@id, @name, @email, @created_at = nil)
-  end
-end
-
-struct UserResponse
-  include Azu::Response
-
-  def initialize(@user : User)
-  end
-
-  def render
-    {
-      id: @user.id,
-      name: @user.name,
-      email: @user.email,
-      created_at: @user.created_at.try(&.to_rfc3339)
-    }.to_json
-  end
-end
-
-struct UsersResponse
-  include Azu::Response
-
-  def initialize(
-    @users : Array(User),
-    @page : Int32,
-    @total : Int64
-  )
-  end
-
-  def render
-    {
-      data: @users.map { |u| serialize_user(u) },
-      meta: {
-        page: @page,
-        total: @total
-      }
-    }.to_json
-  end
-
-  private def serialize_user(user : User)
-    {id: user.id, name: user.name}
-  end
-end
-```
-
-## Response with Headers
+## Response with headers
 
 Set custom headers in your endpoint with `header key, value`:
 
@@ -287,7 +245,7 @@ struct CachedEndpoint
 end
 ```
 
-## Response with Status
+## Response with status
 
 Set custom status codes:
 
@@ -323,7 +281,7 @@ struct QueueTaskEndpoint
 end
 ```
 
-## Streaming Responses
+## Streaming responses
 
 For large responses, write to the HTTP response from the endpoint and return `Azu::Response::Empty`:
 
@@ -350,7 +308,7 @@ struct StreamEndpoint
 end
 ```
 
-## Content Negotiation
+## Content negotiation
 
 Errors are negotiated for you from the `Accept` header. For your own responses, read the header in the endpoint and
 let the response choose the format:
@@ -387,7 +345,7 @@ struct NegotiatedEndpoint
 end
 ```
 
-## See Also
+## See also
 
 - [Endpoint Reference](endpoint.md)
 - [Request Reference](request.md)

@@ -1,4 +1,8 @@
-# Cache Reference
+---
+description: "The application cache: string values under keys, with a TTL, in memory or in Redis."
+---
+
+# Cache
 
 `Azu.cache` is the application's cache: an `Azu::Cache::Manager` that stores strings under keys, with a TTL, in
 memory (the default) or in Redis. Values are strings; serialize richer data yourself (`to_json` / `from_json`).
@@ -44,8 +48,8 @@ An unknown `store` name raises `ArgumentError: Unsupported cache store: ...`.
 
 ## Stores
 
-### MemoryStore
-
+{% tabs %}
+{% tab title="MemoryStore" %}
 In-process, thread-safe, least-recently-used eviction, entries expire by TTL.
 
 ```crystal
@@ -65,11 +69,12 @@ puts store.size             # => 2
 - `cleanup_interval : Time::Span` - how often a background fiber drops expired entries (default 5 minutes).
   Expired entries are also never returned, whatever the interval.
 
-`stats` returns `size`, `max_size`, `memory_usage_mb` and `hit_rate`; `hit_rate` is the fill level of the store
-(`size / max_size * 100`), not a measured hit rate.
+`stats` returns `size`, `max_size`, `memory_usage_mb` and `hit_rate`; `hit_rate` is the share of `get` lookups
+that found a live entry (`hits / (hits + misses) * 100`, 0.0 before the first lookup). An expired entry counts as
+a miss, and `exists?` is not counted.
+{% endtab %}
 
-### RedisStore
-
+{% tab title="RedisStore" %}
 Distributed, backed by the `redis` shard (a dependency of Azu) through the shared [`Azu::Redis`](redis.md) pool.
 `RedisStore.new(client)` takes an `Azu::Redis::Client` to share connections with PubSub and Presence.
 
@@ -88,12 +93,14 @@ store = Azu::Cache::RedisStore.new(
 A failing command is logged and swallowed: `get` returns `nil`, `set` / `delete` return `false`, `increment`
 returns `nil`. Through `Azu::CONFIG` use `cache_config.store = "redis"` and `cache_config.redis_url`. If the first
 connection check fails `cache_connection_retries` times (waiting `cache_connection_retry_delay` seconds, doubling
-each time), the manager logs the failure and falls back to a disabled `NullStore` (3.0 seconds with the defaults,
-measured). Everything then behaves as a cache that never hits.
+each time, so 3 seconds of waiting with the defaults), the manager logs the failure and falls back to a disabled
+`NullStore`. Everything then behaves as a cache that never hits.
+{% endtab %}
 
-### NullStore
-
+{% tab title="NullStore" %}
 Stores nothing. Used when caching is disabled or Redis is unavailable at startup.
+{% endtab %}
+{% endtabs %}
 
 ## Methods of `Azu.cache`
 
@@ -133,8 +140,8 @@ end
 ```
 
 `fetch(key, ttl = nil, &block : -> String) : String` returns the cached value, or computes it, stores it and returns
-it. Concurrent fibers asking for the same missing key wait for one computation (a lock per key); the block ran once
-for ten simultaneous callers. `get(key, ttl) { ... }` with a block is the same operation.
+it. Concurrent fibers asking for the same missing key wait for one computation (a lock per key), so the block runs
+once for all of them. `get(key, ttl) { ... }` with a block is the same operation.
 
 ### delete, exists?, clear, size
 
@@ -149,12 +156,22 @@ Azu.cache.clear(all: true) # empties the whole store
 ```
 
 On Redis, `clear` scans for the keys that start with `"<key_prefix>:"` and `UNLINK`s them in batches; every other
-key of the database stays. `clear(all: true)` is `FLUSHDB` on the selected database; `RedisStore#clear` (the store
-used directly, which has no prefix) is `FLUSHDB` too. With `store = "redis"` and no URL the cache refuses to build
+key of the database stays.
+
+{% hint style="danger" %}
+`clear(all: true)` is `FLUSHDB` on the selected database; `RedisStore#clear` (the store used directly, which has no
+prefix) is `FLUSHDB` too.
+{% endhint %}
+
+With `store = "redis"` and no URL the cache refuses to build
 (`ArgumentError` naming `CACHE_REDIS_URL`): there is no default Redis, and `Azu.cache` does not swallow that error
-into a disabled cache (an unreachable Redis still does); `start` checks it too, without connecting. The prefix `clear` walks the whole keyspace (`SCAN`, so it
-costs O(keys in the database)), is not atomic (`false` means some keys may be gone), needs Redis 4.0 (`UNLINK`) and
-does not support Redis Cluster (`SCAN` visits one node, `UNLINK` across slots fails).
+into a disabled cache (an unreachable Redis still does); `start` checks it too, without connecting.
+
+{% hint style="warning" %}
+The prefix `clear` walks the whole keyspace (`SCAN`, so it costs O(keys in the database)), is not atomic (`false`
+means some keys may be gone), needs Redis 4.0 (`UNLINK`) and does not support Redis Cluster (`SCAN` visits one node,
+`UNLINK` across slots fails).
+{% endhint %}
 
 ### get_multi, set_multi
 
@@ -176,10 +193,9 @@ Azu.cache.increment("hits", 5)   # => 7
 Azu.cache.decrement("hits")      # => 6
 ```
 
-`increment(key, amount = 1, ttl = nil) : Int32?`. The amount is positional (there is no `by:`). With the
-memory store every call gives the counter a fresh TTL, so a counter that is hit more often than its TTL never
-expires (a 200 ms TTL still held the counter after 240 ms of increments every 120 ms). For rate limiting use
-`Azu::Handler::Throttle`, which does not use the cache.
+`increment(key, amount = 1, ttl = nil) : Int32?`. The amount is positional (there is no `by:`). The TTL is set
+when the counter is created; later calls do not renew it. For rate limiting use `Azu::Handler::Throttle`, which does
+not use the cache.
 
 ### stats, ping, redis_info
 
@@ -188,9 +204,9 @@ expires (a 200 ms TTL still held the counter after 240 ms of increments every 12
 
 There is no `expire`, `ttl`, `delete_matched` or compare-and-set (`nx:`) operation.
 
-## Cache Patterns
+## Cache patterns
 
-### Cache-Aside
+### Cache-aside
 
 Cache a serialized value, and rebuild it on a miss:
 
@@ -218,7 +234,7 @@ def product(id : Int64) : Product
 end
 ```
 
-### Invalidate on Write
+### Invalidate on write
 
 Delete (or overwrite) the key where the data changes:
 
@@ -233,12 +249,12 @@ def update_product_name(id : Int64, name : String) : Nil
 end
 ```
 
-### Stampede Prevention
+### Stampede prevention
 
 `fetch` already serializes computation per key within a process. The lock is not shared between processes: with
 several processes (even on a Redis store) each may compute a missing value once.
 
-## Observing the Cache
+## Observing the cache
 
 Subscribe to every cache operation with `Azu::Instrumentation`, for example to log misses:
 
@@ -254,7 +270,7 @@ end
 
 With `require "azu/dev"` and `performance_enabled?` the dashboard records the same operations.
 
-## See Also
+## See also
 
 - [How to Set Up Memory Cache](../../how-to/caching/setup-memory-cache.md)
 - [How to Set Up Redis Cache](../../how-to/caching/setup-redis-cache.md)

@@ -1,4 +1,8 @@
-# CQL bridge: contracts, models and transactions
+---
+description: "Build CQL models from request contracts, responses from models, and run each request in a CQL transaction."
+---
+
+# CQL bridge
 
 `require "azu/cql"` (opt-in, see [Database dashboard](../database-dashboard.md)) also connects Azu's request and
 response contracts to CQL models. It is plain compile-time code: no runtime reflection, no CQL patches beyond one
@@ -107,9 +111,12 @@ and takes precedence over the default.
 
 ### Mass assignment: list the fields with `only:`
 
+{% hint style="danger" %}
 Matching is by name, so **every request field that the model has a setter or constructor argument for is copied**,
-including `role`, `admin`, `user_id` or `password_digest` if the request declares them. The request struct is the
-allow-list, which is safe as long as it only declares what a client may set; when the request is shared with other
+including `role`, `admin`, `user_id` or `password_digest` if the request declares them.
+{% endhint %}
+
+The request struct is the allow-list, which is safe as long as it only declares what a client may set; when the request is shared with other
 code, or the model has sensitive attributes, state the list explicitly. Declare it once next to the request:
 
 <!-- skip -->
@@ -142,11 +149,12 @@ the same names for the common predicates, so a rule copies between them:
 | --- | --- | --- |
 | `presence`, `required`, `eq`, `in`, `exclude`, `match`, `size` (Int or Range) | yes | yes |
 | `gt`, `gte`, `lt`, `lte` (numbers, `Time`) | yes | yes |
-| `confirmation`, `accept`, `on: :context` | no | yes |
+| `confirmation`, `accept` | no | yes |
 | `message:` | one message for the attribute | one message for the attribute |
 
-Differences that cannot be reconciled without changing the shards (the schema shard has no `confirmation`, `accept`
-or `on:`; its `gt`/`gte`/`lt`/`lte` take `Int`, `Float` and `Time`): CQL predicates return false for `nil` (so a
+Differences that cannot be reconciled without changing the shards (the schema shard has no `confirmation` or
+`accept`, and neither side has validation contexts: CQL's `validate` accepts `on:`, but a model that uses it does not
+compile; the schema shard's `gt`/`gte`/`lt`/`lte` take `Int`, `Float` and `Time`): CQL predicates return false for `nil` (so a
 nilable attribute fails `size`/`match` instead of raising), the schema shard's do not (use a non-nilable request
 field); and `{min:, max:}` size options exist in neither, use a Range (`size: 2..50`). Both report errors as
 `{field : Symbol, message : String}`.
@@ -183,15 +191,16 @@ server = app.server(handlers)
 * Place it after `Rescuer` (the exception keeps propagating and is rendered there) and after `Static` and any health
   or metrics handler (they should not hold a connection). Do not use it for streaming or WebSocket routes: the
   transaction would stay open as long as the stream does.
-* **No nesting.** `Schema#transaction` (so `Model.transaction` too) opens a *second* connection from the pool, not a
-  savepoint, so a transaction started inside a request the middleware already wrapped is independent of it (on SQLite
-  it contends for the write lock). Do not open another one inside a transactional request; CQL cannot be asked
-  whether a transaction is active, so the middleware cannot detect it.
+* **Nesting.** `Schema#transaction` (so `Model.transaction` too) called inside a request the middleware already
+  wrapped runs as a SAVEPOINT on the request's connection: rolling it back undoes only its block, and what it commits
+  is kept only if the request transaction commits.
 * Transactions are tied to the serving fiber, so concurrent requests never share one.
 * Without `transaction`, CQL keeps checking out a pooled connection per statement; only the tagging applies.
 * Escaping `CQL::RecordInvalid`, `CQL::ValidationError` and the model validation error become 422s.
 
+{% hint style="warning" %}
 If the commit itself fails, the middleware discards the body the handler buffered (while headers have not been sent)
 before re-raising, so the `Rescuer`'s error page is not appended to a success body. A response already flushed, which
 Crystal does once the body exceeds its output buffer (about 8 KB), cannot be taken back: for large bodies the client
 may see the success status and a truncated reply.
+{% endhint %}

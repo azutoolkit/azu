@@ -1,12 +1,14 @@
-# How to Create Custom Errors
+---
+description: Create custom error types for your Azu application.
+---
 
-This guide shows you how to create custom error types for your Azu application.
+# Create custom errors
 
 An error is an `Azu::Response::Error`: an exception that is also a response. `Azu::Handler::Rescuer` catches it and
 writes it with its status, in the format the `Accept` header asks for. A subclass sets the title, the status
 (an `HTTP::Status`) and the list of messages through `super`, and the longer explanation in `@detail`.
 
-## Basic Custom Error
+## Basic custom error
 
 Create an error by extending `Azu::Response::Error`:
 
@@ -29,7 +31,7 @@ struct ShowEndpoint
 end
 ```
 
-## Error with Context
+## Error with context
 
 Keep additional data on the error and expose it in the body by overriding `json`:
 
@@ -60,7 +62,7 @@ end
 `errors` is the list of messages shown in the HTML, XML and plain text formats. Request validation failures have
 their own class, `Azu::Response::ValidationError`; raise that one for invalid input.
 
-## Domain-Specific Errors
+## Domain-specific errors
 
 Create errors for your domain:
 
@@ -102,7 +104,7 @@ class OutOfStockError < InventoryError
 end
 ```
 
-## Error Hierarchy
+## Error hierarchy
 
 Create a structured error hierarchy with a machine readable code:
 
@@ -191,7 +193,7 @@ module Errors
 end
 ```
 
-## Error Responses
+## Error responses
 
 Add request details to the body. `Rescuer` calls `to_s(context)` on the error, which sets the status and picks the
 format; override `json` for the JSON one and `json_content_type` if the body has its own media type:
@@ -226,7 +228,7 @@ class ApiError < Azu::Response::Error
 end
 ```
 
-## Error Handler Integration
+## Error handler integration
 
 Custom errors need no handler of their own: `Rescuer` rescues every `Azu::Response::Error`, including yours.
 
@@ -241,7 +243,7 @@ MyApp.start [
 ] of HTTP::Handler
 ```
 
-## Using Custom Errors in Endpoints
+## Using custom errors in endpoints
 
 ```crystal
 class InsufficientFundsError < Azu::Response::Error
@@ -303,25 +305,6 @@ struct TransferFundsEndpoint
 end
 ```
 
-## Error Documentation
-
-Document your errors for API consumers:
-
-```text
-Each error code has a specific meaning:
-
-Client Errors:
-- BAD_REQUEST (400): The request was malformed
-- UNAUTHORIZED (401): Authentication is required
-- FORBIDDEN (403): You don't have permission
-- NOT_FOUND (404): The resource doesn't exist
-- VALIDATION_FAILED (422): Input validation failed
-
-Server Errors:
-- INTERNAL_ERROR (500): Something went wrong on our end
-- SERVICE_UNAVAILABLE (503): A dependent service is down
-```
-
-## See Also
+## See also
 
 - [Handle Errors Gracefully](handle-errors-gracefully.md)

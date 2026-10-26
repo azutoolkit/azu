@@ -1,32 +1,52 @@
-# FAQ & Troubleshooting
+---
+description: Common questions, issues, and solutions when working with Azu.
+---
 
-Common questions, issues, and solutions when working with Azu.
+# FAQ and troubleshooting
 
-## Frequently Asked Questions
+## Frequently asked questions
 
-### General Questions
+### General questions
 
-**Q: What makes Azu different from other web frameworks?**
+<details>
 
-A: Azu emphasizes compile-time type safety and contract-first development. Unlike traditional frameworks that validate at runtime, Azu catches errors during compilation, so type errors in endpoints, contracts and responses show up when you build, not in production.
+<summary>What makes Azu different from other web frameworks?</summary>
 
-**Q: Can I use Azu for production applications?**
+Azu emphasizes compile-time type safety and contract-first development. Endpoints, contracts and responses are typed, so a type error in them shows up when you build, not in production. Input is still checked per request: before `call` runs, the endpoint parses the request into its contract and runs the contract's `validate` rules, and answers `400` or `422` when the request breaks it.
 
-A: Azu is built to be deployed: it has a default handler stack with error pages and security headers, graceful shutdown, environment-based configuration and a health check handler. See [Deploy to Production](tutorials/deploying-to-production.md).
+</details>
 
-**Q: How does Azu compare to other Crystal web frameworks?**
+<details>
 
-A: Azu focuses on type-safe contracts and real-time features, while frameworks like Kemal prioritize simplicity. Azu provides more structure and compile-time guarantees at the cost of some flexibility.
+<summary>Can I use Azu for production applications?</summary>
 
-**Q: Do I need to learn Crystal to use Azu?**
+Azu is built to be deployed: it has a default handler stack with error pages and security headers, graceful shutdown, environment-based configuration and a health check handler. See [Deploy to Production](tutorials/deploying-to-production.md).
 
-A: Yes, basic Crystal knowledge is required. However, Crystal's syntax is similar to Ruby, making it approachable for developers from many backgrounds.
+</details>
 
-### Technical Questions
+<details>
 
-**Q: How do I handle database connections in Azu?**
+<summary>How does Azu compare to other Crystal web frameworks?</summary>
 
-A: Azu works with CQL (Crystal Query Language), which provides typed models and queries. Define the schema once,
+Azu focuses on type-safe contracts and real-time features, while frameworks like Kemal prioritize simplicity. Azu provides more structure and compile-time guarantees at the cost of some flexibility.
+
+</details>
+
+<details>
+
+<summary>Do I need to learn Crystal to use Azu?</summary>
+
+Yes, basic Crystal knowledge is required. However, Crystal's syntax is similar to Ruby, making it approachable for developers from many backgrounds.
+
+</details>
+
+### Technical questions
+
+<details>
+
+<summary>How do I handle database connections in Azu?</summary>
+
+Azu works with CQL (Crystal Query Language), which provides typed models and queries. Define the schema once,
 point models at it, and use them in endpoints:
 
 ```crystal
@@ -83,14 +103,22 @@ end
 
 See the [Database documentation](reference/database/cql-api.md) for the CQL API.
 
-**Q: Can I use Azu with existing Crystal libraries?**
+</details>
 
-A: Yes. Azu is a regular shard on top of `HTTP::Server`, so any Crystal library can be used in your endpoints and
+<details>
+
+<summary>Can I use Azu with existing Crystal libraries?</summary>
+
+Yes. Azu is a regular shard on top of `HTTP::Server`, so any Crystal library can be used in your endpoints and
 handlers.
 
-**Q: How do I handle authentication?**
+</details>
 
-A: Implement it as a handler that runs before the router, and reject unauthenticated requests there:
+<details>
+
+<summary>How do I handle authentication?</summary>
+
+Implement it as a handler that runs before the router, and reject unauthenticated requests there:
 
 ```crystal
 class AuthenticationHandler
@@ -125,23 +153,30 @@ MyApp.start [
 An array passed to `start` replaces the default handler stack, so list the handlers you still want. See
 [Create Custom Middleware](how-to/middleware/create-custom-middleware.md).
 
-**Q: How do I deploy Azu applications?**
+</details>
 
-A: Compile your application and deploy the binary, or a Docker image built from it:
+<details>
+
+<summary>How do I deploy Azu applications?</summary>
+
+Compile your application and deploy the binary, or a Docker image built from it:
 
 ```bash
 crystal build --release --no-debug src/my_app.cr
-scp my_app user@server:/opt/myapp/
 ```
 
 See [Deploy to Production](tutorials/deploying-to-production.md) and
 [Deploy with Docker](how-to/deployment/deploy-with-docker.md).
 
-## Common Issues
+</details>
 
-### Compilation Issues
+## Common issues
 
-**Problem: "can't infer type" errors**
+### Compilation issues
+
+<details>
+
+<summary>"can't infer type" errors</summary>
 
 Crystal infers most types, but the endpoint macros need the request and response types spelled out:
 
@@ -179,7 +214,11 @@ struct CreateUserEndpoint
 end
 ```
 
-**Problem: Template not found**
+</details>
+
+<details>
+
+<summary>Template not found</summary>
 
 ```text
 Error: Missing template: users/show.jinja
@@ -201,9 +240,13 @@ end
 
 `templates.path=` adds a directory to the search path. See [Render HTML Templates](how-to/templates/render-html-templates.md).
 
-### Runtime Issues
+</details>
 
-**Problem: WebSocket connections not working**
+### Runtime issues
+
+<details>
+
+<summary>WebSocket connections not working</summary>
 
 **Symptoms:**
 
@@ -261,7 +304,11 @@ end
 const ws = new WebSocket("ws://localhost:4000/websocket");
 ```
 
-**Problem: Request validation not working**
+</details>
+
+<details>
+
+<summary>Request validation not working</summary>
 
 **Symptoms:**
 
@@ -293,7 +340,11 @@ end
 
 See [Validate Requests](how-to/validation/validate-requests.md).
 
-**Problem: File uploads not working**
+</details>
+
+<details>
+
+<summary>File uploads not working</summary>
 
 **Symptoms:**
 
@@ -341,9 +392,13 @@ end
 
 See [Handle File Uploads](how-to/file-handling/handle-file-uploads.md).
 
-### Performance Issues
+</details>
 
-**Problem: Slow response times**
+### Performance issues
+
+<details>
+
+<summary>Slow response times</summary>
 
 **Diagnosis:**
 
@@ -354,27 +409,14 @@ See [Handle File Uploads](how-to/file-handling/handle-file-uploads.md).
    do not run in parallel on one thread, so a long CPU-bound loop in an endpoint delays every other request on
    that thread.
 
-3. Time a section of code:
-
-```crystal
-struct SlowEndpoint
-  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
-
-  get "/slow"
-
-  def call : Azu::Response::Empty
-    started = Time.instant
-    sleep 10.milliseconds
-    Log.for("slow").info { "took #{(Time.instant - started).total_milliseconds.round(1)}ms" }
-    Azu::Response::Empty.new
-  end
-end
-```
-
 See [Optimize Endpoints](how-to/performance/optimize-endpoints.md) and
 [Optimize Database Queries](how-to/performance/optimize-database-queries.md).
 
-**Problem: Memory leaks**
+</details>
+
+<details>
+
+<summary>Memory leaks</summary>
 
 **Common causes:**
 
@@ -398,9 +440,13 @@ end
 2. Do not keep sockets yourself: broadcast through [`Azu::PubSub`](how-to/real-time/broadcast-messages.md), which
    drops a channel when its connection closes.
 
-### Development Issues
+</details>
 
-**Problem: Hot reload not working**
+### Development issues
+
+<details>
+
+<summary>Hot reload not working</summary>
 
 Template hot reload is on in the development, test and pipeline environments and off elsewhere. Set it explicitly
 (or set `TEMPLATE_HOT_RELOAD=true`):
@@ -418,7 +464,11 @@ end
 It watches the files in the configured template directories, so check that `templates.path` points at the
 directory you are editing. See [Enable Hot Reload](how-to/templates/enable-hot-reload.md).
 
-**Problem: CORS issues in development**
+</details>
+
+<details>
+
+<summary>CORS issues in development</summary>
 
 **Symptoms:**
 
@@ -444,9 +494,11 @@ MyApp.start [
 ] of HTTP::Handler
 ```
 
-## Debugging Tips
+</details>
 
-### Enable Debug Logging
+## Debugging tips
+
+### Enable debug logging
 
 Requiring `azu` does not configure `Log`. Call `Azu.setup_logging` once at boot to get Azu's format at `Debug`
 level:
@@ -456,7 +508,7 @@ Azu.setup_logging
 Log.for("my_app").debug { "visible" }
 ```
 
-### Inspect Request Data
+### Inspect request data
 
 ```crystal
 struct InspectEndpoint
@@ -473,24 +525,7 @@ struct InspectEndpoint
 end
 ```
 
-### Use Crystal's Built-in Debugging
-
-`pp` and `p` are in the prelude:
-
-```crystal
-struct DebugEndpoint
-  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
-
-  get "/debug"
-
-  def call : Azu::Response::Empty
-    pp params.to_h
-    Azu::Response::Empty.new
-  end
-end
-```
-
-### Test Individual Components
+### Test individual components
 
 A request contract can be built from a parameter string, the same way the router builds it:
 
@@ -513,43 +548,22 @@ puts request.valid?
 puts request.name
 ```
 
-## Performance Troubleshooting
+## Performance troubleshooting
 
-### Profile Your Application
-
-```crystal
-require "benchmark"
-
-time = Benchmark.realtime do
-  # Your code here
-  1000.times { "x" * 100 }
-end
-
-puts "took #{time.total_milliseconds}ms"
-```
+### Profile your application
 
 For a running development server, `require "azu/dev"` adds the profiler and dashboard (see
-[Breaking Changes](reference/breaking-changes.md)).
+[Monitor performance](how-to/performance/monitor-performance.md)).
 
-### Monitor Memory Usage
+## Getting help
 
-```bash
-# Check memory usage during runtime
-ps aux | grep my_app
-
-# Compiler statistics
-crystal run --stats src/my_app.cr
-```
-
-## Getting Help
-
-### Community Resources
+### Community resources
 
 - **GitHub Issues**: [azutoolkit/azu/issues](https://github.com/azutoolkit/azu/issues)
 - **Crystal Community**: [Crystal Language Forum](https://forum.crystal-lang.org/)
 - **Documentation**: [Official Azu Docs](https://azutopia.gitbook.io/azu/)
 
-### Reporting Issues
+### Reporting issues
 
 When reporting issues, include:
 
@@ -558,7 +572,3 @@ When reporting issues, include:
 3. **Minimal reproduction case**
 4. **Error messages and stack traces**
 5. **Environment details** (OS, deployment method)
-
----
-
-**Still need help?** Check the [Contributing Guide](contributing/setup.md) for information on getting support from the community.

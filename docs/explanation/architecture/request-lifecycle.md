@@ -1,8 +1,11 @@
-# Request Lifecycle
+---
+description: An HTTP request passes through an Azu application in eight stages, from the socket to the response.
+---
 
-This document follows an HTTP request through an Azu application, from the socket to the response. Every step
-below was observed by running a real request through an in-process server; the program at the end prints the
-order.
+# Request lifecycle
+
+The program in
+[Watching the lifecycle](#watching-the-lifecycle) prints the order.
 
 ## Overview
 
@@ -20,9 +23,9 @@ order.
 `HTTP::Server` from the standard library accepts the TCP connection, parses the request line, headers and a lazily
 read body, and builds an `HTTP::Server::Context`. Azu does nothing here. Azu's `start` binds the listener (with TLS
 when `config.tls?`) and installs the SIGINT and SIGTERM handlers described under
-[graceful shutdown](../../reference/breaking-changes.md).
+[graceful shutdown](../../how-to/deployment/graceful-shutdown.md).
 
-## Stage 2: App Scope
+## Stage 2: App scope
 
 The first handler of every chain is `Azu::App::Scope`, added by `App#server`, not by you. It
 
@@ -30,7 +33,7 @@ The first handler of every chain is `Azu::App::Scope`, added by `App#server`, no
 - answers `503` with `Connection: close` and `Retry-After: 1` once the app is shutting down,
 - makes the app's `Configuration` current for this fiber, which is what `Azu.current_config` and `Azu.cache` read.
 
-## Stage 3: Handler Chain
+## Stage 3: Handler chain
 
 The handlers you passed to `start` (or `Azu::App#default_handlers`: `RequestId`, `Logger`, `Rescuer`,
 `SecurityHeaders`, `Static`) run in array order. Each one
@@ -62,7 +65,7 @@ After the last handler the app's router takes the request. `Router#process`
 
 1. applies the method override: a `POST` may ask to be handled as `PUT`, `PATCH` or `DELETE` with an
    `X-HTTP-Method-Override` header, a `_method` query parameter or a `_method` field of a urlencoded form (a `POST`
-   with `X-HTTP-Method-Override: DELETE` reached the `DELETE` endpoint; an override to `GET` is ignored),
+   with `X-HTTP-Method-Override: DELETE` reaches the `DELETE` endpoint; an override to `GET` is ignored),
 2. looks the method and path up in a radix tree (the `radix` shard); WebSocket upgrades are looked up under a `/ws` prefix,
 3. answers an unmatched request itself with a `404` error response in the format of the `Accept` header, without
    raising, and logs the miss from the `Router` source,
@@ -73,7 +76,7 @@ After the last handler the app's router takes the request. `Router#process`
 Routes come from the endpoint macros (`get "/users/:id"` in the endpoint body, registered on `Azu::App.default`) or
 from `app.routes { get "/users/:id", UserEndpoint }`, which also offers `scope` and `mount`.
 
-## Stage 5: The Request Contract
+## Stage 5: The request contract
 
 Inside the endpoint, before `call`, Azu builds the request object from the JSON body or, otherwise, from the
 form-encoded body and query string, and validates it. For a contract with no fields, no rules and no methods of its
@@ -94,17 +97,19 @@ struct CreateUserRequest
 end
 ```
 
-- A body that cannot become the request type (malformed JSON, `"abc"` for an `Int32`, in JSON or in a form) raises
-  `Azu::Response::BadRequest`: `400`.
-- A request that breaks a validation raises `Azu::Response::ValidationError`: `422` with an
-  RFC 7807 problem body listing the failing fields (`Content-Type: application/problem+json` when the client's `Accept` names it,
-  `application/json` otherwise).
+- A body that cannot become the request type (malformed JSON, `"abc"` for an `Int32`, in JSON or in a form) is
+  answered with `400` (`Azu::Response::BadRequest`).
+- A request that breaks a validation is answered with `422` (`Azu::Response::ValidationError`) and a body
+  listing the failing fields, in the format of the request's `Accept` header (see
+  [Error types](../../reference/errors/error-types.md)).
 - Otherwise the parsed request is available in `call` as `create_user_request`, parsed once per call.
 
-Both errors are raised before `call`, so an endpoint never sees an invalid request. They are answered by `Rescuer`.
-An endpoint declared with the bare `Azu::Request` module has no contract and skips this stage.
+Both checks run before `call`, so `call` never sees an invalid request. The endpoint answers both errors itself:
+neither `Rescuer` nor the router does, and a handler that rescues `Azu::Response::ValidationError` never sees them.
+The handlers around the endpoint see the `400` or `422` on the way out like any other status. An endpoint declared
+with the bare `Azu::Request` module has no contract and skips this stage.
 
-## Stage 6: Endpoint Execution
+## Stage 6: Endpoint execution
 
 `call` runs with `params` (path parameters, query string and form body), `context` (the whole
 `HTTP::Server::Context`) and the typed request. It returns an `Azu::Response`:
@@ -151,10 +156,11 @@ that logs or measures work on behalf of the request.
 
 The endpoint writes what `render` returns to `context.response`. Set the content type in `call` with
 `content_type`, the status with `status` and headers with `header`. A small body stays buffered until the
-endpoint returns. A large one (100 000 bytes in a test) starts leaving as it is written, after which the head
-(status and headers) can no longer change, so a handler's header set after `call_next` is lost.
+endpoint returns. A body of 32 KiB or more (the size of the standard library's output buffer) starts leaving as it
+is written, after which the head (status and headers) can no longer change, so a handler's header set after
+`call_next` is lost.
 
-## Stage 8: Handler Chain, in Reverse
+## Stage 8: Handler chain, in reverse
 
 The response travels back out through the handlers: the code after each `call_next` runs, innermost first.
 
@@ -162,16 +168,13 @@ An exception does not unwind politely. It skips the code after `call_next` of ev
 the `Rescuer` that catches it, so a handler that must always run its second half (a timer, a resource) uses
 `ensure`. `Logger` does, which is why it logs requests that raised.
 
-## Error Handling
+## Error handling
 
-```text
-exception raised in the endpoint (or a handler, or the contract)
-        ↓
-bubbles up through the handlers after Rescuer, skipping their code after call_next
-        ↓
-Rescuer catches it and writes the error response
-        ↓
-the handlers before Rescuer (Logger, RequestId) see a normal return with the error status
+```mermaid
+flowchart TD
+    raised["exception raised in the endpoint's call (or in a handler)"] --> bubbles["bubbles up through the handlers after Rescuer, skipping their code after call_next"]
+    bubbles --> rescuer["Rescuer catches it and writes the error response"]
+    rescuer --> before["the handlers before Rescuer (Logger, RequestId) see a normal return with the error status"]
 ```
 
 | Raised | Status |
@@ -184,10 +187,13 @@ the handlers before Rescuer (Logger, RequestId) see a normal return with the err
 | any other `Response::Error` | its own status |
 | any other exception | 500 |
 
-The full table is in the [handler reference](../../reference/handlers/built-in.md#handlerrescuer). A handler placed
-before `Rescuer` is not protected by it.
+The full table is in the [handler reference](../../reference/handlers/built-in.md#handlerrescuer).
 
-## Watching the Lifecycle
+{% hint style="warning" %}
+A handler placed before `Rescuer` is not protected by it.
+{% endhint %}
+
+## Watching the lifecycle
 
 This program serves one endpoint behind two tracing handlers with `Rescuer` between them and sends three
 requests: a valid one, one that breaks the contract and one with a body that is not JSON.
@@ -263,21 +269,22 @@ end
 server.close
 ```
 
-Its output (the log lines `Rescuer` writes for the two errors are left out):
+Its output:
 
 ```text
 200 {"hello":"Ada"}
 A in > B in > endpoint call > render > B out (200) > A out (200)
 422 {"type":"about:blank","title":"Validatio
-A in > B in > A out (422)
+A in > B in > B out (422) > A out (422)
 400 {"type":"about:blank","title":"Bad Reque
-A in > B in > A out (400)
+A in > B in > B out (400) > A out (400)
 ```
 
-In the failing requests `B out` is missing: the exception skipped it on its way to `Rescuer`, while `A`, outside
-`Rescuer`, saw the `422` and the `400`.
+In the failing requests `call` and `render` never run, but nothing is raised past the endpoint: it answers the `422`
+and the `400` itself and returns normally. So every handler, `B` inside `Rescuer` as well as `A` outside it, sees
+the error status on the way out, and `Rescuer` has nothing to catch.
 
-## WebSocket Lifecycle
+## WebSocket lifecycle
 
 A WebSocket channel is routed like an endpoint (`ws "/chat"`); the upgrade request goes through the same handler
 chain and router, and the router hands it to the channel's upgrader. The channel's callbacks then run:
@@ -292,12 +299,11 @@ on_close     when the connection ends
 
 See the [channel reference](../../reference/api/channel.md).
 
-## What Costs Time
+## What costs time
 
-Where the time of a request goes is measured, not estimated, in
-[Performance Design](performance-design.md#measured).
+[Performance Design](performance-design.md#measured) gives the time routing and a loopback request take.
 
-## See Also
+## See also
 
 - [Architecture Overview](overview.md)
 - [Handler Reference](../../reference/handlers/built-in.md)

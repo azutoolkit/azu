@@ -1,12 +1,19 @@
-# How to Test WebSockets
+---
+description: Test `Azu::Channel`s and Spark live components.
+---
 
-This guide shows how to test `Azu::Channel`s and Spark live components. Channels are tested over a real
-socket: an in-process `HTTP::Server` on a free port and `HTTP::WebSocket` as the client. That exercises
-the handshake, the origin check, your callbacks and the PubSub wiring together. Components can also be
-tested without any socket through `Azu::Spark::Testing`.
+# Test WebSockets
 
-Azu has no WebSocket test helpers beyond `Azu::Spark::Testing`; the client below is about twenty lines
-you keep in `spec/spec_helper.cr`.
+Channels are tested over a real socket: an in-process `HTTP::Server` on a free port and `HTTP::WebSocket` as the
+client. That exercises the handshake, the origin check, your callbacks and the PubSub wiring together. Components
+can also be tested without any socket through `Azu::Spark::Testing`.
+
+{% hint style="info" %}
+Specs normally use `Azu::Testing::Client#connect` (see [Testing](../../reference/api/testing.md#websocket)),
+which performs the handshake through the app and exchanges frames over in-process pipes. The `WsClient` below,
+which you keep in `spec/spec_helper.cr`, connects to a real port instead, which also exercises `HTTP::Server`'s
+socket and connection handling.
+{% endhint %}
 
 ## A client for specs
 
@@ -502,13 +509,6 @@ The token is signed with the Spark secret of the app that serves the connection.
 that is automatic; a spec that calls `Azu::Spark.render` itself does it in the scope of the app, as above,
 because every `Azu::App` has its own configuration. Outside production and staging a random secret is
 generated per configuration, so the spec needs no setup.
-
-## Running the specs
-
-```bash
-crystal spec spec/channels
-crystal spec spec/channels/room_channel_spec.cr:55
-```
 
 ## See also
 

@@ -1,16 +1,20 @@
-# CQL API Reference
+---
+description: "The CQL ORM as Azu apps use it: schemas, adapters, tables, models, CRUD, associations, callbacks, scopes, transactions and errors."
+---
+
+# CQL API
 
 CQL (Crystal Query Language) is the ORM used with Azu for database operations. It is a separate shard
 ([`azutoolkit/cql`](https://github.com/azutoolkit/cql)): add `cql` and a driver shard (`sqlite3`, `pg` or `mysql`) to your
 `shard.yml`. Azu core does not depend on it; the optional bridge `require "azu/cql"` connects CQL to the dev dashboard
 (see [Database dashboard](../database-dashboard.md)).
 
-This page lists the API as it exists in the CQL release Azu is tested against (0.0.536; the bridge specs also pass on 0.0.604, which adds `CQL.build_schema`, `CQL.build_migrator` and SQLite defaults). For task-oriented guides see
+This page describes the CQL release Azu installs: its `shard.yml` accepts `cql >= 0.0.609`, so `shards install` takes the newest one, and CI compiles the examples below against it. For task-oriented guides see
 [Define Schema](../../how-to/database/define-schema.md), [Create Models](../../how-to/database/create-models.md),
 [Query Data](../../how-to/database/query-data.md), [Handle Transactions](../../how-to/database/handle-transactions.md)
 and [Run Migrations](../../how-to/database/run-migrations.md).
 
-## Schema Definition
+## Schema definition
 
 ### CQL::Schema.define
 
@@ -57,7 +61,7 @@ MyDB.build   # CREATE TABLE IF NOT EXISTS for every table
 The URI query string carries crystal-db pool options such as `initial_pool_size`, `max_pool_size` and
 `checkout_timeout`.
 
-## Table Definition
+## Table definition
 
 Inside `table :name do ... end`:
 
@@ -74,10 +78,10 @@ Inside `table :name do ... end`:
 **Column types:** `String`, `Int32`, `Int64`, `UInt32`, `UInt64`, `Float32`, `Float64`, `Bool`, `Time`, `Time::Span`,
 `JSON::Any`, `Slice(UInt8)`, `UUID`. Columns are `NOT NULL` unless `null: true`; `default:` takes a literal value.
 
-`index [...]` and `index: true` in a `table` block do not create indexes. Use `schema.alter(:users) { create_index :name, [:col] }`
-or a migration.
+`index [:a, :b], unique:, name:` and a column's `index: true` declare an index; `create!` and `Schema#build` create it
+after the table, named `idx_<table>_<columns>` unless `name:` is given.
 
-## Model Definition
+## Model definition
 
 ### CQL::ActiveRecord::Model
 
@@ -118,7 +122,7 @@ User.table     # => :users
 `CQL::Model` is an alias of `CQL::ActiveRecord::Model`. The type argument is the primary key type (`Int32`, `Int64`,
 `UUID`); the model gets `id : Pk?`, `id!`, `persisted?` and `new_record?`. Use `class`, not `struct`.
 
-## CRUD Operations
+## CRUD operations
 
 ```crystal
 require "cql"
@@ -177,12 +181,16 @@ User.delete_by!(active: false)                  # by attributes
 User.where(active: false).delete_all            # loads and delete!s each record
 ```
 
+{% hint style="warning" %}
 **`create!(**fields)` and `update!` write straight to the database**: they do not validate and do not run callbacks.
-Build the record with `new` and call `save`/`save!` for the full lifecycle. `save`, `save!` and the instance `create!`
+Build the record with `new` and call `save`/`save!` for the full lifecycle.
+{% endhint %}
+
+`save`, `save!` and the instance `create!`
 raise `CQL::ActiveRecord::Validations::ValidationError` for an invalid record; `save` returns `false` only when a
 callback returns `false`.
 
-## Query Methods
+## Query methods
 
 Model-level methods start a `QueryBuilder`; the complete list with examples is in
 [Query Methods Reference](query-methods.md):
@@ -296,7 +304,9 @@ Post.find!(1_i64).user             # User?
 - `belongs_to assoc, Class, foreign_key, optional:, cache:` adds `assoc`, `assoc=`, `build_assoc`, `create_assoc`.
 - `many_to_many name, Class, join_through: JoinModel, foreign_key:, association_foreign_key:` adds the collection and
   `name_ids`, `name_count`, `add_<singular>`, `remove_<singular>`.
-- `dependent:` is accepted but not applied by `delete!`; declare `on_delete: :cascade` on the foreign key.
+- `delete!` applies `dependent:` in the same transaction as the record's own delete. `has_many` takes `:destroy`,
+  `:delete_all`, `:nullify` or `:restrict_with_error` (`delete!` raises `RelationError` and deletes nothing while
+  records exist); `has_one` takes `:destroy`, `:delete` or `:nullify`.
 - A collection's `where`, `limit` and `order` return a `CQL::Query`: finish with `.all(Post)`.
 
 ## Callbacks
@@ -441,7 +451,7 @@ An exception rolls back and propagates; `DB::Rollback` rolls back quietly and th
 isolation-level or read-only options and no `after_commit`; see
 [Handle Transactions](../../how-to/database/handle-transactions.md).
 
-## Raw Queries
+## Raw queries
 
 ```crystal
 require "cql"
@@ -472,7 +482,7 @@ MyDB.exec("DELETE FROM users WHERE active = 0")
 names = MyDB.query.from(:users).select(:name).where(active: true).all(as: {String})
 ```
 
-## Optional Modules
+## Optional modules
 
 ```crystal
 require "cql"
@@ -551,11 +561,13 @@ end
 | `CQL::Migrator::Error` | migration failures |
 | `DB::Error` and subclasses | driver errors: constraint violations, lost connections |
 
-Azu does not translate CQL errors into HTTP responses. Rescue them in the endpoint (or a handler) and raise an
-`Azu::Response` error, for example `Azu::Response::NotFound` when `find` returns `nil`; see
-[Working with Databases](../../tutorials/working-with-databases.md).
+With `require "azu/cql"`, `model.valid_or_422!` raises `Azu::Response::ValidationError` (422) for an invalid record,
+and `Azu::CQL::Middleware` turns an escaping `CQL::RecordInvalid`, `CQL::ValidationError` or model validation error
+into that 422 (see [CQL bridge](../api/cql-bridge.md)). Azu translates no other CQL error: rescue it in the endpoint
+(or a handler) and raise an `Azu::Response` error, for example `Azu::Response::NotFound` when `find` returns `nil`;
+see [Working with Databases](../../tutorials/working-with-databases.md).
 
-## See Also
+## See also
 
 - [Query Methods Reference](query-methods.md)
 - [Validations Reference](validations.md)

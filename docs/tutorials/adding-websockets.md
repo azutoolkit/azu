@@ -1,8 +1,10 @@
+---
+description: Add real-time features to your Azu application using WebSocket channels.
+---
+
 # Adding WebSockets
 
-This tutorial teaches you how to add real-time features to your Azu application using WebSocket channels.
-
-## What You'll Build
+## What you'll build
 
 By the end of this tutorial, you'll have:
 
@@ -19,7 +21,7 @@ By the end of this tutorial, you'll have:
 - Crystal 1.22.1 or newer
 - Basic understanding of WebSockets
 
-## Step 1: Understanding WebSocket Channels
+## Step 1: Understanding WebSocket channels
 
 An HTTP request is answered and forgotten. A WebSocket stays open, so the server can push messages
 whenever something happens. In Azu a **channel** handles one connection:
@@ -30,10 +32,11 @@ whenever something happens. In Azu a **channel** handles one connection:
 - `send` writes to this client. `subscribe` and `broadcast` use a **topic**: everything broadcast to a
   topic reaches every connection subscribed to it (see `Azu::PubSub`).
 
-## Step 2: Create a Notification Channel
+## Step 2: Create a notification channel
 
 Create `src/channels/notification_channel.cr`:
 
+{% code title="src/channels/notification_channel.cr" %}
 ```crystal
 class NotificationChannel < Azu::Channel
   ws "/notifications"
@@ -60,17 +63,19 @@ class NotificationChannel < Azu::Channel
   end
 end
 ```
+{% endcode %}
 
 `ws "/notifications"` registers the route when the class is defined. Because the channel subscribes to
 the `notifications` topic, it receives every message broadcast to it, and Azu releases the subscription
 when the connection closes.
 
-## Step 3: Add Broadcasting to Your API
+## Step 3: Add broadcasting to your API
 
 Any code can broadcast to the topic. Here a `POST /users` endpoint announces every user it creates.
 
 Create `src/endpoints/create_user_endpoint.cr`:
 
+{% code title="src/endpoints/create_user_endpoint.cr" %}
 ```crystal
 struct CreateUserRequest
   include Azu::Request
@@ -116,39 +121,39 @@ struct CreateUserEndpoint
   end
 end
 ```
+{% endcode %}
 
 A request that fails validation never reaches `call`: Azu answers `422` with the validation errors, so
 nothing is broadcast for bad input. `Azu::PubSub.broadcast` encodes a non-string payload as JSON.
 
-## Step 4: Update the Main Application
+## Step 4: Update the main application
 
 Channels and endpoints register themselves with the router when they are defined, so the application
 only has to load their files and start. In `src/user_api.cr`, add `require "./channels/*"` next to the
 other requires, then:
 
+{% code title="src/user_api.cr" %}
 ```crystal
 require "azu"
 
 module UserAPI
   include Azu
-
-  configure do |config|
-    config.port = ENV.fetch("PORT", "4000").to_i
-    config.host = ENV.fetch("HOST", "0.0.0.0")
-  end
 end
 
 # Same default stack as Azu.start: request id, logging, error pages, security headers and static files
 UserAPI.start
 ```
+{% endcode %}
 
 `UserAPI.start` without arguments uses the default handler stack, which already serves files from
-`public/` (the next step) and falls through to the router for everything else.
+`public/` (the next step) and falls through to the router for everything else. Azu reads `PORT` (4000 by
+default) and `HOST` (`127.0.0.1` in development, `0.0.0.0` in other environments) from the environment.
 
-## Step 5: Create a Client Page
+## Step 5: Create a client page
 
 Create `public/index.html`:
 
+{% code title="public/index.html" %}
 ```html
 <!DOCTYPE html>
 <html>
@@ -187,15 +192,18 @@ Create `public/index.html`:
 </body>
 </html>
 ```
+{% endcode %}
 
+{% hint style="info" %}
 The page opens its own origin, which is what Azu's origin check accepts. To allow a page served from
 another origin, list it in `Azu::CONFIG.websocket.allowed_origins`.
+{% endhint %}
 
-## Step 6: Serve the Page
+## Step 6: Serve the page
 
 The default stack's static handler serves `public/index.html` for `/`. Nothing to add. If you pass your
-own handler array to `start`, include `Azu::Handler::Static.new(fallthrough: true)` so that requests for
-files are served and everything else reaches the router:
+own handler array to `start`, include `Azu::Handler::Static.new`: it serves the files and passes everything
+else on to the router (`fallthrough` is `true` by default):
 
 ```crystal
 require "azu"
@@ -206,13 +214,13 @@ end
 
 UserAPI.start [
   Azu::Handler::RequestId.new,
-  Azu::Handler::Rescuer.new,
   Azu::Handler::Logger.new,
-  Azu::Handler::Static.new(fallthrough: true),
+  Azu::Handler::Rescuer.new,
+  Azu::Handler::Static.new,
 ] of HTTP::Handler
 ```
 
-## Step 7: Test Real-time Updates
+## Step 7: Test real-time updates
 
 1. Start the server:
 
@@ -232,10 +240,11 @@ UserAPI.start [
 
 4. The notification appears in the browser as soon as the request returns.
 
-## Creating a Chat Room
+## Creating a chat room
 
 For rooms, make the room part of the URL and the topic. Create `src/channels/chat_channel.cr`:
 
+{% code title="src/channels/chat_channel.cr" %}
 ```crystal
 class ChatChannel < Azu::Channel
   ws "/chat/:room"
@@ -276,6 +285,7 @@ class ChatChannel < Azu::Channel
   end
 end
 ```
+{% endcode %}
 
 - Two clients on `/chat/general` talk to each other; a client on `/chat/random` hears nothing of it.
 - The sender receives its own message too, which keeps every client's view identical. A client that
@@ -297,33 +307,16 @@ sleep 200.milliseconds
 socket.close
 ```
 
-## Key Concepts Learned
+## Next steps
 
-### Channel lifecycle
+{% content-ref url="working-with-databases.md" %}
+[working-with-databases.md](working-with-databases.md)
+{% endcontent-ref %}
 
-```text
-on_connect -> on_message / on_binary / on_ping / on_pong (per frame) -> on_close
-```
+{% content-ref url="building-live-components.md" %}
+[building-live-components.md](building-live-components.md)
+{% endcontent-ref %}
 
-### Broadcasting patterns
-
-- **To everyone subscribed to a topic, from a channel:** `broadcast "notifications", message`.
-- **From anywhere in the application:** `Azu::PubSub.broadcast("notifications", {type: "user_created"})`.
-- **To one room:** make the room part of the topic name, `broadcast "chat:#{room}", message`.
-
-### Message protocol
-
-Use a `type` field to route messages:
-
-```json
-{"type": "message", "user": "a1b2", "text": "Hello!"}
-{"type": "joined", "user": "a1b2"}
-```
-
-## Next Steps
-
-You've added real-time features to your API. Continue learning with:
-
-- [Working with Databases](working-with-databases.md) - Persist data
-- [Building Live Components](building-live-components.md) - Server-rendered UI that updates live
-- [Testing Your App](testing-your-app.md) - Test your WebSocket channels
+{% content-ref url="testing-your-app.md" %}
+[testing-your-app.md](testing-your-app.md)
+{% endcontent-ref %}

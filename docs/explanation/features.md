@@ -1,6 +1,10 @@
+---
+description: What Azu ships today, grouped by what you are trying to do, with a link to the guide or reference for each.
+---
+
 # Everything in the box
 
-This page lists what Azu ships today, grouped by what you are trying to do, with a link to the guide or reference for each. A feature marked **opt-in** needs its own `require`; `require "azu"` alone does not load it. Azu is 0.x software: [breaking changes](../reference/breaking-changes.md) are listed per release.
+A feature marked **opt-in** needs its own `require`; `require "azu"` alone does not load it. Azu is 0.x software: [breaking changes](../reference/breaking-changes.md) are listed per release.
 
 ## Routing and endpoints
 
@@ -14,7 +18,7 @@ This page lists what Azu ships today, grouped by what you are trying to do, with
 
 - **Request contracts.** A struct that includes `Azu::Request` is built from the path, query string, form or JSON body, and validated before your endpoint runs. [Request](../reference/api/request.md).
 - **Validation rules.** `presence`, `required`, `size`, `match`, `in`, `exclude`, `eq`, `gt`, `gte`, `lt` and `lte`, with custom messages. [Validate requests](../how-to/validation/validate-requests.md).
-- **Problem documents.** A failed contract answers `422` with the failing fields, as RFC 7807 JSON. [Handle validation errors](../how-to/validation/handle-validation-errors.md).
+- **Problem documents.** The endpoint answers a failed contract with `422` and the failing fields, as RFC 7807 JSON when the request accepts JSON. [Handle validation errors](../how-to/validation/handle-validation-errors.md).
 - **Parameters and uploads.** Typed access to route, query and body parameters, and multipart uploads with size limits. [Handle parameters](../how-to/endpoints/handle-parameters.md), [Handle file uploads](../how-to/file-handling/handle-file-uploads.md).
 
 ## Responses and errors
@@ -27,7 +31,7 @@ This page lists what Azu ships today, grouped by what you are trying to do, with
 ## Real-time
 
 - **WebSocket channels.** `Azu::Channel` classes with connect, message and close callbacks, limits on message size and origin. [Channel](../reference/api/channel.md), [Create a WebSocket channel](../how-to/real-time/create-websocket-channel.md).
-- **Pub/sub.** `Azu::PubSub` broadcasts to topics in memory, or through Redis across processes. [Broadcast messages](../how-to/real-time/broadcast-messages.md), [Scale real-time features out](../how-to/deployment/scale-out-realtime.md).
+- **Pub/sub.** `Azu::PubSub` broadcasts to topics in memory, or through Redis across processes. [Broadcast messages](../how-to/real-time/broadcast-messages.md), [Real-time across processes](../how-to/deployment/scale-horizontally.md#real-time-across-processes).
 - **Presence.** Track who is in a topic across nodes and subscribe to joins and leaves. [Presence](../reference/api/presence.md).
 - **Spark live views.** Server-rendered Spark components (`Azu::Spark::Component`) with `prop`, `state` and `event def`; the browser sends events over a WebSocket and gets back only the HTML that changed, with reconnect and rehydration. [Build a live component](../how-to/real-time/build-live-component.md), [Spark live views](spark-live-views.md), [Spark client](../reference/spark-client.md).
 - **Spark security and limits.** A component can only be joined with a signed, expiring token (`SPARK_SECRET` is required in production and staging), reconnect snapshots are signed and size limited, and each connection has an event rate limiter and a frame size limit. [Spark live views](spark-live-views.md#security-model).
@@ -59,11 +63,11 @@ This page lists what Azu ships today, grouped by what you are trying to do, with
 - **Graceful shutdown.** On SIGINT or SIGTERM Azu refuses new requests, closes WebSockets with a close frame and waits for requests in flight. [Shut down gracefully](../how-to/deployment/graceful-shutdown.md).
 - **Instrumentation.** `Azu::Instrumentation` is the hook that metrics and APM code plug into; without a subscriber it costs a nil check. [Performance design](architecture/performance-design.md).
 - **Injectable clock.** `Azu::Clock` drives every TTL and window, so specs advance time instead of sleeping. [Testing reference](../reference/api/testing.md).
-- **Benchmark suite.** A reproducible comparison with other Crystal frameworks. [benchmark/README.md](../../benchmark/README.md).
+- **Benchmark suite.** A reproducible comparison with other Crystal frameworks. [benchmark/README.md](https://github.com/azutoolkit/azu/blob/master/benchmark/README.md).
 
 ## Developer experience
 
-- **Project generator.** The [Azu CLI](https://github.com/azutoolkit/azu_cli) creates projects and generates models, scaffolds, endpoints, channels and authentication, and has `azu dev`, `azu routes` and `azu doctor`. It is a separate tool. [Get started in 5 minutes](../../README.md#get-started-in-5-minutes).
+- **Project generator.** The [Azu CLI](https://github.com/azutoolkit/azu_cli) creates projects and generates models, scaffolds, endpoints, channels and authentication, and has `azu dev`, `azu routes` and `azu doctor`. It is a separate tool. [Get started in 5 minutes](https://github.com/azutoolkit/azu#get-started-in-5-minutes).
 - **Dev dashboard (opt-in: `azu/dev`).** Routes, configuration, logs, request timings, cache and component metrics in the browser, in development only. [Getting started](../tutorials/getting-started.md#5-the-development-dashboard), [Performance design](architecture/performance-design.md).
 - **SQL and N+1 insight (opt-in: `azu/cql`).** Every CQL query is tied to the request that ran it, with slow-query and N+1 detection and a SQL playground in the dashboard. [CQL bridge](../reference/api/cql-bridge.md), [Database dashboard](../reference/database-dashboard.md).
 - **Test client (opt-in: `azu/testing`).** Sends requests through the real handler chain and router, without a socket, and drives WebSockets and Spark components. [Testing](../reference/api/testing.md), [Test endpoints](../how-to/testing/test-endpoints.md), [Test WebSockets](../how-to/testing/test-websockets.md).

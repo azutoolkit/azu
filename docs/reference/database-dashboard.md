@@ -1,4 +1,8 @@
-# Database dashboard (CQL integration)
+---
+description: How the dev dashboard's Database tab records every SQL statement an Azu app runs, and how to set it up with CQL.
+---
+
+# Database dashboard
 
 The dev dashboard's **Database** tab shows every SQL statement an Azu app runs: KPIs, N+1 analysis,
 recent queries tagged with the request that ran them, slow queries, query patterns, transactions,
@@ -95,7 +99,7 @@ end
 User.where(name: "Ada").all
 ```
 
-That is the whole setup (the three files are shown together so the example compiles on its own). Models, queries,
+That is the whole setup (three files, shown here as one block). Models, queries,
 transactions and migrations are plain CQL, and every query shows up in the dashboard tagged with the request that
 ran it. A runnable PostgreSQL example laid out like this is
 [`playground/azu_cql_postgres`](https://github.com/azutoolkit/azu/tree/master/playground/azu_cql_postgres).
@@ -114,10 +118,9 @@ ran it. A runnable PostgreSQL example laid out like this is
 * **SQLite defaults.** For a `sqlite3://` URL taken from `CQL.config`, the `c.sqlite` settings (`journal_mode` WAL,
   `foreign_keys` on, `busy_timeout` 5000, `synchronous`, `cache_size`) are appended the same way, so the schema opens
   connections the way `CQL.build_schema` does. An explicit `uri` argument is used as given.
-  **Behaviour change:** before, such a schema ran with SQLite's own defaults (foreign keys off, no busy timeout).
-  Rows or fixtures that violate a foreign key now fail with `FOREIGN KEY constraint failed`. Opt out with
+  Rows or fixtures that violate a foreign key fail with `FOREIGN KEY constraint failed`. Opt out with
   `CQL.configure { |c| c.sqlite.foreign_keys = false }` (or `busy_timeout`, `journal_mode`, ...), or per URL with
-  `?foreign_keys=0`; parameters on the URL always win. `config.sqlite` exists since CQL 0.0.533.
+  `?foreign_keys=0`; parameters on the URL always win.
 * **Lazy connection.** The schema is created without opening a socket (`initial_pool_size=0`), so the app, console and tasks boot
   without a database and the first query connects. Turn it off with `Azu.configure { |c| c.database.lazy_connect = false }`
   (`AZU_DB_LAZY=false`), per schema with `Azu::CQL.schema(:app, lazy: false)`, or with `initial_pool_size` in the URL.
@@ -125,8 +128,7 @@ ran it. A runnable PostgreSQL example laid out like this is
 * **PostgreSQL runs on CQL's native engine by default.** For `postgres://` and `postgresql://` URLs the schema is built
   on `CQL::Postgres::EngineSource` (a `CQL::Postgres::AsyncEngine` pool: fiber-safe, prepared-statement cache, binary
   results, health-checked connections), so models, queries, `Model.transaction` and migrations use it and the `pg` shard is
-  not needed. It needs a CQL release that provides `CQL::Postgres::EngineSource`; older releases keep crystal-db's pool.
-  SQLite and MySQL are unchanged; `cockroachdb://` stays on crystal-db unless you ask for `driver: :engine`.
+  not needed. SQLite and MySQL use crystal-db; `cockroachdb://` stays on crystal-db unless you ask for `driver: :engine`.
   Opt out with `Azu::CQL.schema(:app, driver: :db)` or `AZU_CQL_DRIVER=db` (crystal-db's pool and whichever driver is
   registered; with `require "pg"` that is the `pg` shard). The argument wins over the variable. Pool settings from
   `CQL.config.pool` map to the engine's URL parameters: `pool.size` or `max_pool_size` become `pool_size`, an eager connection
@@ -150,15 +152,12 @@ CQL's types are also reachable under the Azu namespace (`Azu::CQL::Schema`,
 
 ## CQL on PostgreSQL: things to know
 
-* `User.create!(...)` needs a CQL release that includes the PostgreSQL fix (cql#13, newer than 0.0.536; checked on 0.0.604).
-  Older releases insert the row and then fail looking up id 0; build records with `User.new(...)` and `save!` there.
 * Use `Model(Int64)` with `primary :id, Int64`, and `class` for models.
-* Declare real indexes with `schema.alter(:users) { create_index :users_email, [:email], unique: true }`. `index:` inside
-  `schema.table` emits no SQL.
+* Indexes declared in `schema.table` (`index [...]`, a column's `index: true`) are created with the table.
 * `CQL::Migrator` writes the database URI into `src/schemas/app_schema.cr` while `auto_sync` is on; pass
   `MigratorConfig.new(auto_sync: false)`. Its tracking table is `cql_schema_migrations`.
 * Pass association foreign keys explicitly: `has_many :posts, Post, foreign_key: :user_id`.
-  `dependent:` is never applied (use `on_delete: :cascade` on the foreign key) and `preload` works for `has_many` only.
+  `delete!` applies `dependent:`, and `preload` works for `has_many`, `has_one` and `belongs_to`.
 * `CRYSTAL_ENV` must be set before CQL's configuration is first created: its environment defaults (pool sizes, SSL) are applied
   at that moment, not when `c.env` is assigned.
 

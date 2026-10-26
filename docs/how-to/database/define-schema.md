@@ -1,12 +1,14 @@
-# How to Define a Schema
+---
+description: Describe your database with CQL's schema DSL.
+---
 
-This guide shows you how to describe your database with CQL's schema DSL.
+# Define a schema
 
 CQL is a separate shard. Azu core does not depend on it, so add `cql` and a database driver (`sqlite3`, `pg` or
 `mysql`) to your `shard.yml` and `require` them before the schema file. To see queries in the dev dashboard, also
 `require "azu/cql"` (see [Database dashboard](../../reference/database-dashboard.md)).
 
-## Basic Schema Definition
+## Basic schema definition
 
 `CQL::Schema.define` takes a name, the adapter and the connection URI, and yields a block where tables are declared:
 
@@ -34,7 +36,7 @@ AppDB.build # CREATE TABLE IF NOT EXISTS for every table in the schema
 `build` runs `CREATE TABLE IF NOT EXISTS` for each table. For changes to existing databases use
 [migrations](run-migrations.md).
 
-## Column Types
+## Column types
 
 `column name, Type` accepts the Crystal types below. Every column is `NOT NULL` unless you pass `null: true`;
 there is no `String?` shorthand, nullability is a column option.
@@ -72,10 +74,10 @@ ProductsDB = CQL::Schema.define(:products, adapter: CQL::Adapter::SQLite, uri: "
 end
 ```
 
-Column options: `null:`, `default:` (a literal value, not a block), `unique:`, `size:` and `as:` (a different name in
-the database). `index: true` is accepted but creates nothing; see [Indexes](#indexes).
+Column options: `null:`, `default:` (a literal value, not a block), `unique:`, `size:`, `as:` (a different name in
+the database) and `index: true` (an index on the column; see [Indexes](#indexes)).
 
-### Primary Keys
+### Primary keys
 
 `primary` takes the column name and a key type (`Int32`, `Int64` or `UUID`). Integer keys auto increment:
 
@@ -100,7 +102,7 @@ end
 
 `timestamps` adds `created_at` and `updated_at`, both `NOT NULL` with the database's current time as default.
 
-## Foreign Keys
+## Foreign keys
 
 `foreign_key` takes the local column and the table it references (the referenced column defaults to the other
 table's primary key). `on_delete:` and `on_update:` accept `:no_action`, `:cascade`, `:restrict`, `:set_null` and
@@ -129,7 +131,7 @@ BlogDB = CQL::Schema.define(:blog, adapter: CQL::Adapter::SQLite, uri: "sqlite3:
 end
 ```
 
-### Join Tables
+### Join tables
 
 A composite foreign key pair needs one `foreign_key` per column:
 
@@ -183,9 +185,10 @@ end
 
 ## Indexes
 
-`index [...]` and `index: true` inside `table` only record the index on the table object: `build` does not emit
-`CREATE INDEX`. Create real indexes with `schema.alter`, which runs immediately, or in a
-[migration](run-migrations.md). A `unique: true` column option is a real `UNIQUE` constraint, so it is indexed.
+`index [...]` and the `index: true` column option declare an index that `build` (and `create!` in a migration)
+creates right after the table, with `CREATE INDEX IF NOT EXISTS`. The name is `idx_<table>_<columns>` unless you pass
+`name:` to `index`. A `unique: true` column option is a `UNIQUE` constraint, so it is indexed too. To add an index to a table
+that already exists, use `schema.alter`, which runs immediately, or a [migration](run-migrations.md).
 
 ```crystal
 require "cql"
@@ -195,20 +198,21 @@ IndexedDB = CQL::Schema.define(:indexed, adapter: CQL::Adapter::SQLite, uri: "sq
   table :users do
     primary :id, Int64
     column :email, String, unique: true
-    column :organization_id, Int64
+    column :organization_id, Int64, index: true
     column :username, String
+    index [:organization_id, :username], unique: true
   end
 end
 
+# CREATE TABLE, then idx_users_organization_id and the unique idx_users_organization_id_username
 IndexedDB.build
 
 IndexedDB.alter(:users) do
-  create_index :index_users_on_organization_id, [:organization_id]
-  create_index :index_users_on_org_username, [:organization_id, :username], unique: true
+  create_index :index_users_on_username, [:username]
 end
 ```
 
-## Multiple Tables
+## Multiple tables
 
 Declare every table of the application in one schema, parents before children:
 
@@ -251,12 +255,12 @@ end
 CQL can also dump a schema file from the live database after migrations (`CQL::Migrator` with `auto_sync`, see
 [Run Migrations](run-migrations.md)).
 
-## Database Adapters
+## Database adapters
 
 The adapter decides the SQL dialect; the URI selects the driver.
 
-### SQLite
-
+{% tabs %}
+{% tab title="SQLite" %}
 ```crystal
 require "cql"
 require "sqlite3"
@@ -268,9 +272,9 @@ SqliteDB = CQL::Schema.define(:app, adapter: CQL::Adapter::SQLite, uri: "sqlite3
   end
 end
 ```
+{% endtab %}
 
-### PostgreSQL
-
+{% tab title="PostgreSQL" %}
 ```crystal
 require "cql"
 require "pg"
@@ -284,9 +288,9 @@ end
 ```
 
 `CQL::Adapter::CockroachDB` works the same way with the `pg` driver.
+{% endtab %}
 
-### MySQL
-
+{% tab title="MySQL" %}
 Add the `mysql` shard and `require "mysql"` before the schema:
 
 ```crystal
@@ -299,8 +303,10 @@ MysqlDB = CQL::Schema.define(:app, adapter: CQL::Adapter::MySql, uri: ENV["DATAB
   end
 end
 ```
+{% endtab %}
+{% endtabs %}
 
-## Environment-based Configuration
+## Environment-based configuration
 
 Pick the URI from `CRYSTAL_ENV` (the variable Azu's `Azu::Environment` reads):
 
@@ -330,7 +336,7 @@ end
 With `require "azu/cql"`, `Azu::CQL.schema` picks the adapter from the URL scheme and configures the connection
 pool; see [Database dashboard](../../reference/database-dashboard.md).
 
-## See Also
+## See also
 
 - [Create Models](create-models.md)
 - [Run Migrations](run-migrations.md)
