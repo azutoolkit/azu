@@ -12,11 +12,21 @@ release to the current API, with old and new code side by side; every release is
 
 ## Next release
 
+**`CORS#origins` returns a copy, and preflight responses vary by what they ask for.** `cors.origins << "https://b.test"` edited the
+live list on 0.6; the reader now returns a copy, so that does nothing (and `<< "*"` can no longer sneak the wildcard past the
+credentials check). Assign the whole list with `cors.origins = [...]`. A preflight response now carries
+`Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers`. **`Throttle`**: a request that a whitelisted or
+blacklisted trusted proxy forwards with an `X-Forwarded-For` that names no client is no longer matched against the lists (it
+used to inherit the proxy's whitelist entry and was never throttled); block and release lines are rate-limited in the log like
+the refusals. **`CSRF`**: `CSRF_MAX_FORM_SIZE` and `CSRF.new(max_form_size:)` set the urlencoded read limit.
+
 **`CSRF` walks a multipart body in one pass, and reads at most 1 MB of a form.** The search for `_csrf` in a multipart body
 cost more than the body's size for a body of thousands of tiny parts (seconds of CPU for a request with any cookie); it now
 looks at each byte a bounded number of times, gives up after 64 parts, and a `csrf_token` cookie that is not a token the
-`SignedDoubleSubmit` handler signed is refused before any body is read. A urlencoded body is read up to the new
-`max_form_size` (1 MB by default) and a larger one answers `413`. **A browser sends an empty file input as a part with
+`SignedDoubleSubmit` handler signed is refused before any body is read (the other strategies cannot check a cookie the
+client chose, and read the body first). A urlencoded body is read up to the new `max_form_size` (1 MB by default,
+`CSRF_MAX_FORM_SIZE`) and a larger one answers `413`: **a urlencoded form between 1 MB and `upload.max_file_size` that
+passed before is now refused**, which deserved a minor release; raise `max_form_size` for such forms. **A browser sends an empty file input as a part with
 `filename=""`: it counts as a file part, so `_csrf` must come before it.** Put `csrf_field()` at the top of every form,
 above its file inputs (the scaffolds' upload forms too), or send the `X-CSRF-TOKEN` header. A form with more than 64
 fields before `_csrf`, or with `_csrf` after the first 64 KB, is refused with `403` where the 0.6.1 behaviour was already

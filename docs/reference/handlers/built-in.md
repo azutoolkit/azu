@@ -348,7 +348,9 @@ How an `Origin` is matched:
 
 - A regex must match the **whole** `Origin`: it is wrapped in `\A(?:...)\z`, so `/good\.com/` allows `https://good.com`
   only, not `https://good.com.evil.test` or `https://evilgood.com` (a search would have). Write the scheme into it:
-  `/https:\/\/[a-z0-9-]+\.example\.com/` for any one-label subdomain.
+  `/https:\/\/[a-z0-9-]+\.example\.com/` for any one-label subdomain. The `x` flag works, trailing `# comment` included.
+- `origins` returns a copy: change the list with `cors.origins = [...]` (it re-checks the wildcard and credentials rule), not
+  with `cors.origins << "https://b.test"`, which changes nothing.
 - A listed string must equal it exactly, and it is case-sensitive (browsers send the scheme and host in lower case): a
   subdomain, another port, another scheme, a trailing slash or a path does not match.
 - A value that is not `scheme://host[:port]` matches nothing, not even a regex: a path, userinfo (`@`), whitespace or control
@@ -361,7 +363,7 @@ How an `Origin` is matched:
   regard to case); one allowed header no longer carries the others. `Access-Control-Allow-Headers` lists them in the order
   asked and in the spelling of `headers`, not as the request wrote them. A preflight without `Access-Control-Request-Headers` (a
   bare cross-origin `DELETE`) is decided by origin and method alone and gets no `Access-Control-Allow-Headers`. Anything
-  refused gets no `Access-Control-*` header. A preflight is an `OPTIONS` request with an `Access-Control-Request-Method`
+  refused gets no `Access-Control-*` header. A preflight response varies by `Origin`, `Access-Control-Request-Method` and `Access-Control-Request-Headers`. A preflight is an `OPTIONS` request with an `Access-Control-Request-Method`
   header; an `OPTIONS` request without one is an ordinary request and goes to the next handler, with the origin's
   `Access-Control-Allow-Origin` (a listed origin) or `403` (any other).
 
@@ -401,12 +403,15 @@ gets `403 CSRF token validation failed`. Paths that start with an entry of `skip
 Where the form token is looked for, and how much of the body is read for it:
 
 - A token in the `X-CSRF-TOKEN` header is checked first and the body is not touched. Without a token cookie, or (with
-  the default `SignedDoubleSubmit`) with one this handler did not sign, the request is refused before its body is read.
+  the default `SignedDoubleSubmit` only) with one this handler did not sign, the request is refused before its body is
+  read. With `DoubleSubmit`, or `SynchronizerToken` on the cookie store, the cookie is whatever the client sent and
+  cannot be checked first: the body is read (within the limits below) before the `403`.
 - `application/x-www-form-urlencoded` (the media type is matched whatever its case): the body is read up to
   `max_form_size` (1 MB by default; `upload.max_file_size` when that is smaller) and parsed for the field. A
   `Content-Length` over the limit, or a body (chunked, say) that turns out longer, is answered with
   `413 Payload Too Large` and `Connection: close`, after reading at most the limit plus one byte. Raise `max_form_size`
-  for forms that post more, such as a large textarea.
+  for forms that post more, such as a large textarea: `Azu::Handler::CSRF.default.max_form_size = 5_000_000_u64`, the
+  `max_form_size:` argument of `CSRF.new`, or the `CSRF_MAX_FORM_SIZE` environment variable (bytes) for every handler.
 - `multipart/form-data`: the parts are walked once, front to back, over the first 64 KB (`CSRF::MULTIPART_SCAN_LIMIT`)
   at most, reading only as far as needed (a client that sends the token part and then stalls is not waited for).
   **The `_csrf` field must be one of the first 64 parts, before the first file part, and end within those 64 KB.** A
@@ -598,14 +603,18 @@ Azu::Handler::Throttle.new(
   name, a zone id, a bad port or leading zeros; a chain with only trusted hops; a chain over 32 hops) is never guessed
   at: the request is counted under the proxy's address with `!forwarded` added, a bucket of its own. A request
   that carries no header at all (the proxy's own health check) stays under the proxy's address. So whoever makes a
-  proxy forward garbage fills and blocks only that bucket, and cannot get the proxy's own requests refused.
+  proxy forward garbage fills and blocks only that bucket, and cannot get the proxy's own requests refused. The
+  lists are not consulted for such a request: whitelisting the proxy does not exempt it.
 - `blacklist` and `whitelist` take addresses and CIDR blocks of both families (an entry that is neither raises
   `ArgumentError` when the handler is built) and are matched against the client so found, in any spelling of the
   address. Whitelisting a proxy therefore does not whitelist its clients; to exempt the load balancer's health checks
   whitelist the balancer's address (requests without `X-Forwarded-For` are the balancer itself) or answer them
   before `Throttle`, as `HealthCheck` does.
 - A catch-all entry in `trusted_proxies` (`0.0.0.0/0`, `::/0`, or any `/0`) raises `ArgumentError`: it would make every
-  client a proxy and the header theirs to write. List only ranges that clients cannot reach directly.
+  client a proxy and the header theirs to write. List only ranges that clients cannot reach directly. Two halves
+  (`0.0.0.0/1` and `128.0.0.0/1`) together are not detected as a catch-all, and are as wrong. `blacklist` and `whitelist`
+  accept `0.0.0.0/0` and `::/0` on purpose (refuse or exempt everything). An IPv4-mapped entry takes an IPv4 prefix
+  length (`::ffff:10.0.0.0/8`, not `/104`).
 - A server listening on a UNIX socket has no peer address to compare: `trusted_proxies` never matches there, the
   header is ignored and every client is counted as one. Listen on TCP (loopback is enough: `"127.0.0.1"`, `"::1"`),
   or rate-limit in the proxy.
@@ -617,7 +626,8 @@ How the proxies append the address:
 | nginx | `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` | the address nginx connects from (`127.0.0.1` on the same host) |
 | AWS Application Load Balancer | nothing: it appends the peer address | the subnets of the load balancer's network interfaces, not the VPC at large |
 | Cloudflare in front of your own proxy | keep the header | your own proxy **and** Cloudflare's published ranges |
-| Envoy / HAProxy | `xff_num_trusted_hops` / `option forwardfor` | the proxy's own address |
+| Envoy | `use_remote_address: true` on the HTTP connection manager (it makes Envoy append the peer address; `xff_num_trusted_hops` only says how many hops to skip when it does not) | the proxy's own address |
+| HAProxy | `option forwardfor` | the proxy's own address |
 
 Cloudflare's ranges change: take them from Cloudflare's published list when you deploy and refresh them on a schedule;
 the framework does not ship them. Never trust a range that clients can reach directly (a public address, an open
@@ -643,10 +653,13 @@ once a second (no fiber, on `Azu::Clock`); a sweep of a full table takes a few m
 and blocked clients are kept in two tables, each in the order clients entered it, so making room is O(1) however many
 clients are blocked. Past `max_clients` a new client takes the place of the client first seen longest ago that is not
 blocked; only when every tracked client is blocked does it take the place of the block that ends first. A
-flood of addresses therefore cannot grow the table, and it cannot lift a block while an unblocked tracker exists. The
-price is that a flood of more than `max_clients` distinct clients (one attacker with a /48, say) pushes the others'
+flood of addresses therefore cannot grow the table, and it cannot lift a block while an unblocked tracker exists. That
+holds only for the moment: once the table is full of blocks, each fresh address that blocks itself (`threshold` + 1
+requests) takes the place of the block that ends first, so blocks are released first in, first out at the rate the
+attacker can mint blocked addresses. The price is that a flood of more than `max_clients` distinct clients (one attacker with a /48, say) pushes the others'
 counters out and they start from zero: raise `max_clients` where that matters, and lower `ipv6_prefix` for such
-attackers. Each tracked client costs roughly 100 bytes.
+attackers. Each tracked client costs roughly 180 to 220 bytes. Blocks and releases are logged at most `LOG_PER_SECOND`
+(10) a second, then one line says how many were left out, like the refusals.
 
 ### Handler::HealthCheck
 

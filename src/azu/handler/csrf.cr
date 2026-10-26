@@ -121,7 +121,10 @@ module Azu
 
       # The most of a urlencoded body that is read to look for the token; a larger one is answered 413. The endpoint's
       # own limit (`upload.max_file_size`) still applies when it is smaller.
-      property max_form_size : UInt64 = FORM_SIZE_LIMIT
+      #
+      # The default is `CSRF_MAX_FORM_SIZE` (bytes) when set, else 1 MB; set it per handler with
+      # `Azu::Handler::CSRF.default.max_form_size = 5_000_000_u64` or the `max_form_size:` argument.
+      property max_form_size : UInt64
 
       # Instance-level configuration properties
       property strategy : Strategy
@@ -176,7 +179,9 @@ module Azu
         @secure_cookies : Bool = true,
         @token_store : TokenStore? = nil,
         defer_secret : Bool = false,
+        max_form_size : UInt64? = nil,
       )
+        @max_form_size = max_form_size || ENV["CSRF_MAX_FORM_SIZE"]?.try(&.to_u64?) || FORM_SIZE_LIMIT
         key = secret_key
         key = @@shared_secret_key if key.nil? && @@shared_secret_key && !@@shared_secret_key.try(&.empty?)
         @secret_key = key.presence
@@ -565,9 +570,10 @@ module Azu
         loop do
           count = io.read(buffer[filled, Math.min(4096, MULTIPART_SCAN_LIMIT - filled)])
           filled += count
-          # Small buffers are walked after every read; bigger ones after every KB: a client that sends a byte at a time
-          # cannot make the walk run once per byte.
-          next unless count == 0 || filled == MULTIPART_SCAN_LIMIT || filled <= 1024 || filled - parsed >= 1024
+          # The walk starts over from the first byte, so it runs on a schedule that does not depend on how the client
+          # slices its writes: after every read while the buffer is small, then each time it has grown by a quarter.
+          # The work for a whole request is a few times the size of the buffer, not once per read.
+          next unless count == 0 || filled == MULTIPART_SCAN_LIMIT || filled <= 256 || filled - parsed >= Math.max(512, parsed // 4)
           parsed = filled
           return {buffer[0, filled], nil} unless boundary
           token, decided = CSRF.scan_multipart(buffer[0, filled], boundary, name)

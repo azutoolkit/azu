@@ -249,6 +249,27 @@ describe Azu::Handler::Throttle do
       status(handler, "10.0.0.1", ["1.1.1.1"]).should eq 200
     end
 
+    it "does not exempt unresolved forwards when the proxy itself is whitelisted or blacklisted" do
+      handler = throttle(trusted: ["10.0.0.1"], whitelist: ["10.0.0.1"])
+      statuses = 4.times.map { status(handler, "10.0.0.1", ["garbage"]) }.to_a
+      statuses.should eq [200, 429, 429, 429]
+      3.times { status(handler, "10.0.0.1").should eq 200 } # the proxy's own requests keep their exemption
+      blacklisted = throttle(trusted: ["10.0.0.1"], blacklist: ["10.0.0.1"])
+      status(blacklisted, "10.0.0.1", ["garbage"]).should eq 200
+    end
+
+    it "says IPv4-mapped entries take an IPv4 prefix length" do
+      expect_raises(ArgumentError, /IPv4-mapped address takes an IPv4 prefix length/) { throttle(trusted: ["::ffff:10.0.0.0/96"]) }
+      expect_raises(ArgumentError, /prefix length outside 0\.\.32/) { throttle(trusted: ["10.0.0.0/96"]) }
+      expect_raises(ArgumentError, /prefix length outside 0\.\.128/) { throttle(trusted: ["fd00::/129"]) }
+    end
+
+    it "does not detect two halves as a catch-all, and lists accept 0.0.0.0/0 on purpose" do
+      throttle(trusted: ["0.0.0.0/1", "128.0.0.0/1"])
+      handler = throttle(whitelist: ["0.0.0.0/0"])
+      3.times { status(handler, "8.8.8.8").should eq 200 }
+    end
+
     it "refuses a catch-all block, in any spelling, and still accepts a broad one" do
       ["0.0.0.0/0", "::/0", "1.2.3.4/0", "::ffff:0.0.0.0/0", " 0.0.0.0/0 "].each do |entry|
         expect_raises(ArgumentError, /every address/) { throttle(trusted: [entry]) }
@@ -416,11 +437,30 @@ describe Azu::Handler::Throttle do
       elapsed.should be < 2.seconds
     end
 
-    it "gives up the block that ends first, in constant time, when every client is blocked" do
-      handler = Azu::Handler::Throttle.new(interval: 600, duration: 600, threshold: 0, blacklist: [] of String, whitelist: [] of String, max_clients: 3)
+    it "gives up the block that ends first, and only that one, when every client is blocked" do
+      with_fake_clock do |clock|
+        handler = throttle(max_clients: 3)
+        %w(1.0.0.1 1.0.0.2 1.0.0.3).each do |ip|
+          2.times { status(handler, ip) }
+          clock.advance(1.second) # the blocks end in this order
+        end
+        handler.stats.should eq({tracked_ips: 3, blocked_ips: 3})
+        status(handler, "1.0.0.4").should eq 200 # admitted, and the oldest block (1.0.0.1) went
+        handler.stats.should eq({tracked_ips: 3, blocked_ips: 2})
+        status(handler, "1.0.0.2").should eq 429
+        status(handler, "1.0.0.3").should eq 429
+        status(handler, "1.0.0.1").should eq 200 # forgotten
+      end
+    end
+
+    it "keeps admitting fresh self-blocking clients quickly when the whole table is blocks" do
+      handler = Azu::Handler::Throttle.new(interval: 600, duration: 600, threshold: 1, blacklist: [] of String, whitelist: [] of String, max_clients: 50_000)
       handler.next = ->(context : HTTP::Server::Context) { context.response.print "OK" }
-      %w(1.0.0.1 1.0.0.2 1.0.0.3 1.0.0.4).each { |ip| status(handler, ip).should eq 429 }
-      handler.stats.should eq({tracked_ips: 3, blocked_ips: 3})
+      50_000.times { |n| 2.times { status(handler, "20.#{n // 65_536}.#{(n // 256) % 256}.#{n % 256}") } }
+      started = Time.instant
+      2_000.times { |n| 2.times { status(handler, "30.0.#{n // 256}.#{n % 256}") } }
+      (Time.instant - started).should be < 2.seconds
+      handler.stats.should eq({tracked_ips: 50_000, blocked_ips: 50_000})
     end
   end
 end

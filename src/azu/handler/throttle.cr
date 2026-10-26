@@ -143,6 +143,35 @@ module Azu
         end
       end
 
+      # A count of the lines written in the current second, and of those left out.
+      private class LogBudget
+        @mutex = Mutex.new
+        @window = Clock.instant
+        @logged = 0
+        @suppressed = 0
+
+        # {whether to write this line, how many lines the previous window left out}
+        def take : {Bool, Int32}
+          now = Clock.instant
+          @mutex.synchronize do
+            summary = 0
+            if now - @window >= 1.second
+              summary = @suppressed
+              @window = now
+              @logged = 0
+              @suppressed = 0
+            end
+            if @logged < LOG_PER_SECOND
+              @logged += 1
+              {true, summary}
+            else
+              @suppressed += 1
+              {false, summary}
+            end
+          end
+        end
+      end
+
       # At most this many refusals are logged a second; the rest are counted and summarised.
       LOG_PER_SECOND = 10
 
@@ -163,10 +192,8 @@ module Azu
         whitelist : Array(String) = [] of String
 
       @log : ::Log?
-      @log_mutex = Mutex.new
-      @log_window = Clock.instant
-      @logged = 0
-      @suppressed = 0
+      @refusal_lines = LogBudget.new
+      @event_lines = LogBudget.new
       # Clients inside their window, then clients that are blocked. Both keep the order clients entered them in, which
       # is what makes eviction and sweeping cheap: the front of `@tracker` is the oldest first-seen client, and the
       # front of `@blocked` is the block that ends first (every block lasts `duration`).
@@ -234,7 +261,8 @@ module Azu
         else
           # A trusted proxy sent a header that names no client: counted apart from the proxy's own requests (a health
           # check carries no header), so whoever can make a proxy forward garbage only throttles itself.
-          Client.new(ClientAddress.to_s(parsed), "#{ClientAddress.key(parsed, @ipv6_prefix)}#{UNRESOLVED}", parsed)
+          # No `ip`: the lists are not consulted. Whitelisting the proxy must not exempt whoever makes it forward garbage.
+          Client.new(ClientAddress.to_s(parsed), "#{ClientAddress.key(parsed, @ipv6_prefix)}#{UNRESOLVED}")
         end
       end
 
@@ -270,25 +298,16 @@ module Azu
       # A flood of refusals must not become a flood of log lines: LOG_PER_SECOND a second are written, and the next
       # window starts with one line saying how many were left out.
       private def log_refusal(request : HTTP::Request, error : Refusal) : Nil
-        now = Clock.instant
-        summary = 0
-        write = @log_mutex.synchronize do
-          if now - @log_window >= 1.second
-            summary = @suppressed
-            @log_window = now
-            @logged = 0
-            @suppressed = 0
-          end
-          if @logged < LOG_PER_SECOND
-            @logged += 1
-            true
-          else
-            @suppressed += 1
-            false
-          end
-        end
+        write, summary = @refusal_lines.take
         log.warn { "suppressed #{summary} similar refusals in the last second" } if summary > 0
         LogText.log_refusal(log, request, error, client: true) if write
+      end
+
+      # Blocks and releases are bounded the same way (a flood of fresh addresses blocks one each), apart from refusals.
+      private def log_event(message : String) : Nil
+        write, summary = @event_lines.take
+        log.warn { "suppressed #{summary} similar block and release lines in the last second" } if summary > 0
+        log.warn { message } if write
       end
 
       # All methods below must be called within @mutex.synchronize block
@@ -313,7 +332,7 @@ module Azu
         return true unless tracker.block_expired?(current_time)
 
         @blocked.delete(remote)
-        log.warn { "#{remote} released" }
+        log_event("#{remote} released")
         false
       end
 
@@ -328,7 +347,7 @@ module Azu
         if tracker.requests > threshold
           @tracker.delete(remote)
           @blocked[remote] = tracker.block(duration, current_time)
-          log.warn { "#{remote} blocked" }
+          log_event("#{remote} blocked")
           return true
         end
 

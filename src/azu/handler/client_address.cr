@@ -77,7 +77,7 @@ module Azu
           if address.nil? || address_text.includes?('[') || address_text.count(':') == 1
             raise ArgumentError.new("#{option}: #{entry.inspect} is not an IP address or CIDR block")
           end
-          bits = prefix_bits(address, slash.empty? ? nil : length, entry, option)
+          bits = prefix_bits(address, slash.empty? ? nil : length, entry, option, address_text.includes?(':'))
           if bits == 0 && !catch_all
             raise ArgumentError.new("#{option}: #{entry.inspect} matches every address; list the proxies that sit in front of the app")
           end
@@ -86,11 +86,13 @@ module Azu
         end
 
         # The prefix length of the entry within its own family (32 or 128 bits for a single address).
-        private def self.prefix_bits(address : UInt128, length : String?, entry : String, option : String) : Int32
+        private def self.prefix_bits(address : UInt128, length : String?, entry : String, option : String, written_as_v6 : Bool) : Int32
           max = ClientAddress.ipv4?(address) ? 32 : 128
           bits = length ? (length.to_i?(whitespace: false) || -1) : max
-          raise ArgumentError.new("#{option}: #{entry.inspect} has a prefix length outside 0..#{max}") unless 0 <= bits <= max
-          bits
+          return bits if 0 <= bits <= max
+
+          hint = written_as_v6 && max == 32 ? "an IPv4-mapped address takes an IPv4 prefix length (0..32)" : "a prefix length outside 0..#{max}"
+          raise ArgumentError.new("#{option}: #{entry.inspect} has #{hint}")
         end
 
         def initialize(@blocks : Array(Block))
