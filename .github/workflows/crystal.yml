@@ -139,13 +139,35 @@ jobs:
         run: crystal run scripts/check_docs.cr -- --shard ${{ matrix.shard }}/4 $(grep -v '^#' docs/.checked)
 
   # One stable check named `docs` for branch protection: it passes only when every shard passed.
+  # Every mermaid block of the docs, through Mermaid's own parser: GitBook shows a block that does not parse as
+  # an error box, which no other check notices.
+  docs-diagrams:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: scripts/mermaid/package-lock.json
+
+      - name: Install the parser
+        run: npm ci --prefix scripts/mermaid
+
+      - name: Parse every diagram
+        run: node scripts/mermaid/parse.mjs $(git ls-files 'docs/*.md' 'docs/**/*.md')
+
   docs:
     runs-on: ubuntu-latest
-    needs: docs-shards
+    needs: [docs-shards, docs-diagrams]
     if: always()
     steps:
       - name: All documentation shards passed
         run: test "${{ needs.docs-shards.result }}" = "success"
+
+      - name: Every diagram parsed
+        run: test "${{ needs.docs-diagrams.result }}" = "success"
 
   # The same suite on the newest Crystal, so a release of the language never breaks the framework
   # unnoticed. The job above (the oldest supported version) is the one that gates a release.

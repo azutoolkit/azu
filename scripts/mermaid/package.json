@@ -1,0 +1,13 @@
+{
+  "name": "azu-docs-mermaid",
+  "private": true,
+  "description": "Parses every mermaid block of the docs with Mermaid's own parser (CI: the docs-diagrams job).",
+  "type": "module",
+  "scripts": {
+    "check": "node parse.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "25.0.1",
+    "mermaid": "11.4.1"
+  }
+}
