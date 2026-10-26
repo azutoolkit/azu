@@ -6,6 +6,13 @@ description: The breaking changes between Azu versions, and how to migrate acros
 
 ## Version 0.5.x
 
+### Crystal 1.22.1 or newer (0.5.124 and later)
+
+Azu releases from 0.5.124 on require Crystal 1.22.1 or newer (`shard.yml`: `crystal: '>= 1.22.1'`). On an older Crystal,
+`shards install` fails on the version check; pass `--ignore-crystal-version` only if you accept an untested compiler. The cause
+was CQL 0.0.798, which the database dashboard needs and which does not compile on Crystal 1.19.1, the previous floor. Upgrade
+the compiler (or pin Azu to 0.5.123 or older, which still accepts 1.19.1).
+
 ### Unreleased (0.6 work)
 
 Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).

@@ -160,19 +160,21 @@ module Azu
       sql.lstrip.split(/\s+/, 2).first?.try(&.upcase) || ""
     end
 
-    NAME = "[\\w.$]+"
+    NAME = "[\\w.$]{1,128}"
 
     # Messages whose whole first line is server wording with no data in it, and the canonical text built from the
-    # identifiers they name (only `[\w.$]+` is accepted as one). English servers only.
+    # identifiers they name (only `[\w.$]{1,128}` is accepted as one). English servers only.
     NAMED_ERRORS = [
       {/\Arelation "(#{NAME})" does not exist\z/, %(relation "%s" does not exist)},
       {/\Acolumn "(#{NAME})" does not exist\z/, %(column "%s" does not exist)},
+      {/\Acolumn "(#{NAME})" of relation "(#{NAME})" does not exist\z/, %(column "%s" of relation "%s" does not exist)},
       {/\Anull value in column "(#{NAME})" of relation "(#{NAME})" violates not-null constraint\z/, %(null value in column "%s" of relation "%s" violates not-null constraint)},
       {/\Anull value in column "(#{NAME})" violates not-null constraint\z/, %(null value in column "%s" violates not-null constraint)},
       {/\Aduplicate key value violates unique constraint "(#{NAME})"\z/, %(duplicate key value violates unique constraint "%s")},
       {/\Ainsert or update on table "(#{NAME})" violates foreign key constraint "(#{NAME})"\z/, %(insert or update on table "%s" violates foreign key constraint "%s")},
       {/\Aupdate or delete on table "(#{NAME})" violates foreign key constraint "(#{NAME})" on table "(#{NAME})"\z/, %(update or delete on table "%s" violates foreign key constraint "%s" on table "%s")},
-      {/\AUNIQUE constraint failed: (#{NAME}(?:, #{NAME})*)\z/, "UNIQUE constraint failed: %s"},
+      {/\AUNIQUE constraint failed: (#{NAME}(?:, #{NAME}){0,31})\z/, "UNIQUE constraint failed: %s"},
+      {/\ACHECK constraint failed: (#{NAME})\z/, "CHECK constraint failed: %s"},
       {/\ANOT NULL constraint failed: (#{NAME})\z/, "NOT NULL constraint failed: %s"},
       {/\Ano such table: (#{NAME})\z/, "no such table: %s"},
       {/\Ano such column: (#{NAME})\z/, "no such column: %s"},
