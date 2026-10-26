@@ -62,6 +62,15 @@ private struct ShowLogin
   end
 end
 
+private struct PathParams
+  include Azu::Routable
+
+  def call(context : HTTP::Server::Context)
+    context.response << context.request.path_params
+    context
+  end
+end
+
 private def fetch(app : Azu::App, path : String, method : String = "GET") : Azu::Testing::Response
   Azu::Testing::Client.new(app, [] of HTTP::Handler).request(method, path)
 end
@@ -172,6 +181,19 @@ describe Azu::App do
       expect_raises(Exception, "boom") { main.router.process(context) }
       request.path.should eq "/admin/boom"
       Azu.current_config.should be Azu::CONFIG
+    end
+
+    it "gives a child endpoint its own path params, never the mount's" do
+      child = Azu::App.new
+      child.routes do
+        get "/static", PathParams
+        get "/items/:id", PathParams
+      end
+      main = Azu::App.new
+      main.routes { mount child, at: "/admin" }
+
+      fetch(main, "/admin/static").body.should eq "{}"
+      fetch(main, "/admin/items/7").body.should eq %({"id" => "7"})
     end
 
     it "rejects a mount path that is not a sub path" do

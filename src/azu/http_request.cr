@@ -17,7 +17,9 @@ class HTTP::Request
     @path_params ||= {} of String => String
   end
 
-  def path_params=(params : Hash(String, String))
+  # Nil forgets them: the router writes nil for a route without parameters, which a mounted app's router does after
+  # the mount's own route wrote its `mount_path`.
+  def path_params=(params : Hash(String, String)?)
     @path_params = params
   end
 

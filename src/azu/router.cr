@@ -117,6 +117,8 @@ module Azu
     end
 
     getter radix : Radix::Tree(Route)
+    # The routes `process` finds requests in, by method and path segment
+    @tree = Tree(Route).new
     # :nodoc:
     getter path_cache : PathCache
     private getter method_cache : Hash(String, String)
@@ -215,10 +217,12 @@ module Azu
 
     def process(context : HTTP::Server::Context)
       method_override(context)
-      result = path(context).try { |key| @radix.find key }
-      return not_found(context).to_s(context) unless result && result.found?
-      context.request.path_params = result.params
-      route = result.payload
+      request = context.request
+      match = route_method(context).try { |method| @tree.find(method, request.path) }
+      return not_found(context).to_s(context) unless match
+      # Nil for a route without parameters also forgets the `mount_path` of the mount that led here
+      request.path_params = match.params
+      route = match.payload
 
       # Store endpoint information in context for logging
       endpoint_class_name = route.endpoint.class.name
@@ -241,8 +245,8 @@ module Azu
     # ```
     def root(endpoint : Routable)
       route = Route.new(endpoint: endpoint, resource: "/get/", method: Azu::Method::Get)
+      insert route, "/"
       @routes_registry << route
-      @radix.add "/get/", route
     end
 
     # Registers a websocket route
@@ -263,11 +267,38 @@ module Azu
     def add(path : Path, endpoint : Routable, method : Azu::Method = Azu::Method::Get)
       resource = method.web_socket? ? "/ws#{path}" : "/#{method.to_s.downcase}#{path}"
       route = Route.new(endpoint, resource, method)
-      @radix.add resource, route
+      insert route, path
       @routes_registry << route
       @paths[endpoint.class.name] = route.path
-    rescue ex : Radix::Tree::DuplicateError
-      raise DuplicateRoute.new("http_method: #{method}, path: #{path}, endpoint: #{endpoint}")
+    end
+
+    # Into the tree, and into radix until it goes. A path without its leading "/" can name no request, so its route
+    # is listed by `route_info` and found by nothing, as radix did.
+    private def insert(route : Route, path : Path) : Nil
+      @tree.add route.method, route.path, route if route.path.starts_with?('/')
+      @radix.add route.resource, route
+    rescue Tree::DuplicateError | Radix::Tree::DuplicateError
+      raise DuplicateRoute.new("http_method: #{route.method}, path: #{path}, endpoint: #{route.endpoint}")
+    rescue ex : Tree::Error
+      raise ArgumentError.new(ex.message)
+    end
+
+    # The tree slot a request names: its method when it is one of the verbs spelled exactly (methods are
+    # case-sensitive), the WebSocket slot for an upgrade, which is a GET (RFC 6455). Nil, so 404, for any other.
+    private def route_method(context) : Azu::Method?
+      method = context.request.method
+      return (Azu::Method::WebSocket if method == "GET") if upgrade?(context)
+      case method
+      when "GET"     then Azu::Method::Get
+      when "POST"    then Azu::Method::Post
+      when "PUT"     then Azu::Method::Put
+      when "PATCH"   then Azu::Method::Patch
+      when "DELETE"  then Azu::Method::Delete
+      when "HEAD"    then Azu::Method::Head
+      when "OPTIONS" then Azu::Method::Options
+      when "TRACE"   then Azu::Method::Trace
+      when "CONNECT" then Azu::Method::Connect
+      end
     end
 
     # Pre-compute method cache at startup to avoid repeated downcasing

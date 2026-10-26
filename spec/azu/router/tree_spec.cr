@@ -406,9 +406,11 @@ describe "Azu::Router::Tree against radix" do
 
   it "refuses routes radix accepts without a word" do
     ADD_DIFFERENCES.each do |(paths, message)|
-      router = router(paths.map { |path| {GET, path} })
+      radix = Radix::Tree(String).new
+      paths.each { |path| radix.add "/get#{path}", path } # keyed as Router keyed it
+      routes = Tree.new
 
-      expect_raises(Azu::Router::Tree::Error, message) { tree(router) }
+      expect_raises(Azu::Router::Tree::Error, message) { paths.each { |path| routes.add GET, path, path } }
     end
   end
 end
