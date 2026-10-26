@@ -12,6 +12,14 @@ release to the current API, with old and new code side by side; every release is
 
 ## Next release
 
+**`Throttle` can read the client behind a proxy, sweeps its table and counts IPv6 by /64.** New options: `trusted_proxies`
+(addresses and CIDR blocks; empty by default, which keeps the connection's address as the client), `ipv6_prefix` (64) and
+`max_clients` (100 000). What changes without setting any: (1) IPv6 clients are counted by their /64, so several addresses
+of one network now share a counter (and a block); (2) trackers whose window ended are dropped by a sweep, and a table over
+`max_clients` drops the oldest unblocked clients, where it grew without bound; (3) `blacklist` / `whitelist` entries and
+clients are compared in a normalized spelling, so `::ffff:1.2.3.4` and `1.2.3.4` are one address and `2001:DB8::1` equals
+`2001:db8:0:0:0:0:0:1`; (4) log lines name the IPv6 network (`2001:db8:0:0:0:0:0:0/64`) instead of the address. An app behind
+a proxy that wants one counter per client lists the proxy in `trusted_proxies`.
 **`CSRF` bounds the body it reads for the form token.** A POST, PUT, PATCH or DELETE without an `X-CSRF-TOKEN` header had its
 whole body read into memory by `CSRF`, whatever its size, before any limit applied. A urlencoded body is now read up to
 `upload.max_file_size`, and a larger one (by `Content-Length` or as it streams in) is answered `413` instead of `403`, with
