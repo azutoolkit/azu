@@ -312,11 +312,13 @@ module Azu
       # tolerated: tags and their attributes are copied untouched, and so are the text inside an `<a>` and the
       # contents of `<script>`, `<style>`, `<textarea>`, `<title>`, `<noscript>`, `<xmp>`, `<plaintext>`, `<iframe>`,
       # `<noembed>` and `<noframes>`. Invalid UTF-8 is replaced first. A single comment, CDATA section or tag larger
-      # than a few MB exceeds the regex engine's limit: the text is then returned as it is, unlinked.
+      # than a few MB exceeds the regex engine's limit: the text is then returned as it is, unlinked (the filter escapes unsafe
+      # input first, so only markup marked safe can get here), and a warning is logged without any of the content.
       #
       # It reads markup by a simplified HTML tokenizer, which differs from browsers in three known ways: a CDATA
       # section is treated as a section also in HTML content (browsers read it as a bogus comment ending at the
-      # first `>`), a quote inside an attribute name starts a quoted value here (browsers keep it in the name), and
+      # first `>`), a quote inside an attribute name, an end tag (`</a"`) or a bogus comment (`<?"`) starts a quoted value here (browsers keep it
+      # in the name or the comment), and
       # the script double-escape state (`<!-- <script>`) is not modelled, so `</script>` always ends a script.
       def urlize(escaped_html_text : String, trim_limit : Int32?, rel : Array(String), target : String?) : String
         rel_attr = rel.empty? ? "" : %( rel="#{escape_html(rel.join(' '))}")
@@ -326,6 +328,7 @@ module Azu
           link_text(text, trim_limit, rel_attr, target_attr)
         rescue Regex::Error
           # A single comment, CDATA section or tag of several MB exceeds the regex engine's match limit: fail safe.
+          Log.for("azu.helpers").warn { "urlize left #{text.bytesize} bytes unlinked: a comment, CDATA section or tag exceeds the regex match limit" }
           text
         end
       end

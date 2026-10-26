@@ -317,10 +317,12 @@ describe "helper output encoding" do
       end
 
       it "returns a single comment, CDATA section or tag too large for the regex engine unlinked instead of raising" do
-        {"<!--" + "-" * 8_000_000, "<!--" + "--!x" * 2_000_000, "<![CDATA[" + "]" * 8_000_000, %(<a ") + "x" * 8_000_000}.each do |html|
-          safe_urlize.call(html + " http://a.com").should_not contain "<a href=\"http"
+        # The leading address is linked unless the whole text falls back, so only the rescue can satisfy the assertion.
+        {"<!--" + "-" * 8_000_000, "<!--" + "--!x" * 3_000_000, "<![CDATA[" + "]" * 12_000_000, %(<a x=") + %("x) * 8_000_000}.each do |html|
+          safe_urlize.call("http://p.com " + html).should_not contain "<a href="
         end
-        render("{{ x | urlize }}", {"x" => "<!--" + "-" * 8_000_000 + " http://a.com"}).should start_with "&lt;!--"
+        # Unsafe input is escaped first, so its markup is plain text and never reaches the fallback.
+        render("{{ x | urlize }}", {"x" => "http://p.com <!--" + "-" * 8_000_000}).should start_with %(<a href="http://p.com")
       end
 
       it "stays fast on 1 MB of nasty markup" do
