@@ -179,4 +179,26 @@ describe "helper output encoding" do
       end
     end
   end
+
+  describe "markup filters keep safe input safe and validate names" do
+    it "truncate_html returns SafeString for SafeString input (the autoescaped result is not escaped again)" do
+      render("{{ (x | safe) | truncate_html(100) }}", {"x" => "<p>Hello <b>World</b></p>"}).should eq "<p>Hello <b>World</b></p>"
+      crinja = Crinja.new
+      Azu::Helpers::Registry.apply_to(crinja)
+      crinja.config.autoescape = Crinja::Config::Autoescape.new(default_for_string: true)
+      crinja.from_string("{{ (x | safe) | truncate_html(100) }}").render({"x" => "<p>Hi</p>"}).should eq "<p>Hi</p>"
+      crinja.from_string("{{ x | truncate_html(100) }}").render({"x" => "<p>Hi</p>"}).should eq "&lt;p&gt;Hi&lt;/p&gt;"
+    end
+
+    it "simple_format refuses a tag name and drops attribute names that are not names" do
+      expect_raises(Exception) { render("{{ x | simple_format(tag=t) }}", {"x" => "a", "t" => "p onclick=alert(1)"}) }
+      render("{{ x | simple_format(html_attrs=a) }}", {"x" => "a", "a" => {"class" => "c", "x onclick=alert(1) y" => "1"}}).should eq %(<p class="c">a</p>)
+    end
+
+    it "auto_link drops attribute names that are not names" do
+      out = render("{{ x | auto_link(link_attrs=a) }}", {"x" => "see https://example.com", "a" => {"class" => "c", "x onclick=alert(1) y" => "1"}})
+      out.should_not contain "onclick"
+      out.should contain %(class="c")
+    end
+  end
 end

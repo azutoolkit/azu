@@ -25,6 +25,15 @@ module Azu
           register_content_tag
         end
 
+        # The attributes of a Hash argument as strings; names are checked and values escaped by `Util.tag_attributes`.
+        private def self.hash_attributes(value : Crinja::Value) : Hash(String, String)
+          attrs = {} of String => String
+          if !value.none? && value.raw.is_a?(Hash)
+            value.as_h.each { |k, v| attrs[k.to_s] = v.to_s }
+          end
+          attrs
+        end
+
         private def self.register_safe_html : Nil
           filter = Crinja.filter(:safe_html) do
             Crinja::SafeString.new(target.to_s)
@@ -41,15 +50,7 @@ module Azu
             tag = arguments["tag"].to_s
             html_attrs = arguments["html_attrs"]
 
-            # Build tag attributes
-            attrs_str = ""
-            unless html_attrs.none?
-              if html_attrs.raw.is_a?(Hash)
-                attrs_hash = html_attrs.as_h
-                attrs = attrs_hash.map { |k, v| "#{k}=\"#{Util.escape_html(v.to_s)}\"" }
-                attrs_str = " #{attrs.join(" ")}"
-              end
-            end
+            attrs = hash_attributes(html_attrs)
 
             # Split into paragraphs on double newlines
             paragraphs = text.split(/\n\n+/)
@@ -57,7 +58,7 @@ module Azu
             html = paragraphs.map do |para|
               # Convert single newlines to <br>
               content = Util.escape_html(para.strip).gsub(/\r?\n/, "<br>")
-              "<#{tag}#{attrs_str}>#{content}</#{tag}>"
+              Util.tag(tag, attrs, content)
             end.join("\n")
 
             Crinja::SafeString.new(html)
@@ -94,7 +95,9 @@ module Azu
             length = arguments["length"].to_i
             omission = arguments["omission"].to_s
 
-            Util.truncate_html(html, length, omission)
+            result = Util.truncate_html(html, length, omission)
+            # safe in, safe out: the result is the input or its text, both made of the same escaped HTML
+            target.raw.is_a?(Crinja::SafeString) ? Crinja::SafeString.new(result) : result
           end
           Registry.register_filter(:truncate_html, filter)
         end
@@ -148,20 +151,10 @@ module Azu
             # Escape HTML if sanitize is true
             text = Util.escape_html(text) if sanitize
 
-            # Build link attributes
-            attrs_str = ""
-            unless link_attrs.none?
-              if link_attrs.raw.is_a?(Hash)
-                attrs_hash = link_attrs.as_h
-                attrs = attrs_hash.map { |k, v| "#{k}=\"#{Util.escape_html(v.to_s)}\"" }
-                attrs_str = " #{attrs.join(" ")}"
-              end
-            end
-
+            attrs = hash_attributes(link_attrs)
             # Add rel="noopener" for security
-            if !attrs_str.includes?("rel=")
-              attrs_str += " rel=\"noopener noreferrer\""
-            end
+            attrs["rel"] = "noopener noreferrer" unless attrs.has_key?("rel")
+            attrs_str = " #{Util.tag_attributes(attrs)}"
 
             # URL regex pattern
             url_pattern = /\b(https?:\/\/[^\s<>\[\]"']+)/i
