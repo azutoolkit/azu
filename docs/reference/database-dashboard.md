@@ -38,15 +38,13 @@ Bound values often hold passwords and personal data, so the tab keeps them out b
 
 * **Bound values** (`where(name: x)`, `insert.values(...)`) show as `?` placeholders, even when your app turned on
   `CQL::Telemetry.capture_params` for its own tracing.
-* **Error text** shows the exception class and the first line of the message. On that line the value list after `(columns)=` or
-  `contains (` is blanked, and so is quoted text (`'...'`, `"..."`, backticks and typographic quotes) from its first quote to
-  the last quote of the same kind on the line, so a value that itself contains a quote cannot leak its tail. A quoted segment
-  survives only when a name word (`relation`, `column`, `constraint`, ...) precedes it and it is a plain identifier:
-  `relation "users" does not exist` stays, `invalid input value for enum status: "…"` and `Duplicate entry '…'` do not
-  (so the key name after a duplicate entry is lost too). PostgreSQL's `DETAIL`, `CONTEXT` and `HINT` lines and
-  `Failing row contains (...)` are dropped, also when the value spans several lines. The rule assumes English server messages and is
-  deliberately blunt, not a guarantee about every driver: a bare value in prose (`value 99999999999 is out of range`) is not quoted, so it stays.
-  The SQL playground's 422 answer is redacted the same way.
+* **Error text** shows the exception class, its SQLSTATE when the exception has one, and a short text only for messages the
+  dashboard recognises from their whole first line, such as `relation "users" does not exist`,
+  `duplicate key value violates unique constraint "name"`, `UNIQUE constraint failed: users.email`, `no such table: users`,
+  `Table 'db.users' doesn't exist`, `Unknown column 'x' in 'field list'`, `syntax error` (without the token) and MySQL's
+  `Duplicate entry for key 'name'` (without the value). The text is rebuilt from the identifiers the message names, and only a plain
+  identifier (`[\w.$]+`) is accepted as one. Every other error, including every message that quotes a value, shows the class and code
+  alone. Recognition is English-only: a localized server shows the class and code. The SQL playground's 422 answer follows the same rule.
 * **Hand-written SQL is shown as written.** A literal you put into a `schema.exec` string, or build by interpolation, is part of the
   statement text and appears in Recent queries, Slow queries, Query patterns (the pattern view replaces literals with `?`) and
   in the slow-query log line (`QueryStore#warn_if_slow` logs up to 300 characters of the SQL at warn level, in every
@@ -193,7 +191,7 @@ module MyApp
     c.database.instrument = true          # AZU_DB_INSTRUMENT
     c.database.n_plus_one_threshold = 3   # AZU_DB_N_PLUS_ONE_THRESHOLD
     c.database.slow_query_ms = 50.0       # AZU_DB_SLOW_QUERY_MS (flagged in the tab and logged as a warning; 0 disables the log)
-    c.database.show_params = false        # AZU_DB_SHOW_PARAMS: show bound values (development only, see "What the tab never shows")
+    c.database.show_params = false        # AZU_DB_SHOW_PARAMS: show bound values (development only, see "What the tab shows of your data")
     c.database.playground = true          # AZU_DB_PLAYGROUND
   end
 end

@@ -10,7 +10,7 @@ module Azu
     #
     # Bound values are never recorded unless `database.show_params` is on in development (see
     # `params_visible?`): the dashboard keeps `?` placeholders, and shows an error as its class and the first
-    # line of its message with quoted values blanked (`QueryAnalysis.redact_error`).
+    # line of its message only for shapes it recognises (`QueryAnalysis.safe_error`), otherwise the class alone.
     module Instrumentor
       # Marks an exception raised only to roll a transaction back on purpose (like `DB::Rollback`):
       # the dashboard shows such a rollback as rolled back, not as an error.
@@ -136,9 +136,7 @@ module Azu
       end
 
       private def self.error_text(error : Exception) : String
-        message = error.message.presence
-        return error.class.name unless message
-        params_visible? ? message : "#{error.class.name}: #{QueryAnalysis.redact_error(message)}"
+        params_visible? ? (error.message.presence || error.class.name) : QueryAnalysis.safe_error(error)
       end
 
       private def self.intentional?(error : Exception) : Bool

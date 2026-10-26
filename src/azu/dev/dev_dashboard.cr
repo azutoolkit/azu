@@ -123,8 +123,7 @@ module Azu
       rescue ex : JSON::ParseException
         respond_json(context, 400, {error: "Invalid JSON body"})
       rescue ex
-        message = ex.message || ex.class.name
-        respond_json(context, 422, {error: Azu.current_config.show_database_params? ? message : QueryAnalysis.redact_error(message)})
+        respond_json(context, 422, {error: Azu.current_config.show_database_params? ? (ex.message || ex.class.name) : QueryAnalysis.safe_error(ex)})
       end
 
       private def playground_allowed?(context : HTTP::Server::Context) : Bool

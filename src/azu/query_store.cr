@@ -160,84 +160,64 @@ module Azu
       sql.lstrip.split(/\s+/, 2).first?.try(&.upcase) || ""
     end
 
-    # Words after which a quoted name is an identifier or a fixed term (`relation "users"`, `for column 'age'`),
-    # not a data value. Assumes an English server message.
-    NAME_WORDS = %w(relation column constraint table schema index function type role database trigger sequence view key)
+    NAME = "[\\w.$]+"
 
-    # What is safe to show of a database error when bound values must stay hidden: the first line only (PostgreSQL's
-    # DETAIL, CONTEXT and HINT lines, `Failing row contains (...)` and multi-line values live after it), the value list
-    # of any `(columns)=(...)` or `contains (...)` blanked, and quoted text blanked (see `blank_quotes`). A rule that keeps
-    # little instead of one that hunts for known shapes, since servers quote values in many places: `invalid input value
-    # for enum`, `value "..." is out of range`, `Incorrect integer value: '...'`, `Duplicate entry '...'`. It assumes
-    # English messages and does not touch unquoted values such as a bare number in prose.
-    def redact_error(message : String) : String
-      line = message.lines.first? || ""
-      if cut = line.index(/\b(?:DETAIL|CONTEXT|HINT):/)
-        line = line[0, cut]
-      end
-      line = line.sub(/\(([\w ,."]*)\)=\(.*\z/, "(\\1)=(…)")
-      line = line.sub(/\bKey \(.*\z/, "Key (…)") if line.matches?(/\bKey \(/) && !line.includes?(")=(…)")
-      line = line.sub(/\bcontains \(.*\z/, "contains (…)")
-      blank_quotes(line.rstrip)
+    # Messages whose whole first line is server wording with no data in it, and the canonical text built from the
+    # identifiers they name (only `[\w.$]+` is accepted as one). English servers only.
+    NAMED_ERRORS = [
+      {/\Arelation "(#{NAME})" does not exist\z/, %(relation "%s" does not exist)},
+      {/\Acolumn "(#{NAME})" does not exist\z/, %(column "%s" does not exist)},
+      {/\Anull value in column "(#{NAME})" of relation "(#{NAME})" violates not-null constraint\z/, %(null value in column "%s" of relation "%s" violates not-null constraint)},
+      {/\Anull value in column "(#{NAME})" violates not-null constraint\z/, %(null value in column "%s" violates not-null constraint)},
+      {/\Aduplicate key value violates unique constraint "(#{NAME})"\z/, %(duplicate key value violates unique constraint "%s")},
+      {/\Ainsert or update on table "(#{NAME})" violates foreign key constraint "(#{NAME})"\z/, %(insert or update on table "%s" violates foreign key constraint "%s")},
+      {/\Aupdate or delete on table "(#{NAME})" violates foreign key constraint "(#{NAME})" on table "(#{NAME})"\z/, %(update or delete on table "%s" violates foreign key constraint "%s" on table "%s")},
+      {/\AUNIQUE constraint failed: (#{NAME}(?:, #{NAME})*)\z/, "UNIQUE constraint failed: %s"},
+      {/\ANOT NULL constraint failed: (#{NAME})\z/, "NOT NULL constraint failed: %s"},
+      {/\Ano such table: (#{NAME})\z/, "no such table: %s"},
+      {/\Ano such column: (#{NAME})\z/, "no such column: %s"},
+      {/\ATable '(#{NAME})' doesn't exist\z/, "Table '%s' doesn't exist"},
+      {/\AUnknown column '(#{NAME})' in '(field list|where clause|order clause|on clause|group statement|having clause)'\z/, "Unknown column '%s' in '%s'"},
+      {/\Asyntax error( at or near .*)?\z/, "syntax error"},
+      {/\Anear .*: syntax error\z/, "syntax error"},
+    ]
+
+    # Value-free messages that are shown as they are.
+    PLAIN_ERRORS = ["database is locked", "FOREIGN KEY constraint failed", "deadlock detected", "canceling statement due to statement timeout",
+                    "canceling statement due to user request", "CHECK constraint failed"]
+
+    # MySQL puts the value in the first line, so only a one-line message is recognised (the value cannot hide a line break).
+    MYSQL_DUPLICATE = /\ADuplicate entry .* for key '(#{NAME})'\z/
+
+    # What the dashboard shows of a database error while bound values must stay hidden: the exception class, its SQLSTATE
+    # when it has one, and a canonical text only for a message shape recognised from its whole first line. Anything else
+    # shows the class (and code) alone. Never raises.
+    def safe_error(error : Exception) : String
+      text = canonical_error(error.message.to_s)
+      code = error.responds_to?(:sqlstate) ? error.sqlstate.to_s : ""
+      label = code.matches?(/\A[0-9A-Z]{5}\z/) ? "#{error.class.name} (SQLSTATE #{code})" : error.class.name
+      text ? "#{label}: #{text}" : label
+    rescue
+      error.class.name
     end
 
-    # Walks the line once. The first quote character (`'`, `"`, backtick, or a typographic one) starts a segment; it is
-    # kept only when a name word precedes it and its body is a plain identifier (`[\w.$]+`). Otherwise everything up
-    # to the LAST quote of that kind on the line is blanked, so a value that contains the quote character
-    # (`'O'Brien'`) cannot leak its tail, and the scan resumes after it.
-    private def blank_quotes(line : String) : String
-      chars = line.chars
-      String.build do |io|
-        i = 0
-        while i < chars.size
-          kind = quote_kind(chars[i])
-          unless kind
-            io << chars[i]
-            i += 1
-            next
-          end
-          close = next_quote(chars, i + 1, kind)
-          if close && name_before?(chars, i) && plain_identifier?(chars, i + 1, close)
-            (i..close).each { |at| io << chars[at] }
-            i = close + 1
-          else
-            last = last_quote(chars, i + 1, kind)
-            io << chars[i] << '…'
-            io << chars[last] if last
-            i = (last || chars.size - 1) + 1
-          end
+    # The canonical text of a recognised message, or nil.
+    def canonical_error(message : String) : String?
+      message = message.scrub
+      first = message.split(/[\r\n]/, 2).first
+      first = first.sub(/\A(?:ERROR|FATAL): /, "").sub(/ \(SQLSTATE [0-9A-Z]{5}\)\z/, "") # CQL's own wrapper
+      if first == message && (found = MYSQL_DUPLICATE.match(first))
+        return "Duplicate entry for key '#{found[1]}'"
+      end
+      return first if PLAIN_ERRORS.includes?(first)
+      NAMED_ERRORS.each do |pattern, template|
+        if found = pattern.match(first)
+          return found.size == 1 ? template : template % found.captures.map(&.to_s)
         end
       end
-    end
-
-    # 0 for `'` and the typographic single quotes, 1 for `"` and the typographic double quotes, 2 for a backtick.
-    private def quote_kind(char : Char) : Int32?
-      case char
-      when '\'', '‘', '’' then 0
-      when '"', '“', '”'  then 1
-      when '`'            then 2
-      end
-    end
-
-    private def next_quote(chars : Array(Char), from : Int32, kind : Int32) : Int32?
-      (from...chars.size).find { |at| quote_kind(chars[at]) == kind }
-    end
-
-    private def last_quote(chars : Array(Char), from : Int32, kind : Int32) : Int32?
-      (chars.size - 1).downto(from).find { |at| quote_kind(chars[at]) == kind }
-    end
-
-    private def name_before?(chars : Array(Char), quote_at : Int32) : Bool
-      return false unless quote_at >= 2 && chars[quote_at - 1] == ' '
-      start = quote_at - 1
-      while start > 0 && chars[start - 1].ascii_letter?
-        start -= 1
-      end
-      NAME_WORDS.includes?(String.build { |io| (start...(quote_at - 1)).each { |at| io << chars[at] } }.downcase)
-    end
-
-    private def plain_identifier?(chars : Array(Char), from : Int32, to : Int32) : Bool
-      to > from && (from...to).all? { |at| chars[at].alphanumeric? || chars[at].in?('_', '.', '$') }
+      nil
+    rescue
+      nil
     end
 
     def table(sql : String) : String?

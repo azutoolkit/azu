@@ -210,7 +210,7 @@ describe "Dev dashboard Database tab backed by the query store" do
       handler = Azu::Handler::DevDashboard.new
       with_azu_env(Azu::Environment::Development) do
         _, body = post_sql(handler, %({"sql":"SELECT 1","mode":"run"}))
-        body.should contain "invalid input value for enum status"
+        body.should eq %({"error":"Exception"}) # not a shape the dashboard recognises: the class only
         body.should_not contain "SECRET"
 
         Azu::CONFIG.database.show_params = true
