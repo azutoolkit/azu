@@ -8,6 +8,20 @@ This document lists breaking changes between Azu versions and migration guides.
 
 Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
 
+**`.jinja` and `.j2` templates are autoescaped (security).** Crinja escapes only `html`, `htm` and `xml` templates, and
+`.jinja` is the framework's own default extension (`Renderable#page_path`), so `{{ user.name }}` in a page was stored XSS
+unless the author remembered `| e`. Now every template is escaped, string templates included, except plain text
+(`*.txt`, `*.text`, `*.txt.jinja`). Migration:
+
+- No change is needed for `| e`: `{{ value | e }}` returns an already-escaped value that is not escaped again, so existing templates
+  keep their bytes. Do not chain a filter after `| e` (`{{ x | e | upper }}`): `upper` returns plain text, which is then
+  escaped once more; escape last, or drop the `| e`.
+- A value that is markup on purpose (HTML you built or sanitized) needs `{{ value | safe }}`. Before, it printed raw by
+  accident. Values passed through `t()` that contain HTML are escaped now; render them with `| safe`.
+- The built-in helpers return `Crinja::SafeString` and are not escaped. Your own `Azu::Helpers.function`/`filter` that
+  return HTML must return `Crinja::SafeString.new(html)`, built from escaped parts.
+- Last resort: `Azu::CONFIG.template_autoescape = false` or `TEMPLATE_AUTOESCAPE=false` restores the old behavior.
+
 **`Static` can refuse paths (additive, nothing to change).** `Azu::Handler::Static.new(except: ["/templates"])` never serves
 `/templates` or anything below it; the request goes to the next handler, or answers `404` with `fallthrough: false`. Without
 `except` the handler behaves as before. Use it when template sources live under `public/`:

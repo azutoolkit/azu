@@ -60,8 +60,7 @@ client can write one, and nothing signed it. A template shows messages with `{{ 
 `session` is deliberately not given to templates: a session holds identifiers and tokens that a template has no
 business printing. Pass what a page needs through its response object, or give the adapter's `session:` proc an
 allowlist (`->(context : HTTP::Server::Context) { {"name" => context.session.name.to_s} }`) and read it as
-`TemplateContext#session`. Flash values are user-influenced text, and `.jinja` templates are not autoescaped:
-write `{{ flash.notice | e }}`.
+`TemplateContext#session`. Flash values are user-influenced text; `.jinja` templates are autoescaped, so `{{ flash.notice }}` is safe.
 
 ## Use it in endpoints
 

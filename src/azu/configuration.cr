@@ -145,6 +145,20 @@ module Azu
       @templates.try(&.hot_reload = enabled)
     end
 
+    # Escape `{{ }}` output of `.jinja`, `.j2` and string templates like `.html` (default). `TEMPLATE_AUTOESCAPE=false`
+    # turns it off; any other value keeps it on. `| safe` marks a value as markup without turning it off.
+    @template_autoescape : Bool = ENV.fetch("TEMPLATE_AUTOESCAPE", "true") != "false"
+
+    def template_autoescape? : Bool
+      @template_autoescape
+    end
+
+    # Also applies to the templates of this configuration when they were built already.
+    def template_autoescape=(enabled : Bool)
+      @template_autoescape = enabled
+      @templates.try(&.autoescape = enabled)
+    end
+
     getter template_compile_ignore : Array(String)
 
     def template_compile_ignore=(patterns : Array(String))
@@ -186,7 +200,8 @@ module Azu
         ENV.fetch("TEMPLATES_PATH", Path[TEMPLATES_PATH].expand.to_s).split(","),
         ENV.fetch("ERROR_TEMPLATE", Path[ERROR_TEMPLATE].expand.to_s),
         template_hot_reload?,
-        template_compile_ignore
+        template_compile_ignore,
+        template_autoescape?
       )
     end
 
