@@ -5,13 +5,22 @@ class Azu::Templates
     {{ run("../template_compiler/process", dir, strict ? "--strict" : "--lenient") }}
   end
 
-  # name => {source, render proc}; name => why it falls back to Crinja
-  record CompiledSet, templates : Hash(String, {String, Proc(IO, Crinja, Nil)}), fallbacks : Hash(String, String)
+  # name => {source, the filters it calls, render proc}; name => why it falls back to Crinja
+  record CompiledSet, templates : Hash(String, {String, Array(String), CompiledTemplate::Body}), fallbacks : Hash(String, String)
 
   # Renders with its compiled proc. Immutable and shared: a render's state is in the fiber's `env.context`. It keeps
   # Crinja's parsed nodes too: a Crinja template that extends it renders the parent's nodes, not its `render`.
   class CompiledTemplate < Crinja::Template
-    def initialize(source : String, @body : Proc(IO, Crinja, Nil), env : Crinja, name : String, filename : String)
+    # Renders to `io`, calling the template's `n`th filter as `filters[n]`.
+    alias Body = Proc(IO, Crinja, Array(Crinja::Callable?), Nil)
+
+    # What renders share, built on the first and again when what it was built from changes: the autoescape flag of
+    # the file name and each filter (nil when unknown or disabled: the call asks `env.filters`, which raises).
+    private record State, env : Crinja, stamp : {Int32, Int32, Int32}, rule : Crinja::Config::Autoescape, autoescape : Bool, filters : Array(Crinja::Callable?)
+
+    @state : State?
+
+    def initialize(source : String, @filter_names : Array(String), @body : Body, env : Crinja, name : String, filename : String)
       super(source, env, name, filename)
     end
 
@@ -30,11 +39,21 @@ class Azu::Templates
     # Unlike Crinja, which renders to a buffer first, it writes to `io` as it goes: on an error `io` holds the output
     # so far. Azu's own render paths go through a `String`, so they are unaffected.
     def render(io : IO, env : Crinja)
-      env.context.autoescape = env.config.autoescape?(filename) # as Crinja's renderer does
-      @body.call(io, env)
+      state = state(env)
+      env.context.autoescape = state.autoescape # as Crinja's renderer does
+      @body.call(io, env, state.filters)
     rescue e : Crinja::Error
       e.template ||= self
       raise e
+    end
+
+    # Immutable, published with one assignment: a render racing a rebuild uses either state.
+    private def state(env : Crinja) : State
+      filters, rule = env.filters, env.config.autoescape
+      stamp = {filters.revision, filters.aliases.size, filters.disabled.size}
+      state = @state
+      return state if state && state.env.same?(env) && state.stamp == stamp && state.rule.same?(rule)
+      @state = State.new(env, stamp, rule, rule.autoescape?(filename), @filter_names.map { |name| filters[name] rescue nil })
     end
   end
 end

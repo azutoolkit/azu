@@ -111,3 +111,15 @@ class Crinja::Tag::Import
     scope.macros.each { |key, value| env.context.macros["#{context_var}.#{key}"] = value } if context_var
   end
 end
+
+abstract class Crinja::FeatureLibrary(T)
+  # :nodoc:
+  # Counts the stores: a compiled template resolves its filters once, and again when this (or `aliases` or `disabled`
+  # in size) changes.
+  getter revision : Int32 = 0
+
+  def []=(name, obj : T)
+    @revision &+= 1
+    previous_def
+  end
+end

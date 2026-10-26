@@ -17,14 +17,15 @@ module Azu::TemplateCompiler
       source = File.read(File.join(dir, name))
       case body = emit(source)
       in String
-        "#{name.inspect} => {#{source.inspect}, ->(io : ::IO, env : ::Crinja) { #{body}nil }}"
+        "#{name.inspect} => {#{source.inspect}, (#{@@filters.inspect} of ::String), " \
+        "->(io : ::IO, env : ::Crinja, filters : ::Array(::Crinja::Callable?)) { #{body}nil }}"
       in Unsupported
         fallbacks[name] = "#{name}:#{body.reason}"
         nil
       end
     end
     raise Error.new("Azu::Templates.compile: cannot compile #{fallbacks.values.join("\n")}") if strict && fallbacks.present?
-    "::Azu::Templates::CompiledSet.new({#{entries.join(", ")}} of ::String => {::String, ::Proc(::IO, ::Crinja, ::Nil)}, " \
+    "::Azu::Templates::CompiledSet.new({#{entries.join(", ")}} of ::String => {::String, ::Array(::String), ::Azu::Templates::CompiledTemplate::Body}, " \
     "#{fallbacks.inspect} of ::String => ::String)"
   end
 
@@ -52,6 +53,7 @@ module Azu::TemplateCompiler
   # Code rendering `source` as `Crinja::Template` does (default `trim_blocks`, `lstrip_blocks`), or why not: a node is
   # unsupported or the source does not parse (an app tag, a vendored page). Crinja serves those at runtime.
   private def self.emit(source : String) : String | Unsupported
+    @@filters = [] of String
     nodes(Crinja::Parser::TemplateParser.new(Crinja.new, source.rchop('\n')).parse.children)
   rescue e : Fallback
     unsupported(e.at, e.message.to_s)
@@ -60,6 +62,9 @@ module Azu::TemplateCompiler
   rescue e : ArgumentError # Crinja's parser, for a number literal out of range
     unsupported(nil, e.message.to_s)
   end
+
+  # The filters of the template being emitted, in order of first use: the code calls the `n`th as `filters[n]`.
+  @@filters = [] of String
 
   # Crinja does not locate a `{# note #}`: it takes the end of the node before.
   private def self.nodes(list : Array(Crinja::AST::TemplateNode), after = Crinja::Parser::StreamPosition.new(1, 1, 0)) : String
@@ -86,9 +91,11 @@ module Azu::TemplateCompiler
     parsed = ForParser.new(node.arguments, Crinja::Config.new).parse_for
     raise Fallback.new(at, parsed) if parsed.is_a?(String)
     vars, collection = parsed
-    "::Crinja::Tag::For::ForLoop.new(#{value(collection, at)}).try { |looper| looper.each { |item| " \
-    "env.with_scope({::Crinja::Tag::For::LOOP_VARIABLE => looper}) { |ctx| ctx.unpack(#{vars.inspect}, item); " \
-    "#{nodes(node.block.children, at)}} } }"
+    looper = "looper#{at.pos}" # a local per loop: an inner loop's must not replace it
+    names, unpack = vars.size == 1 ? {"", "ctx[#{vars[0].inspect}] = item"} : {"#{looper}_vars = #{vars.inspect}; ", "ctx.unpack(#{looper}_vars, item)"}
+    "#{looper} = ::Crinja::Tag::For::ForLoop.new(#{value(collection, at)}); #{names}" \
+    "#{looper}.each { |item| env.with_scope(::Crinja::Context.new(env.context)) { |ctx| " \
+    "ctx[::Crinja::Tag::For::LOOP_VARIABLE] = #{looper}; #{unpack}; #{nodes(node.block.children, at)}} }"
   end
 
   # What `Crinja::Evaluator#value` returns for `node`.
@@ -122,7 +129,9 @@ module Azu::TemplateCompiler
       value(arg, at)
     end
     kwargs = node.keyword_arguments.join { |key, arg| "kw[#{key.name.inspect}] = #{value(arg, at)}; " }
-    "env.execute_call(env.filters[#{node.identifier.name.inspect}], [#{args}] of ::Crinja::Value, " \
+    name = node.identifier.name
+    index = @@filters.index(name) || (@@filters << name).size - 1
+    "env.execute_call(filters[#{index}] || env.filters[#{name.inspect}], [#{args}] of ::Crinja::Value, " \
     "::Crinja::Variables.new.tap { |kw| #{kwargs}}, target: #{value(node.target, at)})"
   end
 
