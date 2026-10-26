@@ -83,6 +83,87 @@ A fact is written on one page, and other pages link to that page instead of rest
 example, the default handler stack lives on [App](../reference/api/app.md), error bodies and statuses on
 [Error types](../reference/errors/error-types.md), and the test client on [Testing](../reference/api/testing.md).
 
+## GitBook blocks
+
+The docs are published with GitBook, so pages use its blocks where a block reads better than plain Markdown.
+GitHub shows the block tags as text; the published site is the target. Use each block for its one job:
+
+| Block | Use it for | Not for |
+|---|---|---|
+| Front matter `description` | The one-sentence summary GitBook shows under the title and in search. It replaces the page's opening summary sentence. | Repeating the title |
+| Hint | An aside the reader must not miss: `info` for a useful note, `warning` for a pitfall, `danger` for security or data loss | Ordinary paragraphs; more than two per section |
+| Tabs | Alternatives of the same thing: JSON or form, SQLite or PostgreSQL, development or production | Sequential steps |
+| Stepper | A how-to's ordered steps, when each step is short | Long tutorial steps (tutorials keep numbered `##` headings, which the page outline lists) |
+| Code title | The file a block belongs in, when the text names one | Snippets that belong in no particular file |
+| Expandable | Long output or detail most readers skip, and each question of the FAQ | The main path of a page |
+| Cards | Entry points on the landing page | Lists of links inside a page |
+| Page link | A tutorial's `## Next steps` | `## See also`, which stays a short list |
+| Mermaid | Flows, sequences and topologies (GitHub renders these too) | Tables or lists drawn as boxes |
+
+The exact syntax, as GitBook writes it:
+
+````markdown
+---
+description: Validate a request before your endpoint runs.
+---
+
+{% hint style="warning" %}
+A second `validate` call for the same field replaces the first.
+{% endhint %}
+
+{% tabs %}
+{% tab title="JSON" %}
+Body text or a code block.
+{% endtab %}
+
+{% tab title="Form" %}
+Body text or a code block.
+{% endtab %}
+{% endtabs %}
+
+{% stepper %}
+{% step %}
+#### Create the contract
+
+Step body.
+{% endstep %}
+
+{% step %}
+#### Register the endpoint
+
+Step body.
+{% endstep %}
+{% endstepper %}
+
+{% code title="src/hello.cr" %}
+(a fenced code block)
+{% endcode %}
+
+<details>
+
+<summary>The full response</summary>
+
+Long output.
+
+</details>
+
+{% content-ref url="../reference/api/endpoint.md" %}
+[endpoint.md](../reference/api/endpoint.md)
+{% endcontent-ref %}
+````
+
+A cards block is an HTML table whose hidden third column holds each card's target:
+
+```html
+<table data-view="cards"><thead><tr><th></th><th></th><th data-hidden data-card-target data-type="content-ref"></th></tr></thead><tbody>
+<tr><td><strong>Tutorials</strong></td><td>Learn by building, in order.</td><td><a href="tutorials/getting-started.md">getting-started.md</a></td></tr>
+</tbody></table>
+```
+
+A `<!-- skip -->` or `<!-- prelude -->` marker goes above the block tags that wrap its fence (above
+`{% code %}` or `{% step %}`), and the checker still finds it. The link check reads card targets and page links
+too.
+
 ## Adding a page
 
 1. Write it in its section's folder, with a title that follows the rules above.
