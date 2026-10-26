@@ -304,7 +304,7 @@ describe Azu::Handler::CORS do
       sent.headers["Access-Control-Allow-Methods"]?.should eq("POST")
     end
 
-    it "rejects preflight with missing headers" do
+    it "allows a preflight without request headers, and sends no Allow-Headers" do
       handler = Azu::Handler::CORS.new(
         origins: ["https://example.com"],
         methods: ["POST"],
@@ -320,7 +320,8 @@ describe Azu::Handler::CORS do
 
       handler.call(context)
 
-      context.response.status_code.should eq(403)
+      context.response.status_code.should eq(200)
+      context.response.headers.has_key?("Access-Control-Allow-Headers").should be_false
       verify.call
     end
 

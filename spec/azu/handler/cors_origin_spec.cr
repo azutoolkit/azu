@@ -195,6 +195,22 @@ describe "Azu::Handler::CORS origins and credentials" do
       context.response.headers.map { |name, _| name }.select(&.downcase.starts_with?("access-control-")).should be_empty
     end
 
+    it "allows a preflight without Access-Control-Request-Headers and sends no Allow-Headers" do
+      context = preflight.call(cors.call, "https://app.example", "DELETE", nil)
+      context.response.status_code.should eq 403 # DELETE is not in this handler's methods
+
+      context = preflight.call(cors.call, "https://app.example", "PUT", nil)
+      context.response.status_code.should eq 200
+      context.response.headers["Access-Control-Allow-Origin"].should eq "https://app.example"
+      context.response.headers["Access-Control-Allow-Methods"].should eq "PUT"
+      context.response.headers.has_key?("Access-Control-Allow-Headers").should be_false
+    end
+
+    it "still needs an allowed method and origin when no headers are requested" do
+      preflight.call(cors.call, "https://app.example", nil, nil).response.status_code.should eq 403
+      preflight.call(cors.call, "https://evil.test", "PUT", nil).response.status_code.should eq 403
+    end
+
     it "refuses a header list holding nothing but separators" do
       preflight.call(cors.call, "https://app.example", "POST", " , ").response.status_code.should eq 403
     end
@@ -268,6 +284,14 @@ describe "Azu::Handler::CORS origins and credentials" do
       response = serve.call(cors, "GET", headers)
       response.status_code.should eq 403
       response.headers["Access-Control-Allow-Origin"]?.should be_nil
+    end
+
+    it "answers a bare cross-origin DELETE preflight (no request headers) with the allowed method only" do
+      cors = Azu::Handler::CORS.new(origins: ["https://app.example"], methods: ["DELETE"], headers: ["Content-Type"])
+      response = serve.call(cors, "OPTIONS", HTTP::Headers{"Origin" => "https://app.example", "Access-Control-Request-Method" => "DELETE"})
+      response.status_code.should eq 200
+      response.headers["Access-Control-Allow-Methods"].should eq "DELETE"
+      response.headers["Access-Control-Allow-Headers"]?.should be_nil
     end
 
     it "refuses a preflight asking for one allowed and one forbidden header on the wire" do

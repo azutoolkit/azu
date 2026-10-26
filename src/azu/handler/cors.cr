@@ -27,7 +27,7 @@ module Azu
 
       property headers, methods, max_age
       getter origins : OriginType
-      getter credentials : Bool
+      getter? credentials : Bool
       @origin : Origin
 
       def initialize(
@@ -48,6 +48,11 @@ module Azu
         ensure_not_wildcard_with_credentials!(@origin, @credentials)
       end
 
+      # Kept for callers of the former `property credentials`.
+      def credentials : Bool
+        @credentials
+      end
+
       def origins=(origins : OriginType) : OriginType
         origin = Origin.new(origins)
         ensure_not_wildcard_with_credentials!(origin, @credentials)
@@ -63,7 +68,7 @@ module Azu
       # Browsers ignore `Access-Control-Allow-Origin: *` on a credentialed request, and echoing the request's origin
       # instead would let every site read the responses of a signed-in user: the combination is refused outright.
       private def ensure_not_wildcard_with_credentials!(origin : Origin, credentials : Bool) : Nil
-        return unless credentials && origin.any?
+        return unless credentials && origin.wildcard?
         raise ArgumentError.new("CORS: origins \"*\" cannot be combined with credentials: true (it would let any site read " \
                                 "credentialed responses); list the allowed origins instead")
       end
@@ -111,7 +116,7 @@ module Azu
       # A literal `*` for a public wildcard (never with credentials, which the constructor refuses), the request's own
       # origin otherwise.
       private def allow_origin_value(request_origin : String) : String
-        @origin.any? ? "*" : request_origin
+        @origin.wildcard? ? "*" : request_origin
       end
 
       private def vary : Array(String)
@@ -144,7 +149,7 @@ module Azu
 
       def put_preflight_headers(request, response, max_age)
         response.headers[Headers::ALLOW_METHODS] = request.headers[Headers::REQUEST_METHOD]
-        response.headers[Headers::ALLOW_HEADERS] = request.headers[Headers::REQUEST_HEADERS]
+        request.headers[Headers::REQUEST_HEADERS]?.try { |requested| response.headers[Headers::ALLOW_HEADERS] = requested }
         response.headers[Headers::ALLOW_MAX_AGE] = max_age.to_s if max_age
         response.content_length = 0
         response.flush
@@ -155,11 +160,11 @@ module Azu
       end
 
       def valid_headers?(request, headers)
-        request_headers = request.headers[Headers::REQUEST_HEADERS]?
-        return false if request_headers.nil? || request_headers.empty?
+        # Nothing asked for, nothing to allow: a bare preflight (a DELETE with no custom header) is decided by method.
+        return true unless request_headers = request.headers[Headers::REQUEST_HEADERS]?
 
         allowed = headers.map(&.downcase)
-        requested = request_headers.split(',').map { |header| header.strip.downcase }.reject(&.empty?)
+        requested = request_headers.split(',').map(&.strip.downcase).reject(&.empty?)
         # Every requested header must be allowed: one allowed header must not carry the others through.
         !requested.empty? && requested.all? { |header| allowed.includes?(header) }
       end
@@ -181,7 +186,7 @@ module Azu
       def match?(request_origin : String) : Bool
         return false if @origins.empty? || !well_formed?(request_origin)
         return @origins.includes?(NULL_ORIGIN) if request_origin == NULL_ORIGIN
-        return true if any?
+        return true if wildcard?
 
         @origins.any? do |origin|
           case origin
@@ -200,7 +205,7 @@ module Azu
         authority.each_char.all? { |char| char.ord > 0x20 && char.ord < 0x7f && !"/?#@,\\".includes?(char) }
       end
 
-      def any?
+      def wildcard?
         @origins.includes? "*"
       end
 

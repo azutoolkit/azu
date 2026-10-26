@@ -354,7 +354,9 @@ How an `Origin` is matched:
 - `Origin: null` (sandboxed frames, `file:` pages, some redirects) is any page's to send, so it matches only when the string
   `"null"` is listed in `origins`: never `"*"` and never a regex.
 - A preflight is allowed only when **every** header in `Access-Control-Request-Headers` is in `headers` (compared without
-  regard to case); one allowed header no longer carries the others. Anything refused gets no `Access-Control-*` header.
+  regard to case); one allowed header no longer carries the others. A preflight without `Access-Control-Request-Headers` (a
+  bare cross-origin `DELETE`) is decided by origin and method alone and gets no `Access-Control-Allow-Headers`. Anything
+  refused gets no `Access-Control-*` header.
 
 {% hint style="warning" %}
 Put `CORS` before authentication handlers: a preflight carries no credentials, so an authentication handler in front

@@ -19,7 +19,8 @@ when you need credentials. With `origins: ["*"]` and no credentials the response
 `Access-Control-Allow-Origin: *` instead of the echoed origin (it still varies by `Origin`). `Origin: null` is matched only when
 `"null"` is listed (it matched `"*"` and any permissive regex), an `Origin` that is not a plain `scheme://host[:port]` or comes
 in several headers is refused with `403`, and a preflight must ask for allowed headers only: before, one allowed header in
-`Access-Control-Request-Headers` let the others through. An app that built `CORS` with the wildcard and credentials must change
+`Access-Control-Request-Headers` let the others through, while a preflight with no `Access-Control-Request-Headers` at all (it was
+refused with `403`) now passes for an allowed origin and method and gets no `Access-Control-Allow-Headers`. An app that built `CORS` with the wildcard and credentials must change
 its configuration to boot, which is why this release is a minor one.
 
 **Responses get the request variables, and CSRF values need a CSRF handler.** A response's `view` had no request: its
