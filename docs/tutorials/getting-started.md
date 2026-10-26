@@ -1,142 +1,67 @@
-# Getting Started with Azu
+# Getting started
 
-Welcome to Azu! This tutorial will guide you through installing Crystal and Azu, then building your first working application.
+In about 15 minutes you will build a small Azu app from an empty directory: one endpoint whose contract is validated before your code runs, an HTML page that links to it, a test, and the development dashboard. You type every file, and every step has been run.
 
-## What You'll Learn
-
-By the end of this tutorial, you will have:
-
-- Crystal and Azu installed on your system
-- A working Azu application running locally
-- Understanding of the basic project structure
-
-## Prerequisites
-
-Before starting, ensure you have:
-
-- A computer running macOS, Linux, or Windows
-- Internet connection for downloading dependencies
-- A terminal/command line application
-- A code editor (VS Code recommended)
-
-## Step 1: Install Crystal
-
-Azu requires **Crystal 1.19.1 or higher**. Install Crystal for your operating system:
-
-### macOS
+You need [Crystal](https://crystal-lang.org/install/) 1.19.1 or newer and a terminal.
 
 ```bash
-# Using Homebrew (recommended)
-brew install crystal-lang
-
-# Verify installation
-crystal version
-# Should output: Crystal 1.x.x
+crystal --version
+# Crystal 1.19.1 (...)
 ```
 
-### Linux (Ubuntu/Debian)
+Prefer a generator? `azu new` writes a whole project for you; see [Get started in 5 minutes](../../README.md#get-started-in-5-minutes). This tutorial builds the pieces by hand so you see how they fit.
+
+## 1. Create the project
 
 ```bash
-# Add Crystal repository
-curl -fsSL https://crystal-lang.org/install.sh | sudo bash
-
-# Install Crystal
-sudo apt-get install crystal
-
-# Verify installation
-crystal version
+mkdir hello && cd hello
+mkdir src spec templates
 ```
 
-### Linux (Fedora/CentOS/RHEL)
-
-```bash
-# Add Crystal repository
-curl -fsSL https://crystal-lang.org/install.sh | sudo bash
-
-# Fedora
-sudo dnf install crystal
-
-# CentOS/RHEL
-sudo yum install crystal
-
-# Verify installation
-crystal version
-```
-
-### Windows
-
-```bash
-# Using Chocolatey
-choco install crystal
-
-# Using Scoop
-scoop install crystal
-
-# Verify installation
-crystal version
-```
-
-## Step 2: Create Your Project
-
-Create a new Crystal project and add Azu as a dependency:
-
-```bash
-# Create project directory
-crystal init app my_first_azu_app
-cd my_first_azu_app
-```
-
-Edit your `shard.yml` to add Azu:
+Create `shard.yml`:
 
 ```yaml
-name: my_first_azu_app
+name: hello
 version: 0.1.0
-
-authors:
-  - Your Name <you@example.com>
+crystal: ">= 1.19.1"
 
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.5.52
+    version: ~> 0.5.119
 
-crystal: ">= 1.19.1"
-
-license: MIT
+targets:
+  hello:
+    main: src/server.cr
 ```
-
-Install dependencies:
 
 ```bash
 shards install
 ```
 
-## Step 3: Create Your First Application
+## 2. An endpoint with a contract
 
-Replace the contents of `src/my_first_azu_app.cr` with:
+An Azu endpoint is `Endpoint(Request, Response)`: the request contract it accepts and the response it returns. Create `src/hello.cr`:
 
 ```crystal
 require "azu"
 
-# Define your application module
-module MyFirstAzuApp
+module Hello
   include Azu
 
   configure do |config|
-    config.port = 4000
-    config.host = "0.0.0.0"
+    config.templates.path = "./templates"
   end
 end
 
-# A response turns your data into the body that is sent
-struct HelloResponse
-  include Azu::Response
+struct GreetRequest
+  include Azu::Request
 
-  def initialize(@message : String)
-  end
+  getter name : String
 
-  def render
-    @message
+  validate name, size: 2..30, message: "must be 2 to 30 characters"
+
+  def initialize(@name = "")
   end
 end
 
@@ -147,191 +72,179 @@ struct GreetResponse
   end
 
   def render
-    {message: "Hello, #{@name}!", timestamp: Time.utc.to_rfc3339}.to_json
+    {message: "Hello, #{@name}!"}.to_json
   end
 end
 
-# Create a simple endpoint
-struct HelloEndpoint
-  include Azu::Endpoint(Azu::Request, HelloResponse)
-
-  get "/"
-
-  def call : HelloResponse
-    content_type "text/plain"
-    HelloResponse.new("Hello from Azu!")
-  end
-end
-
-# Create a JSON endpoint
 struct GreetEndpoint
-  include Azu::Endpoint(Azu::Request, GreetResponse)
+  include Azu::Endpoint(GreetRequest, GreetResponse)
 
-  get "/greet/:name"
+  get "/hello"
 
   def call : GreetResponse
     content_type "application/json"
-    GreetResponse.new(params["name"])
-  end
-end
-
-# Start the server
-MyFirstAzuApp.start [
-  Azu::Handler::Rescuer.new,
-  Azu::Handler::Logger.new,
-] of HTTP::Handler
-```
-
-## Step 4: Run Your Application
-
-Start the server:
-
-```bash
-crystal run src/my_first_azu_app.cr
-```
-
-You should see output like:
-
-```
- AZU   Thu 10/22/2026 09:15:03 ⤑   Info  ⤑  App ⤑  Server started at Thu 10/22/2026 09:15:03.
-   ⤑  Environment: Development
-   ⤑  Host: 0.0.0.0
-   ⤑  Port: 4000
-   ⤑  Startup Time: 0.04 millis
-```
-
-## Step 5: Test Your Endpoints
-
-Open a new terminal and test your endpoints:
-
-```bash
-# Test the hello endpoint
-curl http://localhost:4000/
-# Output: Hello from Azu!
-
-# Test the greet endpoint
-curl http://localhost:4000/greet/World
-# Output: {"message":"Hello, World!","timestamp":"2026-10-22T09:15:30Z"}
-```
-
-You can also open `http://localhost:4000/` in your browser.
-
-## Understanding the Code
-
-Let's break down what you just created:
-
-### Application Module
-
-```crystal
-module MyFirstAzuApp
-  include Azu
-
-  configure do |config|
-    config.port = 4000
-    config.host = "0.0.0.0"
+    GreetResponse.new greet_request.name
   end
 end
 ```
 
-This defines your application and configures the server settings. `configure` yields the configuration,
-and `include Azu` gives the module its `start` method.
+`include Azu` makes `Hello` your app. Endpoints register themselves when they are defined, and `config.templates.path` (used in step 4) is where Azu looks for templates, relative to the directory you start the server in.
 
-### Endpoints
+`greet_request` is the contract, already built from the query string (or the JSON or form body) and already validated. If validation fails, `call` never runs.
 
-```crystal
-struct HelloResponse
-  include Azu::Response
-
-  def initialize(@message : String)
-  end
-
-  def render
-    @message
-  end
-end
-
-struct HelloEndpoint
-  include Azu::Endpoint(Azu::Request, HelloResponse)
-
-  get "/"
-
-  def call : HelloResponse
-    content_type "text/plain"
-    HelloResponse.new("Hello from Azu!")
-  end
-end
-```
-
-Endpoints handle HTTP requests:
-- `include Azu::Endpoint(RequestType, ResponseType)` defines the contract; `Azu::Request` stands for "no request body to validate"
-- `get "/"` declares the HTTP method and route
-- `def call` contains your handler logic and returns the response object, whose `render` produces the body
-
-### Route Parameters
+Create `src/server.cr`, the file that starts the app:
 
 <!-- skip -->
 ```crystal
-get "/greet/:name"
+require "./hello"
 
-def call
-  params["name"]  # Access route parameters
+Hello.start
+```
+
+Run it:
+
+```bash
+crystal run src/server.cr
+```
+
+```text
+INFO - Azu: CRYSTAL_ENV not set, running in development, listening on 127.0.0.1
+INFO - Azu: Server started at ...
+```
+
+In a second terminal:
+
+```bash
+curl "http://127.0.0.1:4000/hello?name=Ada"
+# {"message":"Hello, Ada!"}
+
+curl -H "Accept: application/problem+json" "http://127.0.0.1:4000/hello?name=A"
+# {"type":"about:blank","title":"Validation Error","status":422,"detail":"The request could not be processed due to validation errors.","errors":{"name":["must be 2 to 30 characters"]},"instance":"/hello"}
+```
+
+The name `A` is too short, so Azu answered `422` with the failing field, and your `call` method did not run. The body is an [RFC 7807](https://www.rfc-editor.org/rfc/rfc7807) problem document; the content type is `application/problem+json` only because the client asked for it in `Accept`, otherwise it is `application/json` (or HTML or text, whatever the client accepts).
+
+A request that is missing the field entirely (`/hello`) is a `400`: the contract could not even be built. A `422` means "I understood you, and the values are not acceptable".
+
+Azu listens on `127.0.0.1` in development. In a container set `HOST=0.0.0.0`.
+
+## 3. A test
+
+Tests use `Azu::Testing::Client`, which sends requests through the real handler chain and router without opening a socket. Create `spec/hello_spec.cr`:
+
+<!-- skip -->
+```crystal
+require "spec"
+require "azu/testing"
+require "../src/hello"
+
+describe "Hello" do
+  client = Azu::Testing::Client.new
+
+  it "greets by name" do
+    response = client.get "/hello", params: {name: "Ada"}
+
+    response.status_code.should eq 200
+    response.json["message"].as_s.should eq "Hello, Ada!"
+  end
+
+  it "rejects a name that is too short" do
+    response = client.get "/hello", params: {name: "A"}, headers: {"Accept" => "application/json"}
+
+    response.status_code.should eq 422
+    response.json["errors"]["name"].as_a.first.as_s.should eq "must be 2 to 30 characters"
+  end
 end
 ```
 
-The `:name` in the route captures that segment and makes it available via `params`.
-
-## Project Structure
-
-Your project should now look like this:
-
-```
-my_first_azu_app/
-├── shard.yml           # Dependencies
-├── shard.lock          # Locked versions
-├── src/
-│   └── my_first_azu_app.cr  # Main application
-├── lib/                # Installed dependencies
-└── spec/               # Test files
-```
-
-## Troubleshooting
-
-### "command not found: crystal"
-
-Add Crystal to your PATH:
-
 ```bash
-export PATH="/usr/local/bin:$PATH"
-echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
+crystal spec
+# 2 examples, 0 failures, 0 errors, 0 pending
 ```
 
-### "Error resolving dependencies"
+The second test asks for JSON because that is what the test reads; without an `Accept` header the error comes back as text.
 
-Clear the cache and reinstall:
+## 4. A page
 
-```bash
-rm -rf lib/ shard.lock
-shards install
+Add a response that renders a Jinja template, and an endpoint for it. Append this to `src/hello.cr`:
+
+```crystal
+struct HomePage
+  include Azu::Response
+  include Azu::Templates::Renderable
+
+  def render
+    view "home.jinja", {"title" => "Hello, Azu", "names" => ["Ada", "Grace", "Linus"]}
+  end
+end
+
+struct HomeEndpoint
+  include Azu::Endpoint(Azu::Request, HomePage)
+
+  get "/"
+
+  def call : HomePage
+    content_type "text/html"
+    HomePage.new
+  end
+end
 ```
 
-### Port already in use
+Create `templates/home.jinja`:
 
-Change the port in your configuration or kill the existing process:
-
-```bash
-lsof -i :4000
-kill -9 <PID>
+```jinja
+<!doctype html>
+<title>{{ title }}</title>
+<h1>{{ title }}</h1>
+<ul>
+{% for name in names %}
+  <li>{{ link_to_get_greet("Greet " ~ name, params={"name": name}) }}</li>
+{% endfor %}
+</ul>
 ```
 
-## Next Steps
+`link_to_get_greet` was generated for you: every endpoint gets link and form helpers named after its verb and type (`GreetEndpoint` with `get` gives `link_to_get_greet`), and they use the endpoint's real path. Rename the route and the links follow. See [Template helpers](../reference/templates/helpers.md#type-safe-endpoint-helpers).
 
-Congratulations! You've created your first Azu application. Continue learning with:
+Restart the server and open <http://127.0.0.1:4000/>. Add a third test while you are here:
 
-- [Building a User API](building-a-user-api.md) - Create a complete CRUD API
-- [Adding WebSockets](adding-websockets.md) - Add real-time features
-- [Working with Databases](working-with-databases.md) - Connect to PostgreSQL or MySQL
+<!-- skip -->
+```crystal
+  it "renders the home page with links to the endpoint" do
+    response = client.get "/"
 
----
+    response.status_code.should eq 200
+    response.body.should contain %(<a href="/hello?name=Ada">Greet Ada</a>)
+  end
+```
 
-**Your Azu journey begins!** You now have a working development environment and understand the basics of creating endpoints.
+Outside development Azu compiles templates once at boot, so a broken template fails at startup instead of on the first visitor. In development it reloads them when they change.
+
+## 5. The development dashboard
+
+The dashboard shows your routes, configuration, logs and request timings. It is opt-in and serves in development only. Change `src/server.cr`:
+
+<!-- skip -->
+```crystal
+require "azu/dev"
+require "./hello"
+
+handlers = Azu::App.default.default_handlers
+handlers.unshift Azu::Handler::DevDashboard.new if Hello.env.development?
+
+Hello.start handlers
+```
+
+Restart and open <http://127.0.0.1:4000/dev-dashboard>.
+
+![The development dashboard overview](../assets/dev-dashboard/overview-light-desktop.png)
+
+`default_handlers` is the stack `Hello.start` uses on its own: request id, request logging, error pages, security headers and static files from `public/`. Passing your own array replaces it, which is why this step starts from the default list.
+
+## Where next
+
+- Add a database: [Working with databases](working-with-databases.md).
+- Build a full JSON API: [Building a user API](building-a-user-api.md).
+- Make a page live: [Building live components](building-live-components.md).
+- Test more: [Testing your app](testing-your-app.md).
+- Ship it: [Deploying to production](deploying-to-production.md).
+- See everything Azu includes: [Features](../explanation/features.md).
