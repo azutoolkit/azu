@@ -380,6 +380,16 @@ struct FormEndpoint
 end
 ```
 
+The cookie is set with `Path=/`, so a token issued on one page reaches every path its form may post to (`GET /auth/login`,
+then `POST /session`). Earlier versions set no `Path`, and browsers kept the cookie for the directory of the page that
+issued it only (`/auth`), so such a form was refused with `403`. A browser can hold an old cookie like that next to the new
+one until it expires (`cookie_max_age`); a request inside its directory then carries both, the longer path first, and the
+handler reads the last cookie of the name, the `Path=/` one. `SignedDoubleSubmit` and `DoubleSubmit` set a new cookie with
+every token, so they work from the first page rendered after the upgrade. `SynchronizerToken` with the cookie store reuses
+the token a request already carries and sets no cookie: a browser that holds only an old cookie keeps its token, and a form
+posting outside that cookie's directory is refused, until the cookie expires or a page outside the directory issues a new
+token. Nothing needs to be done; see [Breaking Changes](../breaking-changes.md).
+
 Without `secret_key:` the handler signs with the `CSRF_SECRET` variable (`Azu::Env.secret("CSRF_SECRET")`). When it is
 not set, the handler uses a random key that only this process knows (one warning in the log) outside production, and
 **raises `Azu::Env::MissingError` when it is built in production** (or any `Azu::Env.strict_environments`): tokens signed

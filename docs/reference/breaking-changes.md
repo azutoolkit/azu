@@ -332,6 +332,21 @@ themselves must move to a session store.
 keeps its token: `CookieTokenStore` (default, unchanged) or `SessionTokenStore`, which uses
 `Azu.session_adapter` so the token never reaches the client as a cookie.
 
+**The CSRF cookie is sent to every path (fix).** `Handler::CSRF` set its token cookie without a `Path`, so browsers kept it
+for the directory of the page that issued it (the RFC 6265 default path): a token issued on `GET /auth/login` was stored for
+`/auth`, was not sent with `POST /session`, and that form was refused with `403 CSRF token validation failed` under
+`SignedDoubleSubmit`, `DoubleSubmit` and `SynchronizerToken` with the default `CookieTokenStore`. A form that posts into its
+own directory (`/posts/new` to `POST /posts`) worked, which hid it. The cookie now carries `Path=/`. Nothing needs to be done.
+Until the old cookies expire (`cookie_max_age`, 24 hours by default) a browser can hold an old directory cookie next to the
+new one, and it sends both to paths inside that directory, the longer path first (RFC 6265 section 5.4).
+`HTTP::Cookies.from_client_headers` keeps the last cookie of a name, so the handler compares against the new `Path=/`
+cookie, the one the page's token was issued with. `SignedDoubleSubmit` and `DoubleSubmit` set a new cookie with every
+token, so their forms work from the first page rendered after the upgrade. `SynchronizerToken` with `CookieTokenStore`
+reuses the token a request already carries and sets no cookie, so a browser that holds only an old `/auth` cookie keeps that
+token, and is refused on `POST /session` as before, until the cookie expires or a page outside `/auth` issues a new token.
+`SessionTokenStore` sets no cookie and is not affected. To drop the old cookies at once, give the handler a new
+`cookie_name:`; forms rendered before the deploy are then refused once.
+
 **Routes can belong to an app** (additive; the endpoint macros keep registering on `Azu::App.default`). The
 macros now record their routes on the endpoint type (`.routes`) and `App.default` registers them lazily, the first
 time its router is read, instead of when the class body runs; `Router::Builder#endpoint(Type)` registers a type on any
