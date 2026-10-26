@@ -9,7 +9,7 @@ no dates, and no API on this page exists unless the [API reference](../reference
 
 ## Where Azu stands
 
-The 0.6 work is described in [Breaking Changes](../reference/breaking-changes.md#unreleased-06-work):
+The changes since 0.5.48 are listed per release in [Breaking changes](../reference/breaking-changes.md):
 
 - `Azu::App` is an application as a value (configuration plus router), with `routes` and `mount`.
 - An endpoint answers `422` itself when its request contract fails validation, before `call` runs.
