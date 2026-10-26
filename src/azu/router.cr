@@ -46,92 +46,16 @@ module Azu
     OVERRIDE_HEADER     = "X-HTTP-Method-Override"
     OVERRIDABLE_METHODS = %w(PUT PATCH DELETE)
 
-    # The path cache keeps WebSocket upgrades apart from the plain requests of the same path
-    private WEBSOCKET_CACHE = "ws"
-
-    # Thread-safe path cache for frequently requested paths. Stops adding entries at `max_size`.
-    #
-    # A lookup takes no lock: the maps are never changed once they are published. `set` builds the
-    # next version under the lock (a copy of the map of one method with the new entry) and swaps it in
-    # with one atomic store, so a reader sees either the old version or the new one, complete. The
-    # copies are bounded, because nothing is added after `max_size` entries.
-    private class PathCache
-      DEFAULT_MAX_SIZE = 1000
-
-      # Built paths by request method, then by the path as requested.
-      alias Entries = Hash(String, Hash(String, String))
-
-      def initialize(@max_size : Int32 = DEFAULT_MAX_SIZE)
-        @entries = Atomic(Entries).new(Entries.new)
-        @size = Atomic(Int32).new(0)
-        @mutex = Mutex.new
-      end
-
-      def get(method : String, path : String) : String?
-        @entries.get[method]?.try(&.[path]?)
-      end
-
-      def set(method : String, path : String, value : String) : Nil
-        # Once full, new paths are simply not cached; there is no eviction. Checked before the lock,
-        # so a scan of paths that do not exist does not make writers queue once the cache is full.
-        return if @size.get >= @max_size
-
-        @mutex.synchronize do
-          return if @size.get >= @max_size
-
-          entries = @entries.get
-          known = entries[method]?
-          return if known.try(&.has_key?(path))
-
-          paths = known ? known.dup : Hash(String, String).new
-          paths[path] = value
-          next_entries = entries.dup
-          next_entries[method] = paths
-          @entries.set(next_entries)
-          @size.add(1)
-        end
-      end
-
-      def clear : Nil
-        @mutex.synchronize do
-          @entries.set(Entries.new)
-          @size.set(0)
-        end
-      end
-
-      # Get cache statistics (useful for monitoring)
-      def stats
-        @mutex.synchronize do
-          {
-            size:         @size.get,
-            max_size:     @max_size,
-            fill_percent: fill_percent,
-          }
-        end
-      end
-
-      # How full the cache is, not a hit rate: nothing counts hits or misses.
-      private def fill_percent : Float64
-        @size.get.to_f / @max_size.to_f * 100.0
-      end
-    end
-
     getter radix : Radix::Tree(Route)
     # The routes `process` finds requests in, by method and path segment
     @tree = Tree(Route).new
-    # :nodoc:
-    getter path_cache : PathCache
-    private getter method_cache : Hash(String, String)
     # Routes registry for development tools and introspection
     private getter routes_registry : Array(Route)
 
     def initialize
       @radix = Radix::Tree(Route).new
-      @path_cache = PathCache.new
-      @method_cache = Hash(String, String).new
       @routes_registry = Array(Route).new
       @paths = Hash(String, String).new
-      precompute_method_cache
     end
 
     # What a route points at is `Routable`: an endpoint (class or struct) or any `HTTP::Handler`.
@@ -301,60 +225,6 @@ module Azu
       end
     end
 
-    # Pre-compute method cache at startup to avoid repeated downcasing
-    private def precompute_method_cache : Nil
-      RESOURCES.each do |method|
-        @method_cache[method.upcase] = method.downcase
-      end
-
-      # Add common HTTP methods that might not be in RESOURCES
-      %w(HEAD OPTIONS).each do |method|
-        @method_cache[method] = method.downcase
-      end
-    end
-
-    # Optimized path building with caching and efficient string operations. Nil when the request cannot name a
-    # route: the key joins method and path, so a method that is not one of the verbs exactly (`GET/admin /secret`)
-    # or a path without its leading "/" would otherwise reach a route other than the one `request.method` and
-    # `request.path` show to middleware. A WebSocket upgrade is a GET (RFC 6455); its key has no method.
-    private def path(context) : String?
-      request = context.request
-      method_str = request.method
-      path_str = request.path
-      upgraded = upgrade?(context)
-      return unless path_str.starts_with?('/') && (upgraded ? method_str == "GET" : @method_cache.has_key?(method_str))
-
-      cache_method = upgraded ? WEBSOCKET_CACHE : method_str
-
-      # Check cache first
-      if cached_path = @path_cache.get(cache_method, path_str)
-        return cached_path
-      end
-
-      # Build path efficiently using pre-allocated capacity
-      built_path = if upgraded
-                     # WebSocket path: "/ws" + normalized_path
-                     normalized_path = path_str.rstrip('/')
-                     String.build(capacity: 4 + normalized_path.bytesize) do |str|
-                       str << "/ws"
-                       str << normalized_path
-                     end
-                   else
-                     # HTTP path: "/" + method + normalized_path
-                     normalized_path = path_str.rstrip('/')
-                     method_lower = @method_cache[method_str]
-                     String.build(capacity: 1 + method_lower.bytesize + normalized_path.bytesize) do |str|
-                       str << "/"
-                       str << method_lower
-                       str << normalized_path
-                     end
-                   end
-
-      # Cache the result for future requests
-      @path_cache.set(cache_method, path_str, built_path)
-      built_path
-    end
-
     # HTML forms can only GET or POST, so a POST may ask to be handled as PUT, PATCH or DELETE
     # through a `_method` field (form body or query string) or the X-HTTP-Method-Override header.
     #
@@ -386,9 +256,9 @@ module Azu
       context.request.headers.includes_word?("Connection", "Upgrade")
     end
 
-    # Clear path cache (useful for testing or memory management)
+    # Does nothing, and is kept for the code that called it: the router has no path cache since it finds routes in
+    # its segment tree, where a static route costs no allocation and a route with parameters only their values.
     def clear_path_cache : Nil
-      @path_cache.clear
     end
 
     # The routes declared here, in declaration order. Mounted apps appear as the mount's own routes.

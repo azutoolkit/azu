@@ -1,7 +1,7 @@
 require "file_utils"
 require "../spec_helper"
 
-# Races the in-flight accounting of `App`, the copy-on-write path cache and the entry names Static
+# Races the in-flight accounting of `App`, the router's lookups and the entry names Static
 # publishes. Fibers only run in
 # parallel in a `-Dpreview_mt` build (CI has a job for it: `crystal spec -Dpreview_mt` with
 # CRYSTAL_WORKERS=4); in an ordinary build the same examples run on one thread, interleaved at
@@ -76,41 +76,38 @@ describe "App in-flight accounting under parallel fibers" do
   end
 end
 
+# Answers with the id it was routed with, or "new" for the static route
+private struct Echo
+  include Azu::Routable
+
+  def call(context : HTTP::Server::Context)
+    context.response << (context.request.path_params["id"]? || "new")
+  end
+end
+
 describe Azu::Router do
-  it "fills the path cache from several fibers while others read it" do
+  it "finds routes from several fibers at once, each request with its own params" do
     router = Azu::Router.new
-    paths = Array.new(300) { |i| "/items/#{i}" }
-    stop = Atomic(Int32).new(0)
+    router.get "/items/new", Echo.new
+    router.get "/items/:id", Echo.new
     wrong = Atomic(Int32).new(0)
 
-    writers = 4
-    readers = 3
-    done = parallel(writers + readers) do |index|
-      if index < writers
-        # every writer inserts all paths, in its own order, so inserts collide
-        paths.size.times do |i|
-          path = paths[(i * (index + 1) + index) % paths.size]
-          router.path_cache.set("GET", path, "/get#{path}")
-          Fiber.yield if i % 16 == 0
-        end
-      else
-        until stop.get == 1
-          paths.each do |path|
-            found = router.path_cache.get("GET", path)
-            wrong.add(1) unless found.nil? || found == "/get#{path}"
-          end
-          Fiber.yield
-        end
+    workers = 6
+    done = parallel(workers) do |index|
+      # every worker asks for the same ids, in its own order, so lookups of one route overlap
+      300.times do |i|
+        id = i % 50 == 0 ? "new" : ((i * (index + 1) + index) % 300).to_s
+        io = IO::Memory.new
+        response = HTTP::Server::Response.new(io)
+        router.process(HTTP::Server::Context.new(HTTP::Request.new("GET", "/items/#{id}"), response))
+        response.close
+        wrong.add(1) unless io.to_s.partition("\r\n\r\n")[2] == id
+        Fiber.yield if i % 16 == 0
       end
     end
-    # the writers are the first `writers` fibers to report; the readers stop once all of them did
-    writers.times { done.receive }
-    stop.set(1)
-    wait_for(done, readers)
+    wait_for(done, workers)
 
     wrong.get.should eq 0
-    router.path_cache.stats[:size].should eq 300
-    paths.each { |path| router.path_cache.get("GET", path).should eq "/get#{path}" }
   end
 end
 

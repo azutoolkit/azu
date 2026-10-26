@@ -10,8 +10,8 @@ module HotPath
   WARMUP_REQUESTS =  200
   WINDOW_REQUESTS = 2000
   WINDOWS         =    3
-  # More paths than the router's path cache holds (1000). Once it is full `PathCache#set` returns early, so measured
-  # requests carry no cache insert (each dups the cached hashes, which would inflate bytes) and every one misses.
+  # More paths than the 1000 the router's path cache held before the segment tree replaced it, so that the routing rows
+  # stay comparable with commits that had it (they measured past a full cache).
   ROUTING_WARMUP_REQUESTS = 1200
   BODY                    = "Hello, World!"
   RESOURCE_PATH           = "/api/v1/resource57/123"
@@ -91,7 +91,7 @@ module HotPath
   end
 
   # routing.lua's request numbers n, in order: the warmup, then each measured window. n never restarts, so a measured
-  # path is new to the router, which by then holds a full path cache, as under wrk.
+  # path is new to the router, as under wrk.
   def self.routing_windows : Array(Range(Int32, Int32))
     windows = [1..ROUTING_WARMUP_REQUESTS]
     WINDOWS.times do

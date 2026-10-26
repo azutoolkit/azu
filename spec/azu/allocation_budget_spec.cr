@@ -99,11 +99,11 @@ describe "allocation budget" do
     HotPath.routing_path(997).should eq "/api/v1/resource97/0"
   end
 
-  it "warms the routing scenario past the path cache, then measures only paths new to the router" do
+  it "warms the routing scenario with more than 1000 paths, then measures only paths new to the router" do
     warmup, *measured = HotPath.routing_windows
 
     warmup.begin.should eq 1 # routing.lua increments n before its first request
-    # More paths than the router's path cache holds (Router::PathCache::DEFAULT_MAX_SIZE, 1000), so it is full
+    # More paths than the router's former path cache held (1000), as HotPath::ROUTING_WARMUP_REQUESTS explains
     warmup.map { |n| HotPath.routing_path(n) }.uniq.size.should be > 1000
     measured.size.should eq HotPath::WINDOWS
     HotPath.routing_windows.each_cons_pair { |earlier, later| later.begin.should be > earlier.end }
@@ -173,7 +173,7 @@ describe "allocation budget" do
       bytes = HotPath::Stack.values.to_h { |stack| {stack, HotPath.measure_routing(stack).bytes} }
 
       bytes.each_value { |per_request| per_request.should be > 0 }
-      # A framework costs more than a hand-written dispatch, also while the router's path cache is full
+      # A framework costs more than a hand-written dispatch
       bytes[HotPath::Stack::Azu].should be > bytes[HotPath::Stack::Baseline]
     end
 

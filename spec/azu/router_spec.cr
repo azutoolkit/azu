@@ -308,8 +308,8 @@ describe Azu::Router do
     end
   end
 
-  describe "path building optimization" do
-    it "caches commonly requested paths" do
+  describe "request processing" do
+    it "answers a repeated request the same way" do
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new
       router.get("/hello", endpoint)
@@ -320,17 +320,13 @@ describe Azu::Router do
       response = HTTP::Server::Response.new(io)
       context = HTTP::Server::Context.new(request, response)
 
-      # First call should build and cache the path
       router.process(context)
       response.close
 
-      # Verify the path is cached by checking internal state
-      # Since path_cache is private, we'll test behavior indirectly
       io.rewind
       first_response = io.gets_to_end
       first_response.should contain("Hello, World!")
 
-      # Second call should use cached path
       io2 = IO::Memory.new
       response2 = HTTP::Server::Response.new(io2)
       context2 = HTTP::Server::Context.new(HTTP::Request.new("GET", "/hello"), response2)
@@ -363,10 +359,8 @@ describe Azu::Router do
       (result.nil? || result == "").should be_true
     end
 
-    it "pre-computes method cache at initialization" do
+    it "routes each verb it was given a route for" do
       router = Azu::Router.new
-
-      # Test that common HTTP methods work correctly
       endpoint = SimpleEndpoint.new
 
       # Test various HTTP methods
@@ -381,6 +375,26 @@ describe Azu::Router do
         result = router.process(context)
         result.should be_a(String)
       end
+    end
+
+    it "keeps the same path of different methods, and of a WebSocket upgrade, apart" do
+      router = Azu::Router.new
+      router.get "/thing", VerbEndpoint.new("get")
+      router.post "/thing", VerbEndpoint.new("post")
+      router.add "/thing", RoutableStruct.new, Azu::Method::WebSocket
+      answer = ->(method : String, upgrade : Bool) do
+        request = HTTP::Request.new(method, "/thing")
+        request.headers.merge!({"Upgrade" => "websocket", "Connection" => "Upgrade"}) if upgrade
+        io = IO::Memory.new
+        response = HTTP::Server::Response.new(io)
+        router.process(HTTP::Server::Context.new(request, response))
+        response.close
+        io.to_s
+      end
+
+      answer.call("GET", false).should contain "handled by get"
+      answer.call("POST", false).should contain "handled by post"
+      answer.call("GET", true).should contain "routable"
     end
 
     it "returns an empty string for a routed request, not a rendering of the context" do
@@ -409,12 +423,11 @@ describe Azu::Router do
       result.should contain("Hello, World!")
     end
 
-    it "clears path cache when requested" do
+    it "keeps routing after clear_path_cache, which does nothing" do
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new
       router.get("/cached-test", endpoint)
 
-      # Make a request to populate cache
       request = HTTP::Request.new("GET", "/cached-test")
       io = IO::Memory.new
       response = HTTP::Server::Response.new(io)
@@ -422,10 +435,8 @@ describe Azu::Router do
 
       router.process(context)
 
-      # Clear the cache
       router.clear_path_cache
 
-      # Make another request - should still work
       io2 = IO::Memory.new
       response2 = HTTP::Server::Response.new(io2)
       context2 = HTTP::Server::Context.new(HTTP::Request.new("GET", "/cached-test"), response2)
@@ -437,41 +448,7 @@ describe Azu::Router do
       result.should contain("Hello, World!")
     end
 
-    it "handles cache functionality properly" do
-      # Test basic cache functionality without complex LRU operations
-      router = Azu::Router.new
-      endpoint = SimpleEndpoint.new
-
-      # Add a few routes
-      (1..5).each do |i|
-        router.get("/test#{i}", endpoint)
-      end
-
-      # Make requests to populate cache
-      (1..5).each do |i|
-        request = HTTP::Request.new("GET", "/test#{i}")
-        io = IO::Memory.new
-        response = HTTP::Server::Response.new(io)
-        context = HTTP::Server::Context.new(request, response)
-
-        result = router.process(context)
-        result.should be_a(String)
-      end
-
-      # Test cache hits by making the same requests again
-      (1..5).each do |i|
-        request = HTTP::Request.new("GET", "/test#{i}")
-        io = IO::Memory.new
-        response = HTTP::Server::Response.new(io)
-        context = HTTP::Server::Context.new(request, response)
-
-        result = router.process(context)
-        result.should be_a(String)
-      end
-    end
-
-    it "handles cache with many requests without hanging" do
-      # Test that cache doesn't cause hanging with many requests
+    it "answers 100 requests quickly" do
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new
 
@@ -498,8 +475,7 @@ describe Azu::Router do
       elapsed_time.total_milliseconds.should be < 200
     end
 
-    it "handles concurrent cache access safely" do
-      # Test thread safety of cache under concurrent access
+    it "answers concurrent requests for the same paths" do
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new
 
@@ -549,8 +525,7 @@ describe Azu::Router do
       results.all?(&.includes?("Hello, World!")).should be_true
     end
 
-    it "handles concurrent cache writes safely" do
-      # Test that concurrent cache writes don't cause issues
+    it "answers concurrent requests for distinct paths" do
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new
 
@@ -561,7 +536,7 @@ describe Azu::Router do
         end
       end
 
-      # Create multiple fibers writing to cache simultaneously
+      # Create multiple fibers requesting distinct paths simultaneously
       results = [] of String
       results_mutex = Mutex.new
       completed_fibers = 0
@@ -602,8 +577,7 @@ describe Azu::Router do
       results.all?(&.includes?("Hello, World!")).should be_true
     end
 
-    it "handles cache performance under concurrent load" do
-      # Test cache performance with concurrent requests
+    it "answers 1000 concurrent requests quickly" do
       router = Azu::Router.new
       endpoint = SimpleEndpoint.new
 
