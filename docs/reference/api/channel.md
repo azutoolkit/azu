@@ -230,9 +230,9 @@ Azu::PubSub.backend = Azu::PubSub::Redis.new("redis://localhost:6379/0")
 ```
 
 Handlers run on the broadcaster's fiber, so they must be quick: enqueue and return. Subscriptions
-made through `Channel#subscribe` end with the connection. There is no presence tracking in
-Azu; keep your own registry if you need a list of who is connected (see
-[Broadcasting messages](../../how-to/real-time/broadcast-messages.md)).
+made through `Channel#subscribe` end with the connection. For a list of who is connected, use
+[`Azu::Presence`](presence.md): include `Azu::Presence::Tracked` in the channel, and what it tracks ends
+with the connection too (see [Presence in channels](presence.md#channels)).
 
 `Azu::PubSub::Message` has `topic`, `payload` and `json(Type)`, which decodes the payload.
 

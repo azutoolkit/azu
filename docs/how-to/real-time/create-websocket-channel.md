@@ -175,9 +175,10 @@ class CounterChannel < Azu::Channel
 end
 ```
 
-State shared between connections, such as a list of everyone online, lives in a class-level variable
-guarded by a `Mutex`; see [Broadcast Messages](broadcast-messages.md) for topics, which avoid most of
-that.
+A list of everyone online is [`Azu::Presence`](../../reference/api/presence.md#channels): include
+`Azu::Presence::Tracked` in the channel. Other state shared between connections lives in a class-level
+variable guarded by a `Mutex`; see [Broadcast Messages](broadcast-messages.md) for topics, which avoid most
+of that.
 
 ## Query parameters, headers and path parameters
 

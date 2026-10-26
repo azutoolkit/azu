@@ -154,23 +154,20 @@ client controls (see Authentication below).
 
 ### Presence
 
-Azu has no presence feature. If you need "who is online", keep a registry yourself and guard it with a
-mutex, because channels run on many fibers:
+`Azu::Presence` answers "who is in this topic right now?", across processes. Include
+`Azu::Presence::Tracked` in a channel and what it tracks is untracked when the socket ends, however it ends
+(close frame, dropped peer, a handler that raised). Joins and leaves are published as diffs through PubSub,
+and `presence_updates` forwards them to the socket:
 
 ```crystal
-class PresenceChannel < Azu::Channel
-  ONLINE = Hash(String, Int32).new(0)
-  LOCK   = Mutex.new
-
-  def self.online : Array(String)
-    LOCK.synchronize { ONLINE.keys }
-  end
+class RoomChannel < Azu::Channel
+  include Azu::Presence::Tracked
 
   def on_connect
-    name = params["name"]? || "anonymous"
-    LOCK.synchronize { ONLINE[name] += 1 }
-    subscribe "presence"
-    broadcast "presence", {type: "online", users: self.class.online}.to_json
+    user = params["user"]? || "anonymous"
+    presence_updates("room:1") # joins and leaves reach this socket as JSON, its own join included
+    track_presence("room:1", user, {device: params["device"]?})
+    send({type: "online", users: Azu::Presence.list("room:1").keys}.to_json)
   end
 
   def on_message(message : String)
@@ -186,18 +183,16 @@ class PresenceChannel < Azu::Channel
   end
 
   def on_close(code : HTTP::WebSocket::CloseCode?, message : String?)
-    name = params["name"]? || "anonymous"
-    LOCK.synchronize do
-      ONLINE[name] -= 1
-      ONLINE.delete(name) if ONLINE[name] <= 0
-    end
-    broadcast "presence", {type: "online", users: self.class.online}.to_json
   end
 end
 ```
 
-This registry lives in one process. With several servers each would know only its own users; keep the
-registry in a shared store such as Redis in that case.
+As with the user id above, take `user` from a verified session or token in a real application (see
+Authentication below). A user with several sockets is one key with several entries, and counts as
+departed only when the last one closes. The default store keeps presence in one process; with several
+servers, give every node `Azu::Presence::Store::Redis` and the Redis PubSub backend (see
+[Scale real-time features out](../../how-to/deployment/scale-out-realtime.md)). Every option is in the
+[Presence reference](../../reference/api/presence.md).
 
 ## Message protocol
 
@@ -305,10 +300,10 @@ Azu::PubSub.backend = Azu::PubSub::Redis.new(ENV.fetch("REDIS_URL", "redis://loc
 ```
 
 Channels and Spark components need no change. What stays per process is whatever you keep in your own
-variables (the presence registry above, for example). WebSockets are sticky to the server that accepted
-them. On shutdown every open channel socket is sent a close frame with code 1001 (going away) and waited for
-within `shutdown_timeout`, and Spark connections are closed with a "service restart" code, so the browser
-reconnects to another process (see [Shut Down Gracefully](../../how-to/deployment/graceful-shutdown.md)).
+variables, and presence until it uses `Azu::Presence::Store::Redis`. WebSockets are sticky to the server
+that accepted them. On shutdown every open channel socket is sent a close frame with code 1001 (going
+away) and waited for within `shutdown_timeout`, and Spark connections are closed with a "service restart"
+code, so the browser reconnects to another process (see [Shut Down Gracefully](../../how-to/deployment/graceful-shutdown.md)).
 
 ## See also
 
