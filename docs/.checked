@@ -89,3 +89,5 @@ docs/reference/spark-client.md
 # background-jobs.md: every block is skipped (the checker does not install JoobQ); its blocks were type-checked by hand against JoobQ 0.4.2 with `crystal build --no-codegen` together with Azu
 docs/how-to/jobs/background-jobs.md
 docs/how-to/performance/monitor-performance.md
+docs/how-to/performance/use-dev-dashboard.md
+docs/reference/dev/azu-dev.md

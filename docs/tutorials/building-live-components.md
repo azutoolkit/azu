@@ -211,6 +211,10 @@ end
 Serve it with an endpoint like Step 3's (`Azu::Spark.render(ChatRoom)`), open the page in two tabs and
 talk to yourself.
 
+The counter and the chat room run together in one app, next to two more components, in
+[`playground/spark_demo/app.cr`](https://github.com/azutoolkit/azu/blob/master/playground/spark_demo/app.cr): start it
+with `crystal run playground/spark_demo/app.cr` from a clone of the repository.
+
 ## Step 5: Component lifecycle
 
 ```crystal

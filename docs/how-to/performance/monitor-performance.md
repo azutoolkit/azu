@@ -1,43 +1,39 @@
 ---
-description: Turn on request, cache and component metrics and read them in the dev dashboard.
+description: Record request, cache and component metrics with the performance monitor, and read them from code or as a report.
 ---
 
 # Monitor performance in development
 
 {% hint style="warning" %}
-This is development tooling, not production monitoring.
+This is development tooling, not production monitoring: the numbers live in the memory of one process.
 {% endhint %}
 
 {% stepper %}
 {% step %}
 #### Load `azu/dev`
 
-The dashboard, the performance monitor, the profiler and the memory leak detector are not part of `require "azu"`. Add them with one line; an app that does not need them does not load them.
+The performance monitor is not part of `require "azu"`:
 
 ```crystal
 require "azu"
-require "azu/dev" # Handler::DevDashboard, Handler::PerformanceMonitor, PerformanceMetrics, DevelopmentTools, ...
+require "azu/dev"
 ```
 {% endstep %}
 
 {% step %}
-#### Switch metrics on
-
-With `azu/dev` loaded nothing is recorded until monitoring is on:
+#### Switch monitoring on
 
 ```bash
 export PERFORMANCE_MONITORING=true
-
-# Optional: profiler and memory monitor (on by default in development, off elsewhere)
-export PERFORMANCE_PROFILING=true
-export PERFORMANCE_MEMORY_MONITORING=true
 ```
 
-Building with `PERFORMANCE_MONITORING=true` or `--define=performance_monitoring` also makes `require "azu"` load `azu/dev`.
+Until then `config.performance_monitor` is `nil` and nothing is recorded. The profiler, the memory monitor and the
+warning thresholds have variables of their own: see
+[Configuration options](../../reference/configuration/options.md#environment-variables).
 {% endstep %}
 
 {% step %}
-#### Add the handlers
+#### Put the monitor in the handler chain
 
 ```crystal
 require "azu"
@@ -51,25 +47,28 @@ handlers = Azu::App.default.default_handlers
 if monitor = MyApp.config.performance_monitor # nil unless PERFORMANCE_MONITORING=true
   handlers.unshift monitor
 end
-handlers.unshift Azu::Handler::DevDashboard.new if MyApp.env.development?
 
 MyApp.start handlers
 ```
 
-`default_handlers` is the stack `start` uses on its own (request id, logging, error pages, security headers, static files); the monitor and the dashboard go in front of it. Put the shared monitor from `config.performance_monitor` in the chain: the dashboard and the code below read that instance, so a `Handler::PerformanceMonitor.new` of your own would record numbers that neither of them shows. `DevDashboard` serves only when the environment is development, whatever the list says. Open `/dev-dashboard`.
+Use `config.performance_monitor`, not a `Handler::PerformanceMonitor.new` of your own: it is the one instance the
+dashboard and the reporters read. In front of the default stack it times every handler.
 {% endstep %}
 {% endstepper %}
 
-## What you get
+Every request through the monitor is recorded with its endpoint, status, duration and heap growth, and so are cache
+operations and live component events. A request slower than `PERFORMANCE_SLOW_REQUEST_THRESHOLD` milliseconds (1000
+by default) is logged as a warning. With `PERFORMANCE_SLOW_REQUEST_THRESHOLD=20` and an endpoint that takes 30 ms:
 
-- Request metrics: response times, memory use, error rates.
-- Component and cache metrics: mount and refresh timings, hit rates.
-- Memory monitoring: leak detection and profiling.
-- With `azu/cql`: every query tied to its request, slow statements and N+1 patterns ([Database dashboard](../../reference/database-dashboard.md)).
+```text
+2026-10-26T15:14:55.750326Z   WARN - Azu: Slow request detected: ReportEndpoint took 30.214463ms
+```
 
-Core only calls `Azu::Instrumentation`, a nil check when nobody listens, so without `azu/dev` no dashboard, monitor, profiler or reporter code is compiled and no metrics are collected.
+## Read the numbers
 
-## Read the numbers from code
+In the browser, mount the dashboard next to the monitor: see [Use the dev dashboard](use-dev-dashboard.md).
+
+From code:
 
 ```crystal
 require "azu"
@@ -77,9 +76,27 @@ require "azu/dev"
 
 if monitor = Azu::CONFIG.performance_monitor
   stats = monitor.stats
-  puts "Average response time: #{stats.avg_response_time}ms"
-  puts "Error rate: #{stats.error_rate}%"
+  puts "Requests: #{stats.total_requests}, p95: #{stats.p95_response_time.round(1)}ms, errors: #{stats.error_rate}%"
+  monitor.endpoint_stats("ReportEndpoint")["avg_response_time"]? # per endpoint
 end
 ```
 
-See [Performance design](../../explanation/architecture/performance-design.md) for what the framework itself costs.
+As a report, on demand or, in development, every minute:
+
+```crystal
+require "azu"
+require "azu/dev"
+
+reports = Azu::PerformanceReportService.new
+reports.log_summary                        # one line on standard output
+json = reports.generate_json_report        # requests, latency, error rate and cache figures as JSON
+reports.start_periodic_reporting(:log, 60.seconds)
+```
+
+The methods, the fields of the stats and the JSON keys are listed in [Dev tools](../../reference/dev/azu-dev.md).
+
+## See also
+
+- [Use the dev dashboard](use-dev-dashboard.md)
+- [Dev tools](../../reference/dev/azu-dev.md)
+- [Performance design](../../explanation/architecture/performance-design.md)

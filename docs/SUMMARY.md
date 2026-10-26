@@ -5,6 +5,7 @@
 ## Start here
 
 * [Getting started](tutorials/getting-started.md)
+* [Examples](examples.md)
 * [Everything in the box](explanation/features.md)
 * [FAQ and troubleshooting](faq.md)
 * [Migrate to 0.6](how-to/migrate-to-0.6.md)
@@ -53,6 +54,7 @@
 * [Optimize endpoints](how-to/performance/optimize-endpoints.md)
 * [Optimize database queries](how-to/performance/optimize-database-queries.md)
 * [Monitor performance in development](how-to/performance/monitor-performance.md)
+* [Use the dev dashboard](how-to/performance/use-dev-dashboard.md)
 * [Configure production](how-to/deployment/configure-production.md)
 * [Deploy with Docker](how-to/deployment/deploy-with-docker.md)
 * [Scale horizontally](how-to/deployment/scale-horizontally.md)
@@ -84,6 +86,7 @@
 * [Cache](reference/api/cache.md)
 * [Redis](reference/api/redis.md)
 * [CQL bridge](reference/api/cql-bridge.md)
+* [Dev tools](reference/dev/azu-dev.md)
 * [Database dashboard](reference/database-dashboard.md)
 * [CQL API](reference/database/cql-api.md)
 * [Query methods](reference/database/query-methods.md)

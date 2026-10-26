@@ -256,6 +256,7 @@ The raw snapshot is committed: [report](benchmark/snapshots/2026-10-25-v0.5.119-
 - **Doing a task?** [How-to guides](docs/README.md#how-to-guides).
 - **Looking something up?** [Reference](docs/README.md#reference).
 - **Want the why?** [Concepts](docs/README.md#concepts), starting with [Everything in the box](docs/explanation/features.md).
+- **Want running code?** [Examples](docs/examples.md): the apps in `playground/` and how to start them.
 - **Upgrading?** [Migrate to 0.6](docs/how-to/migrate-to-0.6.md) and [breaking changes](docs/reference/breaking-changes.md).
 
 ## Status and compatibility

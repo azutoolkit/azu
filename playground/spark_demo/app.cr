@@ -199,8 +199,8 @@ module SparkDemo
   if url = ENV["REDIS_URL"]?
     Azu::PubSub.backend = Azu::PubSub::Redis.new(url)
   end
-  Azu::Spark.configure { |c| c.secret = ENV.fetch("SPARK_SECRET", "demo-only-secret-change-me") }
+  # Spark signs with SPARK_SECRET; without it a random per-process secret outside production, and no boot in production
   Azu::Spark.install
 
-  start [Azu::Handler::Rescuer.new, Azu::Handler::Logger.new]
+  start [Azu::Handler::Logger.new, Azu::Handler::Rescuer.new] of HTTP::Handler
 end

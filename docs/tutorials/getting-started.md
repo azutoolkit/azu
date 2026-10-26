@@ -254,7 +254,7 @@ Outside development Azu compiles templates once at boot, so a broken template fa
 
 ## 5. The development dashboard
 
-The dashboard shows your routes, configuration, logs and request timings. It is opt-in and serves in development only. Change `src/server.cr`:
+The dashboard shows your routes, configuration, logs and request timings. It is opt-in and serves in development only. The timings come from the performance monitor, a second handler that records every request it sees. Change `src/server.cr`:
 
 <!-- skip -->
 {% code title="src/server.cr" %}
@@ -263,17 +263,28 @@ require "azu/dev"
 require "./hello"
 
 handlers = Azu::App.default.default_handlers
+if monitor = Hello.config.performance_monitor # nil unless PERFORMANCE_MONITORING=true
+  handlers.unshift monitor
+end
 handlers.unshift Azu::Handler::DevDashboard.new if Hello.env.development?
 
 Hello.start handlers
 ```
 {% endcode %}
 
-Restart and open <http://127.0.0.1:4000/dev-dashboard>.
+`default_handlers` is the stack `Hello.start` uses on its own: request id, request logging, error pages, security headers and static files from `public/`. Passing your own array replaces it, which is why this step starts from the default list. The monitor and the dashboard go in front of it; the dashboard reads the numbers of that same monitor.
+
+The monitor exists only while monitoring is on, so restart with the variable set:
+
+```bash
+PERFORMANCE_MONITORING=true crystal run src/server.cr
+```
+
+Open <http://127.0.0.1:4000/hello?name=Ada> a few times, then <http://127.0.0.1:4000/dev-dashboard>. Your requests are under **Logs** and **Performance Tracing**.
 
 ![The development dashboard overview](../assets/dev-dashboard/overview-light-desktop.png)
 
-`default_handlers` is the stack `Hello.start` uses on its own: request id, request logging, error pages, security headers and static files from `public/`. Passing your own array replaces it, which is why this step starts from the default list.
+Without `PERFORMANCE_MONITORING=true` the dashboard still opens, with your routes and configuration but no requests. [Use the dev dashboard](../how-to/performance/use-dev-dashboard.md) describes every tab.
 
 ## Next steps
 
@@ -299,4 +310,8 @@ Restart and open <http://127.0.0.1:4000/dev-dashboard>.
 
 {% content-ref url="../explanation/features.md" %}
 [features.md](../explanation/features.md)
+{% endcontent-ref %}
+
+{% content-ref url="../examples.md" %}
+[examples.md](../examples.md)
 {% endcontent-ref %}

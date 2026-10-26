@@ -180,7 +180,7 @@ Multi-node setup: [Real-time across processes](how-to/deployment/scale-horizonta
 <tr><td><strong>Concepts</strong></td><td>Why Azu works the way it does, and how the parts fit.</td><td><a href="explanation/architecture/overview.md">overview.md</a></td></tr>
 </tbody></table>
 
-Also: [Everything in the box](explanation/features.md) (every feature, with its guide) · [FAQ and troubleshooting](faq.md) · [Migrate to 0.6](how-to/migrate-to-0.6.md) · [Breaking changes](reference/breaking-changes.md)
+Also: [Examples](examples.md) (runnable apps in `playground/`) · [Everything in the box](explanation/features.md) (every feature, with its guide) · [FAQ and troubleshooting](faq.md) · [Migrate to 0.6](how-to/migrate-to-0.6.md) · [Breaking changes](reference/breaking-changes.md)
 
 ## Tutorials
 
@@ -206,7 +206,7 @@ Also: [Everything in the box](explanation/features.md) (every feature, with its 
 | Database | [Define a schema](how-to/database/define-schema.md) · [Create models](how-to/database/create-models.md) · [Run migrations](how-to/database/run-migrations.md) · [Query data](how-to/database/query-data.md) · [Handle transactions](how-to/database/handle-transactions.md) |
 | Caching and jobs | [Set up a memory cache](how-to/caching/setup-memory-cache.md) · [Set up a Redis cache](how-to/caching/setup-redis-cache.md) · [Run background jobs](how-to/jobs/background-jobs.md) |
 | Testing | [Test endpoints](how-to/testing/test-endpoints.md) · [Test WebSockets](how-to/testing/test-websockets.md) |
-| Performance | [Optimize endpoints](how-to/performance/optimize-endpoints.md) · [Optimize database queries](how-to/performance/optimize-database-queries.md) · [Monitor performance in development](how-to/performance/monitor-performance.md) |
+| Performance | [Optimize endpoints](how-to/performance/optimize-endpoints.md) · [Optimize database queries](how-to/performance/optimize-database-queries.md) · [Monitor performance in development](how-to/performance/monitor-performance.md) · [Use the dev dashboard](how-to/performance/use-dev-dashboard.md) |
 | Deployment | [Configure production](how-to/deployment/configure-production.md) · [Deploy with Docker](how-to/deployment/deploy-with-docker.md) · [Scale horizontally](how-to/deployment/scale-horizontally.md) · [Shut down gracefully](how-to/deployment/graceful-shutdown.md) |
 | Upgrading | [Migrate to 0.6](how-to/migrate-to-0.6.md): from the global `configure` style to `Azu::App` |
 
@@ -221,6 +221,7 @@ Also: [Everything in the box](explanation/features.md) (every feature, with its 
 | Templates | [Template engine](reference/templates/engine.md) · [Template helpers](reference/templates/helpers.md) |
 | Data and caching | [Cache](reference/api/cache.md) · [Redis](reference/api/redis.md) · [CQL bridge](reference/api/cql-bridge.md) · [Database dashboard](reference/database-dashboard.md) · [CQL API](reference/database/cql-api.md) · [Query methods](reference/database/query-methods.md) · [Validations](reference/database/validations.md) |
 | Testing | [Testing](reference/api/testing.md) |
+| Development | [Dev tools](reference/dev/azu-dev.md) (`azu/dev`) · [Database dashboard](reference/database-dashboard.md) |
 | Releases | [Breaking changes](reference/breaking-changes.md): what changed in each version and how to adapt |
 
 ## Concepts
