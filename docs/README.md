@@ -200,9 +200,9 @@ Also: [Everything in the box](explanation/features.md) (every feature, with its 
 | Validation | [Validate requests](how-to/validation/validate-requests.md) · [Handle validation errors](how-to/validation/handle-validation-errors.md) |
 | Files | [Handle file uploads](how-to/file-handling/handle-file-uploads.md) · [Validate file types](how-to/file-handling/validate-file-types.md) |
 | Errors | [Handle errors gracefully](how-to/errors/handle-errors-gracefully.md) · [Create custom errors](how-to/errors/create-custom-errors.md) |
-| Middleware | [Create custom middleware](how-to/middleware/create-custom-middleware.md) · [Add logging](how-to/middleware/add-logging.md) · [Use sessions](how-to/middleware/use-sessions.md) |
-| Templates | [Render HTML templates](how-to/templates/render-html-templates.md) · [Enable hot reload](how-to/templates/enable-hot-reload.md) |
-| Real-time | [Create a WebSocket channel](how-to/real-time/create-websocket-channel.md) · [Broadcast messages](how-to/real-time/broadcast-messages.md) · [Build a live component](how-to/real-time/build-live-component.md) |
+| Middleware | [Create custom middleware](how-to/middleware/create-custom-middleware.md) · [Add logging](how-to/middleware/add-logging.md) · [Use sessions](how-to/middleware/use-sessions.md) · [Protect forms and APIs](how-to/middleware/protect-forms-and-apis.md) |
+| Templates | [Render HTML templates](how-to/templates/render-html-templates.md) · [Enable hot reload](how-to/templates/enable-hot-reload.md) · [Localize your app](how-to/templates/localize-your-app.md) |
+| Real-time | [Create a WebSocket channel](how-to/real-time/create-websocket-channel.md) · [Broadcast messages](how-to/real-time/broadcast-messages.md) · [Build a live component](how-to/real-time/build-live-component.md) · [Stream server-sent events](how-to/real-time/stream-server-sent-events.md) |
 | Database | [Define a schema](how-to/database/define-schema.md) · [Create models](how-to/database/create-models.md) · [Run migrations](how-to/database/run-migrations.md) · [Query data](how-to/database/query-data.md) · [Handle transactions](how-to/database/handle-transactions.md) |
 | Caching and jobs | [Set up a memory cache](how-to/caching/setup-memory-cache.md) · [Set up a Redis cache](how-to/caching/setup-redis-cache.md) · [Run background jobs](how-to/jobs/background-jobs.md) |
 | Testing | [Test endpoints](how-to/testing/test-endpoints.md) · [Test WebSockets](how-to/testing/test-websockets.md) |
