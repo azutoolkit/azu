@@ -38,7 +38,7 @@ module Azu
             data:   nil,
           }, :link_to) do
             text = arguments["text"].to_s
-            href = arguments["href"].to_s
+            href = Util.safe_url(arguments["href"].to_s)
             css_class = arguments["class"]
             id = arguments["id"]
             target = arguments["target"]
@@ -85,7 +85,7 @@ module Azu
             disabled: false,
           }, :button_to) do
             text = arguments["text"].to_s
-            href = arguments["href"].to_s
+            href = Util.safe_url(arguments["href"].to_s, "about:invalid")
             method = arguments["method"].to_s.downcase
             css_class = arguments["class"]
             id = arguments["id"]
@@ -129,7 +129,7 @@ module Azu
               # Add CSRF token from context if available
               csrf_val = env.context["csrf_token"]
               if !csrf_val.none? && !csrf_val.undefined?
-                io << %Q(<input type="hidden" name="_csrf" value="#{csrf_val}" />)
+                io << %Q(<input type="hidden" name="_csrf" value="#{Util.escape_html(csrf_val.to_s)}" />)
               end
 
               # Add method override for non-standard methods

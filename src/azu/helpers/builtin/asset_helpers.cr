@@ -304,10 +304,10 @@ module Azu
             # Add attributes to SVG tag
             if !css_class.none? || !id.none? || !width.none? || !height.none?
               attrs = [] of String
-              attrs << %Q(class="#{css_class}") unless css_class.none?
-              attrs << %Q(id="#{id}") unless id.none?
-              attrs << %Q(width="#{width}") unless width.none?
-              attrs << %Q(height="#{height}") unless height.none?
+              attrs << %Q(class="#{Util.escape_html(css_class.to_s)}") unless css_class.none?
+              attrs << %Q(id="#{Util.escape_html(id.to_s)}") unless id.none?
+              attrs << %Q(width="#{Util.escape_html(width.to_s)}") unless width.none?
+              attrs << %Q(height="#{Util.escape_html(height.to_s)}") unless height.none?
 
               if !attrs.empty?
                 # Insert attributes into SVG tag
