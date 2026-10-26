@@ -43,6 +43,23 @@ HTML: a name with the inner extension `txt`, `text`, `json`, `js`, `mjs`, `css`,
 (the generated scaffold and auth pages do) works with both; the generated welcome page (`{{ csrf_metatag }}` without
 `| safe`) needs it until azu_cli is updated.
 
+**`csrf_tag` and `csrf_metatag` carry the token of `csrf_token` and of the cookie (a fix).** `view` issued a new token for
+each of the three variables and each one replaced the CSRF cookie, so only `csrf_metatag` matched it: a form that printed
+`{{ csrf_token }}` or `{{ csrf_tag }}` was refused with 403 under the default `SignedDoubleSubmit` strategy. Now a render
+issues one token, the cookie holds it, and a second `view` in the same request (a layout and a partial) reuses it. The cookie
+is still set on every `view` with a request, whether or not the template prints a token.
+
+**Request variables are computed when a template reads them.** `current_path`, `flash`, `csrf_token` and the other
+variables `view` gives a template with a request cost nothing when the template does not print them. `{{ debug() }}` lists
+only the ones the template has read so far, and `Azu.session_adapter`'s `flash` reader runs only for a template that reads
+`flash`.
+
+**Template macros and context-free includes keep no state between renders (security).** A macro was kept on the template,
+which every request shares, with the defaults it evaluated: `{% from "m.jinja" import panel %}` could import the macro an
+earlier request defined, its values included. `{% include "x.jinja" without context %}` rendered in the environment's
+global context, so its `{% set %}` reached every later render. Both now belong to their own render. `{% from ... import a %}`
+gives the importer `a` only (it used to leak every macro of the imported template into the importer's context).
+
 **`urlize` is Azu's own.** It escapes the text around the links and links only `http`, `https` and `www.` addresses
 (Crinja's linked any `scheme://`, `javascript://` too, and did not escape the rest of the text). `button_to` and
 `button_to_delete_*` write the `confirm:` text as `\uXXXX` escapes inside the JavaScript string, so an apostrophe no
