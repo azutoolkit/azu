@@ -9,11 +9,13 @@
 #
 # Links inside fenced code blocks and other external links (http, https, mailto) are not checked.
 module DocLinks
-  LINK    = /\[(?:[^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/
-  HEADING = /^(\#{1,6})\s+(.*?)\s*#*\s*$/
-  ITEM    = /^\s*[*-]\s+(.*?)\s*$/
-  LABEL   = /\A\[([^\]]*)\]\(([^)\s]+)\)\z/
-  REPO    = "https://github.com/azutoolkit/azu"
+  LINK        = /\[(?:[^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/
+  HREF        = /\bhref="([^"]+)"/
+  CONTENT_REF = /\{%\s*content-ref\s+url="([^"]+)"\s*%\}/
+  HEADING     = /^(\#{1,6})\s+(.*?)\s*#*\s*$/
+  ITEM        = /^\s*[*-]\s+(.*?)\s*$/
+  LABEL       = /\A\[([^\]]*)\]\(([^)\s]+)\)\z/
+  REPO        = "https://github.com/azutoolkit/azu"
 
   # The local path (with any #fragment) that a link to this repository on GitHub names, or nil for any other
   # target. Pages under docs/ link files outside it this way, because GitBook publishes docs/ only.
@@ -51,6 +53,15 @@ module DocLinks
     end
   end
 
+  # The link targets on *line*: Markdown links, HTML `href`s (GitBook cards and buttons) and GitBook page links
+  # (`{% content-ref url="…" %}`). Inline code is left out: a link shown as code is an example, not a link.
+  def self.each_target(line : String, &)
+    line = line.gsub(/`[^`]*`/, "")
+    line.scan(LINK) { |match| yield match[1] }
+    line.scan(HREF) { |match| yield match[1] }
+    line.scan(CONTENT_REF) { |match| yield match[1] }
+  end
+
   def self.each_line_outside_fences(path : String, &)
     fences = Fences.new
     File.each_line(path) do |line|
@@ -80,8 +91,7 @@ module DocLinks
       File.each_line(file) do |line|
         number += 1
         next if fences.skip?(line)
-        line.scan(LINK) do |match|
-          target = match[1]
+        each_target(line) do |target|
           if local = repo_path(target)
             path_part, _, fragment = local.partition('#')
             resolved = path_part
@@ -111,8 +121,8 @@ module DocLinks
   def self.orphans(index : String, pages : Array(String)) : Array(String)
     linked = Set(String).new
     each_line_outside_fences(index) do |line|
-      line.scan(LINK) do |match|
-        path_part = match[1].partition('#')[0]
+      each_target(line) do |target|
+        path_part = target.partition('#')[0]
         next if path_part.empty? || path_part.includes?("://")
         linked << File.expand_path(path_part, File.dirname(index)).sub("#{Dir.current}/", "")
       end

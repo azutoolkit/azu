@@ -56,6 +56,16 @@ describe DocLinks do
     end
   end
 
+  describe ".orphans" do
+    it "counts a page linked only from a GitBook card as linked" do
+      in_tree do
+        File.write("docs/README.md", %(# Overview\n\n<table data-view="cards"><tbody><tr><td><a href="guide.md">Guide</a></td></tr></tbody></table>\n))
+
+        DocLinks.orphans("docs/README.md", ["docs/README.md", "docs/guide.md"]).should be_empty
+      end
+    end
+  end
+
   describe ".check" do
     it "rejects a relative link from docs/ to a file outside it" do
       in_tree do
@@ -80,6 +90,30 @@ describe DocLinks do
           "docs/guide.md:4: https://github.com/azutoolkit/azu#nowhere has no heading with the anchor #nowhere",
           "docs/guide.md:5: https://github.com/azutoolkit/azu/blob/master/benchmark/README.md does not exist",
         ]
+      end
+    end
+
+    it "checks the targets of GitBook cards and page links" do
+      in_tree do
+        File.write("docs/guide.md", <<-MD)
+          # Guide
+
+          <table data-view="cards"><tbody><tr><td><a href="README.md">ok</a></td><td><a href="missing.md">bad</a></td></tr></tbody></table>
+          {% content-ref url="gone.md" %}
+          MD
+
+        DocLinks.check(["docs/guide.md"]).should eq [
+          "docs/guide.md:3: missing.md does not exist",
+          "docs/guide.md:4: gone.md does not exist",
+        ]
+      end
+    end
+
+    it "ignores links shown as inline code" do
+      in_tree do
+        File.write("docs/guide.md", %(# Guide\n\nWrite `[Home](missing.md)` or `<a href="/users/:id">`.\n))
+
+        DocLinks.check(["docs/guide.md"]).should be_empty
       end
     end
 

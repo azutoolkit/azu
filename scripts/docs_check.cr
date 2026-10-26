@@ -10,7 +10,8 @@ require "file_utils"
 # the list over n runners; the shards together cover every file exactly once.
 #
 # A block that is only a fragment (it needs a type another block defines, or a shard Azu does not
-# depend on) opts out with `<!-- skip -->` on the line before its fence. A block marked
+# depend on) opts out with `<!-- skip -->` on the line before its fence (GitBook tags such as
+# `{% code title="…" %}` or `{% step %}` may sit between the two). A block marked
 # `<!-- prelude -->` instead is compiled like any other and then prepended to every later block of the
 # same page, so a page defines its schema, model or channel once and the blocks after it stay short.
 # A block without `require "azu"` gets one prepended. Blocks are compiled with `--no-codegen`, which resolves
@@ -30,6 +31,7 @@ module DocsCheck
   FENCE_OPEN   = /\A```crystal\s*\z/
   SKIP_MARK    = "<!-- skip -->"
   PRELUDE_MARK = "<!-- prelude -->"
+  GITBOOK_TAG  = /\A\{%.*%\}\z/
   WORKERS      = 4
 
   # The heredoc is raw on purpose: it holds regex escapes for the macro, and its body is Crystal code.
@@ -79,6 +81,16 @@ module DocsCheck
     end
   CR
 
+  # The marker line above the fence at *fence*, looking past GitBook block tags (`{% code title="…" %}`,
+  # `{% step %}`, `{% tab title="…" %}`) so a marked block can sit inside one.
+  def self.mark_before(lines : Array(String), fence : Int32) : String
+    index = fence - 1
+    while index >= 0 && lines[index].strip.matches?(GITBOOK_TAG)
+      index -= 1
+    end
+    index >= 0 ? lines[index].strip : ""
+  end
+
   def self.snippets(file : String) : Array(Snippet)
     found = [] of Snippet
     lines = File.read_lines(file)
@@ -86,7 +98,7 @@ module DocsCheck
     index = 0
     while index < lines.size
       if lines[index].matches?(FENCE_OPEN)
-        mark = index > 0 ? lines[index - 1].strip : ""
+        mark = mark_before(lines, index)
         start = index + 1
         index += 1
         body = [] of String

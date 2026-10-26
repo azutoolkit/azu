@@ -63,6 +63,19 @@ describe DocsCheck do
     end
   end
 
+  describe ".mark_before" do
+    it "finds a marker above GitBook block tags" do
+      lines = ["<!-- skip -->", %({% code title="src/app.cr" %}), "```crystal", "fragment", "```"]
+
+      DocsCheck.mark_before(lines, 2).should eq "<!-- skip -->"
+    end
+
+    it "finds no marker above a plain fence" do
+      DocsCheck.mark_before(["Text.", "```crystal"], 1).should eq "Text."
+      DocsCheck.mark_before(["```crystal"], 0).should eq ""
+    end
+  end
+
   describe ".program" do
     it "puts the require first, then the prelude, then the block" do
       snippet = DocsCheck::Snippet.new("page.md", 1, "Shared.new\n", "struct Shared\nend\n")
