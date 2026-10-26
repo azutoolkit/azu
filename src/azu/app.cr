@@ -9,11 +9,11 @@ module Azu
   # Endpoint macros declare their routes on the endpoint type, and `App.default` registers them on first
   # use; another app takes a type with `Router::Builder#endpoint`.
   #
-  # Not yet per app, and shared by every app in the process: `Channel.ws` (it registers on `App.default`), the PubSub
-  # backend, Spark connections, `QueryStore`, the helper and i18n registries, and handler constructors whose defaults read the global `CONFIG` (`Logger`,
-  # `SimpleLogger`, `Throttle`, `Static`: pass `log:` explicitly). Building the server applies the
-  # app's `i18n` settings to the process-wide `Helpers::I18n` (the last app to serve wins). Later
-  # slices of the 0.6 plan move these.
+  # Shared by every app in the process: `Channel.ws` (it registers on `App.default`), the PubSub backend, Spark
+  # connections, `QueryStore`, the helper and i18n registries, and `Static`'s default `cache_max_age`, which reads the
+  # global `CONFIG`. `Logger`, `SimpleLogger` and `Throttle` log to the app serving the request unless given `log:`.
+  # Building the server applies the app's `i18n` settings to the process-wide `Helpers::I18n` (the last app to serve
+  # wins).
   #
   # ```
   # app = Azu::App.new
@@ -406,7 +406,7 @@ module Azu
       [Scope.new(self)] of HTTP::Handler + handlers
     end
 
-    # The handlers `Azu.start` uses when none are given: a request id, request logging, error pages,
+    # The handlers `App#start` uses when none are given: a request id, request logging, error pages,
     # security headers and static files from `public/` (falling through to the router). Fresh
     # instances on every call, since a handler can be in one chain only.
     def default_handlers : Array(HTTP::Handler)

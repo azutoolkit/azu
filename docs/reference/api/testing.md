@@ -6,16 +6,8 @@ description: "Drive an `Azu::App` in process from a spec: HTTP requests, typed c
 
 `Azu::Testing` drives an `Azu::App` in process: no socket is opened, yet a request goes through the
 app's real scope, handler chain and router, and a WebSocket through the real upgrade handshake. It is
-opt-in; `require "azu"` does not load it.
-
-```crystal
-require "azu"
-require "azu/testing"
-```
-
-In a spec, require it next to your app (`require "azu/testing"` after `require "spec"`).
-
-## A first test
+opt-in: `require "azu"` does not load it, `require "azu/testing"` does (in a spec, after `require "spec"`, next to
+your app). It is not a browser: it runs no JavaScript and keeps no page state beyond cookies.
 
 ```crystal
 require "azu"
@@ -39,12 +31,14 @@ response.status_code # => 200
 response.body        # => "pong"
 ```
 
-## Client
+## API
+
+### Client
 
 `Azu::Testing::Client.new(app = Azu::App.default, handlers, clock: nil, follow_redirects: false)`
 
 * `handlers` is the chain after the app's scope. The default is `RequestId` and `Rescuer`; pass your own
-  list (`app.default_handlers` gives the ones `Azu.start` uses). A handler instance can be in one chain
+  list (`app.default_handlers` gives the ones `App#start` uses). A handler instance can be in one chain
   only, so build a fresh list per client.
 * Requests run inside the app's scope, so `Azu.current_config` is the app's configuration. An exception
   that escapes the chain becomes a 500, as on a server, and is kept in `Response#error`.
@@ -240,7 +234,7 @@ client.post("/save").body # => "saved by 7"
 
 ### Time
 
-`Client.new(app, clock: Azu::Clock::Fake.new)` gives the client a clock, and `client.advance(10.minutes)`
+`Client.new(app, clock: Azu::Clock::Fake.new)` gives the client a [clock](clock.md), and `client.advance(10.minutes)`
 moves it. It affects exactly two things: code that runs during a request of this client and reads
 `Azu::Clock` (cache TTLs, throttle windows, token lifetimes and the like), and the client's own cookie jar
 (`client.cookies`), which ages with the clock inside and outside requests. It does not affect your spec
@@ -256,17 +250,7 @@ one afterwards; requests of clients that have a clock run one at a time to keep 
 removes it (the last open client of the app does), and `Azu::Testing::Client.open(app) { |client| ... }`
 closes for you. Close clients in an `after_each` when you share `Azu::App.default` between examples.
 
-### Known limits
-
-* Redirects to another host are returned, not followed.
-* Cookies ignore `Secure`, `SameSite` and domains; paths are honoured (`/admin` does not match `/administrator`,
-  and a cookie without `Path` stays in the directory of the page that set it).
-* There is no socket: request-target parsing, keep-alive and connection handling belong to `HTTP::Server`
-  and are not exercised. Keep a few specs against a real server (`app.server` and `bind_unused_port`).
-* The WebSocket client reads text frames only.
-* An exception that escapes the chain is a 500 with the exception in `Response#error`, as on a server.
-
-## WebSocket
+### WebSocket
 
 `client.connect("/path")` performs the handshake through the app (with the client's cookies) and returns
 an `Azu::Testing::WebSocket`. The frames travel over a pair of in-process pipes, not a port, so there is
@@ -311,7 +295,24 @@ socket.close
 `receive(timeout = 2.seconds)` raises `WebSocket::Timeout`, or `WebSocket::Closed` once the socket is closed; `receive?` answers nil instead. `close` sends a
 close frame and waits for the channel's `on_close`.
 
-## Live components
+### Live components
 
-`Azu::Testing.mount(Type, **props) { |view| ... }` is `Azu::Spark::Testing.mount`; see the Spark
-documentation for `view.trigger`, `view.html` and `view.assigns`.
+`Azu::Testing.mount(Type, **props) { |view| ... }` is `Azu::Spark::Testing.mount`; see
+[Component](component.md#testing) for `view.trigger`, `view.html` and `view.assigns`.
+
+## Limits
+
+* Redirects to another host are returned, not followed.
+* Cookies ignore `Secure`, `SameSite` and domains; paths are honoured (`/admin` does not match `/administrator`,
+  and a cookie without `Path` stays in the directory of the page that set it).
+* There is no socket: request-target parsing, keep-alive and connection handling belong to `HTTP::Server`
+  and are not exercised. Keep a few specs against a real server (`app.server` and `bind_unused_port`).
+* The WebSocket client reads text frames only.
+* An exception that escapes the chain is a 500 with the exception in `Response#error`, as on a server.
+
+## See also
+
+- [Test endpoints](../../how-to/testing/test-endpoints.md)
+- [Test WebSockets](../../how-to/testing/test-websockets.md)
+- [Clock](clock.md)
+- [Session adapter](session-adapter.md)

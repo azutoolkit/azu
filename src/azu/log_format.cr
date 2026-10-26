@@ -379,7 +379,7 @@ module Azu
     end
 
     # Starts the workers now instead of on the first entry. Requiring azu starts nothing; the
-    # first log entry or reported error starts the pipeline, and `Azu.start` calls this.
+    # first log entry or reported error starts the pipeline, and `App#start` calls this.
     def self.initialize
       BatchProcessor.start
       ErrorReporter.start

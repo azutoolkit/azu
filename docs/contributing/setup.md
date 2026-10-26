@@ -83,12 +83,11 @@ end
 ```bash
 crystal tool format                # format the code
 crystal tool format --check --exclude lib --exclude playground/lib   # what CI runs
-ameba                              # static analysis (see .ameba.yml)
+crystal run lib/ameba/bin/ameba.cr -- ./src   # static analysis, what CI runs (see .ameba.yml)
 ```
 
-{% hint style="info" %}
-[Ameba](https://github.com/crystal-ameba/ameba) is not a dependency of this shard: install it separately.
-{% endhint %}
+[Ameba](https://github.com/crystal-ameba/ameba) is a development dependency, so `shards install` puts it in `lib/`.
+`.ameba.yml` lists the files that broke a rule when CI started running it; new code passes every rule.
 
 ## Documentation
 
@@ -109,7 +108,7 @@ something that is not meant to compile (shell output, historical APIs) use anoth
 
 1. `crystal spec` passes.
 2. `crystal tool format --check --exclude lib --exclude playground/lib` is clean.
-3. `ameba` reports nothing new.
+3. `crystal run lib/ameba/bin/ameba.cr -- ./src` reports nothing.
 4. Behaviour changes have a spec, and documentation that mentions the changed API is updated.
 
 ## Troubleshooting

@@ -140,6 +140,16 @@ module Azu
         key = @@shared_secret_key if key.nil? && @@shared_secret_key && !@@shared_secret_key.try(&.empty?)
         @secret_key = key.presence
         self.secret_key unless defer_secret
+        @@in_use.set(true)
+      end
+
+      @@in_use = Atomic(Bool).new(false)
+
+      # True once a CSRF handler has been built in this process (`new`, `default` or `configure`). Templates get
+      # `csrf_token`, `csrf_tag` and `csrf_metatag` only then, so the pages of an app without CSRF protection set
+      # no token cookie and need no `CSRF_SECRET`.
+      def self.in_use? : Bool
+        @@in_use.get
       end
 
       # The key tokens are signed with: the one given, else `CSRF_SECRET`. A key only this process knows breaks
@@ -164,11 +174,12 @@ module Azu
         end
       end
 
-      # Reset default instance (useful for testing)
+      # Forgets the default instance, the shared secret and that a handler was built (for specs).
       def self.reset_default!
         @@instance_mutex.synchronize do
           @@default_instance = nil
           @@shared_secret_key = nil
+          @@in_use.set(false)
         end
       end
 

@@ -208,6 +208,18 @@ describe "request contracts" do
     post(signup_app, "{nope", handlers: bare).status_code.should eq 400
   end
 
+  it "answers 400 and 413 for a body it cannot read when no Rescuer is in the handler stack" do
+    bare = [] of HTTP::Handler
+    client = Azu::Testing::Client.new(signup_app, bare)
+
+    client.post("/signup", headers: {"Content-Type" => "multipart/form-data"}, body: "x").status_code.should eq 400
+    client.post("/signup", headers: {"Content-Type" => "application/json; charset"}, body: "{}").status_code.should eq 400
+
+    app = signup_app
+    app.config.upload.max_file_size = 16_u64
+    post(app, %({"name": "#{"x" * 100}", "email": "a@b.c"}), handlers: bare).status_code.should eq 413
+  end
+
   it "does not carry a parsed request from one call to the next on a shared endpoint instance" do
     app = Azu::App.new
     app.routes { post "/signup", ContractSpec::SharedSignupEndpoint }

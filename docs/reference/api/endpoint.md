@@ -4,7 +4,10 @@ description: "Endpoints handle HTTP requests with type-safe request and response
 
 # Endpoint
 
-## Including Endpoint
+An endpoint is a struct (or class) that includes `Azu::Endpoint(Request, Response)`: it declares its route with a
+verb macro, receives the request already parsed into its request contract, and returns its response type from
+`call`. It comes with `require "azu"`. It is not an `HTTP::Handler`: it is `Azu::Routable`, and the router
+dispatches to it.
 
 ```crystal
 struct PingResponse
@@ -30,9 +33,9 @@ end
 - `Request` - Request contract type: a struct that includes `Azu::Request`, or the bare `Azu::Request` module for an endpoint with no contract to validate
 - `Response` - Response type (must include `Azu::Response`)
 
-An endpoint is a plain struct (or class). It is not an `HTTP::Handler`: it is `Azu::Routable`, and the router dispatches to it.
+## API
 
-## HTTP method macros
+### HTTP method macros
 
 `get`, `post`, `put`, `patch`, `delete`, `head`, `options`, `connect` and `trace` register the endpoint with the
 router of `Azu::App.default` when the struct is defined. A `get` route also answers `HEAD`.
@@ -100,7 +103,7 @@ end
 Each struct declares one route: the path is remembered per type for `Endpoint.path`, so give an endpoint one verb macro.
 {% endhint %}
 
-To register an endpoint on an app of your own instead, route it explicitly (see [Router Reference](router.md)):
+To register an endpoint on an app of your own instead, route it explicitly (see [Router](router.md)):
 
 ```crystal
 struct StatusEndpoint
@@ -115,11 +118,9 @@ app = Azu::App.new
 app.routes { get "/status", StatusEndpoint }
 ```
 
-## Instance methods
-
-The helpers below are private methods of the endpoint, available inside `call`.
-
 ### call
+
+The helpers below `call` are private methods of the endpoint, available inside it.
 
 Handle the request. Must be implemented. The returned response is rendered into the HTTP response body.
 
@@ -299,12 +300,13 @@ end
 ### CSRF helpers
 
 `csrf_token`, `csrf_tag` and `csrf_metatag` return the token of the current request, the hidden input
-tag and the meta tag. They need the `Azu::Handler::CSRF` handler in the chain.
+tag and the meta tag, from `Azu::Handler::CSRF.default`. They need the `Azu::Handler::CSRF` handler in the chain
+(see [Built-in handlers](../handlers/built-in.md#handlercsrf)).
 
-## Request access
+### Request access
 
 The validated request is available through a method named after the request type. It is parsed once
-per call, and a request that breaks its validations never reaches `call` (see [Request Reference](request.md)):
+per call, and a request that breaks its validations never reaches `call` (see [Request](request.md#request-parsing)):
 
 ```crystal
 struct CreateUserRequest
@@ -347,8 +349,6 @@ end
 The method name is derived from the request type: `CreateUserRequest` becomes `create_user_request`, and
 `create_user_request_contract` is an alias for it.
 
-## Redirects
-
 ### redirect
 
 Redirect to another URL. The endpoint returns `Azu::Response::Empty`.
@@ -368,8 +368,6 @@ end
 **Parameters:**
 - `to : String` - Redirect URL
 - `status : Int32 = 301` - HTTP status code
-
-## Route parameters
 
 ### Path parameters
 
@@ -402,8 +400,14 @@ struct FilesEndpoint
 end
 ```
 
+### Endpoint.path
+
+`Endpoint.path(**params)` returns the declared path with each argument filling the path parameter of its name, and
+the prefix of the app it is mounted in: see [Template helpers](../templates/helpers.md#type-safe-endpoint-helpers).
+
 ## See also
 
-- [Request Reference](request.md)
-- [Response Reference](response.md)
-- [Router Reference](router.md)
+- [Request](request.md)
+- [Response](response.md)
+- [Router](router.md)
+- [Create an endpoint](../../how-to/endpoints/create-endpoint.md)

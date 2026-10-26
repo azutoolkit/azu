@@ -182,6 +182,7 @@ too.
 crystal run scripts/check_docs_listed.cr   # every page with crystal blocks is in docs/.checked
 crystal run scripts/check_doc_links.cr     # links, anchors, the sidebar, and links from the landing page
 crystal run scripts/check_docs.cr -- $(grep -v '^#' docs/.checked)   # every listed crystal block compiles
+npm ci --prefix scripts/mermaid && node scripts/mermaid/parse.mjs $(git ls-files 'docs/*.md' 'docs/**/*.md')   # every mermaid block parses
 ```
 
 The link check also fails when a page under `docs/` links outside it with a relative link, because GitBook

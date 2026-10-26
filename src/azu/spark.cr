@@ -33,8 +33,10 @@ module Azu
       yield config
     end
 
-    # Registers the WebSocket endpoint and the client script on *router*. Call once while booting.
+    # Registers the WebSocket endpoint and the client script on *router*. Call once while booting, after the
+    # secret is set: in production and staging it raises `ConfigurationError` without one, before registering.
     def self.install(router : Router = Azu.current_config.router) : Nil
+      config.verify!
       router.ws(config.path, Connection)
       router.get(config.assets_path, Client::Asset.new)
     end

@@ -9,8 +9,8 @@ A feature marked **opt-in** needs its own `require`; `require "azu"` alone does 
 ## Routing and endpoints
 
 - **Typed endpoints.** `Endpoint(Request, Response)` declares what a route accepts and returns, and the compiler holds you to it. [Endpoint](../reference/api/endpoint.md), [Create an endpoint](../how-to/endpoints/create-endpoint.md).
-- **Segment-tree router.** Static, `:param` and `*wildcard` segments, `scope` for prefixes, `HEAD` for every `GET`, and `_method` overrides for HTML forms. [Router](../reference/api/router.md).
-- **Mounting.** `mount` serves another app below a prefix, and links stay right wherever it is mounted. [Router](../reference/api/router.md#mounting-another-app).
+- **Segment-tree router.** Static, `:param` and `*wildcard` segments, `scope` for prefixes, `HEAD` and `OPTIONS` registered with every `GET`, and `_method` overrides for HTML forms. [Router](../reference/api/router.md).
+- **Mounting.** `mount` serves another app below a prefix, and `Endpoint.path` builds links that include it. [Mount an app under a prefix](../how-to/apps/mount-an-app.md), [Router](../reference/api/router.md#mounting-another-app).
 - **Apps as values.** `Azu::App.new` gives you an app with its own configuration, router and handlers, so several can live in one process. `include Azu` is the one-app shortcut over the same class. [App](../reference/api/app.md).
 - **Generated link and form helpers.** Each endpoint gets `link_to_*`, `form_for_*` and `button_to_delete_*` template helpers that use its real path. [Template helpers](../reference/templates/helpers.md#type-safe-endpoint-helpers).
 

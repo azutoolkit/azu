@@ -7,10 +7,20 @@ description: "The one Redis layer the cache, PubSub and Presence share: its conf
 `Azu::Redis` is the one place Azu opens connections to Redis. The cache (`Cache::RedisStore`), the PubSub backend
 (`PubSub::Redis`) and Presence (`Presence::Store::Redis`) all go through an `Azu::Redis::Client`, so they share a
 pool, a URL, timeouts, a retry policy and a shutdown, instead of each opening its own connections with its own
-settings. It is a small layer over the `redis` shard (`stefanwille/crystal-redis ~> 2.9.0`, a dependency of Azu);
-nothing connects at require time or when a client is built, only on first use.
+settings. It is a small layer over the `redis` shard (`stefanwille/crystal-redis ~> 2.9.0`, a dependency of Azu) and
+comes with `require "azu"`; nothing connects at require time or when a client is built, only on first use. It is not
+a cluster or sentinel client.
 
-## Config
+```crystal
+require "azu"
+
+redis = Azu::Redis.acquire(Azu::Redis::Config.from_env)
+redis.run("get") { |connection| connection.get("greeting") }
+```
+
+## Options
+
+### Config
 
 `Azu::Redis::Config` is one value holding every setting:
 
@@ -58,7 +68,9 @@ job queue. A Redis cache needs `CACHE_REDIS_URL`, `cache_config.redis_url` or a 
 an `ArgumentError` when built without one. `Cache#clear` only removes keys under the cache's `key_prefix`.
 {% endhint %}
 
-## Sharing one pool
+## API
+
+### Sharing one pool
 
 ```crystal
 require "azu"
@@ -82,7 +94,7 @@ timeout, so with the default 2 seconds it has a pool of its own; pass the shared
 client (`Cache::RedisStore.new(redis)` or `cache_config.redis_client = redis`) to put the cache on the same pool.
 A client you pass is yours to close; one a backend or store built from a URL is closed by its `shutdown` or `close`.
 
-## Using a client
+### Using a client
 
 ```crystal
 require "azu"
@@ -120,6 +132,36 @@ redis.close
 - `stats` returns `capacity`, `open`, `in_use`, `idle`, `discarded` (connections thrown away after an error) and
   `adopted` (dedicated connections).
 
+### Dedicated connections
+
+```crystal
+require "azu"
+
+redis = Azu::Redis::Client.new(Azu::Redis::Config.new)
+subscriber = redis.dedicated
+spawn { subscriber.subscribe("news") { |on| on.message { |channel, message| puts message } } }
+# ...
+redis.release(subscriber)
+```
+
+`dedicated` opens a connection that is not taken from the pool and has no read timeout, for something that holds
+it for good, such as a `SUBSCRIBE` loop or a blocking command (`BLPOP`, `XREAD BLOCK`) that outlasts `command_timeout` (`PubSub::Redis` uses one). It does not count against `pool_size` and ends
+with the client or with `release`.
+
+### Health check
+
+`Client#health_check` is a `Proc(Bool)` for `Azu::Handler::HealthCheck`:
+
+```crystal
+require "azu"
+
+redis = Azu::Redis.acquire
+checks = {"redis" => redis.health_check} of String => Azu::Handler::HealthCheck::Check
+Azu::Handler::HealthCheck.new(checks: checks)
+```
+
+## Behavior
+
 ### Pool behaviour
 
 - Connections are opened lazily and reused before another is opened, so a quiet app holds one.
@@ -152,47 +194,18 @@ up to `jitter` of itself) before each. The wait goes through `Azu::Clock.sleep`,
 A command that **timed out** is not retried, since it may have been applied; its connection is discarded because a
 late reply would answer the next command. A server error reply and a pool timeout are not retried either.
 
-### Dedicated connections
-
-```crystal
-require "azu"
-
-redis = Azu::Redis::Client.new(Azu::Redis::Config.new)
-subscriber = redis.dedicated
-spawn { subscriber.subscribe("news") { |on| on.message { |channel, message| puts message } } }
-# ...
-redis.release(subscriber)
-```
-
-`dedicated` opens a connection that is not taken from the pool and has no read timeout, for something that holds
-it for good, such as a `SUBSCRIBE` loop or a blocking command (`BLPOP`, `XREAD BLOCK`) that outlasts `command_timeout` (`PubSub::Redis` uses one). It does not count against `pool_size` and ends
-with the client or with `release`.
-
-## Health check
-
-`Client#health_check` is a `Proc(Bool)` for `Azu::Handler::HealthCheck`:
-
-```crystal
-require "azu"
-
-redis = Azu::Redis.acquire
-checks = {"redis" => redis.health_check} of String => Azu::Handler::HealthCheck::Check
-Azu::Handler::HealthCheck.new(checks: checks)
-```
-
-## Instrumentation
-
-`Azu::Instrumentation.on_redis { |command| ... }` receives an `Instrumentation::RedisCommand` (`operation`,
-`client` name, `duration_ms`, `error`) for each finished `run`, `multi` and `pipelined`. With no subscriber a call
-costs a nil check.
-
-## Shutdown
+### Shutdown
 
 `Azu.shutdown` stops Spark, then Presence, then PubSub, and last calls `Azu::Redis.shutdown`, which closes every
 shared pool. The order matters: Presence's departures are published through PubSub, which needs the pool. A closed
 client raises `Azu::Redis::ClosedError`.
 
-## Not part of the contract
+### Instrumentation
+
+Every `run`, `multi` and `pipelined` is reported to `Azu::Instrumentation.on_redis` subscribers; see
+[Instrumentation](instrumentation.md).
+
+## Limits
 
 - Connections are not multiplexed: one command at a time per connection, `pool_size` at most at once.
 - There is no cluster or sentinel support; the shard has none.
@@ -200,4 +213,7 @@ client raises `Azu::Redis::ClosedError`.
 
 ## See also
 
-- [Cache](cache.md), [Presence](presence.md), [Real-time across processes](../../how-to/deployment/scale-horizontally.md#real-time-across-processes)
+- [Cache](cache.md)
+- [PubSub](pubsub.md)
+- [Presence](presence.md)
+- [Real-time across processes](../../how-to/deployment/scale-horizontally.md#real-time-across-processes)

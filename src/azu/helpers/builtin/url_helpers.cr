@@ -19,8 +19,6 @@ module Azu
           register_link_to
           register_button_to
           register_mail_to
-          register_current_path
-          register_current_url
           register_current_page
           register_active_class
           register_back_url
@@ -126,11 +124,7 @@ module Azu
             html = String.build do |io|
               io << "<form #{Util.tag_attributes(form_attrs)}>"
 
-              # Add CSRF token from context if available
-              csrf_val = env.context["csrf_token"]
-              if !csrf_val.none? && !csrf_val.undefined?
-                io << %Q(<input type="hidden" name="_csrf" value="#{Util.escape_html(csrf_val.to_s)}" />)
-              end
+              io << Util.csrf_input(env)
 
               # Add method override for non-standard methods
               if method.in?("delete", "put", "patch")
@@ -189,22 +183,6 @@ module Azu
           Registry.register_function(:mail_to, func)
         end
 
-        private def self.register_current_path : Nil
-          func = Crinja.function(:current_path) do
-            val = env.context["current_path"]
-            (!val.none? && !val.undefined?) ? val.to_s : ""
-          end
-          Registry.register_function(:current_path, func)
-        end
-
-        private def self.register_current_url : Nil
-          func = Crinja.function(:current_url) do
-            val = env.context["current_url"]
-            (!val.none? && !val.undefined?) ? val.to_s : ""
-          end
-          Registry.register_function(:current_url, func)
-        end
-
         private def self.register_current_page : Nil
           filter = Crinja.filter({exact: true}, :is_current_page) do
             path = target.to_s
@@ -247,15 +225,11 @@ module Azu
           func = Crinja.function({fallback: "/"}, :back_url) do
             fallback = arguments["fallback"].to_s
 
-            # Try to get referer from context
-            ref_val = env.context["http_referer"]
-            referer = (!ref_val.none? && !ref_val.undefined?) ? ref_val.to_s : nil
-
-            if referer && !referer.empty?
-              referer
-            else
-              fallback
-            end
+            # The request's Referer (`referer` of the request variables); the client sends it, so only a safe
+            # URL is returned
+            ref_val = env.context["referer"]
+            referer = (!ref_val.none? && !ref_val.undefined?) ? ref_val.to_s : ""
+            referer.empty? ? fallback : Util.safe_url(referer, fallback)
           end
           Registry.register_function(:back_url, func)
         end

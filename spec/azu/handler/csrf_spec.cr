@@ -1,5 +1,6 @@
 require "../../spec_helper"
 require "../../support/integration_helpers"
+require "../../../src/azu/testing/testing"
 
 include IntegrationHelpers
 
@@ -322,5 +323,70 @@ describe Azu::Handler::CSRF do
       token.should_not eq "another-handlers-token"
       store.token.should eq token
     end
+  end
+end
+
+module CSRFFormSpec
+  struct FormPage
+    include Azu::Response
+    include Azu::Templates::Renderable
+
+    def render
+      view "csrf_form.jinja"
+    end
+  end
+
+  struct ShowForm
+    include Azu::Endpoint(Azu::Request, FormPage)
+
+    def call : FormPage
+      FormPage.new
+    end
+  end
+
+  struct SubmitForm
+    include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+    def call : Azu::Response::Empty
+      Azu::Response::Empty.new
+    end
+  end
+
+  def self.app : Azu::App
+    app = Azu::App.new
+    app.config.templates.path = "spec/test_templates"
+    app.routes do
+      get "/csrf-form", ShowForm
+      post "/csrf-form", SubmitForm
+    end
+    app
+  end
+end
+
+describe "CSRF tokens in rendered pages" do
+  {% for strategy in %w(SignedDoubleSubmit DoubleSubmit SynchronizerToken) %}
+    it "issues one token per response with {{strategy.id}}" do
+      handler = Azu::Handler::CSRF.new(strategy: Azu::Handler::CSRF::Strategy::{{strategy.id}}, secret_key: "test-secret")
+      context, _ = create_context("GET", "/posts/new")
+
+      token = handler.token(context)
+
+      handler.token(context).should eq(token)
+      handler.tag(context).should contain(token)
+      handler.metatag(context).should contain(token)
+      context.response.cookies["csrf_token"].value.should eq(token)
+    end
+  {% end %}
+
+  it "accepts the form a response rendered" do
+    Azu::Handler::CSRF.configure { |csrf| csrf.secret_key = "test-secret" }
+    client = Azu::Testing::Client.new(CSRFFormSpec.app, [Azu::Handler::RequestId.new, Azu::Handler::CSRF.default] of HTTP::Handler)
+
+    page = client.get("/csrf-form")
+    token = page.body.match!(/name="_csrf" value="([^"]+)"/)[1]
+
+    client.post("/csrf-form", form: {"_csrf" => token}).status_code.should eq(200)
+  ensure
+    Azu::Handler::CSRF.reset_default!
   end
 end

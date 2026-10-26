@@ -4,10 +4,9 @@ description: Exactly which Azu behaviours depend on the environment, and how to 
 
 # Environments
 
-`Azu::Configuration#env` names the environment the application runs in. Azu changes a small, specific set of
-behaviours with it; everything else is configured explicitly.
-
-## Environment enum
+`Azu::Configuration#env` names the environment the application runs in, an `Azu::Environment` that comes with
+`require "azu"`. Azu changes a small, specific set of behaviours with it; everything else is configured explicitly.
+It is not a configuration profile: no log level, cache store or handler stack is chosen by the environment.
 
 ```crystal
 require "azu"
@@ -15,10 +14,12 @@ require "azu"
 Azu::Environment.values.each { |environment| puts environment }
 ```
 
+## API
+
+### Environment enum
+
 `Azu::Environment` has eight members, in this order: `Build`, `Development`, `Test`, `Integration`, `Acceptance`,
 `Pipeline`, `Staging`, `Production`.
-
-## Setting the environment
 
 ### Via environment variable
 
@@ -71,7 +72,7 @@ Azu does not load `.env` files on its own. Call `Azu::Env.load_all` before `requ
 a variable already in the process environment always wins over a file.
 {% endhint %}
 
-## Checking the environment
+### Checking the environment
 
 Every member has a predicate, and `in?` takes several:
 
@@ -88,7 +89,9 @@ env.in?(Azu::Environment::Staging, Azu::Environment::Production)
 
 Inside a request, `Azu.current_config.env` is the environment of the app serving it.
 
-## What depends on the environment
+## Behavior
+
+### What depends on the environment
 
 | Behaviour | Development | Test | Pipeline | Staging, Production | Others |
 |---|---|---|---|---|---|
@@ -108,9 +111,8 @@ Notes on the rows:
 - In development, `Rescuer` includes the request context (headers, params, process environment) in the error and
   HTML clients get an exception page. Elsewhere the context is `null` and HTML clients get the `error.html`
   template, for an unexpected exception too: a `500` page that does not show the exception's message.
-- Spark signs its page tokens with `SPARK_SECRET` (or `Azu::Spark.configure { |c| c.secret = ... }`). Without one,
-  development and the other environments generate a random secret per process; in `Staging` and `Production`
-  the first use raises `Azu::Spark::ConfigurationError`.
+- Spark signs its page tokens with `SPARK_SECRET`; what happens without one in each environment is on
+  [Spark configuration](spark.md#the-secret).
 - `Handler::DevDashboard` checks `Azu.current_config.env.development?` on every request, so the environment of the app serving
   the request decides, whatever the handler list contains. Outside development it calls the next handler (the router
   answers `404` for an unrouted `/dev-dashboard`) and never renders the dashboard or the SQL playground; building it
@@ -123,7 +125,7 @@ Notes on the rows:
 Everything else, including the log level, the cache store, the port and the handler stack, is independent of the
 environment. Azu sets no log level and no cache store per environment; the configuration below does.
 
-## Development
+### Development
 
 ```crystal
 require "azu"
@@ -144,7 +146,7 @@ Add `require "azu/dev"` and `Azu::Handler::DevDashboard.new` to the handlers to 
 [database dashboard](../database-dashboard.md)). The dashboard serves in development only: in any other environment it
 passes every request to the next handler and building one logs a warning (see below).
 
-## Test
+### Test
 
 Give a spec its own configuration so it does not touch the global one:
 
@@ -169,9 +171,9 @@ end
 ```
 
 To serve requests against an app of your own, build it with `Azu::App.new(config)` and
-`app.server(handlers)`; see [How to Test Endpoints](../../how-to/testing/test-endpoints.md).
+`app.server(handlers)`; see [Test endpoints](../../how-to/testing/test-endpoints.md).
 
-## Staging and production
+### Staging and production
 
 ```crystal
 require "azu"
@@ -196,7 +198,7 @@ handler array).
 Behind a proxy, `Throttle` sees the proxy's address for every request.
 {% endhint %}
 
-## Environment files
+### Environment files
 
 Keep one set of variables per environment and load it with your process manager. For example with Docker:
 
@@ -206,7 +208,7 @@ Keep one set of variables per environment and load it with your process manager.
 CRYSTAL_ENV=production
 PORT=8080
 HOST=0.0.0.0
-# paste a generated value after the = (left empty, Spark refuses to sign tokens in production)
+# paste a generated value after the = (left empty, Azu::Spark.install stops the boot in production)
 SPARK_SECRET=
 CACHE_STORE=redis
 CACHE_REDIS_URL=redis://redis:6379/0
@@ -221,7 +223,7 @@ docker run --env-file production.env myapp
 Generate the secret once per deployment, with `openssl rand -hex 32` or
 `crystal eval 'require "random/secure"; puts Random::Secure.hex(32)'`, and never reuse a value from an example.
 
-## Per-app environments
+### Per-app environments
 
 Two apps in one process can run in different environments, because each has its own configuration:
 
@@ -241,5 +243,7 @@ end
 
 ## See also
 
-- [Configuration Options](options.md)
+- [Configuration options](options.md)
+- [Azu::Env](env.md)
+- [Spark configuration](spark.md)
 - [The Azu module](../api/app.md#the-azu-module)

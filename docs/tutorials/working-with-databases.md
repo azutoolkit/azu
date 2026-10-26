@@ -1,5 +1,5 @@
 ---
-description: Connect Azu to a database using CQL, Crystal's type-safe ORM.
+description: Store the users of an API in SQLite with CQL, in the files azu new generates, with one transaction per request.
 ---
 
 # Working with databases
@@ -8,673 +8,336 @@ description: Connect Azu to a database using CQL, Crystal's type-safe ORM.
 
 By the end of this tutorial, you'll have:
 
-- CQL connected to SQLite (or PostgreSQL)
-- A type-safe database model with validations and scopes
-- CRUD endpoints backed by the database
-- A one-to-many relationship between users and posts
+- CQL configured, a `users` table and a `User` model, in the files `azu new` generates
+- A migration that creates the table
+- `POST /users` and `GET /users` endpoints backed by the database, answering `422` for an invalid user
+- One database transaction per request, so a request that fails leaves nothing behind
+- Contracts and responses mapped to the model by name
 
 ## Prerequisites
 
-- Completed [Building a User API](building-a-user-api.md) tutorial (the contracts, responses and endpoints below are
-  the same ones, now backed by a database)
-- Crystal 1.22.1 or newer
-- SQLite (included on most systems), or PostgreSQL if you prefer it
+- Completed the [Building a user API](building-a-user-api.md) tutorial
+- Crystal 1.22.1 or newer, and the Azu CLI (`azu`)
+- SQLite (the `sqlite3` library; most systems have it)
 
-## Step 1: Add CQL dependencies
-
-CQL is a separate shard; Azu core does not depend on it. Update your `shard.yml` with `cql` and a database driver:
-
-{% code title="shard.yml" %}
-```yaml
-name: user_api
-version: 0.1.0
-
-dependencies:
-  azu:
-    github: azutoolkit/azu
-    version: ~> 0.5.119
-  cql:
-    github: azutoolkit/cql
-  # Choose your database driver:
-  sqlite3:
-    github: crystal-lang/crystal-sqlite3
-  # pg:                         # PostgreSQL
-  #   github: will/crystal-pg
-
-crystal: ">= 1.22.1"
-license: MIT
-```
-{% endcode %}
-
-Install dependencies:
+Generate an API project that uses SQLite, and install its shards:
 
 ```bash
+azu new user_api --api --db sqlite --yes
+cd user_api
 shards install
 ```
 
-## Step 2: Define the schema
+The project's `shard.yml` lists `cql` and the `sqlite3` driver. With `--db postgresql` the initializer below connects
+to `postgresql://localhost/user_api_development` instead, and the rest of the tutorial is the same.
 
-Create `src/db/schema.cr`. The schema names the tables and columns CQL knows about, and holds the connection:
+## Step 1: Configure CQL, declare the table and write the model
 
-{% tabs %}
-{% tab title="SQLite" %}
-{% code title="src/db/schema.cr" %}
-```crystal
-require "cql"
-require "sqlite3"
-
-AppDB = CQL::Schema.define(
-  :app_database,
-  adapter: CQL::Adapter::SQLite,
-  uri: ENV.fetch("DATABASE_URL", "sqlite3://./db/development.db")
-) do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String, unique: true
-    column :age, Int32, null: true
-    column :active, Bool, default: true
-    timestamps
-  end
-end
-```
-{% endcode %}
-{% endtab %}
-
-{% tab title="PostgreSQL" %}
-For PostgreSQL, `require "pg"` instead of `sqlite3`, use `CQL::Adapter::Postgres` and a `postgres://` URL:
-
-{% code title="src/db/schema.cr" %}
-```crystal
-require "cql"
-require "pg"
-
-AppDB = CQL::Schema.define(
-  :app_database,
-  adapter: CQL::Adapter::Postgres,
-  uri: ENV.fetch("DATABASE_URL", "postgres://localhost:5432/user_api_dev")
-) do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String, unique: true
-    column :age, Int32, null: true
-    column :active, Bool, default: true
-    timestamps
-  end
-end
-```
-{% endcode %}
-{% endtab %}
-{% endtabs %}
-
-Columns are `NOT NULL` unless you pass `null: true`, and `unique: true` creates a `UNIQUE` constraint (and so an index).
-
-## Step 3: Create the database
-
-{% tabs %}
-{% tab title="SQLite" %}
-SQLite creates the file on first connection, but the directory must exist:
+Generate the model:
 
 ```bash
-mkdir -p db
+azu generate model User name:string email:string:unique 'age:int32?'
 ```
-{% endtab %}
 
-{% tab title="PostgreSQL" %}
-For PostgreSQL create the database first:
+The generator writes `src/models/user.cr`, adds the `users` table to `src/db/schema.cr` and writes the migration of
+Step 2. `azu new` wrote the other two files. Together they look like this, with two validations and a default for
+`age` added to the model:
 
-```bash
-createdb user_api_dev
-```
-{% endtab %}
-{% endtabs %}
-
-The tables themselves are created by `AppDB.build` (Step 5), which runs `CREATE TABLE IF NOT EXISTS` for every table in
-the schema. Once your schema changes over time, use [migrations](../how-to/database/run-migrations.md) instead.
-
-## Step 4: Create the model
-
-Create `src/models/user.cr`. A model is a class that includes `CQL::ActiveRecord::Model(PrimaryKeyType)`, points at
-its table with `db_context`, and declares one property per column:
-
-{% code title="src/models/user.cr" %}
+<!-- prelude -->
 ```crystal
-require "cql"
+# src/initializers/cql_config.cr
 require "sqlite3"
+require "azu/cql"
 
-AppDB = CQL::Schema.define(:app_database, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
+Azu::CQL.configure do |c|
+  c.db = ENV["DATABASE_URL"]? || "sqlite3://./db/user_api_#{ENV["CRYSTAL_ENV"]? || "development"}.db"
+  c.pool.size = ENV["DATABASE_POOL_SIZE"]?.try(&.to_i) || 10
+end
+
+Azu::CQL.attach { UserApiDB }
+
+# src/db/schema.cr
+UserApiDB = Azu::CQL.schema :user_api_db do
   table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String, unique: true
+    primary :id, Int64, auto_increment: true
+    text :name
+    text :email, unique: true
     column :age, Int32, null: true
-    column :active, Bool, default: true
     timestamps
   end
 end
 
+# src/models/user.cr
 class User
   include CQL::ActiveRecord::Model(Int64)
-  db_context AppDB, :users
+  db_context UserApiDB, :users
 
   property name : String
   property email : String
   property age : Int32?
-  property active : Bool = true
-  property created_at : Time?
-  property updated_at : Time?
-
-  # Validations
-  validate :name, presence: true, size: 2..50
-  validate :email, presence: true, match: /@/
-
-  # Scopes for common queries
-  scope :active, -> { where(active: true) }
-  scope :recent, -> { order(created_at: :desc) }
-
-  def initialize(@name : String, @email : String, @age : Int32? = nil)
-  end
-
-  # Instance methods
-  def activate! : Bool
-    @active = true
-    save!
-  end
-
-  def deactivate! : Bool
-    @active = false
-    save!
-  end
-end
-
-user = User.new("Ada", "ada@example.com", 36)
-user.save!                      # validates, then INSERTs
-user.deactivate!
-user.activate!
-User.active.recent.limit(20).all
-```
-{% endcode %}
-
-`save!` validates and raises `CQL::ActiveRecord::Validations::ValidationError` for an invalid record. `User.create!(...)`
-writes straight to the database without validations or callbacks, so the tutorial builds records with `new` and
-`save!`.
-
-## Step 5: The complete application
-
-Replace `src/user_api.cr` with the application below. It reuses the contracts and responses from the User API tutorial
-and swaps the in-memory store for CQL. Read it in the order it is written: schema, model, contracts, responses, the
-five endpoints, then the server.
-
-{% code title="src/user_api.cr" %}
-```crystal
-require "azu"
-require "cql"
-require "sqlite3"
-
-# --- Database ---------------------------------------------------------------
-
-AppDB = CQL::Schema.define(
-  :app_database,
-  adapter: CQL::Adapter::SQLite,
-  uri: ENV.fetch("DATABASE_URL", "sqlite3://./db/development.db")
-) do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String, unique: true
-    column :age, Int32, null: true
-    column :active, Bool, default: true
-    timestamps
-  end
-end
-
-class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AppDB, :users
-
-  property name : String
-  property email : String
-  property age : Int32?
-  property active : Bool = true
   property created_at : Time?
   property updated_at : Time?
 
   validate :name, presence: true, size: 2..50
   validate :email, presence: true, match: /@/
 
-  scope :active, -> { where(active: true) }
-  scope :recent, -> { order(created_at: :desc) }
-
   def initialize(@name : String, @email : String, @age : Int32? = nil)
   end
 end
+```
 
-# Turns the model's validation failures into Azu's 422 response.
-def save_user!(user : User) : User
-  user.save!
-  user
-rescue ex : CQL::ActiveRecord::Validations::ValidationError
-  fields = Hash(String, Array(String)).new { |hash, key| hash[key] = [] of String }
-  user.errors.each { |error| fields[error.field.to_s] << error.message }
-  raise Azu::Response::ValidationError.new(fields.to_h)
+- `Azu::CQL.configure` is CQL's own configuration. `DATABASE_URL` wins over the default; `azu new` also writes it to
+  `.env.development` and `.env.test`, which the app loads at boot.
+- `Azu::CQL.schema` builds the schema from that URL: the `sqlite3://` scheme picks the SQLite adapter, and the first
+  query opens the connection. It also attaches the schema to the dev dashboard's Database tab.
+  `Azu::CQL.attach { UserApiDB }` does the same for a schema file written in plain CQL; its block runs the first time
+  the dashboard needs the schema, after `src/db/schema.cr` has loaded. The generated schema file also declares
+  `cql_schema_migrations`, where the migrator records what it has applied.
+- The model has one property per column; `id` comes from `CQL::ActiveRecord::Model(Int64)`. The `validate` rules
+  run before every save.
+
+The app file `src/user_api.cr` requires `./initializers/**`, then `./db/schema`, then `./models/**`, in that order.
+
+## Step 2: Create the table with a migration
+
+The migration the generator wrote declares the table and creates it; `down` undoes it:
+
+```crystal
+# src/db/migrations/20261026120000_create_users.cr
+class CreateUsers < CQL::Migration(20261026120000_i64)
+  def up
+    schema.table :users do
+      primary :id, Int64, auto_increment: true
+      text :name
+      text :email, unique: true
+      column :age, Int32, null: true
+      timestamps
+    end
+    schema.users.create!
+  end
+
+  def down
+    schema.users.drop!
+  end
 end
+```
 
-# --- Contracts and responses ------------------------------------------------
+Create the database and run the migration:
 
+```bash
+azu db:create
+azu db:migrate
+```
+
+`azu db:migrate` applies every migration that is not yet recorded in `cql_schema_migrations`, in version order. The
+version is the number in `CQL::Migration(...)`, a timestamp the generator picks. See
+[Run migrations](../how-to/database/run-migrations.md) for rollbacks and changes to existing tables.
+
+## Step 3: Save users from an endpoint
+
+Add a request contract, two responses and two endpoints, each in the folder the app file requires:
+
+<!-- prelude -->
+```crystal
+# src/requests/create_user_request.cr
 struct CreateUserRequest
   include Azu::Request
 
-  getter name : String
-  getter email : String
-  getter age : Int32?
-
-  def initialize(@name = "", @email = "", @age = nil)
-  end
-
-  validate name, presence: true, size: 2..50
-  validate email, presence: true, match: /@/
+  getter name : String = ""
+  getter email : String = ""
+  getter age : Int32? = nil
 end
 
-struct UpdateUserRequest
-  include Azu::Request
-
-  getter name : String?
-  getter email : String?
-  getter age : Int32?
-
-  def initialize(@name = nil, @email = nil, @age = nil)
-  end
-end
-
+# src/responses/user_response.cr
 struct UserResponse
   include Azu::Response
 
-  def initialize(@user : User)
+  def initialize(@id : Int64?, @name : String, @email : String, @age : Int32?)
   end
 
   def render
-    {
-      id:         @user.id,
-      name:       @user.name,
-      email:      @user.email,
-      age:        @user.age,
-      active:     @user.active,
-      created_at: @user.created_at,
-    }.to_json
+    {id: @id, name: @name, email: @email, age: @age}.to_json
   end
 end
 
-struct UsersListResponse
+# src/responses/users_response.cr
+struct UsersResponse
   include Azu::Response
 
   def initialize(@users : Array(User))
   end
 
   def render
-    {
-      users: @users.map { |user| {id: user.id, name: user.name, email: user.email} },
-      total: @users.size,
-    }.to_json
+    @users.map { |user| {id: user.id, name: user.name, email: user.email} }.to_json
   end
 end
 
-# --- Endpoints ---------------------------------------------------------------
-
+# src/endpoints/create_user_endpoint.cr
 struct CreateUserEndpoint
   include Azu::Endpoint(CreateUserRequest, UserResponse)
 
   post "/users"
 
   def call : UserResponse
-    # The contract has already been validated; check what only the database knows
-    if User.exists?(email: create_user_request.email)
-      raise Azu::Response::ValidationError.new("email", "is already taken")
-    end
-
-    user = save_user!(User.new(create_user_request.name, create_user_request.email, create_user_request.age))
-
+    user = User.new(create_user_request.name, create_user_request.email, create_user_request.age)
+    user.valid_or_422!
+    user.save!
     status 201
     content_type "application/json"
-    UserResponse.new(user)
+    UserResponse.new(user.id, user.name, user.email, user.age)
   end
 end
 
+# src/endpoints/list_users_endpoint.cr
 struct ListUsersEndpoint
-  include Azu::Endpoint(Azu::Request, UsersListResponse)
+  include Azu::Endpoint(Azu::Request, UsersResponse)
 
   get "/users"
 
-  def call : UsersListResponse
-    # Scopes chain like any other query
-    users = User.active.recent.limit(100).all
+  def call : UsersResponse
     content_type "application/json"
-    UsersListResponse.new(users)
+    UsersResponse.new(User.order(:id).all)
   end
 end
+```
 
-struct ShowUserEndpoint
-  include Azu::Endpoint(Azu::Request, UserResponse)
+The contract only declares the fields; the rules live on the model, so every `save` checks them.
+`valid_or_422!` (from `azu/cql`) runs the model's validations and returns the user, or raises
+`Azu::Response::ValidationError`, which the `Rescuer` renders as the same `422` a contract failure gets. `save!`
+inserts the row and sets `id`, `created_at` and `updated_at`.
 
-  get "/users/:id"
+Start the app with `crystal run src/server.cr` and, from another terminal, create a user:
 
-  def call : UserResponse
-    user_id = params["id"].to_i64
+```bash
+curl -X POST localhost:4000/users -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  -d '{"name": "Ada", "email": "ada@example.com", "age": 36}'
+```
 
-    if user = User.find?(user_id)
-      content_type "application/json"
-      UserResponse.new(user)
-    else
-      raise Azu::Response::NotFound.new("/users/#{user_id}")
-    end
-  end
+Response (`201`):
+
+```json
+{"id":1,"name":"Ada","email":"ada@example.com","age":36}
+```
+
+An invalid user:
+
+```bash
+curl -X POST localhost:4000/users -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  -d '{"name": "A", "email": "nope"}'
+```
+
+Response (`422`):
+
+```json
+{"type":"about:blank","title":"Validation Error","status":422,"detail":"The request could not be processed due to validation errors.","errors":{"name":["name must have a size of 2..50"],"email":["email must match the pattern /@/"]},"instance":"/users"}
+```
+
+`curl localhost:4000/users` lists the saved users: `[{"id":1,"name":"Ada","email":"ada@example.com"}]`.
+
+## Step 4: Run each request in a transaction
+
+An endpoint that writes several rows can fail halfway. This one imports users from a list of e-mail addresses:
+
+```crystal
+# src/requests/import_users_request.cr
+struct ImportUsersRequest
+  include Azu::Request
+
+  getter emails : Array(String) = [] of String
 end
 
-struct UpdateUserEndpoint
-  include Azu::Endpoint(UpdateUserRequest, UserResponse)
+# src/endpoints/import_users_endpoint.cr
+struct ImportUsersEndpoint
+  include Azu::Endpoint(ImportUsersRequest, Azu::Response::Empty)
 
-  put "/users/:id"
-
-  def call : UserResponse
-    user_id = params["id"].to_i64
-
-    unless user = User.find?(user_id)
-      raise Azu::Response::NotFound.new("/users/#{user_id}")
-    end
-
-    if email = update_user_request.email
-      if (existing = User.find_by(email: email)) && existing.id != user_id
-        raise Azu::Response::ValidationError.new("email", "is already taken")
-      end
-      user.email = email
-    end
-
-    update_user_request.name.try { |name| user.name = name }
-    update_user_request.age.try { |age| user.age = age }
-
-    save_user!(user)
-    content_type "application/json"
-    UserResponse.new(user)
-  end
-end
-
-struct DeleteUserEndpoint
-  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
-
-  delete "/users/:id"
+  post "/users/import"
 
   def call : Azu::Response::Empty
-    user_id = params["id"].to_i64
-
-    unless user = User.find?(user_id)
-      raise Azu::Response::NotFound.new("/users/#{user_id}")
+    import_users_request.emails.each do |email|
+      User.new(email.split('@').first, email).valid_or_422!.save!
     end
-
-    user.delete!
     status 204
     Azu::Response::Empty.new
   end
 end
 
-# --- Server --------------------------------------------------------------------
-
-module UserAPI
+# src/user_api.cr: the handlers method azu new generated, with the middleware added last
+module UserApi
   include Azu
+
+  def self.handlers : Array(HTTP::Handler)
+    [
+      Azu::Handler::RequestId.new,
+      Azu::Handler::Logger.new,
+      Azu::Handler::Rescuer.new,
+      Azu::Handler::SecurityHeaders.new(hsts: Azu::CONFIG.tls?),
+      Azu::CQL::Middleware.new(UserApiDB, transaction: true),
+    ] of HTTP::Handler
+  end
 end
-
-# Create the tables if they do not exist yet
-AppDB.build
-
-UserAPI.start [
-  Azu::Handler::RequestId.new,
-  Azu::Handler::Logger.new,
-  Azu::Handler::Rescuer.new,
-  Azu::Handler::CORS.new,
-] of HTTP::Handler
 ```
-{% endcode %}
 
-What changed from the in-memory version:
+Keep the `*dev_handlers` line the generated method has after `RequestId`. `src/server.cr` starts the app with these
+handlers (`UserApi.start UserApi.handlers`).
 
-- **Create** checks for a duplicate e-mail with `User.exists?`, builds the record with `User.new` and saves it with
-  `save!`. A model that fails its validations becomes the same `422` response a broken contract produces.
-- **List** uses the `active` and `recent` scopes and always limits the result.
-- **Show** uses `find?`, which returns `nil` when there is no row, and answers `404` through `Azu::Response::NotFound`.
-- **Update** assigns only the fields the client sent and saves; `update!(name: ...)` would skip validations.
-- **Delete** calls `delete!`, which returns `false` if the row was already gone.
-- Endpoints register themselves with the router when their struct is defined, so they are not listed in `start`.
-- The handlers follow the default stack's order: `Logger` sits outside `Rescuer`, so a request that raised is logged
-  with its final status.
-- Azu reads `PORT` (4000 by default) and `HOST` (`127.0.0.1` in development, `0.0.0.0` in other environments) from
-  the environment.
+`Azu::CQL::Middleware` with `transaction: true` runs the rest of the request in one transaction. It commits when the
+status is below 400 and rolls back on an exception or an error status. It sits after `Rescuer`, so the exception that
+rolled the transaction back still reaches the `Rescuer` and becomes the response.
 
-Run it:
+Restart the app and import a list whose third address is invalid:
 
 ```bash
-crystal run src/user_api.cr
-curl -X POST localhost:4000/users -H 'Content-Type: application/json' \
-  -d '{"name":"Ada","email":"ada@example.com","age":36}'
-curl localhost:4000/users
+curl -X POST localhost:4000/users/import -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  -d '{"emails": ["grace@example.com", "linus@example.com", "nope"]}'
 ```
 
-## Step 6: Adding relationships
+Response (`422`):
 
-Add a `posts` table to the schema and a model for it. `belongs_to` and `has_many` name the foreign key explicitly, and the
-foreign key must be a property of the model that holds it:
+```json
+{"type":"about:blank","title":"Validation Error","status":422,"detail":"The request could not be processed due to validation errors.","errors":{"email":["email must match the pattern /@/"]},"instance":"/users/import"}
+```
+
+`curl localhost:4000/users` still lists only Ada: the rows for Grace and Linus were rolled back with the request.
+Without the middleware they would stay, saved one statement at a time. The same list without `"nope"` answers `204`
+and saves both.
+
+## Step 5: Map contracts to models by name
+
+Step 3 copies fields by hand twice: from the contract into `User.new`, and from the user into `UserResponse.new`.
+`azu/cql` generates both copies at compile time, matching fields by name. Add these lines to the three types:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-AppDB = CQL::Schema.define(:app_database, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String, unique: true
-    column :age, Int32, null: true
-    column :active, Bool, default: true
-    timestamps
-  end
-
-  table :posts do
-    primary :id, Int64
-    column :user_id, Int64
-    column :title, String
-    column :content, String
-    column :published, Bool, default: false
-    timestamps
-
-    foreign_key :user_id, references: :users, on_delete: :cascade
-  end
+# src/requests/create_user_request.cr: the fields a client may set on a User
+struct CreateUserRequest
+  map_to User, only: [:name, :email, :age]
 end
 
-class Post
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AppDB, :posts
-
-  property user_id : Int64
-  property title : String
-  property content : String
-  property published : Bool = false
-  property created_at : Time?
-  property updated_at : Time?
-
-  belongs_to :user, User, :user_id
-
-  validate :title, presence: true, size: 5..200
-  validate :content, presence: true
-
-  scope :published, -> { where(published: true) }
-  scope :drafts, -> { where(published: false) }
-  scope :by_user, ->(id : Int64) { where(user_id: id) }
-
-  def initialize(@user_id : Int64, @title : String, @content : String)
-  end
-
-  def publish! : Bool
-    @published = true
-    save!
-  end
+# src/responses/user_response.cr: adds UserResponse.from(user)
+struct UserResponse
+  include Azu::CQL::FromModel
 end
 
-class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AppDB, :users
-
-  property name : String
-  property email : String
-  property age : Int32?
-  property active : Bool = true
-  property created_at : Time?
-  property updated_at : Time?
-
-  has_many :posts, Post, foreign_key: :user_id
-
-  scope :active, -> { where(active: true) }
-  scope :recent, -> { order(created_at: :desc) }
-
-  def initialize(@name : String, @email : String, @age : Int32? = nil)
+# src/endpoints/create_user_endpoint.cr: the call method, rewritten
+struct CreateUserEndpoint
+  def call : UserResponse
+    user = create_user_request.to_model(User).valid_or_422!
+    user.save!
+    status 201
+    content_type "application/json"
+    UserResponse.from(user)
   end
 end
-
-Post.find!(1_i64).publish!
-User.find!(1_i64).posts.to_a
 ```
 
-The `on_delete: :cascade` on the foreign key makes the database remove a user's posts with the user; SQLite enforces
-foreign keys only when `PRAGMA foreign_keys = ON`. CQL can do it instead: with
-`has_many :posts, Post, foreign_key: :user_id, dependent: :destroy`, `user.delete!` deletes the posts and then the
-user, in one transaction.
+- `to_model(User)` calls the `User` constructor with the contract's fields of the same names. `map_to ... only:` lists
+  the fields that may reach the model, so a field added to the contract later is not copied by accident.
+- `UserResponse.from(user)` reads the response's constructor arguments (`id`, `name`, `email`, `age`) from the user.
+- A field that is missing or has a type that cannot be converted is a compile error that names both sides.
 
-## Step 7: Query examples
-
-```crystal
-require "cql"
-require "sqlite3"
-
-AppDB = CQL::Schema.define(:app_database, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/development.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String, unique: true
-    column :age, Int32, null: true
-    column :active, Bool, default: true
-    timestamps
-  end
-
-  table :posts do
-    primary :id, Int64
-    column :user_id, Int64
-    column :title, String
-    column :content, String
-    column :published, Bool, default: false
-    timestamps
-  end
-end
-
-class Post
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AppDB, :posts
-
-  property user_id : Int64
-  property title : String
-  property content : String
-  property published : Bool = false
-  property created_at : Time?
-
-  belongs_to :user, User, :user_id
-
-  scope :published, -> { where(published: true) }
-
-  def initialize(@user_id : Int64, @title : String, @content : String)
-  end
-end
-
-class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AppDB, :users
-
-  property name : String
-  property email : String
-  property age : Int32?
-  property active : Bool = true
-  property created_at : Time?
-
-  has_many :posts, Post, foreign_key: :user_id
-
-  scope :active, -> { where(active: true) }
-  scope :recent, -> { order(created_at: :desc) }
-
-  def initialize(@name : String, @email : String, @age : Int32? = nil)
-  end
-end
-
-# Find by ID
-user = User.find(1_i64)        # User? (nil when missing)
-user = User.find!(1_i64)       # raises DB::NoResultsError when missing
-
-# Find by attributes
-user = User.find_by(email: "alice@example.com")
-
-# Queries with conditions
-active_users = User.where(active: true).all
-recent_users = User.order(created_at: :desc).limit(10).all
-adults = User.where("age >= ?", 18).all
-
-# Using scopes
-User.active.recent.limit(20).all
-
-# Relationships
-user = User.find!(1_i64)
-user_posts = user.posts.to_a
-published_posts = user.posts.where(published: true).all(Post)
-author = Post.find!(1_i64).user
-
-# Avoid N+1: load all users' posts with one extra query
-User.preload(:posts).all.each { |u| puts "#{u.name}: #{u.posts.size}" }
-
-# Create with a relationship
-post = Post.new(user.id!, "My First Post", "Hello, world!")
-post.save!
-
-# Count records
-User.count
-User.where(active: true).count
-Post.published.count
-```
-
-## Environment configuration
-
-Export the variables for development, or keep them in a `.env` file. Azu does not read `.env` by itself: call
-`Azu::Env.load_all` before `require "azu"` (see [Azu::Env](../reference/configuration/env.md)).
-
-{% tabs %}
-{% tab title="Development" %}
-```bash
-DATABASE_URL=sqlite3://./db/development.db
-PORT=4000
-```
-{% endtab %}
-
-{% tab title="Production" %}
-For production with PostgreSQL:
-
-```bash
-DATABASE_URL=postgres://user:password@db.example.com:5432/user_api_prod
-PORT=8080
-```
-{% endtab %}
-{% endtabs %}
-
-`DATABASE_URL` is read by the schema's `uri:` argument shown in Step 2. To pick the adapter from the URL automatically,
-configure the connection pool and see every query in the dev dashboard, `require "azu/cql"` and define the schema with
-`Azu::CQL.schema`; see [Database dashboard](../reference/database-dashboard.md).
+`POST /users` answers as before: `201` with the user, `422` for an invalid one. The
+[CQL bridge](../reference/api/cql-bridge.md) reference lists the conversions and the `rename:` and `except:` options.
 
 ## Next steps
-
-{% content-ref url="building-live-components.md" %}
-[building-live-components.md](building-live-components.md)
-{% endcontent-ref %}
 
 {% content-ref url="testing-your-app.md" %}
 [testing-your-app.md](testing-your-app.md)
@@ -684,6 +347,10 @@ configure the connection pool and see every query in the dev dashboard, `require
 [deploying-to-production.md](deploying-to-production.md)
 {% endcontent-ref %}
 
-{% content-ref url="../reference/database/cql-api.md" %}
-[cql-api.md](../reference/database/cql-api.md)
+{% content-ref url="../how-to/database/query-data.md" %}
+[query-data.md](../how-to/database/query-data.md)
+{% endcontent-ref %}
+
+{% content-ref url="../how-to/database/create-models.md" %}
+[create-models.md](../how-to/database/create-models.md)
 {% endcontent-ref %}

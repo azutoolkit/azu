@@ -90,8 +90,8 @@ SHUTDOWN_TIMEOUT=30
 
 Secrets (`SPARK_SECRET`, and with an `azu new` application `SESSION_SECRET` and `CSRF_SECRET`) come from your
 platform's secret store. Generate one with `openssl rand -base64 48`. A generated application refuses to start in
-production without `SESSION_SECRET` and `CSRF_SECRET`; without `SPARK_SECRET`, Spark raises the first time it signs
-or verifies a token.
+production without `SESSION_SECRET` and `CSRF_SECRET`, and `Azu::Spark.install` refuses to boot it without
+`SPARK_SECRET`.
 
 ## Step 4: Docker deployment
 

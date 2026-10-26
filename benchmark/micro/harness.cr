@@ -223,6 +223,8 @@ module HotPath
     app.config.template_hot_reload = false
     app.config.templates.path = TEMPLATE_DIR
     app.config.templates.path = __DIR__
+    # An app with CSRF protection, as the bench app: a render with its request issues the token and sets its cookie
+    Azu::Handler::CSRF.default
     app.routes do
       get "/plaintext", PlaintextEndpoint
       get TEMPLATE_PATH, TemplateEndpoint

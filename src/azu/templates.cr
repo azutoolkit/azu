@@ -128,6 +128,10 @@ module Azu
     # A render's variables as the scope of its Crinja context, taken over instead of copied (rendering with a hash,
     # Crinja copies it twice: `Crinja.variables`, then into the context's own scope).
     class Scope < Crinja::Context
+      # `flash` when neither the data, the request nor a global gives one (a render outside a request): empty, so
+      # `flash.notice` renders nothing instead of raising. One shared value, so such a render allocates nothing for it.
+      EMPTY_FLASH = Crinja::Value.new(Hash(String, String).new)
+
       def initialize(parent : Crinja::Context, variables : Crinja::Variables, @request : Helpers::TemplateContext? = nil)
         super(parent)
         @scope = variables
@@ -141,7 +145,8 @@ module Azu
         elsif (request = @request) && (value = request.template_var(key))
           @scope[key] = value
         elsif enclosing = parent
-          enclosing[key]
+          value = enclosing[key]
+          value.undefined? && key == "flash" ? EMPTY_FLASH : value
         else
           undefined
         end
@@ -168,13 +173,13 @@ module Azu
         template_data = Hash(String, Crinja::Value).new
         data.to_h.each { |k, v| template_data[k.to_s] = Crinja::Value.new(v) }
 
-        # The request's variables when a context is available, each computed when the template reads it
-        request = nil
+        # The request's variables, each computed when the template reads it: the type's own `context` (an endpoint),
+        # else the request this fiber serves (`Azu::RequestContext`), so a response an endpoint renders sees them too
+        ctx = ::Azu::RequestContext.current?.try(&.http_context)
         {% if @type.has_method?(:context) %}
-          if ctx = (context rescue nil)
-            request = Helpers::TemplateContext.for_render(ctx)
-          end
+          ctx = (context rescue nil) || ctx
         {% end %}
+        request = ctx ? Helpers::TemplateContext.for_render(ctx) : nil
 
         Azu.current_config.templates.render_variables(template, template_data, request)
       end

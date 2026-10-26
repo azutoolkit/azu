@@ -5,10 +5,8 @@ description: "One response type renders itself as HTML, JSON, XML or plain text,
 # Content negotiation
 
 `Azu::Response::Negotiable` finds the formats a type defines, `Azu::Negotiation` chooses
-among them, and a client that accepts none of them gets a `406`. A response that does not include
-`Negotiable` is not negotiated.
-
-## Defining a negotiated response
+among them, and a client that accepts none of them gets a `406`. Both come with `require "azu"`. A response that does
+not include `Negotiable` is not negotiated.
 
 Include the module and define any of `render_html`, `render_json`, `render_xml` and `render_text`,
 each returning a `String`:
@@ -46,7 +44,42 @@ end
 (`text/html; charset=utf-8`, `application/json`, `application/xml`, `text/plain; charset=utf-8`) and
 `Vary: Accept`.
 
-## How a format is chosen
+## API
+
+### Calling the negotiator yourself
+
+```crystal
+require "azu"
+
+def best(request : HTTP::Request) : Azu::Negotiation::Format?
+  Azu::Negotiation.negotiate([Azu::Negotiation::Format::Json, Azu::Negotiation::Format::Html], request)
+end
+```
+
+`Negotiation.negotiate!` raises `Azu::Response::NotAcceptable` instead of returning `nil`, and
+`Negotiation.ranges(header)` returns the parsed `MediaRange`s.
+
+## Options
+
+### Overriding the header with `?format=`
+
+`/users/ada?format=json` answers in JSON whatever `Accept` says. The values are `html`, `json`, `xml`,
+`text` and `txt`; one of those the response does not define is a `406`. Any other value
+(`?format=csv`) is ignored, so an endpoint can have a `format` field of its own. If it takes the values
+above as well, rename the parameter, or turn it off with `nil`:
+
+```crystal
+require "azu"
+
+Azu::CONFIG.format_parameter = "as" # /users/ada?as=json
+```
+
+The name `format` is reserved for this by default (the
+[`format_parameter` option](../configuration/options.md#request-contracts)).
+
+## Behavior
+
+### How a format is chosen
 
 The `Accept` header is parsed into media ranges (with `MIME::MediaType`) and each format is rated
 against them:
@@ -81,24 +114,7 @@ end
 
 `ApiUser.formats` is `[Json, Html]`, so `curl` (`Accept: */*`) gets JSON and a browser still gets HTML.
 
-## Overriding the header with `?format=`
-
-`/users/ada?format=json` answers in JSON whatever `Accept` says. The values are `html`, `json`, `xml`,
-`text` and `txt`; one of those the response does not define is a `406`. Any other value
-(`?format=csv`) is ignored, so an endpoint can have a `format` field of its own. If it takes the values
-above as well, rename the parameter, or turn it off with `nil`:
-
-```crystal
-require "azu"
-
-Azu::CONFIG.format_parameter = "as" # /users/ada?as=json
-```
-
-The name `format` is reserved for this by default. There is no path extension
-(`/users/ada.json`): routes are matched on the path as written, and a query parameter needs no
-routing support.
-
-## 406 Not Acceptable
+### 406 Not Acceptable
 
 When no format matches, the answer is `406` with `Vary: Accept` and a body that lists what can be
 rendered, as an RFC 7807 problem document (`application/problem+json` when the client names it in `Accept`, `application/json` otherwise), in the style of the 422 of a failed contract:
@@ -128,20 +144,19 @@ response is written, after `call`: for an unsafe method use a single response ty
 with `Azu::Negotiation.negotiate!` before doing anything.
 {% endhint %}
 
-## Calling the negotiator yourself
-
-```crystal
-require "azu"
-
-def best(request : HTTP::Request) : Azu::Negotiation::Format?
-  Azu::Negotiation.negotiate([Azu::Negotiation::Format::Json, Azu::Negotiation::Format::Html], request)
-end
-```
-
-`Negotiation.negotiate!` raises `Azu::Response::NotAcceptable` instead of returning `nil`, and
-`Negotiation.ranges(header)` returns the parsed `MediaRange`s.
-
-## OpenAPI
+### OpenAPI
 
 The document lists every media type of a negotiated response under the `200` response. The JSON one
 carries the response schema when the type is a `JSON::Serializable`; the others are described as strings.
+
+## Limits
+
+- There is no path extension (`/users/ada.json`): routes are matched on the path as written, and a query parameter
+  needs no routing support.
+- The formats are HTML, JSON, XML and plain text; there is no hook for another media type.
+
+## See also
+
+- [Response](response.md)
+- [Return different formats](../../how-to/endpoints/return-different-formats.md)
+- [Error types](../errors/error-types.md)

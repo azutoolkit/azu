@@ -4,6 +4,21 @@ description: "The syntax of Crinja, Azu's Jinja2-compatible template engine: var
 
 # Template engine
 
+Azu renders templates with [Crinja](https://github.com/straight-shoota/crinja), a Crystal implementation of the
+Jinja2 template language; the `crinja` shard is a dependency of Azu and comes with `require "azu"`. This page is the
+syntax a `.jinja` template can use. Where templates live, how they are compiled and escaped, and how a response
+renders one are on [Templates and Renderable](renderable.md); the filters and functions Azu adds are on
+[Template helpers](helpers.md).
+
+```jinja
+{% extends "layouts/base.jinja" %}
+
+{% block content %}
+<h1>{{ title | upper }}</h1>
+{% for item in items %}<li>{{ loop.index }}. {{ item.name }}</li>{% endfor %}
+{% endblock %}
+```
+
 ## Basic syntax
 
 ### Variables
@@ -102,16 +117,16 @@ Loop over collections:
 Extend a base template:
 
 ```html
-{% extends "layouts/base.html" %}
+{% extends "layouts/base.jinja" %}
 ```
 
 ### block
 
 Define overridable blocks:
 
-{% code title="layouts/base.html" %}
+{% code title="layouts/base.jinja" %}
 ```html
-<!-- layouts/base.html -->
+<!-- layouts/base.jinja -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -124,10 +139,10 @@ Define overridable blocks:
 ```
 {% endcode %}
 
-{% code title="pages/home.html" %}
+{% code title="pages/home.jinja" %}
 ```html
-<!-- pages/home.html -->
-{% extends "layouts/base.html" %}
+<!-- pages/home.jinja -->
+{% extends "layouts/base.jinja" %}
 
 {% block title %}Home Page{% endblock %}
 
@@ -155,8 +170,8 @@ Access parent block content:
 Include another template:
 
 ```html
-{% include "partials/header.html" %}
-{% include "partials/footer.html" %}
+{% include "partials/header.jinja" %}
+{% include "partials/footer.jinja" %}
 ```
 
 ### include with context
@@ -166,16 +181,16 @@ default) or `without context`, and no `name=value` pairs. To pass a value under 
 a `with` block:
 
 ```html
-{% include "partials/footer.html" without context %}
+{% include "partials/footer.jinja" without context %}
 {% with user=current_user, index=loop.index %}
-  {% include "partials/user_card.html" %}
+  {% include "partials/user_card.jinja" %}
 {% endwith %}
 ```
 
 ### include with ignore missing
 
 ```html
-{% include "partials/optional.html" ignore missing %}
+{% include "partials/optional.jinja" ignore missing %}
 ```
 
 ## Macros
@@ -199,7 +214,7 @@ a `with` block:
 ### Import macros
 
 ```html
-{% import "macros/forms.html" as forms %}
+{% import "macros/forms.jinja" as forms %}
 {{ forms.input("name") }}
 ```
 
@@ -364,5 +379,7 @@ Disable processing:
 
 ## See also
 
-- [How to Render HTML Templates](../../how-to/templates/render-html-templates.md)
-- [How to Enable Hot Reload](../../how-to/templates/enable-hot-reload.md)
+- [Templates and Renderable](renderable.md)
+- [Template helpers](helpers.md)
+- [Render HTML templates](../../how-to/templates/render-html-templates.md)
+- [Enable hot reload](../../how-to/templates/enable-hot-reload.md)

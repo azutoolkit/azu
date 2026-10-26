@@ -115,6 +115,11 @@ module Azu
         @@config.available_locales
       end
 
+      # Set the locales `Handler::Locale` may pick.
+      def self.available_locales=(locales : Array(String)) : Array(String)
+        @@config.available_locales = locales
+      end
+
       # Set load path.
       def self.load_path=(paths : Array(String)) : Nil
         @@config.load_path = paths
@@ -482,8 +487,8 @@ module Azu
           raise "Missing translation: #{key} for locale #{locale}"
         end
 
-        # Return key with markers for debugging
-        "[missing: #{key}]"
+        # The key, marked for debugging (`missing_key_format`, `%{key}` replaced)
+        missing_key_format.gsub("%{key}", key)
       end
 
       # Common locale display names

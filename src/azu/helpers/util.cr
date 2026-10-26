@@ -59,6 +59,14 @@ module Azu
         fallback
       end
 
+      # The hidden `_csrf` field of a form a template renders, holding the render's `csrf_token` (the request's
+      # token, see `Handler::CSRF`); an empty string when the render has none.
+      def csrf_input(env : Crinja) : String
+        value = env.context["csrf_token"]
+        return "" if value.none? || value.undefined?
+        %(<input type="hidden" name="_csrf" value="#{escape_html(value.to_s)}" />)
+      end
+
       def attribute_name?(name : String) : Bool
         ATTRIBUTE_NAME.matches?(name)
       end

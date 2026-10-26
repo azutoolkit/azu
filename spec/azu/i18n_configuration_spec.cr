@@ -42,4 +42,17 @@ describe Azu::I18nConfiguration do
       Azu::Helpers::I18n.configure { |config| config.default_locale = default }
     end
   end
+
+  it "applies available_locales, so the Locale handler can pick them" do
+    available = Azu::Helpers::I18n.available_locales
+    config = Azu::I18nConfiguration.new
+    config.available_locales = ["en", "fr"]
+    begin
+      config.apply
+      Azu::Helpers::I18n.available_locales.should eq ["en", "fr"]
+      Azu::Handler::Locale.negotiate("fr").should eq "fr"
+    ensure
+      Azu::Helpers::I18n.available_locales = available
+    end
+  end
 end

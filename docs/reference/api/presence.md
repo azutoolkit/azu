@@ -6,9 +6,8 @@ description: "Track who is in a topic across processes with `Azu::Presence`, and
 
 `Azu::Presence` answers "who is in this topic right now?" across processes. A *key* (a user id, a session) is
 tracked in a topic with some metadata; `list` returns the keys that are present, and every change is published
-as a join/leave diff through [`Azu::PubSub`](../../how-to/real-time/broadcast-messages.md) on `presence:<topic>`.
-
-## Track, list, untrack
+as a join/leave diff through [`Azu::PubSub`](pubsub.md) on `presence:<topic>`. It comes with `require "azu"`. It is
+not an authorization layer: anyone who may subscribe to a topic sees every meta in it.
 
 ```crystal
 require "azu"
@@ -21,6 +20,10 @@ Azu::Presence.untrack("room:1", "alice", meta.ref) # removes the phone only; ali
 Azu::Presence.untrack("room:1", "alice")           # removes what this node tracked for alice
 ```
 
+## API
+
+### Track, list, untrack
+
 - `track(topic, key, meta = nil) : Meta` adds one `Meta` to the key. Several calls for the same key (several
   sockets, tabs or nodes) make one user with several metas.
 - `Meta` has `ref` (unique across the cluster, `<node>.<counter>`), `node`, `key`, `data` (a `JSON::Any`) and
@@ -32,7 +35,7 @@ Azu::Presence.untrack("room:1", "alice")           # removes what this node trac
 Limits keep a topic bounded: a key is at most 256 bytes, a meta at most `max_meta_bytes` of JSON (1024) and a
 node tracks at most `max_entries` (10 000) metas. `Azu::Presence::LimitExceeded` is raised beyond them.
 
-## Diffs
+### Diffs
 
 ```crystal
 require "azu"
@@ -49,7 +52,7 @@ subscription.cancel
 before, `departed` those that are absent now: a user with two devices *departs* only when the last meta goes.
 The wire format is the JSON of `Azu::Presence::Diff`.
 
-## Channels
+### Channels
 
 Include `Azu::Presence::Tracked` in a channel to tie presence to its socket. `track_presence` remembers what it
 tracked and `teardown` untracks it, however the socket ends (close frame, dropped peer, a handler that raised).
@@ -86,7 +89,7 @@ end
 Subscribe before tracking if the socket should see its own join. `presence_updates` also makes the node watch the
 topic (see [Guarantees](#guarantees)).
 
-## Backends
+### Backends
 
 `Azu::Presence.default` is a `Tracker` over `Store::Memory` (one process). For several processes give every
 node the same `Store::Redis` and use the Redis PubSub backend, so diffs cross nodes as well:
@@ -140,7 +143,9 @@ neither departs nor arrives). `shutdown` untracks everything this node tracked a
 A store is a Strategy: implement `Azu::Presence::Store` (`put`, `delete`, `stored`, `renew`, `leases`, `forget`,
 `evict`, and optionally `shutdown`, `now` and `present?`) and the shared expiry logic in `live` comes with it.
 
-## Guarantees
+## Behavior
+
+### Guarantees
 
 - **Merging.** Each node owns the metas it tracked and is the only one to add or remove them, so a topic is the
   union of per-node sets that never overlap. Merging is commutative and idempotent and needs no coordination
@@ -179,4 +184,5 @@ A store is a Strategy: implement `Azu::Presence::Store` (`put`, `delete`, `store
 
 - [Real-time across processes](../../how-to/deployment/scale-horizontally.md#real-time-across-processes)
 - [Channel](channel.md)
+- [PubSub](pubsub.md)
 - [Redis](redis.md)

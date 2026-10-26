@@ -4,8 +4,8 @@ description: The conventions used in the Azu source.
 
 # Code standards
 
-CI enforces `crystal tool format`; run `ameba` locally (it reads
-`.ameba.yml`, and no CI workflow runs it); review checks the rest. When in doubt, follow the file you are editing.
+CI enforces `crystal tool format` and Ameba on `src/` (`crystal run lib/ameba/bin/ameba.cr -- ./src`, configured by
+`.ameba.yml`); review checks the rest. When in doubt, follow the file you are editing.
 
 ## Style
 

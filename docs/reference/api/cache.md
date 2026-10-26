@@ -5,7 +5,8 @@ description: "The application cache: string values under keys, with a TTL, in me
 # Cache
 
 `Azu.cache` is the application's cache: an `Azu::Cache::Manager` that stores strings under keys, with a TTL, in
-memory (the default) or in Redis. Values are strings; serialize richer data yourself (`to_json` / `from_json`).
+memory (the default) or in Redis. It comes with `require "azu"`. Values are strings; serialize richer data yourself
+(`to_json` / `from_json`). It is not a session store or a job queue, and it has no tags or dependency tracking.
 
 ```crystal
 require "azu"
@@ -17,7 +18,7 @@ puts Azu.cache.fetch("answer", 1.hour) { "42" }    # computed once, then cached
 
 `Azu.cache` is `Azu.current_config.cache`, so inside a request it is the cache of the app serving it.
 
-## Configuration
+## Options
 
 The manager is built on first use from `config.cache_config`, so configure it before the first call. All options and
 their environment variables are in the [configuration reference](../configuration/options.md#cache).
@@ -46,7 +47,9 @@ Keys are stored as `<key_prefix>:<key>` (`azu:` by default). With `enabled = fal
 manager uses a `NullStore`: `set` returns `false`, `get` returns `nil`, and `fetch` runs its block every time.
 An unknown `store` name raises `ArgumentError: Unsupported cache store: ...`.
 
-## Stores
+## API
+
+### Stores
 
 {% tabs %}
 {% tab title="MemoryStore" %}
@@ -102,7 +105,7 @@ Stores nothing. Used when caching is disabled or Redis is unavailable at startup
 {% endtab %}
 {% endtabs %}
 
-## Methods of `Azu.cache`
+### Methods of `Azu.cache`
 
 On a disabled cache every method does nothing and returns `nil`, `false`, `0` or an empty hash. TTLs are `Time::Span`s; when none is
 given, `cache_config.default_ttl` seconds apply.
@@ -202,9 +205,7 @@ not use the cache.
 `stats` returns `enabled`, `store_type`, `size` and, for the memory store, the memory store's own statistics.
 `ping` and `redis_info` talk to Redis and return `nil` for any other store.
 
-There is no `expire`, `ttl`, `delete_matched` or compare-and-set (`nx:`) operation.
-
-## Cache patterns
+## Behavior
 
 ### Cache-aside
 
@@ -254,24 +255,18 @@ end
 `fetch` already serializes computation per key within a process. The lock is not shared between processes: with
 several processes (even on a Redis store) each may compute a missing value once.
 
-## Observing the cache
+### Observing the cache
 
-Subscribe to every cache operation with `Azu::Instrumentation`, for example to log misses:
+Every operation is reported to `Azu::Instrumentation.on_cache` subscribers; see [Instrumentation](instrumentation.md).
 
-```crystal
-require "azu"
+## Limits
 
-Azu::Instrumentation.on_cache do |operation|
-  if operation.operation == "get" && operation.hit == false
-    Log.for("cache").debug { "miss #{operation.key} (#{operation.duration_ms.round(3)} ms)" }
-  end
-end
-```
-
-With `require "azu/dev"` and `performance_enabled?` the dashboard records the same operations.
+- There is no `expire`, `ttl`, `delete_matched` or compare-and-set (`nx:`) operation.
+- The `fetch` lock is per process (see [Stampede prevention](#stampede-prevention)).
 
 ## See also
 
-- [How to Set Up Memory Cache](../../how-to/caching/setup-memory-cache.md)
-- [How to Set Up Redis Cache](../../how-to/caching/setup-redis-cache.md)
+- [Set up memory cache](../../how-to/caching/setup-memory-cache.md)
+- [Set up Redis cache](../../how-to/caching/setup-redis-cache.md)
 - [Configuration options](../configuration/options.md#cache)
+- [Instrumentation](instrumentation.md)

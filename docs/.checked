@@ -36,6 +36,7 @@ docs/tutorials/working-with-databases.md
 docs/how-to/real-time/broadcast-messages.md
 docs/how-to/real-time/create-websocket-channel.md
 docs/how-to/real-time/build-live-component.md
+docs/how-to/real-time/stream-server-sent-events.md
 docs/tutorials/building-live-components.md
 docs/tutorials/adding-websockets.md
 docs/tutorials/testing-your-app.md
@@ -71,11 +72,13 @@ docs/how-to/deployment/scale-horizontally.md
 docs/how-to/file-handling/handle-file-uploads.md
 docs/how-to/file-handling/validate-file-types.md
 docs/how-to/templates/enable-hot-reload.md
+docs/how-to/templates/localize-your-app.md
 docs/how-to/templates/render-html-templates.md
 docs/reference/templates/helpers.md
 docs/tutorials/building-a-user-api.md
 docs/tutorials/deploying-to-production.md
 docs/how-to/middleware/use-sessions.md
+docs/how-to/middleware/protect-forms-and-apis.md
 docs/how-to/deployment/graceful-shutdown.md
 docs/reference/api/cql-bridge.md
 docs/reference/api/content-negotiation.md
@@ -86,3 +89,15 @@ docs/reference/spark-client.md
 # background-jobs.md: every block is skipped (the checker does not install JoobQ); its blocks were type-checked by hand against JoobQ 0.4.2 with `crystal build --no-codegen` together with Azu
 docs/how-to/jobs/background-jobs.md
 docs/how-to/performance/monitor-performance.md
+docs/how-to/performance/use-dev-dashboard.md
+docs/reference/dev/azu-dev.md
+docs/how-to/apps/mount-an-app.md
+docs/how-to/apps/run-several-apps.md
+docs/how-to/api/publish-openapi.md
+docs/reference/api/pubsub.md
+docs/reference/api/clock.md
+docs/reference/api/instrumentation.md
+docs/reference/api/session-adapter.md
+docs/reference/api/handler-pipeline.md
+docs/reference/configuration/spark.md
+docs/reference/templates/renderable.md

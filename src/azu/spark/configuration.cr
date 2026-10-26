@@ -68,6 +68,12 @@ module Azu
         @secret_mutex.synchronize { @generated_secret ||= Random::Secure.hex(32) }
       end
 
+      # Raises `ConfigurationError` when this environment needs a signing secret and none is configured;
+      # `Spark.install` calls it, so such an app does not boot. Generates nothing.
+      def verify! : Nil
+        secret if secret_required?
+      end
+
       private def secret_required? : Bool
         Azu.current_config.env.in?(Environment::Production, Environment::Staging)
       end

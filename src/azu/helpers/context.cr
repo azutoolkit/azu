@@ -68,11 +68,16 @@ module Azu
         @response = @context.response
       end
 
+      # The CSRF variables: there only once the app has built a CSRF handler (`Handler::CSRF.in_use?`), so the pages
+      # of an app without CSRF protection set no token cookie and need no `CSRF_SECRET`.
+      CSRF_VARIABLES = {"csrf_token", "csrf_tag", "csrf_metatag"}
+
       # :nodoc:
-      # The context of one render. The CSRF token is issued now, so the token cookie is set on every render whether
-      # or not the template prints a token; everything else waits until the template reads it (`template_var`).
+      # The context of one render. With a CSRF handler the token is issued now, so the token cookie is set on every
+      # render whether or not the template prints a token; everything else waits until the template reads it
+      # (`template_var`).
       def self.for_render(context : HTTP::Server::Context) : TemplateContext
-        new(context).tap(&.csrf_token)
+        new(context).tap { |vars| vars.csrf_token if Handler::CSRF.in_use? }
       end
 
       # Returns the current request path.
@@ -224,12 +229,14 @@ module Azu
 
       # Convert context to a hash for template rendering: every variable `view` gives a template.
       def to_template_vars : Hash(String, Crinja::Value)
-        TEMPLATE_VARS.transform_values(&.call(self))
+        vars = Handler::CSRF.in_use? ? TEMPLATE_VARS : TEMPLATE_VARS.reject { |name, _| CSRF_VARIABLES.includes?(name) }
+        vars.transform_values(&.call(self))
       end
 
       # :nodoc:
       # The template variable `name` for this request, nil for a name that is not one of `TEMPLATE_VARS`.
       def template_var(name : String) : Crinja::Value?
+        return if !Handler::CSRF.in_use? && CSRF_VARIABLES.includes?(name)
         TEMPLATE_VARS[name]?.try &.call(self)
       end
 

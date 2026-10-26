@@ -4,42 +4,54 @@ description: Describe your database with CQL's schema DSL.
 
 # Define a schema
 
-CQL is a separate shard. Azu core does not depend on it, so add `cql` and a database driver (`sqlite3`, `pg` or
-`mysql`) to your `shard.yml` and `require` them before the schema file. To see queries in the dev dashboard, also
-`require "azu/cql"` (see [Database dashboard](../../reference/database-dashboard.md)).
+The schema names the tables and columns CQL knows about and holds the connection pool. Models point at its tables
+with `db_context`, and migrations change the tables it declares.
 
-## Basic schema definition
+Before you start: a project made by `azu new`, or `cql` and a database driver shard (`sqlite3`, or `mysql`; PostgreSQL
+needs none) in your `shard.yml`.
 
-`CQL::Schema.define` takes a name, the adapter and the connection URI, and yields a block where tables are declared:
+## The schema file
 
+`azu new` writes the connection settings to `src/initializers/cql_config.cr` and the schema to `src/db/schema.cr`:
+
+<!-- prelude -->
 ```crystal
-require "cql"
+# src/initializers/cql_config.cr
 require "sqlite3"
+require "azu/cql"
+
+Azu::CQL.configure do |c|
+  c.db = ENV["DATABASE_URL"]? || "sqlite3://./db/acme.db"
+end
 
 # src/db/schema.cr
-AppDB = CQL::Schema.define(
-  :app,
-  adapter: CQL::Adapter::SQLite,
-  uri: ENV.fetch("DATABASE_URL", "sqlite3://./db/development.db")
-) do
+AcmeDB = Azu::CQL.schema :acme do
   table :users do
     primary :id, Int64
-    column :name, String
-    column :email, String, unique: true
+    text :name
+    text :email, unique: true
     timestamps
   end
 end
-
-AppDB.build # CREATE TABLE IF NOT EXISTS for every table in the schema
 ```
 
-`build` runs `CREATE TABLE IF NOT EXISTS` for each table. For changes to existing databases use
-[migrations](run-migrations.md).
+`Azu::CQL.schema` takes the schema's name and a block that declares the tables. The URL comes from
+`Azu::CQL.configure`, the adapter from the URL's scheme (`sqlite3://`, `postgres://`, `mysql://`), and the schema is
+attached to the dev dashboard's Database tab. It connects on the first query, so the app boots without a database. The
+generated file also declares `cql_schema_migrations`, the table the migrator records applied migrations in, and
+`azu generate model` adds the table of each model it creates.
+
+Migrations create the tables (see [Run migrations](run-migrations.md)). `build` runs `CREATE TABLE IF NOT EXISTS` for
+every declared table, which suits tests and scripts:
+
+```crystal
+AcmeDB.build
+```
 
 ## Column types
 
-`column name, Type` accepts the Crystal types below. Every column is `NOT NULL` unless you pass `null: true`;
-there is no `String?` shorthand, nullability is a column option.
+`column name, Type` accepts the Crystal types below, and each has a typed helper. Every column is `NOT NULL` unless you
+pass `null: true`; there is no `String?` shorthand, nullability is a column option.
 
 | Crystal type | Typed helper | SQL (SQLite / PostgreSQL) |
 | --- | --- | --- |
@@ -55,10 +67,7 @@ there is no `String?` shorthand, nullability is a column option.
 | `Time::Span` | `interval` | INTERVAL |
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-ProductsDB = CQL::Schema.define(:products, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/products.db") do
+ProductsDB = Azu::CQL.schema :products do
   table :products do
     primary :id, Int64
     column :name, String
@@ -82,10 +91,7 @@ the database) and `index: true` (an index on the column; see [Indexes](#indexes)
 `primary` takes the column name and a key type (`Int32`, `Int64` or `UUID`). Integer keys auto increment:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-IdsDB = CQL::Schema.define(:ids, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/ids.db") do
+IdsDB = Azu::CQL.schema :ids do
   table :accounts do
     primary :id, Int64
     column :name, String
@@ -106,40 +112,48 @@ end
 
 `foreign_key` takes the local column and the table it references (the referenced column defaults to the other
 table's primary key). `on_delete:` and `on_update:` accept `:no_action`, `:cascade`, `:restrict`, `:set_null` and
-`:set_default`:
+`:set_default`. Declare parent tables before their children:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-BlogDB = CQL::Schema.define(:blog, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/blog.db") do
-  table :users do
+BlogDB = Azu::CQL.schema :blog do
+  table :authors do
     primary :id, Int64
     column :name, String
   end
 
   table :posts do
     primary :id, Int64
-    column :user_id, Int64
+    column :author_id, Int64
     column :title, String
     column :content, String
     column :published, Bool, default: false
     timestamps
 
-    foreign_key :user_id, references: :users, on_delete: :cascade
+    foreign_key :author_id, references: :authors, on_delete: :cascade
+  end
+
+  table :comments do
+    primary :id, Int64
+    column :post_id, Int64
+    column :author_id, Int64
+    column :content, String
+    timestamps
+
+    foreign_key :post_id, references: :posts, on_delete: :cascade
+    foreign_key :author_id, references: :authors
   end
 end
 ```
+
+SQLite enforces foreign keys only with `PRAGMA foreign_keys = ON`; `Azu::CQL.schema` sets it on every SQLite
+connection (opt out with `c.sqlite.foreign_keys = false` in `Azu::CQL.configure`).
 
 ### Join tables
 
 A composite foreign key pair needs one `foreign_key` per column:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-TagsDB = CQL::Schema.define(:tags, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/tags.db") do
+TagsDB = Azu::CQL.schema :tags do
   table :posts do
     primary :id, Int64
     column :title, String
@@ -167,10 +181,7 @@ end
 `unique_constraint` and `check_constraint` become part of `CREATE TABLE`:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-ShopDB = CQL::Schema.define(:shop, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/shop.db") do
+ShopDB = Azu::CQL.schema :shop do
   table :orders do
     primary :id, Int64
     column :number, String
@@ -191,11 +202,8 @@ creates right after the table, with `CREATE INDEX IF NOT EXISTS`. The name is `i
 that already exists, use `schema.alter`, which runs immediately, or a [migration](run-migrations.md).
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-IndexedDB = CQL::Schema.define(:indexed, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/indexed.db") do
-  table :users do
+IndexedDB = Azu::CQL.schema :indexed do
+  table :members do
     primary :id, Int64
     column :email, String, unique: true
     column :organization_id, Int64, index: true
@@ -204,103 +212,49 @@ IndexedDB = CQL::Schema.define(:indexed, adapter: CQL::Adapter::SQLite, uri: "sq
   end
 end
 
-# CREATE TABLE, then idx_users_organization_id and the unique idx_users_organization_id_username
+# CREATE TABLE, then idx_members_organization_id and the unique idx_members_organization_id_username
 IndexedDB.build
 
-IndexedDB.alter(:users) do
-  create_index :index_users_on_username, [:username]
+IndexedDB.alter(:members) do
+  create_index :index_members_on_username, [:username]
 end
 ```
-
-## Multiple tables
-
-Declare every table of the application in one schema, parents before children:
-
-```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String, unique: true
-    timestamps
-  end
-
-  table :posts do
-    primary :id, Int64
-    column :user_id, Int64
-    column :title, String
-    column :content, String
-    column :published, Bool, default: false
-    timestamps
-
-    foreign_key :user_id, references: :users, on_delete: :cascade
-  end
-
-  table :comments do
-    primary :id, Int64
-    column :post_id, Int64
-    column :user_id, Int64
-    column :content, String
-    timestamps
-
-    foreign_key :post_id, references: :posts, on_delete: :cascade
-    foreign_key :user_id, references: :users
-  end
-end
-```
-
-CQL can also dump a schema file from the live database after migrations (`CQL::Migrator` with `auto_sync`, see
-[Run Migrations](run-migrations.md)).
 
 ## Database adapters
 
-The adapter decides the SQL dialect; the URI selects the driver.
+The URL picks the adapter. Set it in `src/initializers/cql_config.cr`, or leave the code alone and set `DATABASE_URL`:
 
 {% tabs %}
 {% tab title="SQLite" %}
-```crystal
-require "cql"
-require "sqlite3"
+`require "sqlite3"` and add the `sqlite3` shard:
 
-SqliteDB = CQL::Schema.define(:app, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/app.db") do
-  table :notes do
-    primary :id, Int64
-    column :body, String
-  end
+```crystal
+Azu::CQL.configure do |c|
+  c.db = ENV["DATABASE_URL"]? || "sqlite3://./db/acme_development.db"
 end
 ```
 {% endtab %}
 
 {% tab title="PostgreSQL" %}
-```crystal
-require "cql"
-require "pg"
+A `postgres://` or `postgresql://` URL runs on CQL's own PostgreSQL engine, so no driver shard is needed:
 
-PgDB = CQL::Schema.define(:app, adapter: CQL::Adapter::Postgres, uri: ENV["DATABASE_URL"]) do
-  table :notes do
-    primary :id, Int64
-    column :body, String
-  end
+```crystal
+Azu::CQL.configure do |c|
+  c.db = ENV["DATABASE_URL"]? || "postgres://localhost/acme_development"
+  c.pool.size = 10
 end
 ```
 
-`CQL::Adapter::CockroachDB` works the same way with the `pg` driver.
+`Azu::CQL.schema(:acme, driver: :db)` (or `AZU_CQL_DRIVER=db`) uses crystal-db's pool and the `pg` shard instead;
+see [Database dashboard](../../reference/database-dashboard.md) for the pool settings.
 {% endtab %}
 
 {% tab title="MySQL" %}
-Add the `mysql` shard and `require "mysql"` before the schema:
+Add the `mysql` shard and `require "mysql"` in place of `sqlite3`:
 
 ```crystal
-require "cql"
-
-MysqlDB = CQL::Schema.define(:app, adapter: CQL::Adapter::MySql, uri: ENV["DATABASE_URL"]) do
-  table :notes do
-    primary :id, Int64
-    column :body, String
-  end
+Azu::CQL.configure do |c|
+  c.db = ENV["DATABASE_URL"]? || "mysql://root@localhost/acme_development"
 end
 ```
 {% endtab %}
@@ -308,24 +262,27 @@ end
 
 ## Environment-based configuration
 
-Pick the URI from `CRYSTAL_ENV` (the variable Azu's `Azu::Environment` reads):
+`azu new` puts the environment in the default URL and writes `DATABASE_URL` for development and test to
+`.env.development` and `.env.test`, which the app loads at boot (see
+[Azu::Env](../../reference/configuration/env.md)). A `DATABASE_URL` set in the process environment wins over both:
+
+```crystal
+Azu::CQL.configure do |c|
+  c.db = ENV["DATABASE_URL"]? || "sqlite3://./db/acme_#{ENV["CRYSTAL_ENV"]? || "development"}.db"
+end
+```
+
+## Without Azu
+
+Code that does not load `azu/cql` (a script, a shard) defines the schema with CQL itself. `CQL::Schema.define` takes
+the adapter and the URL explicitly, opens the pool right away (append `?initial_pool_size=0` to connect on first use)
+and applies none of the SQLite settings above:
 
 ```crystal
 require "cql"
 require "sqlite3"
 
-def database_uri : String
-  case ENV.fetch("CRYSTAL_ENV", "development")
-  when "production"
-    ENV["DATABASE_URL"]
-  when "test"
-    "sqlite3://./db/test.db"
-  else
-    "sqlite3://./db/development.db"
-  end
-end
-
-AppDB = CQL::Schema.define(:app, adapter: CQL::Adapter::SQLite, uri: database_uri) do
+ScriptDB = CQL::Schema.define(:script, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
   table :users do
     primary :id, Int64
     column :name, String
@@ -333,10 +290,12 @@ AppDB = CQL::Schema.define(:app, adapter: CQL::Adapter::SQLite, uri: database_ur
 end
 ```
 
-With `require "azu/cql"`, `Azu::CQL.schema` picks the adapter from the URL scheme and configures the connection
-pool; see [Database dashboard](../../reference/database-dashboard.md).
+`Azu::CQL.attach(ScriptDB)` shows such a schema in the dev dashboard. The schema file the migrator writes with
+`auto_sync` on has this form too (see [Run migrations](run-migrations.md#schema-file-synchronisation)).
 
 ## See also
 
-- [Create Models](create-models.md)
-- [Run Migrations](run-migrations.md)
+- [Create models](create-models.md)
+- [Run migrations](run-migrations.md)
+- [Database dashboard](../../reference/database-dashboard.md)
+- [CQL API](../../reference/database/cql-api.md)

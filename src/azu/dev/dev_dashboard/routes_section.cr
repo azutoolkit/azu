@@ -18,7 +18,7 @@ module Azu
           handlers = provider.pipeline
           card "Middleware pipeline", "pipeline", meta: "#{handlers.size} handlers" do
             if handlers.empty?
-              empty_state "Pipeline not registered", "Start the app with Azu.start [handlers] so their order can be shown here.", "pipeline"
+              empty_state "Pipeline not registered", "Start the app with MyApp.start [handlers] (App#start) so their order can be shown here.", "pipeline"
             else
               ol class: "azd-pipeline" do
                 li "Request", class: "azd-node is-edge"

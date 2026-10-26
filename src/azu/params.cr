@@ -200,6 +200,8 @@ module Azu
         raise Response::PayloadTooLarge.new(ex.message.to_s)
       rescue ex : FileUploadError
         raise Response::BadRequest.new(ex.message.to_s)
+      rescue MIME::Error
+        raise Response::BadRequest.new("Malformed Content-Type header")
       end
 
       # :nodoc:

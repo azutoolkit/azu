@@ -545,3 +545,37 @@ describe Azu::Templates do
     end
   end
 end
+
+private def request_vars_context(path : String) : HTTP::Server::Context
+  HTTP::Server::Context.new(HTTP::Request.new("GET", path), HTTP::Server::Response.new(IO::Memory.new))
+end
+
+# A response renders after `call`, still inside the endpoint's request scope, but it has no `context` of its
+# own: `view` takes the request from `Azu::RequestContext`.
+describe "Renderable#view and the current request" do
+  it "gives a response the request variables while a request is served" do
+    Azu::Handler::CSRF.new(secret_key: "test-secret")
+    ctx = request_vars_context("/posts/new")
+    result = ""
+    Azu::RequestContext.scope(ctx) do
+      result = RenderableWithoutContext.new.render_view("request_vars.jinja")
+    end
+
+    result.should match(/<input type="hidden" name="_csrf" value="[^"]+"/)
+    result.should end_with("|none|GET")
+  end
+
+  it "keeps values passed in data over the request variables" do
+    ctx = request_vars_context("/posts/new")
+    result = ""
+    Azu::RequestContext.scope(ctx) do
+      result = RenderableWithoutContext.new.render_view("request_vars.jinja", {"method" => "from data"})
+    end
+
+    result.should end_with("|none|from data")
+  end
+
+  it "renders an empty flash outside a request" do
+    RenderableWithoutContext.new.render_view("request_vars.jinja").should eq(%(<input type="hidden" name="_csrf" value="" />|none|no request))
+  end
+end

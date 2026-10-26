@@ -83,8 +83,9 @@ answers is waited for until `shutdown_timeout`.
 
 ## Several apps
 
-Each `Azu::App` tracks its own sockets and requests. `Azu.start` drains `Azu::App.default`; for another app call
-`app.stop` (or `begin_shutdown` then `drain`) yourself. A mounted app belongs to the app that owns the server.
+Each `Azu::App` tracks its own sockets and requests. `SIGTERM` or `SIGINT` stops and drains every app started with
+`start`; to stop one app on its own, call `app.stop` (or `begin_shutdown` then `drain`). See
+[Run several apps in one process](../apps/run-several-apps.md). A mounted app belongs to the app that owns the server.
 
 ## Testing it
 

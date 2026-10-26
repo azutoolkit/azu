@@ -19,7 +19,7 @@ module Azu
   end
 
   # A `TCPServer` whose accepted sockets have `TCP_NODELAY` set. A TLS server wraps the sockets it
-  # accepts, which hides the TCP socket from the upgrade, so `Azu.start` builds its TLS listener on
+  # accepts, which hides the TCP socket from the upgrade, so `App#start` builds its TLS listener on
   # this class when the option is on.
   class NoDelayTCPServer < TCPServer
     def accept? : TCPSocket?

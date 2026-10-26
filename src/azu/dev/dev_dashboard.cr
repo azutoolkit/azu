@@ -19,10 +19,10 @@ module Azu
     #
     # Usage:
     # ```
-    # Azu.start [
+    # MyApp.start [ # a module that includes Azu
     #   Azu::Handler::DevDashboard.new,
     #   # other handlers
-    # ]
+    # ] of HTTP::Handler
     # ```
     class DevDashboard
       include HTTP::Handler

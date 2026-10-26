@@ -187,7 +187,7 @@ module Azu
           .sort_by! { |route| {route["path"], VERB_ORDER.index(route["method"]) || VERB_ORDER.size} }
       end
 
-      # Class names of the handlers passed to Azu.start, in execution order.
+      # Class names of the handlers passed to `App#start`, in execution order.
       def pipeline : Array(String)
         Azu.current_config.handlers.map(&.class.name)
       end

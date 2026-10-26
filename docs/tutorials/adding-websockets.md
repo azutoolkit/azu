@@ -140,7 +140,7 @@ module UserAPI
   include Azu
 end
 
-# Same default stack as Azu.start: request id, logging, error pages, security headers and static files
+# Without arguments: the default stack (request id, logging, error pages, security headers and static files)
 UserAPI.start
 ```
 {% endcode %}

@@ -145,9 +145,9 @@ field are in [the client reference](../reference/spark-client.md#events-and-deli
   `WEBSOCKET_ALLOWED_ORIGINS`. Behind a proxy that rewrites `Host`, list the public origin there.
 - **Signed join token.** `Spark.render` signs the component id, type, props and session claims
   with `config.secret`. A component can only be joined with a valid, unexpired token
-  (`token_ttl`). Spark reads the secret from `SPARK_SECRET`. Without it, production and staging raise
-  `Azu::Spark::ConfigurationError` the first time a token is signed or verified (not at boot), and the
-  other environments, development and test among them, use a random per-process secret.
+  (`token_ttl`). Spark reads the secret from `SPARK_SECRET`. Without it, production and staging do not boot
+  (`Spark.install` raises `Azu::Spark::ConfigurationError`), and the other environments, development and test
+  among them, use a random per-process secret.
 - **Per-connection ownership.** Each connection has its own component registry
   (`max_components`); events can only address components that connection joined or rendered.
   Reconnect snapshots are signed, expiring, size limited and bound to the page, its session claims

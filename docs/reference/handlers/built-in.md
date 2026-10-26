@@ -5,7 +5,8 @@ description: "Every middleware handler Azu ships in `Azu::Handler`: what it does
 # Built-in handlers
 
 Azu ships handlers for the common middleware needs. They are all `HTTP::Handler`s in the `Azu::Handler`
-namespace and are used the same way: build them, put them in the array given to `start`.
+namespace, come with `require "azu"` (except those of `azu/dev`), and are used the same way: build them, put them in
+the array given to `start`. They are not routes: a handler sees every request, before the router.
 
 ```crystal
 module MyApp
@@ -22,7 +23,9 @@ MyApp.start [
 `MyApp.start` without an array serves `Azu::App#default_handlers`: `RequestId`, `Logger`, `Rescuer`,
 `SecurityHeaders` and `Static` (see [Default stack](#default-stack)). An array you pass is used as given.
 
-## Writing a handler
+## API
+
+### Writing a handler
 
 There is no `Azu::Handler::Base`. A handler includes `HTTP::Handler` and implements `call`:
 
@@ -41,7 +44,7 @@ end
 `call_next(context)` runs the next handler, or the router after the last one. Not calling it ends the request
 there. A handler instance can be part of one chain only.
 
-## Default stack
+### Default stack
 
 `Azu::App#default_handlers` builds fresh instances of:
 
@@ -53,7 +56,7 @@ there. A handler instance can be part of one chain only.
 | `SecurityHeaders` | `hsts: config.tls?` |
 | `Static` | `./public`, `fallthrough: true` |
 
-## Handler::RequestId
+### Handler::RequestId
 
 ```crystal
 Azu::Handler::RequestId.new(header_name: "X-Request-ID")
@@ -63,13 +66,38 @@ Keeps the request id the client sent, or generates `req_<unix ms>_<hex>`. The id
 response headers, and `Azu::RequestContext.current?.try(&.request_id)` returns it anywhere in the request's fiber
 (logs, database instrumentation). Put it first.
 
-## Handler::Logger
+`Azu::RequestContext.current?` returns an `Azu::RequestContext::Info`, or `nil` outside a request:
+
+| Field | Type | Value |
+|---|---|---|
+| `request_id` | `String` | The request id |
+| `method`, `path` | `String` | The request's method and path |
+| `endpoint` | `String?` | The endpoint's type name, once an endpoint serves the request |
+| `fiber_id` | `UInt64` | The `object_id` of the fiber the context belongs to |
+| `http_context` | `HTTP::Server::Context?` | The request being served; `nil` for a context opened with `with` |
+
+An endpoint opens the context too when no `RequestId` did (with an id of its own). Work that runs outside a request,
+a background job or a spec, opens one with `RequestContext.with`, so its logs and queries are tagged the same way:
+
+```crystal
+require "azu"
+
+Azu::RequestContext.with("job-42", "POST", "/jobs/mail", endpoint: "MailJob") do
+  Azu::RequestContext.current?.try(&.request_id) # => "job-42"
+end
+```
+
+`with(request_id, method = "GET", path = "/", endpoint = nil, &)` restores the context the fiber had before when the
+block ends.
+
+### Handler::Logger
 
 ```crystal
 Azu::Handler::Logger.new(log: Log.for("http"))
 ```
 
-- `log : ::Log` - where lines go (default `Azu::CONFIG.log`, the `Azu` source).
+- `log : ::Log?` - where lines go. Without one, the log of the app serving the request (`Azu.current_config.log`,
+  the `Azu` source unless the app sets `config.log`).
 
 Logs one `Info` line per request after the rest of the chain has run:
 
@@ -79,9 +107,9 @@ Logs one `Info` line per request after the rest of the chain has run:
 
 The endpoint is `unknown` when no route matched. Because it logs after `call_next`, a `Logger` placed outside
 `Rescuer` reports the status the client got (a request that raised is logged with `Status: 500`). There are no
-options to skip paths. See [How to Add Logging](../../how-to/middleware/add-logging.md).
+options to skip paths. See [Add logging](../../how-to/middleware/add-logging.md).
 
-## Handler::SimpleLogger
+### Handler::SimpleLogger
 
 ```crystal
 Azu::Handler::SimpleLogger.new(log: Log.for("http"))
@@ -90,9 +118,10 @@ Azu::Handler::SimpleLogger.new(log: Log.for("http"))
 An alternative to `Logger` that reports through Azu's asynchronous logging pipeline: the line is written from a
 spawned fiber after the request, at info for 2xx/3xx, warn for 4xx and error for 5xx, with method, path, endpoint,
 status, latency, remote address, user agent and content length as fields. It also copies the request id into
-`X-Request-ID`. Use one of `Logger` and `SimpleLogger`, not both.
+`X-Request-ID`. Without `log:` it logs to the app serving the request (`Azu.current_config.log`), as `Logger` does.
+Use one of `Logger` and `SimpleLogger`, not both.
 
-## Handler::Rescuer
+### Handler::Rescuer
 
 ```crystal
 Azu::Handler::Rescuer.new(log: Log.for("Azu::Rescuer"))
@@ -119,8 +148,8 @@ Catches what the handlers after it, the router and the endpoint raise and answer
 `HTTP::Server::ClientError` (the peer went away) is logged at debug level and not answered. `Rescuer` sees only
 what is raised inside an endpoint's `call` and the handlers after it. A request that breaks its contract never
 reaches `call`: the endpoint answers it itself, `400` when the body or a field cannot be read as the contract's
-types and `422` with the failing fields when a validation rule fails, so `Rescuer` never sees it. (A multipart body
-that cannot be parsed at all is read before that check: it is raised, and `Rescuer` answers it with `400`.) The
+types, `413` when it is over `upload.max_file_size`, and `422` with the failing fields when a validation rule fails,
+so `Rescuer` never sees it. The
 router answers an unrouted path with `404` itself, and a negotiated endpoint answers `406` itself.
 
 The body is chosen by the first media type of the `Accept` header: JSON, HTML, XML or plain text, and plain text
@@ -131,7 +160,7 @@ Azu's exception page. In any other environment the context is `null` and HTML cl
 Without `Rescuer`, an exception reaching Crystal's server becomes a bare `text/plain` `500 Internal Server Error`
 and a stack trace in the log.
 
-## Handler::SecurityHeaders
+### Handler::SecurityHeaders
 
 ```crystal
 Azu::Handler::SecurityHeaders.new(
@@ -151,7 +180,7 @@ header cannot carry (a line break, for one) raises `ArgumentError` when the hand
 Enable HSTS only for sites served over HTTPS; browsers remember it.
 {% endhint %}
 
-## Handler::Static
+### Handler::Static
 
 ```crystal
 Azu::Handler::Static.new(
@@ -269,7 +298,7 @@ Other behavior:
   path takes the full route.
 - A file in `public/` shadows a route with the same path, so keep only public files there.
 
-## Handler::Compression
+### Handler::Compression
 
 ```crystal
 Azu::Handler::Compression.new
@@ -278,7 +307,7 @@ Azu::Handler::Compression.new
 The standard library's `HTTP::CompressHandler`: gzip or deflate for clients that send `Accept-Encoding`. It is not
 in the default stack. `Static` already compresses and sets its own length, so place `Compression` after `Static`.
 
-## Handler::CORS
+### Handler::CORS
 
 ```crystal
 Azu::Handler::CORS.new(
@@ -316,7 +345,7 @@ Put `CORS` before authentication handlers: a preflight carries no credentials, s
 of `CORS` answers it with `401`.
 {% endhint %}
 
-## Handler::CSRF
+### Handler::CSRF
 
 ```crystal
 Azu::Handler::CSRF.new(
@@ -327,9 +356,17 @@ Azu::Handler::CSRF.new(
   header_name: "X-CSRF-TOKEN",
   param_name: "_csrf",
   cookie_max_age: 86_400,
+  cookie_same_site: HTTP::Cookie::SameSite::Strict,
   secure_cookies: true,
+  token_store: nil, # SynchronizerToken only; default: CSRF::CookieTokenStore
 )
 ```
+
+- `cookie_same_site : HTTP::Cookie::SameSite` - the `SameSite` attribute of the token cookie (default `Strict`).
+  The cookie is also `HttpOnly` and has `Path=/`.
+- `token_store : CSRF::TokenStore?` - where `SynchronizerToken` keeps the token (see below).
+- `defer_secret : Bool` - with `true` the secret is not read until the first token is signed or checked; the
+  default reads it when the handler is built.
 
 Requests with a method in `POST PUT PATCH DELETE` must send a token that matches the `csrf_token` cookie, in the
 `X-CSRF-TOKEN` header, an `_csrf` form field or an `_csrf` query parameter. Other methods pass. A failing request
@@ -358,10 +395,11 @@ Azu.session_adapter = Azu::SessionAdapter.new(
   store_csrf_token: ->(context : HTTP::Server::Context, token : String) { session_of.call(context).csrf_token = token; nil },
 )
 
-csrf = Azu::Handler::CSRF.new(
-  strategy: Azu::Handler::CSRF::Strategy::SynchronizerToken,
-  token_store: Azu::Handler::CSRF::SessionTokenStore.new,
-)
+Azu::Handler::CSRF.configure do |csrf|
+  csrf.strategy = Azu::Handler::CSRF::Strategy::SynchronizerToken
+  csrf.token_store = Azu::Handler::CSRF::SessionTokenStore.new
+end
+# then put Azu::Handler::CSRF.default in the handler chain
 ```
 
 {% hint style="danger" %}
@@ -416,15 +454,40 @@ not set, the handler uses a random key that only this process knows (one warning
 **raises `Azu::Env::MissingError` when it is built in production** (or any `Azu::Env.strict_environments`): tokens signed
 with a per-process key are rejected after a restart and by every other server.
 
-`Azu::Handler::CSRF.token(context)` uses `Azu::Handler::CSRF.default`. A second call for the same response (on any
-instance) returns the token already issued for it: the response's CSRF cookie, or the session's with `SessionTokenStore`.
-So every form and meta tag of one page carries the same token (an endpoint's `csrf_token`, `csrf_tag` and `csrf_metatag`
-included); a deleted, expired or other-path cookie is replaced. A second instance validates those tokens
-only if it has the same secret: set `CSRF_SECRET` (or `Azu::Handler::CSRF.secret_key = ...` before building it), or put
-`Azu::Handler::CSRF.default` in the chain. An instance with a different key answers `403` to a valid token. The
-`Secure` flag of the cookie is only set when `X-Forwarded-Proto` is `https`.
+`Azu::Handler::CSRF.token(context)` uses `Azu::Handler::CSRF.default`, and so do the template variables
+(`csrf_token`, `csrf_tag`, `csrf_metatag`), the form helpers and an endpoint's `csrf_token`. A second call for the same
+response (on any instance) returns the token already issued for it: the response's CSRF cookie, or the session's with
+`SessionTokenStore`. So every form and meta tag of one page carries the same token; a deleted, expired or other-path
+cookie is replaced. A second instance
+validates those tokens only if it has the same secret, strategy and token store: configure `CSRF.default` (with
+`CSRF.configure`) and put it in the chain, or at least set `CSRF_SECRET` (or `Azu::Handler::CSRF.secret_key = ...`
+before building the other instance). An instance with a different key, or a `SynchronizerToken` instance next to a
+default that signs, answers `403` to a token the page carries. The `Secure` flag of the cookie is only set when
+`X-Forwarded-Proto` is `https`.
 
-## Handler::Throttle
+`token(context)` returns the token already set on this response's cookie when there is one, so every field, tag and
+meta tag of a page carries the same token. The class methods act on `CSRF.default`:
+
+| Method | Returns | Notes |
+|---|---|---|
+| `CSRF.default` | `CSRF` | The shared instance, built on first use |
+| `CSRF.configure(&)` | the block's value | Yields `default` (built with `defer_secret: true`), then reads its secret, so a production app without one fails here, at boot |
+| `CSRF.token(context)`, `CSRF.tag(context)`, `CSRF.metatag(context)` | `String` | The token; `<input type="hidden" name="_csrf" value="..." />`; `<meta name="_csrf" content="..." />` (the name is `param_name`) |
+| `CSRF.validate_origin(context)` | `Bool` | Whether `Origin` is `<X-Forwarded-Proto, else http>://<Host>`; without `Origin`, the origin of `Referer`; `false` without either. `call` does not run it: call it where you want the check |
+| `CSRF.use_signed_double_submit!`, `use_synchronizer_token!`, `use_double_submit!` | `Strategy` | Set the strategy of `default` |
+| `CSRF.strategy`, `secret_key`, `cookie_name`, `header_name`, `param_name`, `cookie_max_age`, `secure_cookies` | | Read and write (`=`) the settings of `default`; `secret_key=` also applies to instances built afterwards without a key |
+| `CSRF.exempt(path : String)` | `Nil` | Exempts one exact path for every instance |
+| `CSRF.in_use?` | `Bool` | True once any `CSRF` was built in the process; templates get `csrf_token`, `csrf_tag` and `csrf_metatag` only then |
+
+```crystal
+require "azu"
+
+Azu::Handler::CSRF.configure do |csrf|
+  csrf.cookie_same_site = HTTP::Cookie::SameSite::Lax
+end
+```
+
+### Handler::Throttle
 
 ```crystal
 Azu::Handler::Throttle.new(
@@ -433,25 +496,35 @@ Azu::Handler::Throttle.new(
   threshold: 100,
   blacklist: [] of String,
   whitelist: [] of String,
+  log: Log.for("throttle"),
 )
 ```
 
-All five arguments are required.
+The first five arguments are required.
 
 - `interval` - seconds in which `threshold` requests are allowed per client address.
 - `threshold` - requests allowed within `interval`; the next one blocks the client.
 - `duration` - seconds a blocked client stays blocked.
 - `blacklist` / `whitelist` - addresses that are always refused / never counted.
+- `log : ::Log?` - where blocks, releases and refusals are logged (at most 10 refusals a second, then one line
+  counting the rest). Without one, the log of the app serving the request.
 
 Clients are identified by the peer address of the connection (not by headers a client controls). A blocked
-client gets `429` with `Retry-After` (seconds left) and an empty body: with `threshold: 3` the fourth request in the
-interval answers `429`. `stats` returns `{tracked_ips: Int32, blocked_ips: Int32}`, and `reset` clears the counters.
+client gets `429` with `Retry-After` (seconds left) and the body of a `Response::RateLimitError`, chosen by `Accept`
+like every [error response](../errors/error-types.md#error-response-format): with `threshold: 3` the fourth request in
+the interval answers `429`, and a JSON client gets
+`{"type":"about:blank","title":"Rate Limit Exceeded","status":429,"detail":"Rate limit exceeded. Retry after 899 seconds.",...}`.
+`stats` returns `{tracked_ips: Int32, blocked_ips: Int32}`, and `reset` clears the counters.
+
+Outside development, the HTML page of a refusal is rendered once a second for each `Retry-After` value and locale,
+and served to every client refused in that second, with the same `X-Error-ID`. A custom `error.html` must therefore
+not depend on the request (no path, user or token in it): what it renders for one client is shown to others.
 
 {% hint style="warning" %}
 Behind a proxy every request comes from the proxy's address; the limit then applies to all clients together.
 {% endhint %}
 
-## Handler::HealthCheck
+### Handler::HealthCheck
 
 ```crystal
 Azu::Handler::HealthCheck.new(
@@ -465,7 +538,7 @@ Answers `GET` and `HEAD` on `path` without reaching the rest of the chain, with 
 false or raised. Without checks it always answers `200`. Not in the default stack; put it before `Logger` to
 keep probes out of the log.
 
-## Handler::IpSpoofing
+### Handler::IpSpoofing
 
 ```crystal
 Azu::Handler::IpSpoofing.new
@@ -474,7 +547,7 @@ Azu::Handler::IpSpoofing.new
 Refuses with `403` a request whose `X-Client-IP` or `X-Real-IP` header names an address that is not in its
 `X-Forwarded-For` list. Requests without `X-Forwarded-For` pass.
 
-## Handler::Locale
+### Handler::Locale
 
 ```crystal
 Azu::Handler::Locale.new
@@ -484,15 +557,22 @@ Picks the available locale (`Azu::Helpers::I18n.available_locales`) that best ma
 scopes it to the request with `Helpers::I18n.with_locale`. `Locale.negotiate("es,en;q=0.5", ["en", "es"], "en")`
 returns `"es"`; `"pt"` matches `"pt-BR"`, `"en-GB"` matches `"en"`, `"*"` and unknown languages give the default.
 
-## Handlers from `azu/dev`
+### Handlers from `azu/dev`
 
 `Handler::PerformanceMonitor` and `Handler::DevDashboard` exist only after `require "azu/dev"`; see
 [Performance Design](../../explanation/architecture/performance-design.md). `DevDashboard` serves in the development
 environment only: elsewhere it passes every request to the next handler, and building it logs a warning
 ([Environments](../configuration/environments.md#what-depends-on-the-environment)).
 
+## Limits
+
+- The `Referer` fallback of `CSRF#validate_origin` only matches a `Referer` that names its port
+  (`http://example.com:80/form`); one without a port (`http://example.com/form`) never matches.
+- `Throttle` counts in the process: several processes each keep their own counters.
+
 ## See also
 
 - [App](../api/app.md)
-- [Handlers concept](../../explanation/concepts/middleware.md)
-- [How to Create Custom Middleware](../../how-to/middleware/create-custom-middleware.md)
+- [Handler pipeline](../api/handler-pipeline.md)
+- [Middleware](../../explanation/concepts/middleware.md)
+- [Create custom middleware](../../how-to/middleware/create-custom-middleware.md)

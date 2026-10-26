@@ -14,11 +14,7 @@ This page describes the CQL release Azu installs: its `shard.yml` accepts `cql >
 [Query Data](../../how-to/database/query-data.md), [Handle Transactions](../../how-to/database/handle-transactions.md)
 and [Run Migrations](../../how-to/database/run-migrations.md).
 
-## Schema definition
-
-### CQL::Schema.define
-
-Creates a schema bound to a database. The block declares tables; the schema opens the connection pool right away
+`CQL::Schema.define` creates a schema bound to a database. The block declares tables; the schema opens the connection pool right away
 (append `?initial_pool_size=0` to the URI to connect on first use):
 
 ```crystal
@@ -41,6 +37,10 @@ end
 MyDB.build   # CREATE TABLE IF NOT EXISTS for every table
 ```
 
+## API
+
+### CQL::Schema.define
+
 **Parameters:**
 
 - `name : Symbol` - schema name
@@ -49,7 +49,7 @@ MyDB.build   # CREATE TABLE IF NOT EXISTS for every table
 - `version : String` - free-form schema version (default `"1.0"`)
 - `quote_identifiers : Bool` - quote table and column names (default `false`)
 
-## Adapters
+### Adapters
 
 | Adapter | URI Format | Driver shard |
 | --- | --- | --- |
@@ -61,7 +61,7 @@ MyDB.build   # CREATE TABLE IF NOT EXISTS for every table
 The URI query string carries crystal-db pool options such as `initial_pool_size`, `max_pool_size` and
 `checkout_timeout`.
 
-## Table definition
+### Table definition
 
 Inside `table :name do ... end`:
 
@@ -80,8 +80,6 @@ Inside `table :name do ... end`:
 
 `index [:a, :b], unique:, name:` and a column's `index: true` declare an index; `create!` and `Schema#build` create it
 after the table, named `idx_<table>_<columns>` unless `name:` is given.
-
-## Model definition
 
 ### CQL::ActiveRecord::Model
 
@@ -122,7 +120,7 @@ User.table     # => :users
 `CQL::Model` is an alias of `CQL::ActiveRecord::Model`. The type argument is the primary key type (`Int32`, `Int64`,
 `UUID`); the model gets `id : Pk?`, `id!`, `persisted?` and `new_record?`. Use `class`, not `struct`.
 
-## CRUD operations
+### CRUD operations
 
 ```crystal
 require "cql"
@@ -190,10 +188,10 @@ Build the record with `new` and call `save`/`save!` for the full lifecycle.
 raise `CQL::ActiveRecord::Validations::ValidationError` for an invalid record; `save` returns `false` only when a
 callback returns `false`.
 
-## Query methods
+### Query methods
 
 Model-level methods start a `QueryBuilder`; the complete list with examples is in
-[Query Methods Reference](query-methods.md):
+[Query methods](query-methods.md):
 
 ```crystal
 require "cql"
@@ -229,7 +227,7 @@ User.first
 User.where(name: "Alice").exists?
 ```
 
-## Associations
+### Associations
 
 ```crystal
 require "cql"
@@ -309,7 +307,7 @@ Post.find!(1_i64).user             # User?
   records exist); `has_one` takes `:destroy`, `:delete` or `:nullify`.
 - A collection's `where`, `limit` and `order` return a `CQL::Query`: finish with `.all(Post)`.
 
-## Callbacks
+### Callbacks
 
 `before_validation`, `after_validation`, `before_save`, `after_save`, `before_create`, `after_create`, `before_update`,
 `after_update`, `before_destroy`, `after_destroy`. Each takes a method name; returning `false` halts the operation:
@@ -351,7 +349,7 @@ end
 User.new(" Alice@Example.com ").save!
 ```
 
-## Scopes
+### Scopes
 
 ```crystal
 require "cql"
@@ -388,13 +386,13 @@ User.active.recent.all
 User.with_role("admin").count
 ```
 
-## Validations
+### Validations
 
 `validate :attribute, rule: value, message: "..."` with the rules `presence`, `required`, `size`, `match`, `gt`, `gte`,
 `lt`, `lte`, `eq`, `in`, `exclude`, `confirmation`, `accept`; `use CustomValidator` for the rest. See
-[Validations Reference](validations.md).
+[Database validations](validations.md).
 
-## Transactions
+### Transactions
 
 ```crystal
 require "cql"
@@ -451,7 +449,7 @@ An exception rolls back and propagates; `DB::Rollback` rolls back quietly and th
 isolation-level or read-only options and no `after_commit`; see
 [Handle Transactions](../../how-to/database/handle-transactions.md).
 
-## Raw queries
+### Raw queries
 
 ```crystal
 require "cql"
@@ -482,7 +480,7 @@ MyDB.exec("DELETE FROM users WHERE active = 0")
 names = MyDB.query.from(:users).select(:name).where(active: true).all(as: {String})
 ```
 
-## Optional modules
+### Optional modules
 
 ```crystal
 require "cql"
@@ -535,7 +533,9 @@ Document.with_deleted
 Document.only_deleted
 ```
 
-## Configuration
+## Options
+
+### Configuration
 
 `CQL.configure` sets library-wide options (URL, logging, pool). With `require "azu/cql"` use `Azu::CQL.configure`, which
 also installs the dashboard instrumentation:
@@ -550,7 +550,9 @@ CQL.configure do |config|
 end
 ```
 
-## Errors
+## Behavior
+
+### Errors
 
 | Error | Raised when |
 | --- | --- |
@@ -569,6 +571,7 @@ see [Working with Databases](../../tutorials/working-with-databases.md).
 
 ## See also
 
-- [Query Methods Reference](query-methods.md)
-- [Validations Reference](validations.md)
-- [How to Create Models](../../how-to/database/create-models.md)
+- [Query methods](query-methods.md)
+- [Database validations](validations.md)
+- [CQL bridge](../api/cql-bridge.md)
+- [Create models](../../how-to/database/create-models.md)

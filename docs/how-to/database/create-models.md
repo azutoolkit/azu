@@ -4,31 +4,69 @@ description: Create CQL models that map to your database tables.
 
 # Create models
 
-A model is a class that includes `CQL::ActiveRecord::Model(PrimaryKeyType)` and points at a table of a
+A model is a class that includes `CQL::ActiveRecord::Model(PrimaryKeyType)` and points at a table of the
 [schema](define-schema.md) with `db_context`.
 
-Every example is self-contained: it defines the schema it needs first. In an application the schema lives in
-`src/db/schema.cr` and the models `require` it.
+Before you start: a project made by `azu new`, which configures CQL in `src/initializers/cql_config.cr` and declares
+the tables in `src/db/schema.cr`. `azu generate model User name:string email:string:unique 'age:int32?'` writes
+`src/models/user.cr`, adds the `users` table to the schema and writes the migration that creates it
+(see [Run migrations](run-migrations.md)).
 
-## Basic model
+## The model
 
-Declare one property per column. `DB::Serializable` fills the properties from the result set, so names and types must
-match the table; nullable columns are `T?`:
+The examples on this page use this setup, laid out in the files `azu new` and `azu generate model` write. Each later
+example reopens a class to add to it:
 
+<!-- prelude -->
 ```crystal
-require "cql"
+# src/initializers/cql_config.cr
 require "sqlite3"
+require "azu/cql"
 
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
+Azu::CQL.configure do |c|
+  c.db = ENV["DATABASE_URL"]? || "sqlite3://./db/acme.db"
+end
+
+# src/db/schema.cr
+AcmeDB = Azu::CQL.schema :acme do
   table :users do
     primary :id, Int64
-    column :name, String
-    column :email, String
+    text :name
+    text :email, unique: true
     column :age, Int32, null: true
+    text :password_hash, null: true
     timestamps
+  end
+
+  table :posts do
+    primary :id, Int64
+    bigint :user_id
+    text :title
+    boolean :published, default: false
+    timestamps
+
+    foreign_key :user_id, references: :users, on_delete: :cascade
+  end
+
+  table :profiles do
+    primary :id, Int64
+    bigint :user_id
+    text :bio
+  end
+
+  table :tags do
+    primary :id, Int64
+    text :name
+  end
+
+  table :post_tags do
+    primary :id, Int64
+    bigint :post_id
+    bigint :tag_id
   end
 end
 
+# src/models/user.cr
 class User
   include CQL::ActiveRecord::Model(Int64)
   db_context AcmeDB, :users
@@ -36,6 +74,7 @@ class User
   property name : String
   property email : String
   property age : Int32?
+  property password_hash : String?
   property created_at : Time?
   property updated_at : Time?
 
@@ -43,15 +82,33 @@ class User
   end
 end
 
-user = User.new("Alice", "alice@example.com")
-user.save                  # runs validations and callbacks, then INSERTs
-puts user.id               # => Int64? (nil until saved)
-puts User.table            # => :users
+# src/models/post.cr
+class Post
+  include CQL::ActiveRecord::Model(Int64)
+  db_context AcmeDB, :posts
+
+  property user_id : Int64
+  property title : String
+  property published : Bool = false
+  property created_at : Time?
+  property updated_at : Time?
+
+  def initialize(@user_id : Int64, @title : String)
+  end
+end
 ```
 
-The primary key (`id`) and `persisted?`/`new_record?` come from the module, so you do not declare `id`. Pass the key
-type in the `include` (`Int64`, `Int32` or `UUID`); it must match the `primary` column of the table.
-`created_at` and `updated_at` are filled in by `save`.
+Declare one property per column. `DB::Serializable` fills the properties from the result set, so names and types must
+match the table; nullable columns are `T?`. The primary key (`id`) and `persisted?`/`new_record?` come from the
+module, so you do not declare `id`. Pass the key type in the `include` (`Int64`, `Int32` or `UUID`); it must match the
+`primary` column of the table. `created_at` and `updated_at` are filled in by `save`:
+
+```crystal
+user = User.new("Alice", "alice@example.com")
+user.save                  # runs validations and callbacks, then INSERTs
+user.id                    # => 1
+User.table                 # => :users
+```
 
 To check at boot that every property matches its column, run the app with `CQL_VALIDATE_SCHEMA_MAPPINGS=1`.
 
@@ -66,57 +123,27 @@ are `presence`, `required`, `size`, `match`, `gt`, `gte`, `lt`, `lte`, `eq`, `in
 `accept` (see the [validations reference](../../reference/database/validations.md)):
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String
-    column :age, Int32
-  end
-end
-
 class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property name : String
-  property email : String
-  property age : Int32
-
   validate :name, presence: true, size: 2..100
   validate :email, presence: true, match: /@/, message: "must be an email address"
   validate :age, gt: 0, lt: 150
-
-  def initialize(@name : String, @email : String, @age : Int32 = 18)
-  end
 end
 
-user = User.new("A", "nope")
+user = User.new("A", "nope", 30)
 user.valid?                          # => false
 user.errors.map(&.message)           # => ["name must have a size of 2..100", "must be an email address"]
 ```
 
+A predicate fails for `nil`, so `validate :age, gt: 0` also rejects a user without an age.
+
 ### Check uniqueness and answer 422
 
 There is no uniqueness rule. Check it in a
-[custom validator](../../reference/database/validations.md#custom-validators) attached with `use`, and turn the
-model's errors into Azu's `422`, so clients get the same body as for a request-contract failure:
+[custom validator](../../reference/database/validations.md#custom-validators) attached with `use`. `valid_or_422!`
+(from `azu/cql`) runs the validations and returns the record, or raises `Azu::Response::ValidationError`, which the
+`Rescuer` renders as the same `422` a request-contract failure gets:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String, unique: true
-  end
-end
-
 class UniqueEmail < CQL::ActiveRecord::Validations::CustomValidator
   def initialize(@record : User)
   end
@@ -131,34 +158,21 @@ class UniqueEmail < CQL::ActiveRecord::Validations::CustomValidator
 end
 
 class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property name : String
-  property email : String
-
-  validate :name, presence: true
-  validate :email, match: /@/
   use UniqueEmail
-
-  def initialize(@name : String, @email : String)
-  end
 end
 
-def save_or_422(user : User) : User
-  return user if user.save
-  raise Azu::Response::ValidationError.new({"base" => ["could not be saved"]})
-rescue ex : CQL::ActiveRecord::Validations::ValidationError
-  fields = Hash(String, Array(String)).new { |hash, key| hash[key] = [] of String }
-  user.errors.each { |error| fields[error.field.to_s] << error.message }
-  raise Azu::Response::ValidationError.new(fields.to_h)
-end
+User.new("Alice", "alice@example.com").valid_or_422!.save!
 
-save_or_422(User.new("Alice", "alice@example.com"))
+begin
+  User.new("Alice", "alice@example.com").valid_or_422!
+rescue ex : Azu::Response::ValidationError
+  ex.status_code                     # => 422
+  ex.field_errors                    # => {"email" => ["has already been taken"]}
+end
 ```
 
-`save` raises `CQL::ActiveRecord::Validations::ValidationError` for an invalid record and returns `false` only when a
-callback halts it.
+`save` and `save!` raise `CQL::ActiveRecord::Validations::ValidationError` for an invalid record; `save` returns
+`false` only when a callback halts it.
 
 {% hint style="warning" %}
 The uniqueness check races: two requests can pass it at the same time, so the `unique: true` column is the last line
@@ -172,41 +186,7 @@ the model that holds it (`belongs_to` and `has_one`/`has_many` fail to compile w
 property otherwise):
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-  end
-
-  table :posts do
-    primary :id, Int64
-    column :user_id, Int64
-    column :title, String
-  end
-
-  table :profiles do
-    primary :id, Int64
-    column :user_id, Int64
-    column :bio, String
-  end
-end
-
-class Post
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :posts
-
-  property user_id : Int64
-  property title : String
-
-  belongs_to :user, User, :user_id
-
-  def initialize(@user_id : Int64, @title : String)
-  end
-end
-
+# src/models/profile.cr
 class Profile
   include CQL::ActiveRecord::Model(Int64)
   db_context AcmeDB, :profiles
@@ -219,16 +199,12 @@ class Profile
 end
 
 class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property name : String
-
   has_many :posts, Post, foreign_key: :user_id
   has_one :profile, Profile, foreign_key: :user_id
+end
 
-  def initialize(@name : String)
-  end
+class Post
+  belongs_to :user, User, :user_id
 end
 
 user = User.find!(1_i64)
@@ -241,36 +217,16 @@ Post.find!(1_i64).user               # => User? (belongs_to is optional unless y
 Pass `foreign_key:` on `has_many` and `has_one`: without it CQL guesses `<model_name>_id` from the class name.
 `dependent:` (`:destroy`, `:delete_all`, `:nullify`, `:restrict_with_error` for `has_many`; `:destroy`, `:delete`,
 `:nullify` for `has_one`) is applied by `delete!`, in the same transaction as the parent's own delete. An
-`on_delete: :cascade` foreign key in the [schema](define-schema.md) also covers rows deleted with plain SQL (SQLite
-only enforces foreign keys when `PRAGMA foreign_keys = ON`). `preload` works for `has_many`, `has_one` and
-`belongs_to`.
+`on_delete: :cascade` foreign key in the [schema](define-schema.md) also covers rows deleted with plain SQL; SQLite
+enforces it because `Azu::CQL.schema` opens SQLite connections with `foreign_keys` on. `preload` works for
+`has_many`, `has_one` and `belongs_to`.
 
 ### Many to many
 
 `many_to_many` goes through a join model:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :posts do
-    primary :id, Int64
-    column :title, String
-  end
-
-  table :tags do
-    primary :id, Int64
-    column :name, String
-  end
-
-  table :post_tags do
-    primary :id, Int64
-    column :post_id, Int64
-    column :tag_id, Int64
-  end
-end
-
+# src/models/post_tag.cr
 class PostTag
   include CQL::ActiveRecord::Model(Int64)
   db_context AcmeDB, :post_tags
@@ -282,6 +238,7 @@ class PostTag
   end
 end
 
+# src/models/tag.cr
 class Tag
   include CQL::ActiveRecord::Model(Int64)
   db_context AcmeDB, :tags
@@ -295,15 +252,7 @@ class Tag
 end
 
 class Post
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :posts
-
-  property title : String
-
   many_to_many :tags, Tag, join_through: PostTag, foreign_key: :post_id, association_foreign_key: :tag_id
-
-  def initialize(@title : String)
-  end
 end
 
 post = Post.find!(1_i64)
@@ -319,32 +268,12 @@ The callbacks are `before_validation`, `after_validation`, `before_save`, `after
 a method that returns `false` stops the operation:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :email, String
-    column :normalized_email, String, null: true
-  end
-end
-
 class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property email : String
-  property normalized_email : String?
-
   before_save :normalize_email
   after_create :log_creation
 
-  def initialize(@email : String)
-  end
-
   private def normalize_email
-    @normalized_email = email.downcase.strip
+    @email = email.downcase.strip
     true
   end
 
@@ -354,9 +283,9 @@ class User
   end
 end
 
-user = User.new(" Alice@Example.com ")
+user = User.new("Alice", " Alice@Example.com ")
 user.save
-puts user.normalized_email           # => "alice@example.com"
+user.email                           # => "alice@example.com"
 ```
 
 Callbacks run for `save` (instance) and `delete!`.
@@ -375,34 +304,10 @@ To normalize values before they are validated, use `before_validation`; the
 `where`, `order`, `limit`:
 
 ```crystal
-require "cql"
-require "sqlite3"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :posts do
-    primary :id, Int64
-    column :user_id, Int64
-    column :title, String
-    column :published, Bool, default: false
-    timestamps
-  end
-end
-
 class Post
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :posts
-
-  property user_id : Int64
-  property title : String
-  property published : Bool = false
-  property created_at : Time?
-
   scope :published, -> { where(published: true) }
   scope :recent, -> { order(created_at: :desc) }
   scope :by_user, ->(user_id : Int64) { where(user_id: user_id) }
-
-  def initialize(@user_id : Int64, @title : String)
-  end
 end
 
 Post.published.recent.all
@@ -414,49 +319,11 @@ Post.by_user(1_i64).published.limit(5).all
 Add behaviour with ordinary methods. Properties that are not columns need `@[DB::Field(ignore: true)]`:
 
 ```crystal
-require "cql"
-require "sqlite3"
 require "crypto/bcrypt/password"
 
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :password_hash, String, null: true
-  end
-
-  table :posts do
-    primary :id, Int64
-    column :user_id, Int64
-    column :title, String
-    column :created_at, Time, null: true
-  end
-end
-
-class Post
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :posts
-
-  property user_id : Int64
-  property title : String
-  property created_at : Time?
-
-  def initialize(@user_id : Int64, @title : String)
-  end
-end
-
 class User
-  include CQL::ActiveRecord::Model(Int64)
-  db_context AcmeDB, :users
-
-  property name : String
-  property password_hash : String?
-
   @[DB::Field(ignore: true)]
   property remember_me : Bool = false
-
-  def initialize(@name : String)
-  end
 
   def password=(plain_password : String)
     @password_hash = Crypto::Bcrypt::Password.create(plain_password).to_s
@@ -472,53 +339,36 @@ class User
   end
 end
 
-user = User.new("Alice")
+user = User.new("Alice", "alice@example.com")
 user.password = "secret"
-user.authenticate("secret")
+user.save
+user.authenticate("secret")          # => true
 user.recent_posts(3)
 ```
 
 ## JSON serialization
 
-Include `JSON::Serializable` next to the model and ignore sensitive fields:
+Include `JSON::Serializable` in the model and ignore sensitive fields:
 
 ```crystal
-require "cql"
-require "sqlite3"
-require "json"
-
-AcmeDB = CQL::Schema.define(:acme, adapter: CQL::Adapter::SQLite, uri: "sqlite3://./db/acme.db") do
-  table :users do
-    primary :id, Int64
-    column :name, String
-    column :email, String
-    column :password_hash, String, null: true
-  end
-end
-
 class User
-  include CQL::ActiveRecord::Model(Int64)
   include JSON::Serializable
-  db_context AcmeDB, :users
-
-  property name : String
-  property email : String
 
   @[JSON::Field(ignore: true)]
   property password_hash : String?
-
-  def initialize(@name : String, @email : String)
-  end
 end
 
 User.new("Alice", "alice@example.com").to_json
+# => {"destroyed":false,"name":"Alice","email":"alice@example.com"}
 ```
 
-Inside an Azu endpoint you usually return a response object built from the model instead of serializing the model
-directly; see [Working with Databases](../../tutorials/working-with-databases.md).
+`nil` fields are left out, and the model's own `destroyed` flag is included. An Azu endpoint usually returns a
+response object built from the model instead; `Azu::CQL::FromModel` builds it from the model's fields (see
+[CQL bridge](../../reference/api/cql-bridge.md#model-to-response)).
 
 ## See also
 
-- [Define Schema](define-schema.md)
-- [Query Data](query-data.md)
+- [Define a schema](define-schema.md)
+- [Query data](query-data.md)
 - [Database validations](../../reference/database/validations.md)
+- [CQL bridge](../../reference/api/cql-bridge.md)

@@ -62,8 +62,6 @@ module Azu
       @context = context
       @params = nil
       check_contract = check_contract?(context.request)
-      # Read the body now, as the check needs it: one that cannot be read is refused before `call`.
-      @params = Params(Request).new(context.request) if check_contract
       @request_object = nil
 
       # Set endpoint name header for performance monitoring. A literal on purpose: the macro expands per
@@ -74,7 +72,11 @@ module Azu
       RequestContext.scope(context) do |info|
         info.endpoint = endpoint_name
         begin
-          enforce_contract if check_contract
+          if check_contract
+            # Read the body now, as the check needs it: one that cannot be read (400, 413) is refused before `call`.
+            @params = Params(Request).new(context.request)
+            enforce_contract
+          end
           negotiate_format
         rescue ex : Azu::Response::Error
           ex.to_s(context)
@@ -258,7 +260,8 @@ module Azu
           end
 
           attrs = Azu::Helpers::Util.build_html_attributes_from_crinja(arguments, ["id", "params"])
-          Crinja::SafeString.new(%(<form action="#{HTML.escape(path)}" method="post"#{attrs}>#{method_field}#{hidden_fields}))
+          csrf_field = Azu::Helpers::Util.csrf_input(env)
+          Crinja::SafeString.new(%(<form action="#{HTML.escape(path)}" method="post"#{attrs}>#{csrf_field}#{method_field}#{hidden_fields}))
         end
         Azu::Helpers::Registry.register_function(:form_for_{{method.id}}_{{helper_resource_name}}, func)
       end
@@ -303,8 +306,9 @@ module Azu
             end
           end
 
+          csrf_field = Azu::Helpers::Util.csrf_input(env)
           Crinja::SafeString.new(<<-HTML
-          <form action="#{HTML.escape(path)}" method="post" style="display:inline"><input type="hidden" name="_method" value="delete">#{hidden_fields}<button type="submit"#{class_attr}#{confirm_attr}>#{HTML.escape(text)}</button></form>
+          <form action="#{HTML.escape(path)}" method="post" style="display:inline">#{csrf_field}<input type="hidden" name="_method" value="delete">#{hidden_fields}<button type="submit"#{class_attr}#{confirm_attr}>#{HTML.escape(text)}</button></form>
           HTML
           )
         end
