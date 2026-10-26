@@ -34,7 +34,7 @@ App::Scope            marks the request in flight, makes the app's configuration
       ↓
 Handler chain         the handlers you pass to start, outermost first
       ↓
-Router                radix tree: method + path → endpoint (or channel upgrader)
+Router                segment tree: method + path → endpoint (or channel upgrader)
       ↓
 Endpoint
    ├─ request contract   parsed and validated; 400 / 422 before call
@@ -154,7 +154,7 @@ the chain, change the response after it, or answer on its own and stop the chain
 
 ## Routing
 
-The router is a radix tree from the `radix` shard. Routes come from the endpoint macros (`get "/users/:id"`) or
+The router is a tree of path segments (`Azu::Router::Tree`). Routes come from the endpoint macros (`get "/users/:id"`) or
 from an app's `routes` block (`get`, `post`, ..., `ws`, `scope`, `mount`). It supports
 
 - static and `:param` segments, with the parameters available as `params`,
@@ -200,7 +200,7 @@ See [Spark live views](../spark-live-views.md).
 Azu
 ├── App            Configuration + Router, server, graceful shutdown
 ├── Configuration  Environment-driven settings
-├── Router         Radix-tree routing, scopes, mounts
+├── Router         Segment-tree routing, scopes, mounts
 ├── Routable       What the router dispatches to
 ├── Endpoint       Request handling
 ├── Request        Input contracts and validation

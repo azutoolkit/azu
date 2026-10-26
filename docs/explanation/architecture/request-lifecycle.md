@@ -63,7 +63,7 @@ After the last handler the app's router takes the request. `Router#process`
 1. applies the method override: a `POST` may ask to be handled as `PUT`, `PATCH` or `DELETE` with an
    `X-HTTP-Method-Override` header, a `_method` query parameter or a `_method` field of a urlencoded form (a `POST`
    with `X-HTTP-Method-Override: DELETE` reached the `DELETE` endpoint; an override to `GET` is ignored),
-2. looks the method and path up in a radix tree (the `radix` shard); WebSocket upgrades are looked up under a `/ws` prefix,
+2. looks the method and path up in its segment tree; a WebSocket upgrade, which must be a `GET`, is looked up as its own method,
 3. answers an unmatched request itself with a `404` error response in the format of the `Accept` header, without
    raising, and logs the miss from the `Router` source,
 4. stores the matched parameters (`/users/:id`) in `context.request.path_params` and the endpoint name in the

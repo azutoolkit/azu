@@ -116,7 +116,7 @@ skipped and said so in the result (`--require-all` turns that into a failure).
   directly. `azu-rawdb` removes the ORM from the picture.
 - **JSON**: Azu, Kemal and the baseline call `to_json` and write the string; Athena and Lucky hand a value to
   their serializer. Bodies are identical, the work around them is not.
-- **Routing**: the baseline dispatches by hand. Radix based routers (Azu, Kemal) and Lucky's router are
+- **Routing**: the baseline dispatches by hand. Azu's segment tree, Kemal's radix tree and Lucky's router are
   compared in the `routing` scenario with 100 routes, which is a small table; deep trees and wildcards are not
   covered.
 - **WebSocket**: Azu broadcasts through its `PubSub`; the baseline and Kemal loop over their socket list.

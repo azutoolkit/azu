@@ -100,6 +100,22 @@ line) instead of failing its first request, including a file that is not a templ
 those in `template_compile_ignore`). Set `template_hot_reload = true` (or `TEMPLATE_HOT_RELOAD=true`) to keep
 reloading in an environment. See [Configuration](configuration/options.md#templates).
 
+**The router finds routes in its own segment tree; the `radix` shard and `Router#radix` are gone.** Routes declared
+as before keep matching as before, with these differences:
+
+- Nested routes of one method work: `get "/posts/:id"` with `get "/posts/:post_id/comments"` used to leave both
+  unreachable (or raise `Radix::Tree::SharedKeyError`); each now matches with its own parameter names.
+- A `:` or `*` inside a segment is literal: `/users:search` matches only that path, where radix read a parameter
+  `search` there.
+- A route's parameters are only its own: radix also returned the parameters of a branch it had tried and left (a
+  glob route got the `id` of a `/files/:id/meta` route).
+- Two routes of one method whose paths differ only by a trailing slash or by their parameter names (`/a/:id` and
+  `/a/:name`) raise `Azu::Router::DuplicateRoute`, where radix accepted both and found the second never (or neither).
+  A wildcard that is not the last segment raises `ArgumentError`.
+- `Router#radix` is removed. Code that looked routes up with `router.radix.find("/get/users")` should call
+  `router.process(context)`, or read `router.registered_routes`; `route_info`, `registered_routes` and `Route#resource`
+  are unchanged.
+
 **The router has no path cache.** `Router#path_cache` and its `stats` are gone, and `clear_path_cache` does nothing: the
 router finds routes in a tree of path segments that reads the request path in place (a static route allocates nothing),
 so there is nothing left to cache. Remove calls to `path_cache`; calls to `clear_path_cache` can stay.

@@ -1,6 +1,6 @@
 # Router Reference
 
-The router handles HTTP request routing using a radix tree.
+The router handles HTTP request routing with a tree of path segments, one route per HTTP method where a path ends.
 
 ## Route Registration
 
@@ -160,11 +160,17 @@ Trailing slashes are ignored: `/users/` matches the route `/users`.
 
 ## Route Matching
 
-The radix tree tries static segments before parameters, and parameters before wildcards. With `/users`,
-`/users/:id` and `/users/*rest` declared, `/users` matches the first, `/users/123` the second and
-`/users/123/posts/456` the third.
+The router tries static segments before parameters, and parameters before wildcards, and falls back to the next
+branch when one dead-ends. With `/users`, `/users/:id` and `/users/*rest` declared, `/users` matches the first,
+`/users/123` the second and `/users/123/posts/456` the third.
 
-Declaring the same method and path twice raises `Azu::Router::DuplicateRoute`.
+A segment is a parameter only when it starts with `:` (or a wildcard with `*`, which must be the last segment): in
+`/users:search` or `/files/report-:id` the colon is literal, as in the OpenAPI document. Each route keeps its own
+parameter names, so `/posts/:id` and `/posts/:post_id/comments` can both be declared for one method. A parameter's
+value is the raw segment, not percent-decoded.
+
+Declaring the same method and path twice raises `Azu::Router::DuplicateRoute`, also when the paths differ only by a
+trailing slash or by their parameter names (`/posts/:id` and `/posts/:slug`).
 
 ## Accessing Route Parameters
 
