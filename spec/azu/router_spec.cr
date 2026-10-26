@@ -851,14 +851,24 @@ describe Azu::Router do
     router.get "secret", VerbEndpoint.new("get")
     router.ws "/chat", TestChannel
 
-    # Parses the request line (and any header lines after it) as the server does and returns the status and body the router answered with
+    # Parses the request line (and any header lines after it) as the server does and returns the status and body the router
+    # answered with. Newer Crystal versions refuse a method that is not an HTTP token while parsing: such a request never
+    # reaches a handler, and counts as a 400 here.
     answer = ->(request_line : String) do
-      request = HTTP::Request.from_io(IO::Memory.new("#{request_line}\r\nHost: example.com\r\n\r\n")).as(HTTP::Request)
-      io = IO::Memory.new
-      response = HTTP::Server::Response.new(io)
-      router.process(HTTP::Server::Context.new(request, response))
-      response.close
-      {response.status_code, io.to_s}
+      parsed = begin
+        HTTP::Request.from_io(IO::Memory.new("#{request_line}\r\nHost: example.com\r\n\r\n"))
+      rescue ArgumentError
+        nil
+      end
+      if request = parsed.as?(HTTP::Request)
+        io = IO::Memory.new
+        response = HTTP::Server::Response.new(io)
+        router.process(HTTP::Server::Context.new(request, response))
+        response.close
+        {response.status_code, io.to_s}
+      else
+        {400, ""}
+      end
     end
 
     it "routes the methods and paths as declared" do
@@ -868,7 +878,7 @@ describe Azu::Router do
 
     it "does not let a slash in the method reach another path" do
       status, body = answer.call("GET/admin /secret HTTP/1.1")
-      status.should eq 404
+      {400, 404}.should contain(status)
       body.should_not contain("handled by")
     end
 
