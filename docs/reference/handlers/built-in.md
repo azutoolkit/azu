@@ -119,8 +119,8 @@ Catches what the handlers after it, the router and the endpoint raise and answer
 `HTTP::Server::ClientError` (the peer went away) is logged at debug level and not answered. `Rescuer` sees only
 what is raised inside an endpoint's `call` and the handlers after it. A request that breaks its contract never
 reaches `call`: the endpoint answers it itself, `400` when the body or a field cannot be read as the contract's
-types and `422` with the failing fields when a validation rule fails, so `Rescuer` never sees it. (A multipart body
-that cannot be parsed at all is read before that check: it is raised, and `Rescuer` answers it with `400`.) The
+types, `413` when it is over `upload.max_file_size`, and `422` with the failing fields when a validation rule fails,
+so `Rescuer` never sees it. The
 router answers an unrouted path with `404` itself, and a negotiated endpoint answers `406` itself.
 
 The body is chosen by the first media type of the `Accept` header: JSON, HTML, XML or plain text, and plain text

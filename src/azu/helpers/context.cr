@@ -194,13 +194,13 @@ module Azu
       end
 
       # Convert context to a hash for template rendering.
+      #
+      # `csrf_token`, `csrf_tag` and `csrf_metatag` are there only when the app has built a CSRF handler
+      # (`Handler::CSRF.in_use?`); they carry one token, the one this response's cookie holds.
       def to_template_vars : Hash(String, Crinja::Value)
-        {
+        vars = {
           "current_path"  => Crinja::Value.new(current_path),
           "current_url"   => Crinja::Value.new(current_url),
-          "csrf_token"    => Crinja::Value.new(csrf_token),
-          "csrf_tag"      => Crinja::Value.new(Crinja::SafeString.new(csrf_tag)),
-          "csrf_metatag"  => Crinja::Value.new(Crinja::SafeString.new(csrf_metatag)),
           "flash"         => Crinja::Value.new(flash),
           "method"        => Crinja::Value.new(method),
           "secure"        => Crinja::Value.new(secure?),
@@ -209,6 +209,12 @@ module Azu
           "client_ip"     => Crinja::Value.new(client_ip || ""),
           "accept_locale" => Crinja::Value.new(accept_language || "en"),
         }
+        if Handler::CSRF.in_use?
+          vars["csrf_token"] = Crinja::Value.new(csrf_token)
+          vars["csrf_tag"] = Crinja::Value.new(Crinja::SafeString.new(csrf_tag))
+          vars["csrf_metatag"] = Crinja::Value.new(Crinja::SafeString.new(csrf_metatag))
+        end
+        vars
       end
 
       private def extract_flash : Hash(String, String)

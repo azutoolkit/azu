@@ -26,6 +26,36 @@ describe Azu::Spark do
       socket.first["handler"].should eq "Azu::Spark::Connection"
       routes.select { |route| route["path"] == Azu::Spark.config.assets_path }.map { |route| route["handler"] }.uniq!.should eq ["Azu::Spark::Client::Asset"]
     end
+
+    # A production app without SPARK_SECRET must not boot and fail on its first live page instead.
+    it "refuses to install without a secret in production and staging, before registering a route" do
+      previous = Azu::Spark.config.secret
+      Azu::Spark.config.secret = nil
+      begin
+        [Azu::Environment::Production, Azu::Environment::Staging].each do |env|
+          router = Azu::Router.new
+          with_azu_env(env) do
+            expect_raises(Azu::Spark::ConfigurationError, /signing secret/) { Azu::Spark.install(router) }
+          end
+          router.route_info.should be_empty
+        end
+      ensure
+        Azu::Spark.config.secret = previous
+      end
+    end
+
+    it "installs in production with a secret" do
+      previous = Azu::Spark.config.secret
+      Azu::Spark.config.secret = "a production secret"
+      router = Azu::Router.new
+      begin
+        with_azu_env(Azu::Environment::Production) { Azu::Spark.install(router) }
+      ensure
+        Azu::Spark.config.secret = previous
+      end
+
+      router.route_info.any? { |route| route["method"] == "WEBSOCKET" }.should be_true
+    end
   end
 
   describe ".render" do

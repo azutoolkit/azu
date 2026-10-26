@@ -11,8 +11,10 @@ module Azu
       getter path : String
       property endpoint : String?
       getter fiber_id : UInt64
+      # The request being served; nil for a context opened with `RequestContext.with` (jobs, specs).
+      getter http_context : HTTP::Server::Context?
 
-      def initialize(@request_id, @method, @path, @fiber_id, @endpoint = nil)
+      def initialize(@request_id, @method, @path, @fiber_id, @endpoint = nil, @http_context = nil)
       end
     end
 
@@ -107,12 +109,11 @@ module Azu
     # critical section.
     def self.scope(context : HTTP::Server::Context, & : Info ->)
       fiber = Fiber.current
-      request = context.request
       created = false
       info = @@mutex.synchronize do
         @@contexts[fiber]? || begin
           created = true
-          @@contexts[fiber] = new_info(request, fiber)
+          @@contexts[fiber] = new_info(context, fiber)
         end
       end
       return yield info unless created
@@ -124,8 +125,9 @@ module Azu
       end
     end
 
-    private def self.new_info(request : HTTP::Request, fiber : Fiber) : Info
-      Info.new(request.headers["X-Request-ID"]? || generate_id(4), request.method, request.path, fiber.object_id)
+    private def self.new_info(context : HTTP::Server::Context, fiber : Fiber) : Info
+      request = context.request
+      Info.new(request.headers["X-Request-ID"]? || generate_id(4), request.method, request.path, fiber.object_id, http_context: context)
     end
 
     # Runs the block with an explicit context (for jobs and specs).

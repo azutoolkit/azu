@@ -303,9 +303,9 @@ Azu::Spark.render(Counter, label: "Visits", session: {"user_id" => "42"})
 ```
 
 `Azu::Spark.render` signs the component id, type, props and session claims with `config.secret`, which Spark
-reads from `SPARK_SECRET`. Without it, development and test use a random per-process secret, and production and
-staging raise `Azu::Spark::ConfigurationError` the first time a token is signed or verified (not at boot:
-`Spark.install` does not read the secret). Props are checked at compile time.
+reads from `SPARK_SECRET`. Without it, development and test use a random per-process secret, and in production and
+staging `Spark.install` raises `Azu::Spark::ConfigurationError` at boot, before it registers a route. Props are checked
+at compile time.
 
 ### Configuration
 

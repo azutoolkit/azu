@@ -100,11 +100,12 @@ module Azu
     getter error_path : String
 
     module Renderable
-      # Renders a template with optional data and HTTP context awareness.
+      # Renders a template with optional data and the variables of the request being served
+      # (`csrf_token`, `current_path`, `flash`, ...; see `Helpers::TemplateContext`).
       #
-      # When called from an endpoint with access to HTTP context, this method
-      # automatically injects useful variables like csrf_token, current_path,
-      # flash messages, and more.
+      # The request is the type's own `context` (an endpoint), else the one `Azu::RequestContext` holds for
+      # this fiber, so a response rendered by an endpoint sees it too. Values in *data* win. Outside a
+      # request (a job, a spec) there are no request variables and `flash` is empty.
       #
       # ```
       # def call : MyResponse
@@ -115,15 +116,16 @@ module Azu
         template_data = Hash(String, Crinja::Value).new
         data.to_h.each { |k, v| template_data[k.to_s] = Crinja::Value.new(v) }
 
-        # Inject HTTP context variables if context is available
+        ctx = ::Azu::RequestContext.current?.try(&.http_context)
         {% if @type.has_method?(:context) %}
-          if ctx = (context rescue nil)
-            template_context = Helpers::TemplateContext.new(ctx)
-            template_context.to_template_vars.each do |key, value|
-              template_data[key] = value unless template_data.has_key?(key)
-            end
-          end
+          ctx = (context rescue nil) || ctx
         {% end %}
+        if ctx
+          Helpers::TemplateContext.new(ctx).to_template_vars.each do |key, value|
+            template_data[key] = value unless template_data.has_key?(key)
+          end
+        end
+        template_data["flash"] = Crinja::Value.new(Hash(String, String).new) unless template_data.has_key?("flash")
 
         Azu.current_config.templates.load(template).render(template_data)
       end

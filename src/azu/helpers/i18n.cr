@@ -115,6 +115,11 @@ module Azu
         @@config.available_locales
       end
 
+      # Set the locales `Handler::Locale` may pick.
+      def self.available_locales=(locales : Array(String)) : Array(String)
+        @@config.available_locales = locales
+      end
+
       # Set load path.
       def self.load_path=(paths : Array(String)) : Nil
         @@config.load_path = paths

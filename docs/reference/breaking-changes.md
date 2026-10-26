@@ -355,6 +355,38 @@ token, and is refused on `POST /session` as before, until the cookie expires or 
 `SessionTokenStore` sets no cookie and is not affected. To drop the old cookies at once, give the handler a new
 `cookie_name:`; forms rendered before the deploy are then refused once.
 
+**One CSRF token per response (fix).** `CSRF#token` issued a new token, and a new cookie, on every call, so a page that
+printed `csrf_token`, `csrf_tag` and `csrf_metatag` (as every `view_with_context` render did) carried a token that did not
+match its cookie, and its form was refused with `403` under `SignedDoubleSubmit` and `DoubleSubmit`. `CSRF#token` now
+returns the token already set on the response. Nothing needs to be done.
+
+**Responses get the request variables, and CSRF values need a CSRF handler.** A response's `view` had no request: its
+template got no `csrf_token`, `current_path` or other [request variable](templates/helpers.md#request-variables), and
+reading `flash.notice` raised a `500`. `view` now takes the request from `Azu::RequestContext` while a request is served,
+and `flash` is empty outside one, so `view_with_context` is only needed for a request you hold yourself. `csrf_token`,
+`csrf_tag` and `csrf_metatag` are now added only once the app has built an `Azu::Handler::CSRF` (`Handler::CSRF.in_use?`).
+Before, every render with a request minted a token, setting a cookie and, in production without `CSRF_SECRET`, raising
+a `500`. An app that prints CSRF values without the CSRF handler gets empty fields: mount the handler.
+The generated `form_for_*` and `button_to_delete_*` helpers now include the `_csrf` field, so a `csrf_field()` inside them
+can go (a second field with the same token is harmless).
+
+**`current_path` and `current_url` are variables, not functions.** The template functions of these names hid the request
+variables, so `{{ current_path }}` printed the function instead of the path. They are gone: write `{{ current_path }}`
+and `{{ current_url }}`. `{{ current_path() }}` now fails with "not callable". `back_url()` reads the `referer` variable
+(it read `http_referer`, which nothing set, so it always answered its fallback) and answers the fallback for an
+unsafe URL such as `javascript:`. `config.i18n.available_locales` (`I18N_AVAILABLE_LOCALES`) is now applied to
+`Helpers::I18n`, so `Handler::Locale` can pick those locales.
+
+**Spark checks its secret at boot.** In production and staging `Azu::Spark.install` raises
+`Azu::Spark::ConfigurationError` when no secret is configured (`SPARK_SECRET` or `Azu::Spark.configure { |c| c.secret = ... }`),
+before it registers a route. Before, the app started and every page that called `Azu::Spark.render` answered `500`. Set the
+secret before calling `install`.
+
+**An unreadable body is a 400 or 413 without `Rescuer` (fix).** An endpoint read its body outside its own error handling, so
+a multipart body it could not parse, or one over `upload.max_file_size`, answered `500` when no `Rescuer` was in the
+chain. The endpoint now answers `400` and `413` itself, like a contract violation. A malformed `Content-Type` header (for
+example `application/json; charset`) is a `400` instead of a `500`, with or without `Rescuer`.
+
 **Routes can belong to an app** (additive; the endpoint macros keep registering on `Azu::App.default`). The
 macros now record their routes on the endpoint type (`.routes`) and `App.default` registers them lazily, the first
 time its router is read, instead of when the class body runs; `Router::Builder#endpoint(Type)` registers a type on any

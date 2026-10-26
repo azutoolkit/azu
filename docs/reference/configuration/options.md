@@ -224,7 +224,7 @@ Spark live views have their own `spark` section (`Azu::CONFIG.spark`, also `Azu:
 
 | Option | Type | Default | Environment | Meaning |
 |---|---|---|---|---|
-| `spark.secret` | `String` | a random per-process value in every environment but `production` and `staging`, which raise `Azu::Spark::ConfigurationError` the first time a token is signed or verified | `SPARK_SECRET` | Key that signs join tokens and state snapshots |
+| `spark.secret` | `String` | a random per-process value in every environment but `production` and `staging`, where `Azu::Spark.install` raises `Azu::Spark::ConfigurationError` at boot | `SPARK_SECRET` | Key that signs join tokens and state snapshots |
 | `spark.path` | `String` | `"/spark"` | `SPARK_PATH` | URL the WebSocket is served from |
 | `spark.assets_path` | `String` | `"/_spark/azu_spark.js"` | `SPARK_ASSETS_PATH` | URL the client script is served from |
 | `spark.token_ttl` | `Time::Span` | 24 hours | `SPARK_TOKEN_TTL` (seconds) | How long a rendered page may wait before joining |
@@ -278,7 +278,7 @@ Azu::CONFIG.cache_config.default_ttl = 600
 |---|---|---|---|
 | `i18n.load_path` | `Array(String)` | `["locales"]` | `I18N_LOAD_PATH` (comma separated) |
 | `i18n.default_locale` | `String` | `"en"` | `I18N_DEFAULT_LOCALE` |
-| `i18n.available_locales` | `Array(String)` | detected from files | `I18N_AVAILABLE_LOCALES` |
+| `i18n.available_locales` | `Array(String)` | `[]`: `Helpers::I18n` keeps its own list, `["en"]` | `I18N_AVAILABLE_LOCALES` (comma separated) |
 | `i18n.fallback_locale` | `String?` | `nil` | `I18N_FALLBACK_LOCALE` |
 | `i18n.raise_on_missing?` | `Bool` | `false` | `I18N_RAISE_ON_MISSING` |
 | `i18n.missing_key_format` | `String` | `"[missing: %{key}]"` | `I18N_MISSING_KEY_FORMAT` |

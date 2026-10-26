@@ -18,21 +18,27 @@ module Azu
   # your development configuration properties.
   #
   #
+  # A module that includes `Azu` configures the global one, `Azu::CONFIG`; an `Azu::App` has its own (`app.config`):
+  #
   # ```
-  # Azu.configure do |c|
-  #   c.port = 4000
-  #   c.host = localhost
-  #   c.port_reuse = true
-  #   c.log = Log.for("My Awesome App")
-  #   c.env = Environment::Development
-  #   c.template_hot_reload = true
-  #   c.template.path = "./templates"
-  #   c.template.error_path = "./error_template"
-  #   c.upload.max_file_size = 10.megabytes
-  #   c.upload.temp_dir = "/tmp/uploads"
-  #   c.cache.enabled = true
-  #   c.cache.store = "memory"
-  #   c.cache.max_size = 1000
+  # module MyApp
+  #   include Azu
+  #
+  #   configure do |c|
+  #     c.port = 4000
+  #     c.host = "localhost"
+  #     c.port_reuse = true
+  #     c.log = Log.for("My Awesome App")
+  #     c.env = Azu::Environment::Development
+  #     c.template_hot_reload = true
+  #     c.templates.path = "./templates" # adds a directory to the search path
+  #     c.templates.error_path = "./error_templates"
+  #     c.upload.max_file_size = 10_485_760_u64
+  #     c.upload.temp_dir = "/tmp/uploads"
+  #     c.cache_config.enabled = true
+  #     c.cache_config.store = "memory"
+  #     c.cache_config.max_size = 1000
+  #   end
   # end
   # ```
   class Configuration
@@ -412,7 +418,7 @@ module Azu
   # Configuration for WebSocket channels
   #
   # ```
-  # Azu.configure do |c|
+  # MyApp.configure do |c| # a module that includes Azu
   #   c.websocket.allowed_origins = ["https://app.example.com"]
   #   c.websocket.max_message_size = 64 * 1024
   #   c.websocket.ping_interval = 20.seconds
@@ -456,7 +462,7 @@ module Azu
   # Configuration for internationalization (i18n)
   #
   # ```
-  # Azu.configure do |c|
+  # MyApp.configure do |c| # a module that includes Azu
   #   c.i18n.load_path = ["locales", "config/locales"]
   #   c.i18n.default_locale = "en"
   #   c.i18n.available_locales = ["en", "es", "fr"]
@@ -470,7 +476,7 @@ module Azu
     # Default locale for the application
     property default_locale : String = ENV.fetch("I18N_DEFAULT_LOCALE", "en")
 
-    # Available locales (auto-detected if empty)
+    # The locales `Handler::Locale` may pick; empty leaves `Helpers::I18n`'s own list (`["en"]`)
     property available_locales : Array(String) = ENV.fetch("I18N_AVAILABLE_LOCALES", "").split(",").reject(&.empty?)
 
     # Fallback locale when translation is missing
@@ -492,6 +498,7 @@ module Azu
     def apply : Nil
       Helpers::I18n.load_path = load_path if load_path != DEFAULT_LOAD_PATH && load_path.any? { |path| Dir.exists?(path) }
       Helpers::I18n.default_locale = default_locale if default_locale != DEFAULT_LOCALE
+      Helpers::I18n.available_locales = available_locales unless available_locales.empty?
       Helpers::I18n.fallback_locale = fallback_locale if fallback_locale
       Helpers::I18n.raise_on_missing = raise_on_missing? if raise_on_missing?
       Helpers::I18n.missing_key_format = missing_key_format if missing_key_format != DEFAULT_MISSING_KEY_FORMAT
@@ -505,7 +512,7 @@ module Azu
   # Configuration for asset pipeline
   #
   # ```
-  # Azu.configure do |c|
+  # MyApp.configure do |c| # a module that includes Azu
   #   c.assets.prefix = "/assets"
   #   c.assets.path = "public/assets"
   #   c.assets.fingerprint = true

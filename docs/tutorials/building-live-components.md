@@ -151,8 +151,8 @@ UserAPI.start
 `Azu::Spark.install` registers the WebSocket route (`/spark`) and serves the client script from your own
 application (`/_spark/azu_spark.js`), so there is no CDN and no inline script. The tokens that let a browser
 join a component are signed with `SPARK_SECRET`, which Spark reads itself. Without it, development and test use
-a random secret per process; production and staging raise `Azu::Spark::ConfigurationError` the first time a token
-is signed or verified (the first `Azu::Spark.render`), not at boot. Set `SPARK_SECRET` there.
+a random secret per process; in production and staging `Azu::Spark.install` raises `Azu::Spark::ConfigurationError`
+at boot. Set `SPARK_SECRET` there.
 
 Run the app (Azu listens on `PORT`, 4000 by default), open `http://localhost:4000/counter` and click the buttons. Open the page in two tabs: each
 tab has its own counter, because each connection owns its components.

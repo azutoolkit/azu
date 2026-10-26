@@ -61,34 +61,8 @@ Install the adapter once at boot, before serving: it lives on the configuration 
 
 Without an adapter, `flash` in templates is empty. A template shows messages with `{{ flash.notice }}`.
 
-`flash` and `csrf_token` reach a template only when the response renders it with `view_with_context`, passing the
-endpoint's `context`. A response's `view` has no request: there, a template that reads `flash.notice` fails with a
-`500` (`flash is undefined`).
-
-```crystal
-struct LoginPage
-  include Azu::Response
-  include Azu::Templates::Renderable
-
-  def initialize(@context : HTTP::Server::Context)
-  end
-
-  def render
-    view_with_context "sessions/new.jinja", @context, {"title" => "Log in"}
-  end
-end
-
-struct LoginPageEndpoint
-  include Azu::Endpoint(Azu::Request, LoginPage)
-
-  get "/login"
-
-  def call : LoginPage
-    content_type "text/html"
-    LoginPage.new(context)
-  end
-end
-```
+A response's `view` gives the template `flash` and, once the app uses `Azu::Handler::CSRF`, `csrf_token` (see
+[Render HTML templates](../templates/render-html-templates.md)):
 
 ```jinja
 {% if flash.error %}<p class="error">{{ flash.error }}</p>{% endif %}

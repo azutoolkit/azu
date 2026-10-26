@@ -1,5 +1,16 @@
 require "../../../spec_helper"
 
+private def request_template_vars(headers : HTTP::Headers) : Hash(String, Crinja::Value)
+  context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/posts/1/edit", headers), HTTP::Server::Response.new(IO::Memory.new))
+  Azu::Helpers::TemplateContext.new(context).to_template_vars
+end
+
+private def render_back_url(vars : Hash(String, Crinja::Value), source = "{{ back_url() }}") : String
+  crinja = Crinja.new
+  Azu::Helpers::Registry.apply_to(crinja)
+  crinja.from_string(source).render(vars)
+end
+
 describe "URL Helpers" do
   before_each do
     Azu::Helpers::Registry.reset!
@@ -152,26 +163,22 @@ describe "URL Helpers" do
     end
   end
 
-  describe "current_path" do
-    it "returns current path from context" do
+  # Crinja looks up functions before variables: a helper named current_path would print itself for
+  # `{{ current_path }}` instead of the request's path.
+  describe "current_path and current_url" do
+    it "print the request variables" do
       crinja = Crinja.new
-      crinja.context["current_path"] = "/"
       Azu::Helpers::Registry.apply_to(crinja)
 
-      template = crinja.from_string("{{ current_path() }}")
-      result = template.render
+      template = crinja.from_string("{{ current_path }} {{ current_url }}")
+      result = template.render({"current_path" => "/users", "current_url" => "https://example.com/users"})
 
-      result.should eq "/"
+      result.should eq "/users https://example.com/users"
     end
 
-    it "returns empty string when no context" do
-      crinja = Crinja.new
-      Azu::Helpers::Registry.apply_to(crinja)
-
-      template = crinja.from_string("{{ current_path() }}")
-      result = template.render
-
-      result.should eq ""
+    it "are not helpers" do
+      Azu::Helpers::Registry.functions.has_key?(:current_path).should be_false
+      Azu::Helpers::Registry.functions.has_key?(:current_url).should be_false
     end
   end
 
@@ -235,15 +242,15 @@ describe "URL Helpers" do
   end
 
   describe "back_url" do
-    it "returns referer from context when available" do
-      crinja = Crinja.new
-      crinja.context["http_referer"] = "/previous"
-      Azu::Helpers::Registry.apply_to(crinja)
+    # The variables come from the TemplateContext a request renders with, so a renamed key fails here.
+    it "returns the request's Referer" do
+      vars = request_template_vars(HTTP::Headers{"Referer" => "https://example.com/posts/1"})
+      render_back_url(vars).should eq "https://example.com/posts/1"
+    end
 
-      template = crinja.from_string("{{ back_url() }}")
-      result = template.render
-
-      result.should eq "/previous"
+    it "returns the fallback for a Referer that is not a safe URL" do
+      vars = request_template_vars(HTTP::Headers{"Referer" => "javascript:alert(1)"})
+      render_back_url(vars, "{{ back_url(fallback='/posts') }}").should eq "/posts"
     end
 
     it "returns fallback when no referer" do

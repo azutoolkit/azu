@@ -347,6 +347,8 @@ module Azu
       HTTP::Params.parse(content)[METHOD_OVERRIDE]?
     rescue ex : Params::TooLarge
       raise Response::PayloadTooLarge.new(ex.message.to_s)
+    rescue MIME::Error # a Content-Type that does not parse is not a form; the endpoint answers it with 400
+      nil
     end
 
     private def upgrade?(context)

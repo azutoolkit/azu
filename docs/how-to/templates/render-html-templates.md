@@ -40,39 +40,22 @@ renders `blog/posts/show_page.jinja`.
 
 The [template helpers](../../reference/templates/helpers.md) are always available.
 
-{% hint style="warning" %}
-The request variables (`csrf_token`, `flash`, `current_path`, ...) are not: `view` adds them only when the type that
-calls it has a `context` method, and a response has none. In a response's `view`, `{{ csrf_field() }}` renders an
-empty token and a template that reads `flash.notice` fails with a `500` (`flash is undefined`).
-{% endhint %}
+`view` also adds the variables of the request being served: `current_path`, `current_url`, `flash`, `method`,
+`referer` and the others listed in the [helpers reference](../../reference/templates/helpers.md#request-variables),
+plus `csrf_token`, `csrf_tag` and `csrf_metatag` once the app uses `Azu::Handler::CSRF`. A value you pass in `data`
+wins over a request variable of the same name. A page with a form needs nothing more than the helpers:
 
-A page with a form or flash messages takes the endpoint's `context` and renders with
-`view_with_context(template, context, data)`, which adds them:
-
-```crystal
-struct SignupPage
-  include Azu::Response
-  include Azu::Templates::Renderable
-
-  def initialize(@context : HTTP::Server::Context)
-  end
-
-  def render
-    view_with_context "users/new.jinja", @context, {"title" => "Sign up"}
-  end
-end
-
-struct SignupPageEndpoint
-  include Azu::Endpoint(Azu::Request, SignupPage)
-
-  get "/signup"
-
-  def call : SignupPage
-    content_type "text/html"
-    SignupPage.new(context)
-  end
-end
+```jinja
+{% if flash.error %}<p class="error">{{ flash.error }}</p>{% endif %}
+<form method="post" action="/signup">
+  {{ csrf_field() }}
+  <input name="email" type="email">
+</form>
 ```
+
+Outside a request (a background job rendering an email) there are no request variables, and `flash` is empty. To
+render with a request you hold yourself, for example in a custom handler, use
+`view_with_context(template, context, data)`.
 
 ## Template location
 

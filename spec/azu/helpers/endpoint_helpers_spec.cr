@@ -390,4 +390,28 @@ describe "Type-Safe Endpoint Helpers" do
       Azu::Helpers::Registry.has_function?(:button_to_delete_endpoint_helpers_spec_delete_user).should be_true
     end
   end
+
+  # A form or delete button posts back through Handler::CSRF, so it carries the request's token like
+  # csrf_field() does; without a token in the render it has no field.
+  describe "CSRF field in generated forms" do
+    ["form_for_post_endpoint_helpers_spec_create_user()",
+     "form_for_put_endpoint_helpers_spec_update_user(id='123')",
+     "button_to_delete_endpoint_helpers_spec_delete_user(id='123')"].each do |helper|
+      it "is in #{helper} when the render has a token" do
+        crinja = Crinja.new
+        Azu::Helpers::Registry.apply_to(crinja)
+
+        result = crinja.from_string("{{ #{helper} }}").render({"csrf_token" => %(tok"<)})
+
+        result.should contain %(<input type="hidden" name="_csrf" value="tok&quot;&lt;" />)
+      end
+
+      it "is not in #{helper} without a token" do
+        crinja = Crinja.new
+        Azu::Helpers::Registry.apply_to(crinja)
+
+        crinja.from_string("{{ #{helper} }}").render.should_not contain %(name="_csrf")
+      end
+    end
+  end
 end

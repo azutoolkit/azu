@@ -39,6 +39,30 @@ description: "Azu's built-in template helpers: forms, links, endpoint URLs, asse
 
 ---
 
+## Request variables
+
+While a request is served, `view` gives every template these variables, in an endpoint and in a response (see
+[Render HTML templates](../../how-to/templates/render-html-templates.md)). A value passed in `data` wins over a
+variable of the same name. Outside a request there are none, and `flash` is empty.
+
+| Variable | Value |
+|---|---|
+| `current_path` | The request path: `/users/123` |
+| `current_url` | Scheme, `Host` header and path with query: `https://example.com/users/123?page=1` |
+| `method` | The request method: `GET` |
+| `flash` | The flash messages of the session adapter; empty without one |
+| `referer` | The `Referer` header, `""` without one |
+| `secure` | `true` when `X-Forwarded-Proto` is `https` |
+| `ajax` | `true` when `X-Requested-With` is `XMLHttpRequest` |
+| `client_ip` | The first address of `X-Forwarded-For`, else `X-Real-IP`, else `""` |
+| `accept_locale` | The first language of `Accept-Language`, `en` without one |
+| `csrf_token`, `csrf_tag`, `csrf_metatag` | The request's CSRF token, as a value, a hidden `<input>` and a `<meta>` tag. Only once the app uses `Azu::Handler::CSRF`; every one of them, and every form helper below, carries the token of the response's cookie |
+
+```jinja
+<p>{{ current_path }}</p>
+{% if flash.notice %}<div class="alert">{{ flash.notice }}</div>{% endif %}
+```
+
 ## Form helpers
 
 ### form_tag
@@ -87,12 +111,8 @@ Generates a hidden CSRF token input:
 {# Output: <input type="hidden" name="_csrf" value="token123..." /> #}
 ```
 
-{% hint style="warning" %}
-The value comes from the template variable `csrf_token`, which `view` injects only when the type that calls it has
-a `context` method. A response has none, so in a response's `render` the value is empty. Pass the endpoint's
-`context` to the response and render with `view_with_context(template, @context, data)`, which injects it.
-`csrf_meta` reads the same variable.
-{% endhint %}
+The value is the template variable `csrf_token`, which `view` adds while a request is served once the app uses
+`Azu::Handler::CSRF`. Without it the field's value is empty. `csrf_meta` reads the same variable.
 
 ### csrf_meta
 
@@ -305,22 +325,6 @@ Generates a mailto link:
 | `class` | string | `nil` | CSS class |
 | `id` | string | `nil` | Element ID |
 
-### current_path
-
-Returns the current request path:
-
-```jinja
-{{ current_path() }}  {# e.g., "/users" #}
-```
-
-### current_url
-
-Returns the full current URL:
-
-```jinja
-{{ current_url() }}  {# e.g., "https://example.com/users" #}
-```
-
 ### is_current_page
 
 Filter that checks if a path matches the current page:
@@ -332,9 +336,8 @@ Filter that checks if a path matches the current page:
 ```
 
 {% hint style="warning" %}
-`current_path`, `current_url`, `is_current_page` and `active_class` read the request variables, like
-[`csrf_field`](#csrf_field). Rendered without them, `current_path()` is empty and the two filters compare with `/`,
-so the `/` link is active on every page.
+`is_current_page` and `active_class` compare with the [request variable](#request-variables) `current_path`.
+Rendered without it, they compare with `/`, so the `/` link is active on every page.
 {% endhint %}
 
 ### active_class
@@ -356,7 +359,8 @@ Filter that returns a class name if the path is active:
 
 ### back_url
 
-Returns the referer URL or a fallback:
+Returns the request's `Referer` header, or `fallback` (default `/`) when there is none or when it is not a safe
+URL (a scheme other than http, https, mailto or tel, such as `javascript:`):
 
 ```jinja
 {{ link_to("Back", back_url(fallback="/posts")) }}
@@ -493,29 +497,28 @@ Generates anchor tags for any endpoint:
 
 ### form_for_{method}_{resource}
 
-Generates form opening tags for non-GET endpoints. PUT, PATCH, and DELETE methods automatically include a hidden `_method` field:
+Generates form opening tags for non-GET endpoints. The form carries the request's CSRF token as a hidden `_csrf`
+field (no field when the render has no [`csrf_token`](#request-variables)), so it needs no `csrf_field()`. PUT,
+PATCH and DELETE forms also get a hidden `_method` field:
 
 ```jinja
 {# POST form #}
 {{ form_for_post_create_user(class="user-form") }}
-  {{ csrf_field() }}
   {{ text_field("user", "name") }}
   {{ submit_button("Create") }}
 {{ end_form() }}
-{# Output: <form action="/users" method="post" class="user-form">... #}
+{# Output: <form action="/users" method="post" class="user-form"><input type="hidden" name="_csrf" value="..." />... #}
 
 {# PUT form (auto-includes _method hidden field) #}
 {{ form_for_put_update_user(id="123", class="edit-form") }}
-  {{ csrf_field() }}
   {{ text_field("user", "name", value=user.name) }}
   {{ submit_button("Update") }}
 {{ end_form() }}
 {# Output: <form action="/users/123" method="post" class="edit-form">
-     <input type="hidden" name="_method" value="put">... #}
+     <input type="hidden" name="_csrf" value="..." /><input type="hidden" name="_method" value="put">... #}
 
 {# DELETE form #}
 {{ form_for_delete_delete_user(id="123") }}
-  {{ csrf_field() }}
   {{ submit_button("Confirm Delete") }}
 {{ end_form() }}
 ```
@@ -534,7 +537,6 @@ Generates form opening tags for non-GET endpoints. PUT, PATCH, and DELETE method
 
 ```jinja
 {{ form_for_post_create_user(params={'redirect_to': '/dashboard', 'source': 'signup'}) }}
-  {{ csrf_field() }}
   {# generates: <input type="hidden" name="redirect_to" value="/dashboard">
                <input type="hidden" name="source" value="signup"> #}
   {{ text_field("user", "name") }}
@@ -544,12 +546,14 @@ Generates form opening tags for non-GET endpoints. PUT, PATCH, and DELETE method
 
 ### button_to_delete_{resource}
 
-Generates a complete delete form with a submit button (only for DELETE endpoints):
+Generates a complete delete form with a submit button (only for DELETE endpoints), with the CSRF field like
+`form_for_*`:
 
 ```jinja
 {{ button_to_delete_delete_user(id="123") }}
 {# Output:
 <form action="/users/123" method="post" style="display:inline">
+  <input type="hidden" name="_csrf" value="..." />
   <input type="hidden" name="_method" value="delete">
   <button type="submit">Delete</button>
 </form>
@@ -559,6 +563,7 @@ Generates a complete delete form with a submit button (only for DELETE endpoints
 {{ button_to_delete_delete_user(text="Remove User", id="123", confirm="Are you sure?") }}
 {# Output:
 <form action="/users/123" method="post" style="display:inline">
+  <input type="hidden" name="_csrf" value="..." />
   <input type="hidden" name="_method" value="delete">
   <button type="submit" onclick="return confirm('Are you sure?')">Remove User</button>
 </form>
