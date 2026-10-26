@@ -184,6 +184,14 @@ describe Azu::Router::Tree do
       routes.find(GET, "/deep/#{rest}").try(&.params).should eq({"rest" => rest})
     end
 
+    it "keeps taking deep paths after a shallower route is added, in either order" do
+      glob_first = tree({GET, "/files/*path"}, {GET, "/files/new"})
+      glob_last = tree({GET, "/files/new"}, {GET, "/files/*path"})
+
+      glob_first.find(GET, "/files/a/b/c").try(&.params).should eq({"path" => "a/b/c"})
+      glob_last.find(GET, "/files/a/b/c").try(&.params).should eq({"path" => "a/b/c"})
+    end
+
     it "captures the rest of a path of 30 to 33 segments, either side of the stack's last offset" do
       routes = tree({GET, "/g/*rest"})
 
