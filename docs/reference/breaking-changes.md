@@ -20,6 +20,14 @@ connections was unbounded. The accepted sockets now carry the new `config.limits
 very slow link, or a stream that waits on the client for more than 30 s, raises the matching limit; `SERVER_*` variables set them.
 A server you bind yourself (`server.bind_tcp`) is unchanged; use `Azu::ServerLimits.bind_tcp` to give it the same limits.
 
+**Multipart uploads have request-wide limits, and temp files are private and removed after the request.** `upload.max_file_size`
+bounded each file only, so a client could stream any number of files of up to 10 MB each. New `upload.max_request_size` (64 MB,
+`UPLOAD_MAX_REQUEST_SIZE`), `max_parts` (100) and `max_files` (20) are enforced while the body streams (and a `Content-Length` over
+the first is refused before reading); a request over any of them answers `413`. An app that takes more raises them. Temp
+files are created `0600`, with a random name in which the client's file name only appears reduced to `[A-Za-z0-9._-]`, and
+`Endpoint` deletes them in its `ensure`, when the request is done: **an endpoint that handed `temp_path` to a background job
+or kept it for later must copy the file first.** A second file under one field name now deletes the first's temp file.
+
 **`CORS#origins` returns a copy, and preflight responses vary by what they ask for.** `cors.origins << "https://b.test"` edited the
 live list on 0.6; the reader now returns a copy, so that does nothing (and `<< "*"` can no longer sneak the wildcard past the
 credentials check). Assign the whole list with `cors.origins = [...]`. A preflight response now carries

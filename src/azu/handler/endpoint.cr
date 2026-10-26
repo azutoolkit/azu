@@ -69,20 +69,25 @@ module Azu
       endpoint_name = {{ @type.name.stringify.split("::").last }}
       context.request.headers["X-Azu-Endpoint"] = endpoint_name
 
-      RequestContext.scope(context) do |info|
-        info.endpoint = endpoint_name
-        begin
-          if check_contract
-            # Read the body now, as the check needs it: one that cannot be read (400, 413) is refused before `call`.
-            @params = Params(Request).new(context.request)
-            enforce_contract
+      begin
+        RequestContext.scope(context) do |info|
+          info.endpoint = endpoint_name
+          begin
+            if check_contract
+              # Read the body now, as the check needs it: one that cannot be read (400, 413) is refused before `call`.
+              @params = Params(Request).new(context.request)
+              enforce_contract
+            end
+            negotiate_format
+          rescue ex : Azu::Response::Error
+            ex.to_s(context)
+            next
           end
-          negotiate_format
-        rescue ex : Azu::Response::Error
-          ex.to_s(context)
-          next
+          write_response(call, context)
         end
-        write_response(call, context)
+      ensure
+        # Uploaded files live as long as the request: copy one you want to keep (see "Handle file uploads").
+        @params.try(&.cleanup_files)
       end
       context
     end

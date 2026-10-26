@@ -338,7 +338,7 @@ the chain, with:
 | Status | When |
 |---|---|
 | `400` | The body or a field cannot be read as the contract's types, or the `Content-Type` header is malformed |
-| `413` | The body is larger than `upload.max_file_size` |
+| `413` | The body is larger than `upload.max_file_size` (a urlencoded or JSON body, or one file or field), or a multipart request goes over `upload.max_request_size`, `upload.max_parts` or `upload.max_files` |
 | `422` | A validation rule fails; the body lists the failing fields (see [ValidationError](response.md#validationerror)) |
 
 {% hint style="warning" %}

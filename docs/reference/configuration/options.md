@@ -245,6 +245,9 @@ How templates and the CSRF session token store reach your session library; see
 | Option | Type | Default | Environment |
 |---|---|---|---|
 | `upload.max_file_size` | `UInt64` | 10 MB | `UPLOAD_MAX_FILE_SIZE` (bytes) |
+| `upload.max_request_size` | `UInt64` | 64 MB | `UPLOAD_MAX_REQUEST_SIZE` (bytes): the whole multipart request, counted as it streams in |
+| `upload.max_parts` | `Int32` | 100 | `UPLOAD_MAX_PARTS`: fields and files of one multipart request |
+| `upload.max_files` | `Int32` | 20 | `UPLOAD_MAX_FILES`: files of one multipart request |
 | `upload.temp_dir` | `String` | `Dir.tempdir` | `UPLOAD_TEMP_DIR` |
 | `upload.buffer_size` | `Int32` | 8192 | `UPLOAD_BUFFER_SIZE` |
 | `upload.cleanup_interval` | `Time::Span` | 1 hour | `UPLOAD_CLEANUP_INTERVAL` (seconds) |
