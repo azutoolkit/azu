@@ -88,5 +88,6 @@ docs/reference/api/testing.md
 docs/reference/api/presence.md
 docs/how-to/deployment/scale-out-realtime.md
 docs/reference/spark-client.md
+# background-jobs.md: every block is skipped (the checker does not install JoobQ); its blocks were type-checked by hand against JoobQ 0.4.2
 docs/how-to/jobs/background-jobs.md
 docs/how-to/performance/monitor-performance.md

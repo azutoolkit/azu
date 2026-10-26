@@ -108,8 +108,12 @@ crystal run src/server.cr
 ```
 
 ```text
-INFO - Azu: CRYSTAL_ENV not set, running in development, listening on 127.0.0.1
-INFO - Azu: Server started at ...
+2026-10-26T00:35:20.332741Z   INFO - Azu: CRYSTAL_ENV not set, running in development, listening on 127.0.0.1
+2026-10-26T00:35:20.332794Z   INFO - Azu: Server started at Mon 10/26/2026 12:35:20.
+   ⤑  Environment: Development
+   ⤑  Host: 127.0.0.1
+   ⤑  Port: 4000
+   ⤑  Startup Time: 0.272135 millis
 ```
 
 In a second terminal:
@@ -122,9 +126,16 @@ curl -H "Accept: application/problem+json" "http://127.0.0.1:4000/hello?name=A"
 # {"type":"about:blank","title":"Validation Error","status":422,"detail":"The request could not be processed due to validation errors.","errors":{"name":["must be 2 to 30 characters"]},"instance":"/hello"}
 ```
 
-The name `A` is too short, so Azu answered `422` with the failing field, and your `call` method did not run. The body is an [RFC 7807](https://www.rfc-editor.org/rfc/rfc7807) problem document; the content type is `application/problem+json` only because the client asked for it in `Accept`, otherwise it is `application/json` (or HTML or text, whatever the client accepts).
+The name `A` is too short, so Azu answered `422` with the failing field, and your `call` method did not run. The body is an [RFC 7807](https://www.rfc-editor.org/rfc/rfc7807) problem document. Its content type is `application/problem+json` only because the client asked for it in `Accept`; otherwise it is `application/json`, HTML or text, whichever the client accepts.
 
-A request that is missing the field entirely (`/hello`) is a `400`: the contract could not even be built. A `422` means "I understood you, and the values are not acceptable".
+A request that leaves the field out entirely is a `400`, because the contract cannot even be built:
+
+```bash
+curl -H "Accept: application/json" "http://127.0.0.1:4000/hello"
+# {"type":"about:blank","title":"Bad Request","status":400,"detail":"Missing required property: 'name'.","errors":[],"error_id":"dd7debd7409df9e9a279f3f67b62ec48","instance":"/hello","backtrace":"..."}
+```
+
+(`backtrace` appears in development only.) So: `400` means "I could not read that", `422` means "I read it, and the values are not acceptable". Always pass an `Accept` header with curl in development; without one the error comes back as a plain-text debug page.
 
 Azu listens on `127.0.0.1` in development. In a container set `HOST=0.0.0.0`.
 

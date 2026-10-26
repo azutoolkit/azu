@@ -51,7 +51,20 @@ end
 Hello.start
 ```
 
+Put this in `hello.cr`, with a `shard.yml` next to it, and install:
+
+```yaml
+name: hello
+version: 0.1.0
+crystal: ">= 1.19.1"
+dependencies:
+  azu:
+    github: azutoolkit/azu
+    version: ~> 0.5.119
+```
+
 ```bash
+shards install
 crystal run hello.cr
 curl "http://127.0.0.1:4000/hello?name=Ada"
 # {"message":"Hello, Ada!"}
@@ -60,22 +73,26 @@ curl -H "Accept: application/problem+json" "http://127.0.0.1:4000/hello?name=A"
 # {"type":"about:blank","title":"Validation Error","status":422,"detail":"The request could not be processed due to validation errors.","errors":{"name":["must be 2 to 30 characters"]},"instance":"/hello"}
 ```
 
-`call` never ran for the second request: the contract failed first. Add `azu` to your `shard.yml` (`github: azutoolkit/azu`, `version: ~> 0.5.119`) and run `shards install`. The [getting started tutorial](docs/tutorials/getting-started.md) builds this out step by step.
+`call` never ran for the second request: the contract failed first. The [getting started tutorial](docs/tutorials/getting-started.md) builds this out step by step.
 
 ## Get started in 5 minutes
 
-The [Azu CLI](https://github.com/azutoolkit/azu_cli) generates a working app. You need Crystal 1.19.1 or newer.
+The [Azu CLI](https://github.com/azutoolkit/azu_cli) generates a working app. You need Crystal 1.19.1 or newer with `shards`, a C toolchain, and the development libraries Crystal and the CLI link against (on Debian or Ubuntu: `build-essential libreadline-dev libevent-dev libssl-dev libxml2-dev libyaml-dev libgmp-dev libsqlite3-dev`).
 
 ```bash
 git clone https://github.com/azutoolkit/azu_cli && cd azu_cli
-shards install && sudo make install      # installs `azu` to /usr/local/bin
+shards install
+make install PREFIX=$HOME/.local         # builds `azu` into ~/.local/bin (put it on your PATH)
+cd ..
 
-azu new blog --db sqlite --no-joobq      # a project, with its shards installed
+azu new blog --db sqlite --no-joobq --yes   # a project, with its shards installed
 cd blog
 azu generate scaffold Post title:string body:text
 azu db:setup                             # creates the SQLite database and runs the migration
 azu dev                                  # builds, serves, and rebuilds when you change code
 ```
+
+The first `azu dev` build takes a minute or so. Installing with a `PREFIX` you own keeps `bin/` and `lib/` of the clone from becoming root-owned, which a plain `sudo make install` (it rebuilds, as root) would do.
 
 Open <http://localhost:4000/posts>. The scaffold gave you a model, a migration, request contracts, endpoints, pages, templates and CSRF-protected forms, named `Blog::Posts::CreateEndpoint`, `Blog::Posts::CreateRequest` and so on. `azu routes` lists them with their contract types.
 
@@ -99,7 +116,7 @@ blog/
 
 ## A tour
 
-**Contracts are checked before your code.** A request that fails validation gets a `422` with the failing fields, as an [RFC 7807](https://www.rfc-editor.org/rfc/rfc7807) problem document (`application/problem+json` when the client asks for it). A request that cannot be built at all gets a `400`. See the example above and [Handle validation errors](docs/how-to/validation/handle-validation-errors.md).
+**Contracts are checked before your code.** A request that fails validation never reaches `call`: bad values get a `422` problem document, a request that cannot be built at all gets a `400`. See [Handle validation errors](docs/how-to/validation/handle-validation-errors.md).
 
 **Links and forms follow your routes.** Each endpoint generates template helpers from its verb and type, so renaming a route updates every link:
 
@@ -111,7 +128,7 @@ blog/
 {{ end_form() }}
 ```
 
-**Live components keep state on the server.** The browser sends events over a WebSocket and gets back only the HTML that changed:
+**Spark components keep state on the server.** The browser sends events over a WebSocket and gets back only the HTML that changed:
 
 ```crystal
 class Counter < Azu::Spark::Component
@@ -181,7 +198,7 @@ response.status_code        # => 200
 response.json["message"]    # => "Hello, Ada!"
 ```
 
-**OpenAPI from the contracts.** The document is built from your `Endpoint(Request, Response)` types, so it cannot drift:
+**OpenAPI from the contracts.** The document is built from your `Endpoint(Request, Response)` types, so it is generated from your types and cannot go stale:
 
 ```crystal
 info = Azu::OpenAPI::Info.new("Hello API", "1.0.0")
@@ -194,22 +211,23 @@ puts Azu::OpenAPI.document(Azu::App.default, info).to_json(pretty: true)
 
 Features marked *opt-in* need their own `require`. The [full list](docs/explanation/features.md) has a sentence and a link for each.
 
-| | |
-|---|---|
-| **Routing** | Typed endpoints, radix router, `scope`, `mount`, apps as values (`Azu::App`) · [Router](docs/reference/api/router.md), [App](docs/reference/api/app.md) |
-| **Contracts** | `Azu::Request` with validation rules, typed params, uploads, `422` problem documents · [Request](docs/reference/api/request.md) |
-| **Responses** | Content negotiation, streaming and server-sent events, error classes and pages · [Response](docs/reference/api/response.md), [Streaming](docs/reference/api/streaming.md) |
-| **Real-time** | Channels, `PubSub` (memory or Redis), presence, Spark live views · [Channel](docs/reference/api/channel.md), [Presence](docs/reference/api/presence.md), [Spark](docs/explanation/spark-live-views.md) |
-| **Templates** | Jinja (Crinja), compiled at boot outside development, form/link/asset/date/number/HTML/i18n helpers · [Helpers](docs/reference/templates/helpers.md) |
-| **Security** | CSRF, security headers, CORS, throttling, IP spoofing guard, session seam, secrets · [Handlers](docs/reference/handlers/built-in.md), [Env](docs/reference/configuration/env.md) |
-| **Operations** | Memory and Redis cache, static files, compression, health check, request ids, graceful shutdown · [Cache](docs/reference/api/cache.md), [Shutdown](docs/how-to/deployment/graceful-shutdown.md) |
-| **Tooling** | OpenAPI 3.1 · test client (*opt-in* `azu/testing`) · dev dashboard (*opt-in* `azu/dev`) · CQL bridge with SQL insight (*opt-in* `azu/cql`) · `.env` loading (`azu/env`) · [CLI](https://github.com/azutoolkit/azu_cli) · [Testing](docs/reference/api/testing.md), [OpenAPI](docs/reference/api/openapi.md), [CQL bridge](docs/reference/api/cql-bridge.md) |
+| Area | What you get | Learn more |
+|---|---|---|
+| Routing | Typed endpoints, radix router, `scope`, `mount`, apps as values (`Azu::App`) | [Router](docs/reference/api/router.md), [App](docs/reference/api/app.md) |
+| Contracts | `Azu::Request` with validation rules, typed params, uploads, `422` problem documents | [Request](docs/reference/api/request.md) |
+| Responses | Content negotiation, streaming and server-sent events, error classes and pages | [Response](docs/reference/api/response.md), [Streaming](docs/reference/api/streaming.md) |
+| Real-time | Channels, `PubSub` (memory or Redis), presence, Spark live views | [Channel](docs/reference/api/channel.md), [Presence](docs/reference/api/presence.md), [Spark](docs/explanation/spark-live-views.md) |
+| Templates | Jinja (Crinja), compiled at boot outside development, form, link, asset, date, number, HTML and i18n helpers | [Helpers](docs/reference/templates/helpers.md) |
+| Security | CSRF, security headers, CORS, throttling, IP spoofing guard, session seam, secrets | [Handlers](docs/reference/handlers/built-in.md), [Env](docs/reference/configuration/env.md) |
+| Operations | Memory and Redis cache, static files, compression, health check, request ids, graceful shutdown | [Cache](docs/reference/api/cache.md), [Shutdown](docs/how-to/deployment/graceful-shutdown.md) |
+| Testing and docs | Test client (*opt-in* `azu/testing`), OpenAPI 3.1 from your contracts | [Testing](docs/reference/api/testing.md), [OpenAPI](docs/reference/api/openapi.md) |
+| Development | Dashboard (*opt-in* `azu/dev`), SQL and N+1 insight (*opt-in* `azu/cql`), `.env` loading (`Azu::Env.load_all`, which generated apps call before `require "azu"`), the [CLI](https://github.com/azutoolkit/azu_cli) | [CQL bridge](docs/reference/api/cql-bridge.md), [Azu::Env](docs/reference/configuration/env.md) |
 
 ## Performance
 
 Azu is not the fastest thing you can write in Crystal, and it does not claim to be. The repository has a [reproducible benchmark suite](benchmark/README.md) that compares it with a hand-written `HTTP::Server` and with Kemal, Lucky and Athena, same machine, same responses, same load. The numbers below are one snapshot, not a promise.
 
-Measured on 2026-10-25: Azu 0.5.119 (commit 36869c8), Crystal 1.19.1 (`--release`), a 4 vCPU shared virtual machine, wrk with 64 connections, median of 5 runs of 10 seconds, servers and load generator on separate CPUs. Each cell is requests per second as a percentage of the hand-written `HTTP::Server` baseline (97,825 req/s on plaintext).
+Measured on 2026-10-25 (UTC): Azu 0.5.119 at commit 36869c8 with CQL 0.0.732 pinned in the benchmark app's lock file, Crystal 1.19.1 (`--release`), a 4 vCPU shared virtual machine, wrk with 64 connections, median of 5 runs of 10 seconds, servers and load generator on separate CPUs. Each cell is requests per second as a percentage of the hand-written `HTTP::Server` baseline (97,825 req/s on plaintext).
 
 | Scenario | Azu (minimal stack) | Kemal | Lucky | Athena |
 |---|---:|---:|---:|---:|
@@ -220,15 +238,17 @@ Measured on 2026-10-25: Azu 0.5.119 (commit 36869c8), Crystal 1.19.1 (`--release
 | one SQLite row | 81 | 66* | 81 | 59 |
 | 20 SQLite rows | **75** | 77* | 89 | 78 |
 
-\* the repetitions disagreed by more than 5 %, so treat the row as indicative.
+\* the repetitions disagreed by more than 5 %, so treat the row as indicative. The WebSocket scenario is left out: Athena and Lucky have no WebSocket support, and for the others the load generator was the limit (about 200,000 deliveries per second each), so it says nothing about who is faster.
 
 What the table does not say:
 
-- "Minimal stack" is the router, the endpoint and `Rescuer` only. Azu's default stack also runs request ids, security headers and static file lookup on every request, which the other frameworks' defaults do not do. An earlier run of the default stack (before a hot-path cleanup that has since landed) measured 62 to 73 % of the baseline on plaintext, JSON and routing; it has not been re-run, so do not quote it either.
+- **"Minimal stack" is not what you get by default.** It is the router, the endpoint, `Rescuer` and the small `App::Scope` wrapper every `Azu::App` puts in front of the chain. The default stack also runs `RequestId`, `SecurityHeaders` and `Static` on every request (responses are 264 bytes instead of 102 on plaintext), costs more, and was **not** measured on 0.5.119. An earlier run of it, before a hot-path cleanup that has since landed, measured 62 to 73 % of the baseline on plaintext, JSON and routing; do not quote that either.
 - **Templates are Azu's weak spot.** Jinja (Crinja) is parsed and rendered per request; the others run ECR the compiler turned into plain code. This compares template systems, not routers.
-- **The ORM costs something.** Azu was the only app going through an ORM (CQL). With raw SQLite in the same app, the 20 row scenario measured 92 % instead of 75 %. Lucky used raw SQL too.
-- WebSocket fan-out was limited by the load generator for every framework, so it says nothing about who is faster.
-- One shared VM is noisy. Compare these numbers with each other, never with numbers from another machine. Method, fairness rules and known confounds: [benchmark/README.md](benchmark/README.md).
+- **The ORM costs something.** Azu was the only app going through an ORM (CQL 0.0.732); the others called SQLite directly. With raw SQLite in the same Azu app the 20 row scenario measured 92 % instead of 75 %.
+- **Kemal's rows are indicative at best.** In this benchmark app its process grew to 1.4 to 1.9 GB of memory and its p99 latency reached hundreds of milliseconds, a memory growth of that app under this load.
+- One shared VM is noisy. Compare these numbers with each other, never with numbers from another machine.
+
+The raw snapshot is committed: [report](benchmark/snapshots/2026-10-26-v0.5.119-cql0.0.732-minimal.md) and [JSON](benchmark/snapshots/2026-10-26-v0.5.119-cql0.0.732-minimal.json). To reproduce on your own machine, run `scripts/bench.sh`; method, fairness rules and known confounds are in [benchmark/README.md](benchmark/README.md).
 
 ## Documentation
 
@@ -242,9 +262,9 @@ What the table does not say:
 
 - Azu is 0.x: the API can still change between minor versions, and every break is written down in [breaking changes](docs/reference/breaking-changes.md).
 - Crystal 1.19.1 or newer. CI runs the oldest supported version and the latest release.
-- Redis is optional: it backs the cache, pub/sub and presence when you want them shared between processes.
-- Databases go through [CQL](https://github.com/azutoolkit/cql) (`azu/cql` needs cql 0.0.609 or newer). The end-to-end checks of generated apps run on SQLite; PostgreSQL apps are only booted in CI.
-- Every Crystal example in this README and in the checked docs pages is compiled in CI against the code in this repository.
+- Redis is optional for Azu: it backs the cache, pub/sub and presence when you want them shared between processes. The JoobQ job queue that `azu new` includes by default does need it (`--no-joobq` leaves it out).
+- Databases go through [CQL](https://github.com/azutoolkit/cql) (`azu/cql` is tested with cql 0.0.609; the [CQL bridge page](docs/reference/api/cql-bridge.md) states the minimum). The end-to-end checks of generated apps run on SQLite; PostgreSQL apps are only booted in CI.
+- Most Crystal examples in this README and in the docs are compiled in CI against the code in this repository; the ones that need another shard or another file are marked as fragments and are not.
 
 ## Contributing
 
