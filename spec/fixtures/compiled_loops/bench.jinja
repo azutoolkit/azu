@@ -1,0 +1,1 @@
+<!DOCTYPE html><html><head><title>Items</title></head><body><h1>Items</h1><ul>{% for item in items %}<li class="item-{{ item.id }}">{{ item.name | e }} ({{ item.price }})</li>{% endfor %}</ul></body></html>
