@@ -227,7 +227,7 @@ Features marked *opt-in* need their own `require`. The [full list](docs/explanat
 
 Azu is not the fastest thing you can write in Crystal, and it does not claim to be. The repository has a [reproducible benchmark suite](benchmark/README.md) that compares it with a hand-written `HTTP::Server` and with Kemal, Lucky and Athena, same machine, same responses, same load. The numbers below are one snapshot, not a promise.
 
-Measured on 2026-10-25 (UTC): Azu 0.5.119 at commit 36869c8 with CQL 0.0.732 pinned in the benchmark app's lock file, Crystal 1.19.1 (`--release`), a 4 vCPU shared virtual machine, wrk with 64 connections, median of 5 runs of 10 seconds, servers and load generator on separate CPUs. Each cell is requests per second as a percentage of the hand-written `HTTP::Server` baseline (97,825 req/s on plaintext).
+Measured on 2026-10-25 (UTC): Azu 0.5.119 at commit 36869c8 with CQL 0.0.732 (an uncommitted bump in the benchmark app on a dirty working tree; `scripts/bench.sh` as committed builds the app with CQL 0.0.541), Crystal 1.19.1 (`--release`), a 4 vCPU shared virtual machine, wrk with 64 connections, median of 5 runs of 10 seconds, servers and load generator on separate CPUs. Each cell is requests per second as a percentage of the hand-written `HTTP::Server` baseline (97,825 req/s on plaintext).
 
 | Scenario | Azu (minimal stack) | Kemal | Lucky | Athena |
 |---|---:|---:|---:|---:|
@@ -242,13 +242,13 @@ Measured on 2026-10-25 (UTC): Azu 0.5.119 at commit 36869c8 with CQL 0.0.732 pin
 
 What the table does not say:
 
-- **"Minimal stack" is not what you get by default.** It is the router, the endpoint, `Rescuer` and the small `App::Scope` wrapper every `Azu::App` puts in front of the chain. The default stack also runs `RequestId`, `SecurityHeaders` and `Static` on every request (responses are 264 bytes instead of 102 on plaintext), costs more, and was **not** measured on 0.5.119. An earlier run of it, before a hot-path cleanup that has since landed, measured 62 to 73 % of the baseline on plaintext, JSON and routing; do not quote that either.
+- **"Minimal stack" is not what you get by default.** It is the router, the endpoint, `Rescuer` and the small `App::Scope` wrapper every `Azu::App` puts in front of the chain. The default stack also runs `RequestId`, `SecurityHeaders` and `Static` on every request and sends more headers, so it costs more. It was **not** measured on 0.5.119, so there is no default-stack number here.
 - **Templates are Azu's weak spot.** Jinja (Crinja) is parsed and rendered per request; the others run ECR the compiler turned into plain code. This compares template systems, not routers.
 - **The ORM costs something.** Azu was the only app going through an ORM (CQL 0.0.732); the others called SQLite directly. With raw SQLite in the same Azu app the 20 row scenario measured 92 % instead of 75 %.
-- **Kemal's rows are indicative at best.** In this benchmark app its process grew to 1.4 to 1.9 GB of memory and its p99 latency reached hundreds of milliseconds, a memory growth of that app under this load.
+- **Kemal's rows are indicative at best.** Its process grew to 1.4 to 1.9 GB in this benchmark app and its p99 latency reached hundreds of milliseconds, so the cause is likely that app under this load.
 - One shared VM is noisy. Compare these numbers with each other, never with numbers from another machine.
 
-The raw snapshot is committed: [report](benchmark/snapshots/2026-10-26-v0.5.119-cql0.0.732-minimal.md) and [JSON](benchmark/snapshots/2026-10-26-v0.5.119-cql0.0.732-minimal.json). To reproduce on your own machine, run `scripts/bench.sh`; method, fairness rules and known confounds are in [benchmark/README.md](benchmark/README.md).
+The raw snapshot is committed: [report](benchmark/snapshots/2026-10-25-v0.5.119-cql0.0.732-minimal.md) and [JSON](benchmark/snapshots/2026-10-25-v0.5.119-cql0.0.732-minimal.json). To reproduce on your own machine, run `scripts/bench.sh`; method, fairness rules and known confounds are in [benchmark/README.md](benchmark/README.md).
 
 ## Documentation
 
@@ -263,7 +263,7 @@ The raw snapshot is committed: [report](benchmark/snapshots/2026-10-26-v0.5.119-
 - Azu is 0.x: the API can still change between minor versions, and every break is written down in [breaking changes](docs/reference/breaking-changes.md).
 - Crystal 1.19.1 or newer. CI runs the oldest supported version and the latest release.
 - Redis is optional for Azu: it backs the cache, pub/sub and presence when you want them shared between processes. The JoobQ job queue that `azu new` includes by default does need it (`--no-joobq` leaves it out).
-- Databases go through [CQL](https://github.com/azutoolkit/cql) (`azu/cql` is tested with cql 0.0.609; the [CQL bridge page](docs/reference/api/cql-bridge.md) states the minimum). The end-to-end checks of generated apps run on SQLite; PostgreSQL apps are only booted in CI.
+- Databases go through [CQL](https://github.com/azutoolkit/cql) (`azu/cql` needs cql 0.0.609 or newer, see the [CQL bridge page](docs/reference/api/cql-bridge.md)). The end-to-end checks of generated apps run on SQLite; PostgreSQL apps are only booted in CI.
 - Most Crystal examples in this README and in the docs are compiled in CI against the code in this repository; the ones that need another shard or another file are marked as fragments and are not.
 
 ## Contributing

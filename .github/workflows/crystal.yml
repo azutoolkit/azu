@@ -128,6 +128,7 @@ jobs:
         run: crystal run scripts/check_docs_listed.cr
 
       - name: Every relative link and anchor in README.md and docs/ resolves
+        if: matrix.shard == 1
         run: crystal run scripts/check_doc_links.cr
 
       - name: Compile the documented examples

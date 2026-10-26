@@ -6,9 +6,9 @@ connection pool usage and a read-only SQL playground. The dashboard itself comes
 
 The tab is fed through CQL's event framework only: `Azu::CQL::Instrumentor` subscribes to `CQL::Telemetry`
 (one query event per statement, one transaction event per begin/commit/rollback) and records them in
-`Azu::QueryStore`. Azu does not wrap or patch CQL, and anything that emits those events shows up. It needs a CQL
-release newer than 0.0.533 (`CQL::Telemetry.subscribe_transactions` and `CQL::Schema#pool_stats`); older releases fail
-to compile with a message saying so. Telemetry reports affected rows for writes only, so SELECT row counts show "-",
+`Azu::QueryStore`. Azu does not wrap or patch CQL, and anything that emits those events shows up. It needs CQL
+0.0.609 or newer (Azu's `shard.yml` requires it; the code checks for `CQL::Telemetry.subscribe_transactions` and `CQL::Schema#pool_stats`, which releases after 0.0.533 have, and older ones fail
+to compile with a message saying so). Telemetry reports affected rows for writes only, so SELECT row counts show "-",
 and parameter values only appear when you turn on `CQL::Telemetry.capture_params` (otherwise `?` placeholders). Without `azu/cql` the tab falls back to CQL's own performance monitor (when `cql`
 is required before `azu`), or shows an "n/a" card that explains how to install the event bridge. Once `azu/cql` is
 installed, the statements recorded in `Azu::QueryStore` take precedence.

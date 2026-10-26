@@ -2,7 +2,7 @@
 
 `require "azu/cql"` (opt-in, see [Database dashboard](../database-dashboard.md)) also connects Azu's request and
 response contracts to CQL models. It is plain compile-time code: no runtime reflection, no CQL patches beyond one
-method on `CQL::ActiveRecord::Validations`. It needs the same CQL release as the dashboard (newer than 0.0.533; the specs pass on 0.0.536 and on 0.0.604).
+method on `CQL::ActiveRecord::Validations`. It needs the same CQL release as the dashboard (`azu/cql` needs 0.0.609 or newer, the version `shard.yml` requires; the code itself only checks for the telemetry hooks that appeared after 0.0.533).
 
 ```crystal
 require "sqlite3"
