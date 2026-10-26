@@ -1,8 +1,10 @@
+---
+description: "The syntax of Crinja, Azu's Jinja2-compatible template engine: variables, tags, inheritance, includes, macros, filters, tests and operators."
+---
+
 # Template engine
 
-Azu uses Crinja, a Jinja2-compatible template engine.
-
-## Basic Syntax
+## Basic syntax
 
 ### Variables
 
@@ -35,7 +37,7 @@ Control flow with `{% %}`:
 #}
 ```
 
-## Control Structures
+## Control structures
 
 ### if / elif / else
 
@@ -93,7 +95,7 @@ Loop over collections:
 {% endfor %}
 ```
 
-## Template Inheritance
+## Template inheritance
 
 ### extends
 
@@ -107,6 +109,7 @@ Extend a base template:
 
 Define overridable blocks:
 
+{% code title="layouts/base.html" %}
 ```html
 <!-- layouts/base.html -->
 <!DOCTYPE html>
@@ -119,7 +122,9 @@ Define overridable blocks:
 </body>
 </html>
 ```
+{% endcode %}
 
+{% code title="pages/home.html" %}
 ```html
 <!-- pages/home.html -->
 {% extends "layouts/base.html" %}
@@ -130,6 +135,7 @@ Define overridable blocks:
 <h1>Welcome!</h1>
 {% endblock %}
 ```
+{% endcode %}
 
 ### super
 
@@ -208,7 +214,7 @@ Filters transform values:
 {{ name | title }}
 ```
 
-### String Filters
+### String filters
 
 | Filter | Description | Example |
 |--------|-------------|---------|
@@ -221,7 +227,7 @@ Filters transform values:
 | `replace(a, b)` | Replace substring | `{{ name | replace(" ", "-") }}` |
 | `striptags` | Remove HTML tags | `{{ html | striptags }}` |
 
-### Number Filters
+### Number filters
 
 | Filter | Description | Example |
 |--------|-------------|---------|
@@ -229,7 +235,7 @@ Filters transform values:
 | `round` | Round number | `{{ 3.7 | round }}` → `4` |
 | `round(n)` | Round to n decimals | `{{ 3.14159 | round(2) }}` → `3.14` |
 
-### List Filters
+### List filters
 
 | Filter | Description | Example |
 |--------|-------------|---------|
@@ -240,7 +246,7 @@ Filters transform values:
 | `sort` | Sort list | `{{ items | sort }}` |
 | `reverse` | Reverse list | `{{ items | reverse }}` |
 
-### Escape Filters
+### Escape filters
 
 | Filter | Description |
 |--------|-------------|
@@ -248,14 +254,14 @@ Filters transform values:
 | `safe` | Mark as safe (no escape) |
 | `urlencode` | URL encode |
 
-### Default Filter
+### Default filter
 
 ```html
 {{ value | default("N/A") }}
 {{ user.name | default("Anonymous") }}
 ```
 
-### Chaining Filters
+### Chaining filters
 
 ```html
 {{ name | trim | lower | truncate(20) }}
@@ -272,7 +278,7 @@ Test values with `is`:
 {% if text is string %}
 ```
 
-### Available Tests
+### Available tests
 
 | Test | Description |
 |------|-------------|
@@ -285,8 +291,10 @@ Test values with `is`:
 | `number` | Value is number |
 | `iterable` | Value is iterable |
 
+{% hint style="warning" %}
 There is no `empty` test, and an empty list or string is truthy, so `{% if not items %}` does not catch it. Test
 the length: `{% if items | length == 0 %}`.
+{% endhint %}
 
 ## Operators
 
@@ -315,20 +323,20 @@ the length: `{% if items | length == 0 %}`.
 {{ index % 2 }}
 ```
 
-### String Concatenation
+### String concatenation
 
 ```html
 {{ first_name ~ " " ~ last_name }}
 ```
 
-### In Operator
+### In operator
 
 ```html
 {% if "admin" in roles %}
 {% if user.id in allowed_ids %}
 ```
 
-## Whitespace Control
+## Whitespace control
 
 Remove whitespace with `-`:
 
@@ -338,7 +346,7 @@ Remove whitespace with `-`:
 {%- endfor %}
 ```
 
-## Raw Output
+## Raw output
 
 Disable processing:
 
@@ -348,7 +356,7 @@ Disable processing:
 {% endraw %}
 ```
 
-## See Also
+## See also
 
 - [How to Render HTML Templates](../../how-to/templates/render-html-templates.md)
 - [How to Enable Hot Reload](../../how-to/templates/enable-hot-reload.md)

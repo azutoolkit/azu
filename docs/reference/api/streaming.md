@@ -1,3 +1,7 @@
+---
+description: Keep the connection open and write the body in pieces, as a chunked stream or as server-sent events.
+---
+
 # Streaming and server-sent events
 
 Two responses keep the connection open and write the body in pieces: `Azu::Response::Stream` for any

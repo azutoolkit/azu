@@ -1,3 +1,7 @@
+---
+description: "The CQL ORM as Azu apps use it: schemas, adapters, tables, models, CRUD, associations, callbacks, scopes, transactions and errors."
+---
+
 # CQL API
 
 CQL (Crystal Query Language) is the ORM used with Azu for database operations. It is a separate shard
@@ -10,7 +14,7 @@ This page describes CQL 0.0.766, the release Azu's `shard.lock` pins (its `shard
 [Query Data](../../how-to/database/query-data.md), [Handle Transactions](../../how-to/database/handle-transactions.md)
 and [Run Migrations](../../how-to/database/run-migrations.md).
 
-## Schema Definition
+## Schema definition
 
 ### CQL::Schema.define
 
@@ -57,7 +61,7 @@ MyDB.build   # CREATE TABLE IF NOT EXISTS for every table
 The URI query string carries crystal-db pool options such as `initial_pool_size`, `max_pool_size` and
 `checkout_timeout`.
 
-## Table Definition
+## Table definition
 
 Inside `table :name do ... end`:
 
@@ -77,7 +81,7 @@ Inside `table :name do ... end`:
 `index [:a, :b], unique:, name:` and a column's `index: true` declare an index; `create!` and `Schema#build` create it
 after the table, named `idx_<table>_<columns>` unless `name:` is given.
 
-## Model Definition
+## Model definition
 
 ### CQL::ActiveRecord::Model
 
@@ -118,7 +122,7 @@ User.table     # => :users
 `CQL::Model` is an alias of `CQL::ActiveRecord::Model`. The type argument is the primary key type (`Int32`, `Int64`,
 `UUID`); the model gets `id : Pk?`, `id!`, `persisted?` and `new_record?`. Use `class`, not `struct`.
 
-## CRUD Operations
+## CRUD operations
 
 ```crystal
 require "cql"
@@ -177,12 +181,16 @@ User.delete_by!(active: false)                  # by attributes
 User.where(active: false).delete_all            # loads and delete!s each record
 ```
 
+{% hint style="warning" %}
 **`create!(**fields)` and `update!` write straight to the database**: they do not validate and do not run callbacks.
-Build the record with `new` and call `save`/`save!` for the full lifecycle. `save`, `save!` and the instance `create!`
+Build the record with `new` and call `save`/`save!` for the full lifecycle.
+{% endhint %}
+
+`save`, `save!` and the instance `create!`
 raise `CQL::ActiveRecord::Validations::ValidationError` for an invalid record; `save` returns `false` only when a
 callback returns `false`.
 
-## Query Methods
+## Query methods
 
 Model-level methods start a `QueryBuilder`; the complete list with examples is in
 [Query Methods Reference](query-methods.md):
@@ -443,7 +451,7 @@ An exception rolls back and propagates; `DB::Rollback` rolls back quietly and th
 isolation-level or read-only options and no `after_commit`; see
 [Handle Transactions](../../how-to/database/handle-transactions.md).
 
-## Raw Queries
+## Raw queries
 
 ```crystal
 require "cql"
@@ -474,7 +482,7 @@ MyDB.exec("DELETE FROM users WHERE active = 0")
 names = MyDB.query.from(:users).select(:name).where(active: true).all(as: {String})
 ```
 
-## Optional Modules
+## Optional modules
 
 ```crystal
 require "cql"
@@ -559,7 +567,7 @@ into that 422 (see [CQL bridge](../api/cql-bridge.md)). Azu translates no other 
 (or a handler) and raise an `Azu::Response` error, for example `Azu::Response::NotFound` when `find` returns `nil`;
 see [Working with Databases](../../tutorials/working-with-databases.md).
 
-## See Also
+## See also
 
 - [Query Methods Reference](query-methods.md)
 - [Validations Reference](validations.md)

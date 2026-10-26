@@ -1,3 +1,7 @@
+---
+description: How the dev dashboard's Database tab records every SQL statement an Azu app runs, and how to set it up with CQL.
+---
+
 # Database dashboard
 
 The dev dashboard's **Database** tab shows every SQL statement an Azu app runs: KPIs, N+1 analysis,

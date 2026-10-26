@@ -1,8 +1,13 @@
+---
+description: "Every option of `Azu::Configuration`, with its type, default and environment variable."
+---
+
 # Configuration options
 
-Every option of `Azu::Configuration`, with its type, default and environment variable. Defaults are read when the
-configuration object is built, which for the global one happens when `azu` is required, so set environment
-variables before that (or assign in code).
+{% hint style="warning" %}
+Defaults are read when the configuration object is built, which for the global one happens when `azu` is required,
+so set environment variables before that (or assign in code).
+{% endhint %}
 
 ## Configuring Azu
 
@@ -175,7 +180,7 @@ replaced by a copy in a later directory; `Azu.prepare` validates again even when
 A directory that does not exist is skipped (an API-only app costs nothing); a very broad one such as `.` is scanned
 whole at boot, with the count and time logged at debug level.
 
-## Request Contracts
+## Request contracts
 
 | Option | Type | Default |
 |---|---|---|
@@ -308,7 +313,7 @@ Only the instrumentation of `azu/cql` is configured here; the connection is CQL'
 
 See the [database dashboard](../database-dashboard.md).
 
-## Performance Tooling (`require "azu/dev"`)
+## Performance tooling (`require "azu/dev"`)
 
 After `require "azu/dev"`, `Configuration` also has `performance_enabled?` (`PERFORMANCE_MONITORING=true`),
 `performance_profiling_enabled?` (`PERFORMANCE_PROFILING`) and `performance_memory_monitoring?`
@@ -320,7 +325,7 @@ methods do not exist.
 `handlers` holds the array given to `start`, for the development dashboard to draw. Assigning it does not change
 what the server runs. `router` is the app's `Azu::Router`.
 
-## Environment Variables
+## Environment variables
 
 Every variable Azu reads is in the tables on this page, plus the `REDIS_*` variables of
 [`Azu::Redis::Config.from_env`](../api/redis.md#config) and the `PUBSUB_REDIS_URL` and `PRESENCE_REDIS_URL` of PubSub
@@ -348,7 +353,7 @@ These are read outside `Azu::Configuration`:
 | `PERFORMANCE_SLOW_REQUEST_THRESHOLD` | `Float64` (milliseconds) | `1000` | `Handler::PerformanceMonitor` (`azu/dev`) logs a warning for a request that takes longer |
 | `PERFORMANCE_MEMORY_THRESHOLD` | `Int64` (bytes) | `10485760` (10 MB) | `Handler::PerformanceMonitor` (`azu/dev`) logs a warning for a request whose memory use grows by more |
 
-## Per-Environment Configuration
+## Per-environment configuration
 
 Read the environment first, then adjust:
 
@@ -373,7 +378,7 @@ module MyApp
 end
 ```
 
-## See Also
+## See also
 
 - [Environments Reference](environments.md)
 - [The Azu module](../api/app.md#the-azu-module)

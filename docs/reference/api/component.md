@@ -1,3 +1,7 @@
+---
+description: "Static HTML with `Azu::Component` and live, server-rendered views with `Azu::Spark::Component`: declarations, lifecycle, socket, bindings and testing."
+---
+
 # Component
 
 Azu has two kinds of components:
@@ -127,8 +131,10 @@ end
 | `mountable` | Allows `Azu::Spark.render` to render this component from a page. Props must be JSON serializable. |
 | `container "li", class: "todo"` | Chooses the wrapping element (default `div`) and its static attributes. |
 
+{% hint style="warning" %}
 `id`, `socket`, `render`, `mount`, `unmount`, `assigns`, `handle_event` and `handle_info` cannot be used
 as prop or state names.
+{% endhint %}
 
 ### Lifecycle
 

@@ -1,7 +1,10 @@
+---
+description: "One response type renders itself as HTML, JSON, XML or plain text, and the request's `Accept` header picks the format."
+---
+
 # Content negotiation
 
-One response type can render itself as HTML, JSON, XML or plain text and let the request's `Accept`
-header pick. `Azu::Response::Negotiable` finds the formats a type defines, `Azu::Negotiation` chooses
+`Azu::Response::Negotiable` finds the formats a type defines, `Azu::Negotiation` chooses
 among them, and a client that accepts none of them gets a `406`. A response that does not include
 `Negotiable` is not negotiated.
 
@@ -117,10 +120,13 @@ whatever the client accepts, since it just said it accepts nothing the response 
 An endpoint declared with a `Negotiable` response type (`Endpoint(Request, UserPage)`) refuses the
 request **before `call` runs**: a `POST` that cannot be answered creates nothing. For a union of
 negotiable types (`Endpoint(Request, UserPage | OtherPage)`) the check uses the formats all members
-render (members must be public types: macros cannot name private ones). A union with a member that is not
-negotiable, and a hand written endpoint, is checked only when the response is written, after `call`: for
-an unsafe method use a single response type, or negotiate in `call` with `Azu::Negotiation.negotiate!`
-before doing anything.
+render (members must be public types: macros cannot name private ones).
+
+{% hint style="warning" %}
+A union with a member that is not negotiable, and a hand written endpoint, is checked only when the
+response is written, after `call`: for an unsafe method use a single response type, or negotiate in `call`
+with `Azu::Negotiation.negotiate!` before doing anything.
+{% endhint %}
 
 ## Calling the negotiator yourself
 

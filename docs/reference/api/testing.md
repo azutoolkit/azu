@@ -1,3 +1,7 @@
+---
+description: "Drive an `Azu::App` in process from a spec: HTTP requests, typed calls, cookies, sessions, CSRF, time and WebSockets, with no socket."
+---
+
 # Testing
 
 `Azu::Testing` drives an `Azu::App` in process: no socket is opened, yet a request goes through the

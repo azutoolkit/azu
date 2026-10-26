@@ -1,8 +1,10 @@
+---
+description: "Azu's built-in template helpers: forms, links, endpoint URLs, assets, dates, numbers, HTML and internationalization."
+---
+
 # Template helpers
 
-Azu provides built-in template helpers for common web development tasks like building forms, generating links, formatting dates, and handling internationalization.
-
-## Quick Reference
+## Quick reference
 
 ```jinja
 {# Forms #}
@@ -37,7 +39,7 @@ Azu provides built-in template helpers for common web development tasks like bui
 
 ---
 
-## Form Helpers
+## Form helpers
 
 ### form_tag
 
@@ -85,10 +87,12 @@ Generates a hidden CSRF token input:
 {# Output: <input type="hidden" name="_csrf" value="token123..." /> #}
 ```
 
+{% hint style="warning" %}
 The value comes from the template variable `csrf_token`, which `view` injects only when the type that calls it has
 a `context` method. A response has none, so in a response's `render` the value is empty. Pass the endpoint's
 `context` to the response and render with `view_with_context(template, @context, data)`, which injects it.
 `csrf_meta` reads the same variable.
+{% endhint %}
 
 ### csrf_meta
 
@@ -232,7 +236,7 @@ Generates a submit button:
 
 ---
 
-## URL Helpers
+## URL helpers
 
 ### link_to
 
@@ -327,9 +331,11 @@ Filter that checks if a path matches the current page:
 {% endif %}
 ```
 
+{% hint style="warning" %}
 `current_path`, `current_url`, `is_current_page` and `active_class` read the request variables, like
 [`csrf_field`](#csrf_field). Rendered without them, `current_path()` is empty and the two filters compare with `/`,
 so the `/` link is active on every page.
+{% endhint %}
 
 ### active_class
 
@@ -358,13 +364,17 @@ Returns the referer URL or a fallback:
 
 ---
 
-## Type-Safe Endpoint Helpers
+## Type-safe endpoint helpers
 
 Azu automatically generates type-safe URL and form helpers from your endpoint definitions. The HTTP method is part of the helper name, making it impossible to confuse which action will be performed.
 
-### How They're Generated
+### How they're generated
 
 When you define an endpoint with an HTTP method, Azu auto-generates helpers:
+
+<details>
+
+<summary>The five endpoints of this example</summary>
 
 ```crystal
 struct PageResponse
@@ -421,6 +431,8 @@ struct DeleteUserEndpoint
 end
 ```
 
+</details>
+
 The resource part of a helper name is the endpoint's type name without `Endpoint`, underscored. For a namespaced
 endpoint it is the last two segments joined: `Blog::Posts::ShowEndpoint` gives `posts_show`, so its link helper is
 `link_to_get_posts_show`. The helpers are registered when the `get`, `post`, ... line runs, that is, when the type is defined.
@@ -435,8 +447,10 @@ This generates the following helpers:
 | `UpdateUserEndpoint.put "/users/:id"` | `link_to_put_update_user(id=...)`, `form_for_put_update_user(id=...)` |
 | `DeleteUserEndpoint.delete "/users/:id"` | `link_to_delete_delete_user(id=...)`, `form_for_delete_delete_user(id=...)`, `button_to_delete_delete_user(id=...)` |
 
+{% hint style="warning" %}
 The helpers do not check their arguments: the helper of a route with `:id` called without `id` prints the pattern
 itself (`href="/users/:id"`).
+{% endhint %}
 
 ### link_to_{method}_{resource}
 
@@ -572,7 +586,7 @@ Generates a complete delete form with a submit button (only for DELETE endpoints
 #}
 ```
 
-### Helper Naming Convention
+### Helper naming convention
 
 The helper name is derived from the endpoint class name:
 
@@ -586,7 +600,7 @@ The helper name is derived from the endpoint class name:
 
 ---
 
-## Asset Helpers
+## Asset helpers
 
 ### asset_path
 
@@ -664,7 +678,7 @@ Generates a favicon link:
 
 ---
 
-## Date Helpers
+## Date helpers
 
 ### time_ago
 
@@ -714,7 +728,7 @@ Filter that converts seconds to human-readable duration:
 
 ---
 
-## Number Helpers
+## Number helpers
 
 ### currency
 
@@ -776,7 +790,7 @@ Filter that formats large numbers with words:
 
 ---
 
-## HTML Helpers
+## HTML helpers
 
 ### safe_html
 
@@ -786,7 +800,9 @@ Filter that marks content as safe (no escaping):
 {{ html_content | safe_html }}
 ```
 
-**Warning:** Only use with trusted content to prevent XSS.
+{% hint style="danger" %}
+Only use with trusted content to prevent XSS.
+{% endhint %}
 
 ### simple_format
 
@@ -874,11 +890,12 @@ asset path to anything else. To link to another scheme, write the `<a>` yourself
 
 ---
 
-## i18n Helpers
+## i18n helpers
 
 Translations are YAML (or JSON) files under the load path (`locales/` by default, see the
 [i18n options](../configuration/options.md#i18n)), with the locale as the top-level key:
 
+{% code title="locales/en.yml" %}
 ```yaml
 # locales/en.yml
 en:
@@ -889,8 +906,9 @@ en:
     short: "%b %d"
     long: "%B %d, %Y"
 ```
+{% endcode %}
 
-### t (Translate)
+### t (translate)
 
 Function that translates a key:
 
@@ -914,6 +932,7 @@ Function that translates a key:
 
 Define translations with `zero`, `one`, `other` keys:
 
+{% code title="locales/en.yml" %}
 ```yaml
 # locales/en.yml
 en:
@@ -923,6 +942,7 @@ en:
       one: "1 user"
       other: "%{count} users"
 ```
+{% endcode %}
 
 ```jinja
 {{ t("users.count", count=0) }}  {# No users #}
@@ -930,7 +950,7 @@ en:
 {{ t("users.count", count=5) }}  {# 5 users #}
 ```
 
-### l (Localize)
+### l (localize)
 
 Filter that localizes dates using translation formats:
 
@@ -977,7 +997,9 @@ Azu::Helpers::I18n.with_locale(user_locale) do
 end
 ```
 
+{% hint style="warning" %}
 Assigning `Azu::Helpers::I18n.locale = "es"` directly also stays within the fiber, but a connection's fiber serves several requests in turn. Only assign it while handling a request that runs behind `Azu::Handler::Locale`, which discards it when the request ends.
+{% endhint %}
 
 ### available_locales
 
@@ -1008,7 +1030,7 @@ Function for simple pluralization:
 
 ---
 
-## Component Helpers
+## Component helpers
 
 Spark live views are not driven by template helpers: install the client with
 `Azu::Spark.script_tag` and build reactive elements with the `spark_click` / `spark_change` /
@@ -1021,7 +1043,7 @@ Returns the `id` of a component object (or its string form).
 
 ---
 
-## See Also
+## See also
 
 - [Template Engine](engine.md)
 - [How to Render HTML Templates](../../how-to/templates/render-html-templates.md)

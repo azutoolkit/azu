@@ -1,8 +1,10 @@
+---
+description: Azu's built-in error types, the status each one answers with, and the body it is written as.
+---
+
 # Error types
 
-Complete reference for Azu's built-in error types.
-
-## Base Error Class
+## Base error class
 
 ### Azu::Response::Error
 
@@ -25,7 +27,7 @@ error.title       # => "Payment failed"
 - `error_id : String` - Unique id of this error, sent as `X-Error-ID`
 - `fingerprint : String` - Stable hash of class, title, detail and source, sent as `X-Error-Fingerprint`
 
-## Client Errors (4xx)
+## Client errors (4xx)
 
 ### BadRequest (400)
 
@@ -141,7 +143,7 @@ raise Azu::Response::RateLimitError.new(60)
 
 **Usage:** Rate limiting
 
-## Server Errors (5xx)
+## Server errors (5xx)
 
 ### DatabaseError (500)
 
@@ -162,7 +164,7 @@ raise Azu::Response::ExternalServiceError.new("Payments", "Payment gateway error
 
 **Usage:** Proxy/gateway errors, failing third-party APIs
 
-## Statuses Without a Class
+## Statuses without a class
 
 There is no class for 405, 409, 410, 501, 503 and 504. Build an `Azu::Response::Error` with the status, or define a
 subclass (see [Creating Custom Errors](#creating-custom-errors)):
@@ -189,7 +191,7 @@ raise Azu::Response::Forbidden.new(context)
 `ErrorContext.from_http_context(context, request_id)` fills the request fields from an `HTTP::Server::Context`.
 Context is shown to clients only in the development environment.
 
-## Creating Custom Errors
+## Creating custom errors
 
 Subclass `Azu::Response::Error`, pass the title, status and messages to `super`, and set `detail` for the explanation:
 
@@ -218,7 +220,7 @@ end
 raise InsufficientFundsError.new(100.0, 25.0)
 ```
 
-## Error Response Format
+## Error response format
 
 `Rescuer` (and the router, for an unrouted path, and the endpoint, for a broken contract) writes an error in the
 format the first entry of the `Accept` header asks for: HTML (an error page), JSON, XML or plain text. With no
@@ -247,7 +249,7 @@ of a broken request contract uses, and it is the same for every JSON client (see
   `ErrorId`, `Fingerprint`, `Context`, `Backtrace`, `Timestamp`) as `application/json`, for validation failures and for
   every other error.
 
-## HTTP Status Codes Summary
+## HTTP status codes summary
 
 | Code | Name | Class |
 |------|------|-------|
@@ -263,7 +265,7 @@ of a broken request contract uses, and it is the same for every JSON client (see
 | 500 | Internal Server Error | `Error`, `DatabaseError` |
 | 502 | Bad Gateway | `ExternalServiceError` |
 
-## See Also
+## See also
 
 - [How to Handle Errors Gracefully](../../how-to/errors/handle-errors-gracefully.md)
 - [How to Create Custom Errors](../../how-to/errors/create-custom-errors.md)

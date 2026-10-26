@@ -1,9 +1,12 @@
+---
+description: "The rules, messages, custom validators and lifecycle of CQL model validations (`CQL::ActiveRecord::Validations`)."
+---
+
 # Database validations
 
-Reference for CQL model validations (`CQL::ActiveRecord::Validations`). For validating HTTP input see the
-[Request Reference](../api/request.md); the two systems are independent.
+For validating HTTP input see the [Request Reference](../api/request.md); the two systems are independent.
 
-## Validation Macro
+## Validation macro
 
 ### validate
 
@@ -14,14 +17,18 @@ a typo stops compilation with `unknown attribute`:
 validate :attribute, rule: expected, ..., message: "text"
 ```
 
+{% hint style="warning" %}
 Calling `validate` again for the same attribute replaces the earlier call, so put all rules for an attribute in one
-call. Rules are evaluated in the order written. A rule that fails adds one `Error` with the default message below, or with
+call.
+{% endhint %}
+
+Rules are evaluated in the order written. A rule that fails adds one `Error` with the default message below, or with
 `message:` when given (one custom message is used for every rule of that call).
 
 An unknown rule name stops compilation: `unsupported predicate ... Supported predicates: eq, exclude, gt, gte, in, lt, lte,
 match, size, presence, required, confirmation, accept.`
 
-## Validation Rules
+## Validation rules
 
 | Rule | Passes when | Default message |
 | --- | --- | --- |
@@ -39,9 +46,12 @@ match, size, presence, required, confirmation, accept.`
 The `in` and `exclude` messages print the Crystal literal as written, so an array of strings reads
 `status must be included in ["active", "archived"] of ::String`; pass `message:` for user-facing text.
 
+{% hint style="warning" %}
 A `nil` value fails every rule: `gt: 0` on an `Int32?` property that is `nil` fails, and `confirmation` fails unless
-both properties are set. For an optional value write a custom validator or give the property a default. `presence`
-calls `empty?`, so it does not compile on numbers; use `required: true` or a comparison for those.
+both properties are set. For an optional value write a custom validator or give the property a default.
+{% endhint %}
+
+`presence` calls `empty?`, so it does not compile on numbers; use `required: true` or a comparison for those.
 There is no `length`, `format`, `numericality`, `inclusion`, `exclusion`, `uniqueness`, `allow_nil`, `allow_blank`,
 `if`/`unless`, and the `on:` option does not compile (`undefined macro variable 'context'`); see
 [Custom Validators](#custom-validators) for how to express those.
@@ -111,7 +121,7 @@ account = Account.new("Al", "al", "al@example.com", "abc123", 30, 5.0, "user", "
 account.valid?   # => false (terms not accepted, password missing)
 ```
 
-## Custom Messages
+## Custom messages
 
 `message:` replaces the default text for every rule in the same `validate` call. Split the rules over separate calls to
 give each its own message:
@@ -145,7 +155,7 @@ end
 Person.new("a@example.com", 0).errors.map(&.message)   # => ["must be positive"]
 ```
 
-## Custom Validators
+## Custom validators
 
 For anything the rules cannot say (uniqueness, optional values, cross-field checks, context-dependent rules) subclass
 `CQL::ActiveRecord::Validations::CustomValidator`, return the failures from `valid?` and attach it with `use`. The
@@ -205,7 +215,7 @@ end
 Order.new("A-1", 10.0, 20.0).errors.map(&.message)   # => ["cannot exceed the total"]
 ```
 
-## Checking Validity
+## Checking validity
 
 ### valid?
 
@@ -259,9 +269,11 @@ Raises `CQL::ActiveRecord::Validations::ValidationError` (message: all error mes
 returns `true` otherwise. `save`, `save!` and the instance `create!` call it, so they raise the same error for an invalid
 record; `save` returns `false` only when a callback returns `false`.
 
+{% hint style="warning" %}
 The class-level `create!(**fields)`, `update!`, `update_by`, `update_all` and the bulk deletes do not validate.
+{% endhint %}
 
-## Validation Lifecycle
+## Validation lifecycle
 
 `save` (and `save!`) performs, in order:
 
@@ -313,7 +325,7 @@ end
 User.new(" Ada ", " ADA@EXAMPLE.COM ").save
 ```
 
-## See Also
+## See also
 
 - [CQL API Reference](cql-api.md)
 - [Create models](../../how-to/database/create-models.md#model-with-validations)

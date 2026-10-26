@@ -1,11 +1,15 @@
+---
+description: "Every CQL model query method: retrieval, filtering, ordering, limits, selection, aggregates, joins, batches, bulk writes, locking and raw SQL."
+---
+
 # Query methods
 
-Reference for CQL model query methods. A model class (or a `QueryBuilder`) answers all of them; methods that add
+A model class (or a `QueryBuilder`) answers all of them; methods that add
 conditions return a new `QueryBuilder`, so they chain. Nothing runs until a method that returns records or a value is
 called. Each group of examples below is a complete program.
 
 
-## Retrieval Methods
+## Retrieval methods
 
 | Method | Returns | Notes |
 | --- | --- | --- |
@@ -131,8 +135,10 @@ User.query.where_gt(:age, 18)
 User.query.where_lt(:age, 65)
 ```
 
+{% hint style="warning" %}
 `where(deleted_at: nil)` emits `IS NULL` and matches the rows whose column is NULL, like `where { deleted_at.null }`.
 Reject a `nil` that comes from untrusted input before passing it.
+{% endhint %}
 
 ### Excluding and OR
 
@@ -423,13 +429,13 @@ User.where(role: "banned").empty?
 User.none.all
 ```
 
-## Batch Processing
+## Batch processing
 
 `find_each(batch_size = 1000)` yields records, `find_in_batches(batch_size = 1000)` yields arrays. There is no
 `in_batches`.
 
 
-## Bulk Writes
+## Bulk writes
 
 These issue a single statement and do not validate or run callbacks (except `delete_all` on a query, which loads each
 record and calls `delete!`):
@@ -639,7 +645,7 @@ User.where(active: true)
   .all
 ```
 
-## See Also
+## See also
 
 - [CQL API Reference](cql-api.md)
 - [How to Query Data](../../how-to/database/query-data.md)

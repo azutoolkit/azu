@@ -1,3 +1,7 @@
+---
+description: "Track who is in a topic across processes with `Azu::Presence`, and receive join and leave diffs."
+---
+
 # Presence
 
 `Azu::Presence` answers "who is in this topic right now?" across processes. A *key* (a user id, a session) is
@@ -104,8 +108,11 @@ for several nodes.
 
 `Store::Redis.new(url, prefix, server_time: true)` (prefix `"azu:presence:"` by default) keeps a topic in the hash
 `<prefix>t:<topic>` (`ref` => meta JSON), an index per key in `<prefix>k:<topic>\u001f<key>` and the leases in
-`<prefix>nodes`. Each write gives the topic and index hashes one day to live (`RETENTION`). Environments that share
-a Redis need distinct prefixes.
+`<prefix>nodes`. Each write gives the topic and index hashes one day to live (`RETENTION`).
+
+{% hint style="warning" %}
+Environments that share a Redis need distinct prefixes.
+{% endhint %}
 
 `Tracker.new(store, node:, ttl:, heartbeat:, interval:, pub_sub:, max_meta_bytes:, max_entries:)`:
 
@@ -118,7 +125,11 @@ a Redis need distinct prefixes.
 | `max_meta_bytes` | 1024 | Largest meta, as JSON. |
 | `max_entries` | 10 000 | Most metas this node tracks. |
 
-`unwatch(topic)` is deprecated: it drops every claim on the topic at once. `watch(topic)` returns a `Watch` and `subscribe` a `Subscription`; both are counted per topic, and the node stops
+{% hint style="warning" %}
+`unwatch(topic)` is deprecated: it drops every claim on the topic at once.
+{% endhint %}
+
+`watch(topic)` returns a `Watch` and `subscribe` a `Subscription`; both are counted per topic, and the node stops
 following a topic (and drops its subscription and its remembered view) when the last of them is cancelled. A
 `Tracked` channel gives its watches back in `teardown`.
 

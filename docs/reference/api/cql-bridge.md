@@ -1,3 +1,7 @@
+---
+description: "Build CQL models from request contracts, responses from models, and run each request in a CQL transaction."
+---
+
 # CQL bridge
 
 `require "azu/cql"` (opt-in, see [Database dashboard](../database-dashboard.md)) also connects Azu's request and
@@ -107,9 +111,12 @@ and takes precedence over the default.
 
 ### Mass assignment: list the fields with `only:`
 
+{% hint style="danger" %}
 Matching is by name, so **every request field that the model has a setter or constructor argument for is copied**,
-including `role`, `admin`, `user_id` or `password_digest` if the request declares them. The request struct is the
-allow-list, which is safe as long as it only declares what a client may set; when the request is shared with other
+including `role`, `admin`, `user_id` or `password_digest` if the request declares them.
+{% endhint %}
+
+The request struct is the allow-list, which is safe as long as it only declares what a client may set; when the request is shared with other
 code, or the model has sensitive attributes, state the list explicitly. Declare it once next to the request:
 
 <!-- skip -->
@@ -191,7 +198,9 @@ server = app.server(handlers)
 * Without `transaction`, CQL keeps checking out a pooled connection per statement; only the tagging applies.
 * Escaping `CQL::RecordInvalid`, `CQL::ValidationError` and the model validation error become 422s.
 
+{% hint style="warning" %}
 If the commit itself fails, the middleware discards the body the handler buffered (while headers have not been sent)
 before re-raising, so the `Rescuer`'s error page is not appended to a success body. A response already flushed, which
 Crystal does once the body exceeds its output buffer (about 8 KB), cannot be taken back: for large bodies the client
 may see the success status and a truncated reply.
+{% endhint %}

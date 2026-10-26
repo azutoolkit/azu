@@ -1,3 +1,7 @@
+---
+description: "Every middleware handler Azu ships in `Azu::Handler`: what it does, its options and where it goes in the chain."
+---
+
 # Built-in handlers
 
 Azu ships handlers for the common middleware needs. They are all `HTTP::Handler`s in the `Azu::Handler`
@@ -140,8 +144,11 @@ Azu::Handler::SecurityHeaders.new(
 
 Sets `X-Content-Type-Options: nosniff`, `X-Frame-Options`, `Referrer-Policy`, and, only when asked,
 `Content-Security-Policy` (the string you pass) and `Strict-Transport-Security: max-age=31536000; includeSubDomains`
-(`hsts: true`). A header the application already set is left alone, so one endpoint can loosen a policy. Enable
-HSTS only for sites served over HTTPS; browsers remember it.
+(`hsts: true`). A header the application already set is left alone, so one endpoint can loosen a policy.
+
+{% hint style="warning" %}
+Enable HSTS only for sites served over HTTPS; browsers remember it.
+{% endhint %}
 
 ## Handler::Static
 
@@ -290,8 +297,12 @@ With the allowed origin `https://app.example.com`:
 | `OPTIONS` preflight asking for an allowed method and header | `200` with `Access-Control-Allow-Methods`, `-Headers`, `-Max-Age`; the endpoint does not run |
 | preflight asking for a method not in `methods` | `403` |
 
-With `origins: ["*"]` the request's origin is echoed back, so the response carries `Vary: Origin`. Put `CORS` before authentication
-handlers: a preflight carries no credentials, so an authentication handler in front of `CORS` answers it with `401`.
+With `origins: ["*"]` the request's origin is echoed back, so the response carries `Vary: Origin`.
+
+{% hint style="warning" %}
+Put `CORS` before authentication handlers: a preflight carries no credentials, so an authentication handler in front
+of `CORS` answers it with `401`.
+{% endhint %}
 
 ## Handler::CSRF
 
@@ -341,8 +352,12 @@ csrf = Azu::Handler::CSRF.new(
 )
 ```
 
+{% hint style="danger" %}
 The adapter must return the token of the session of *that request*: a single shared session object would give
-every visitor the same token. Put the session handler before `CSRF` in the chain.
+every visitor the same token.
+{% endhint %}
+
+Put the session handler before `CSRF` in the chain.
 The token store is used by `SynchronizerToken` only; `SignedDoubleSubmit` and `DoubleSubmit` are cookie patterns by
 definition.
 Issuing a token without an adapter raises `Azu::SessionAdapter::NotConfigured`; validating a request when the
@@ -405,8 +420,11 @@ All five arguments are required.
 
 Clients are identified by the peer address of the connection (not by headers a client controls). A blocked
 client gets `429` with `Retry-After` (seconds left) and an empty body: with `threshold: 3` the fourth request in the
-interval answers `429`. `stats` returns `{tracked_ips: Int32, blocked_ips: Int32}`, and `reset` clears the counters. Behind a proxy every request comes from the
-proxy's address; the limit then applies to all clients together.
+interval answers `429`. `stats` returns `{tracked_ips: Int32, blocked_ips: Int32}`, and `reset` clears the counters.
+
+{% hint style="warning" %}
+Behind a proxy every request comes from the proxy's address; the limit then applies to all clients together.
+{% endhint %}
 
 ## Handler::HealthCheck
 
@@ -448,7 +466,7 @@ returns `"es"`; `"pt"` matches `"pt-BR"`, `"en-GB"` matches `"en"`, `"*"` and un
 environment only: elsewhere it passes every request to the next handler, and building it logs a warning
 ([Environments](../configuration/environments.md#what-depends-on-the-environment)).
 
-## See Also
+## See also
 
 - [App](../api/app.md)
 - [Handlers concept](../../explanation/concepts/middleware.md)

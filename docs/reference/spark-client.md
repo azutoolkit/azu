@@ -1,3 +1,7 @@
+---
+description: "The browser half of Spark: serving the script, the connection lifecycle, event delivery, compressed frames, the client API, accessibility, patches, CSP and rehydration."
+---
+
 # Spark JavaScript client
 
 `azu_spark.js` is the browser half of [Spark](../explanation/spark-live-views.md). It has no
@@ -42,24 +46,38 @@ one it left, so no timer outlives its state.
 | `hidden-idle` | closed on purpose (code 1000) after the tab was hidden for the idle window; the tab's return rejoins | `disconnected` | none |
 | `stopped` | stopped until `connect()`: `disconnect()`, or a token that can never join | `disconnected` | none |
 
-```text
-            connect                 hello                joins answered
-   idle ------------> connecting ---------> joining ---------------------> open
-                          ^  |                 |  ^                          |  |
-          retry elapsed / |  | lost, or        |  | a root is added          |  |
-          visible         |  | no hello in 10 s|  +--------------------------+  |
-                          |  v                 v                                |
-                       backoff <---------- (connection lost: close, dead, ... ) <+
-                          |  ^
-          offline event   |  | online: retry after a short jittered delay, attempts kept
-                          v  |
-                        offline
+```mermaid
+stateDiagram-v2
+    state "hidden-idle" as hidden_idle
 
-   any state with a socket --stop / pagehide--> closing --closed--> stopped / idle
-   open / joining / connecting / backoff / offline --hidden for idleMs--> closing(1000) --closed--> hidden-idle
-   hidden-idle --visible / focus / pageshow / an event is made--> connecting (attempts kept)
-   stopped / idle --connect / pageshow--> connecting
-   closing --pageshow (restored from the bfcache)--> connecting once the close finished
+    idle --> connecting : connect / pageshow
+    connecting --> joining : hello
+    joining --> open : joins answered
+    open --> joining : a root is added
+
+    connecting --> backoff : lost, or no hello in 10 s
+    joining --> backoff : connection lost (close, dead, ...)
+    open --> backoff : connection lost (close, dead, ...)
+    backoff --> connecting : retry elapsed / visible
+    backoff --> offline : offline event
+    offline --> backoff : online, retry after a short jittered delay, attempts kept
+
+    connecting --> closing : stop / pagehide
+    joining --> closing : stop / pagehide
+    open --> closing : stop / pagehide
+    closing --> stopped : closed
+    closing --> idle : closed
+
+    open --> closing : hidden for idleMs, close 1000
+    joining --> closing : hidden for idleMs, close 1000
+    connecting --> closing : hidden for idleMs, close 1000
+    backoff --> closing : hidden for idleMs, close 1000
+    offline --> closing : hidden for idleMs, close 1000
+    closing --> hidden_idle : closed, after the 1000 close
+    hidden_idle --> connecting : visible / focus / pageshow / an event is made (attempts kept)
+
+    stopped --> connecting : connect / pageshow
+    closing --> connecting : pageshow (restored from the bfcache), once the close finished
 ```
 
 - **Backoff.** After a lost connection the client waits a random time between 0 and
@@ -213,9 +231,12 @@ with already holds.
 What "once" covers: the *state of the components*. After a reconnect the server mounts the page from the last
 snapshot the client holds, and applies the resent event to it, so a component that persists its state ends
 up with the event applied exactly once whether or not the first attempt reached the old connection.
+
+{% hint style="warning" %}
 Side effects *outside* the component (a payment, an email, an insert) are different: the old connection
 may have run the handler before it was cut, and the new one runs it again. Make such handlers idempotent,
 or mark them `spark-delivery="at-most-once"`.
+{% endhint %}
 
 ```crystal
 class Checkout < Azu::Spark::Component
@@ -606,6 +627,7 @@ end
 
 Only `persist: true` state travels, `draft` above starts empty again.
 
+{% hint style="danger" %}
 **Persisted state is not authority.** The snapshot is signed, not encrypted, so the browser can
 read it, and it can replay an old one until it expires (`config.snapshot_ttl`, default one hour,
 `SPARK_SNAPSHOT_TTL`; the join token lives for `token_ttl`). On rejoin the restored state
@@ -613,6 +635,7 @@ overwrites what `mount` computed. Never persist secrets or anything that grants 
 (`is_admin`, `user_id`, prices, permissions): keep those in the session claims of the join token
 or look them up again in `mount` and `event` handlers. A snapshot that expired before a reconnect
 is refused and the page starts afresh.
+{% endhint %}
 
 A snapshot token is sent with a diff only when the persisted state changed (it is not debounced:
 persist small, rarely changing state). Joining a root that is already mounted is refused with

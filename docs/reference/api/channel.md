@@ -1,3 +1,7 @@
+---
+description: "Handle a WebSocket connection with `Azu::Channel`: callbacks, instance methods, origin checks and `Azu::PubSub` topics."
+---
+
 # Channel
 
 `Azu::Channel` handles one WebSocket connection. Azu builds a new instance for every client that
@@ -85,7 +89,9 @@ The route is a `Channel::Upgrader`: it validates the handshake and the `Origin` 
 | `on_close(code, message)` | The client closed the connection, or it was lost. `code` is `HTTP::WebSocket::CloseCode?`. |
 | `on_broadcast(message : PubSub::Message)` | A message was broadcast to a topic this channel subscribed to. Optional. |
 
+{% hint style="warning" %}
 An exception raised from a callback ends the connection; subscriptions are still released.
+{% endhint %}
 
 ## Instance methods
 

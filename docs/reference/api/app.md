@@ -1,3 +1,7 @@
+---
+description: "Run an application as a value with `Azu::App`: start, stop and mount it, and use the `include Azu` facade and the module functions."
+---
+
 # App
 
 `Azu::App` is an application as a value: its own configuration, router, handler chain and lifecycle. Two of them
@@ -64,10 +68,12 @@ are not handlers: they are reached through the router.
    the database pools) and the shared Redis pools. These parts are process-wide, which is why one app stopping while
    another still runs leaves them alone.
 
+{% hint style="warning" %}
 **An app starts once.** `start` on a running app raises `Azu::App::AlreadyRunning`; on an app that has stopped, or has
 begun shutting down (`stop`, a signal, `begin_shutdown`), it raises `Azu::App::AlreadyStopped`: a stopped app refuses
 requests for good, so build a new `Azu::App` to serve again. A `start` that failed to bind does not count and can be repeated.
 This holds for `Azu::App.default` too, so `MyApp.start` runs once per process.
+{% endhint %}
 
 | Signature | Returns | Notes |
 |---|---|---|

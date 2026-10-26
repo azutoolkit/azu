@@ -1,3 +1,7 @@
+---
+description: "The Spark benchmark suite in `benchmark/spark/`: how to run it, what it measures and how to read and compare its results."
+---
+
 # Spark benchmarks
 
 The repository ships a benchmark suite for Spark in `benchmark/spark/`. It exists to answer relative
@@ -5,8 +9,10 @@ questions: did this change make patches slower, did the client grow, does delive
 throughput. It is not a source of absolute performance claims, and none are made here: the numbers
 depend on the machine, and a shared CI runner or cloud container is noisy.
 
+{% hint style="info" %}
 Nothing in the suite touches the framework. It is not part of `crystal spec`, and the required CI
 checks do not run it.
+{% endhint %}
 
 ## Running it
 

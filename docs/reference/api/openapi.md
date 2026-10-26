@@ -1,3 +1,7 @@
+---
+description: Generate an OpenAPI 3.1 document from your endpoint contracts, serve it, and know what it cannot describe.
+---
+
 # OpenAPI
 
 `Azu::OpenAPI` generates an [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0) document from the
@@ -151,9 +155,12 @@ line breaks, which an ECMA-262 pattern without the `m` flag does not, so a multi
 `Azu::OpenAPI::Handler.new(app, info:, path: "/openapi.json", servers: [])` is an opt-in `HTTP::Handler`
 like `Handler::HealthCheck`: it answers `GET` and `HEAD` at `path` with JSON and passes every other
 request on. The document is built by the first request and kept, so routes added after that do not
-show up. There is no documentation UI; point Swagger UI, Redoc or any other tool at the URL. Pass the handler
-after the default ones, as above: a server built from `[handler]` alone has no request id, error pages or
-security headers.
+show up. There is no documentation UI; point Swagger UI, Redoc or any other tool at the URL.
+
+{% hint style="warning" %}
+Pass the handler after the default ones, as above: a server built from `[handler]` alone has no request id, error
+pages or security headers.
+{% endhint %}
 
 The handler describes the `App` it is given, nothing else, and its cache never invalidates: build a new
 handler to pick up routes added later. `path: "/"` serves the document at the root.

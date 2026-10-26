@@ -1,3 +1,7 @@
+---
+description: "The one Redis layer the cache, PubSub and Presence share: its config, pool, retries, health check and shutdown."
+---
+
 # Redis
 
 `Azu::Redis` is the one place Azu opens connections to Redis. The cache (`Cache::RedisStore`), the PubSub backend
@@ -48,10 +52,11 @@ URL variable in front of `REDIS_URL`: `PUBSUB_REDIS_URL` for PubSub, and `PRESEN
 `PUBSUB_REDIS_URL`, for Presence. With none of them set, `REDIS_URL` is used, then
 `redis://localhost:6379/0`.
 
-> **The cache never reads `REDIS_URL` and has no default URL.** `REDIS_URL` often names the Redis of sessions or a
-> job queue. A Redis cache needs `CACHE_REDIS_URL`, `cache_config.redis_url` or a client you hand it, and raises
-> an `ArgumentError` when built without one. `Cache#clear` only removes keys under the cache's `key_prefix`.
-
+{% hint style="warning" %}
+**The cache never reads `REDIS_URL` and has no default URL.** `REDIS_URL` often names the Redis of sessions or a
+job queue. A Redis cache needs `CACHE_REDIS_URL`, `cache_config.redis_url` or a client you hand it, and raises
+an `ArgumentError` when built without one. `Cache#clear` only removes keys under the cache's `key_prefix`.
+{% endhint %}
 
 ## Sharing one pool
 

@@ -1,8 +1,10 @@
+---
+description: How the radix-tree router registers routes, matches paths and answers requests that match no route.
+---
+
 # Router
 
-The router handles HTTP request routing using a radix tree.
-
-## Route Registration
+## Route registration
 
 ### Verb macros
 
@@ -102,9 +104,11 @@ admin = Azu::App.new
 admin.routes { endpoint PingEndpoint } # GET /ping
 ```
 
+{% hint style="warning" %}
 Not per app yet: `Channel.ws` (it registers on `App.default` when the class is defined; use `ws` in `App#routes`
 for another app), and the Crinja link helpers (`link_to_get_users` and friends), which are registered once per type
 in a process-wide registry and link with the path of the app serving the request.
+{% endhint %}
 
 ### Mounting another app
 
@@ -113,7 +117,7 @@ removed, and run with that app's configuration. An app can be mounted once, so b
 `Endpoint.path` includes the prefix the app is mounted at and the scope the route was declared in, so links stay
 right wherever the endpoint is mounted.
 
-## Route Patterns
+## Route patterns
 
 A static segment matches itself, a segment that starts with `:` captures its value under that name, and a segment
 that starts with `*` captures the rest of the path.
@@ -138,7 +142,7 @@ app.routes do
 end
 ```
 
-## HTTP Methods
+## HTTP methods
 
 | Method | Macro | Description |
 |--------|-------|-------------|
@@ -158,7 +162,7 @@ those three verbs.
 
 Trailing slashes are ignored: `/users/` matches the route `/users`.
 
-## Route Matching
+## Route matching
 
 The radix tree tries static segments before parameters, and parameters before wildcards. With `/users`,
 `/users/:id` and `/users/*rest` declared, `/users` matches the first, `/users/123` the second and
@@ -166,7 +170,7 @@ The radix tree tries static segments before parameters, and parameters before wi
 
 Declaring the same method and path twice raises `Azu::Router::DuplicateRoute`.
 
-## Accessing Route Parameters
+## Accessing route parameters
 
 Route parameters are read with `params`, next to query and form values:
 
@@ -184,7 +188,7 @@ struct PostEndpoint
 end
 ```
 
-### Wildcard Parameters
+### Wildcard parameters
 
 ```crystal
 struct DocsEndpoint
@@ -229,7 +233,7 @@ end
 Azu::App.default.router.path_of(PathEndpoint) # => "/path"
 ```
 
-### Path Caching
+### Path caching
 
 The router caches the radix lookup key of the first 1000 distinct method and path pairs. The cache has two levels
 (method, then path), and reads take no lock: a lookup is two hash reads and allocates nothing. Once 1000 entries are
@@ -239,7 +243,7 @@ cached, new paths are not added (there is no eviction). `clear_path_cache` empti
 Azu::App.default.router.clear_path_cache
 ```
 
-## Route Groups
+## Route groups
 
 Organize routes with common prefixes with `scope`, or declare the full path in each endpoint:
 
@@ -255,9 +259,9 @@ struct ApiV1UsersIndex
 end
 ```
 
-## Error Handling
+## Error handling
 
-### Not Found
+### Not found
 
 When no route matches, the router answers `404` with an `Azu::Response::NotFound`, rendered as HTML, JSON, XML or
 plain text according to the first `Accept` entry (plain text with no `Accept` or `*/*`). A JSON client gets the
@@ -274,7 +278,7 @@ A request is routed only when its method is one of the verbs spelled exactly (`G
 case-sensitive) and its path starts with `/`; a WebSocket route is reached only by a `GET` upgrade. Any other request
 answers `404`.
 
-## See Also
+## See also
 
 - [Endpoint Reference](endpoint.md)
 - [Handler Reference](../handlers/built-in.md)

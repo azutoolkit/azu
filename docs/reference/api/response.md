@@ -1,6 +1,8 @@
-# Response
+---
+description: "Response objects define how endpoint results are rendered to clients: built-in types, errors, headers and status."
+---
 
-Response objects define how endpoint results are rendered to clients.
+# Response
 
 ## Including Response
 
@@ -17,7 +19,7 @@ struct MyResponse
 end
 ```
 
-## Required Methods
+## Required methods
 
 ### render
 
@@ -38,7 +40,7 @@ end
 
 **Returns:** `String`
 
-## Built-in Response Types
+## Built-in response types
 
 Azu ships these response types:
 
@@ -132,7 +134,7 @@ struct DeleteEndpoint
 end
 ```
 
-## Error Responses
+## Error responses
 
 ### Azu::Response::Error
 
@@ -149,7 +151,7 @@ error.status_code # => 400
 error.detail      # => "Payment failed"
 ```
 
-### Built-in Errors
+### Built-in errors
 
 | Class | Status | Usage |
 |-------|--------|-------|
@@ -166,7 +168,7 @@ error.detail      # => "Payment failed"
 | `DatabaseError` | 500 | Database operation failed |
 | `ExternalServiceError` | 502 | A service this one depends on is unavailable |
 
-### Using Error Responses
+### Using error responses
 
 ```crystal
 struct FindUserEndpoint
@@ -216,7 +218,7 @@ turned into a `500`, ...) answers JSON clients with the same envelope, `errors` 
 With `config.error_format = Azu::ErrorFormat::Legacy` the bodies are PascalCase instead (`FieldErrors`, `ErrorId`, ...
 for a validation failure), sent as `application/json`.
 
-## Response with Headers
+## Response with headers
 
 Set custom headers in your endpoint with `header key, value`:
 
@@ -243,7 +245,7 @@ struct CachedEndpoint
 end
 ```
 
-## Response with Status
+## Response with status
 
 Set custom status codes:
 
@@ -279,7 +281,7 @@ struct QueueTaskEndpoint
 end
 ```
 
-## Streaming Responses
+## Streaming responses
 
 For large responses, write to the HTTP response from the endpoint and return `Azu::Response::Empty`:
 
@@ -306,7 +308,7 @@ struct StreamEndpoint
 end
 ```
 
-## Content Negotiation
+## Content negotiation
 
 Errors are negotiated for you from the `Accept` header. For your own responses, read the header in the endpoint and
 let the response choose the format:
@@ -343,7 +345,7 @@ struct NegotiatedEndpoint
 end
 ```
 
-## See Also
+## See also
 
 - [Endpoint Reference](endpoint.md)
 - [Request Reference](request.md)

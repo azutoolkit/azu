@@ -1,6 +1,8 @@
-# Breaking changes
+---
+description: The breaking changes between Azu versions, and how to migrate across each one.
+---
 
-This document lists breaking changes between Azu versions and migration guides.
+# Breaking changes
 
 ## Version 0.5.x
 
