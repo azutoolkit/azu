@@ -124,11 +124,14 @@ abstract class Crinja::FeatureLibrary(T)
   end
 end
 
-# Crinja's rule, split so the filename's part is computed once per compiled template: a render then reads the rule
-# (changed in place or not) without allocating. Crinja's renderer goes through the same two methods.
+# Crinja's `autoescape?(filename)` with the filename's part computed once per compiled template (`extension`), so a
+# compiled render reads the rule (changed in place or not) without allocating. Crinja's 1-arg `autoescape?` is
+# untouched; `CompiledTemplate` takes this path only for Crinja's own `Config` and `Autoescape` classes. It assumes
+# `match_extension?` is Crinja's own (`extension` is its extension part, `extension(f) == e` exactly when
+# `match_extension?([e], f)`): an app that reopens `match_extension?` must reopen `extension` the same way.
 class Crinja::Config::Autoescape
   # :nodoc:
-  # The extension the lists are matched against (`"html"` for `page.html.j2`), or nil, as `match_extension?` finds it.
+  # The extension `match_extension?` matches the lists against (`"html"` for `page.html.j2`), or nil when it has none.
   def self.extension(filename : String) : String?
     filename = filename.downcase
     extname = File.extname(filename)
@@ -136,11 +139,8 @@ class Crinja::Config::Autoescape
     extname[1..] unless extname.empty?
   end
 
-  def autoescape?(filename : String? = nil) : Bool
-    autoescape?(filename, filename.try { |name| self.class.extension(name) })
-  end
-
   # :nodoc:
+  # `autoescape?(filename)` for `extension == Autoescape.extension(filename)`.
   def autoescape?(filename : String?, extension : String?) : Bool
     if filename.nil? || filename.empty?
       default_for_string

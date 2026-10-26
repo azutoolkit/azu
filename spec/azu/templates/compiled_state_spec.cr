@@ -120,3 +120,52 @@ describe "Azu::Templates compiled templates (escape written to the io)" do
     page.render("plain.txt.j2", {"x" => "<b>"}).should eq "&lt;b&gt;"
   end
 end
+
+private class AlwaysEscapeRule < Crinja::Config::Autoescape
+  def autoescape?(filename : String? = nil)
+    true
+  end
+end
+
+private class AlwaysEscapeConfig < Crinja::Config
+  def autoescape?(filename : String? = nil)
+    true
+  end
+end
+
+describe "Azu::Templates compiled templates (an app's autoescape rule, odd input)" do
+  it "asks an app's subclass of the rule or of the config, as Crinja's renderer does" do
+    data = {"x" => "<script>alert(1)</script>"}
+    compiled, crinja = both_pages
+    {compiled, crinja}.each(&.crinja.config.autoescape=(AlwaysEscapeRule.new))
+    compiled.render("plain.txt.j2", data).should eq crinja.render("plain.txt.j2", data)
+    compiled.render("plain.txt.j2", data).should eq "&lt;script&gt;alert(1)&lt;/script&gt;"
+
+    template = filters_page.load("plain.txt.j2").as(Azu::Templates::CompiledTemplate)
+    env = Crinja.new(config: AlwaysEscapeConfig.new)
+    expected = Crinja::Template.new(template.source, env, template.name, template.filename).render(data)
+    env.with_scope(Crinja::Context.new(bindings: Crinja.variables(data))) do
+      String.build { |io| template.render(io, env) }.should eq expected
+    end
+    expected.should eq "&lt;script&gt;alert(1)&lt;/script&gt;"
+  end
+
+  it "replaces invalid UTF-8 with U+FFFD in | e and an escaping print, like Crinja" do
+    data = {"x" => String.new(Bytes[0x3C, 0xE2, 0x3C, 0xFF, 0x22]), "vals" => [String.new(Bytes[0xFF, 0x26])]}
+    compiled, crinja = both_pages
+    expected = crinja.render("escape.jinja", data)
+    expected.should start_with "&lt;�&lt;�&quot;|"
+    compiled.render("escape.jinja", data).should eq expected
+  end
+
+  it "walks an Array(Crinja::Value) of rows directly, printing like Crinja" do
+    cell = ->(raw : Crinja::Raw) { Crinja::Value.new(raw) }
+    rows = [Crinja::Value.new([cell.call("<a>"), cell.call(Crinja::SafeString.new("<b>")), cell.call(7)]),
+            Crinja::Value.new([] of Crinja::Value), Crinja::Value.new([cell.call("c&"), cell.call(nil)])]
+    data = {"rows" => Crinja::Value.new(rows)}
+    data["rows"].raw.should be_a Array(Crinja::Value)
+    compiled, crinja = both_pages
+    compiled.load("nested_for.jinja").should be_a Azu::Templates::CompiledTemplate
+    compiled.render("nested_for.jinja", data).should eq crinja.render("nested_for.jinja", data)
+  end
+end

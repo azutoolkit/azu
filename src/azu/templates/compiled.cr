@@ -66,10 +66,11 @@ class Azu::Templates
       value
     end
 
-    # `Crinja::Finalizer.stringify(io, value, escape)`, writing an escaped String without building it.
+    # `Crinja::Finalizer.stringify(io, value, escape)`, writing an escaped String without building it. Invalid UTF-8
+    # takes Crinja's path: its `HTML.escape(String)` replaces bad bytes with U+FFFD, the io overload copies them.
     def self.print(io : IO, value : Crinja::Value, escape : Bool) : Nil
       raw = value.raw
-      return HTML.escape(raw, io) if escape && raw.is_a?(String)
+      return HTML.escape(raw, io) if escape && raw.is_a?(String) && raw.valid_encoding?
       Crinja::Finalizer.stringify(io, value, escape)
     end
 
@@ -80,14 +81,14 @@ class Azu::Templates
         raw.to_s(io)
       elsif !escape
         io << value.to_s
-      elsif raw.is_a?(String)
-        HTML.escape(raw, io)
       else
-        HTML.escape(raw.to_s, io)
+        string = raw.is_a?(String) ? raw : raw.to_s
+        string.valid_encoding? ? HTML.escape(string, io) : io << HTML.escape(string) # bad bytes as Crinja: U+FFFD
       end
     end
 
-    # The items `Crinja::Tag::For::ForLoop` yields for `collection` (and its errors), without it for an array.
+    # The items `Crinja::Tag::For::ForLoop` yields for `collection` (and its errors), without it for an array. It
+    # assumes the array does not change during the loop (ForLoop reads one item ahead, a direct walk does not).
     def self.each(collection : Crinja::Value, & : Crinja::Value ->) : Nil
       if (raw = collection.raw).is_a?(Array(Crinja::Value))
         raw.each { |item| yield item }
@@ -107,11 +108,22 @@ class Azu::Templates
     # so far. Azu's own render paths go through a `String`, so they are unaffected.
     def render(io : IO, env : Crinja)
       state = state(env)
-      env.context.autoescape = env.config.autoescape.autoescape?(filename, @extension) # as Crinja's renderer does, on every render
+      env.context.autoescape = autoescape?(env.config) # as Crinja's renderer does, on every render
       @body.call(io, env, state.filters, state.own)
     rescue e : Crinja::Error
       e.template ||= self
       raise e
+    end
+
+    # Crinja's renderer asks `env.config.autoescape?(filename)`. For Crinja's own classes the precomputed extension
+    # gives the same answer without allocating; an app's subclass of either (or of the rule) is asked as Crinja asks.
+    private def autoescape?(config : Crinja::Config) : Bool
+      rule = config.autoescape
+      if config.class == Crinja::Config && rule.class == Crinja::Config::Autoescape
+        rule.autoescape?(filename, @extension)
+      else
+        config.autoescape?(filename)
+      end
     end
 
     # Immutable, published with one atomic pointer store: a render racing a rebuild uses either state.
