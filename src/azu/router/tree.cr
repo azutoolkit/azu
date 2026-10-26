@@ -14,7 +14,8 @@ module Azu
     # reading it whole.
     class Tree(T)
       private SLASH = '/'.ord.to_u8
-      # How many offsets `find` keeps on the stack; a path of more segments has them on the heap.
+      # How many offsets `find` keeps on the stack: a slash per segment plus the path's end, so a path of more than
+      # STACK_BOUNDS - 1 (31) segments has them on the heap.
       private STACK_BOUNDS = 32
 
       # A route `add` refuses.
@@ -171,7 +172,7 @@ module Azu
 
       # The offset of each slash of `path`, then its size: segment `i` lies between `bounds[i]` and `bounds[i + 1]`.
       # Nil as soon as the path has more segments than any route takes. They are kept in `stack`, unless the path has
-      # more segments than it holds, which only a glob or a deeper route can take.
+      # more than STACK_BOUNDS - 1 (31) segments, which only a glob or a deeper route can take.
       private def bounds(path : Bytes, stack : Slice(Int32)) : Slice(Int32)?
         bounds = stack
         count = 0

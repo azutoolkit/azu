@@ -51,6 +51,16 @@ describe Azu::Router::Tree do
       payload(routes, GET, long + "/s").should be_nil
     end
 
+    it "matches 31 segments on the stack and 32 on the heap, and refuses 33" do
+      s31, s32, s33 = "/s" * 31, "/s" * 32, "/s" * 33
+      routes = tree({GET, s31}, {GET, s32})
+
+      payload(routes, GET, s31).should eq "Get #{s31}"
+      payload(routes, GET, s32).should eq "Get #{s32}"
+      payload(routes, GET, s33).should be_nil
+      HotPath.bytes_per_call { routes.find(GET, s31) }.should eq 0
+    end
+
     it "allocates nothing to find a static route among 100 siblings" do
       routes = Tree.new
       100.times { |i| routes.add GET, "/api/v1/resource#{i}", "resource#{i}" }
@@ -172,6 +182,15 @@ describe Azu::Router::Tree do
       routes = tree({GET, "/deep/*rest"})
 
       routes.find(GET, "/deep/#{rest}").try(&.params).should eq({"rest" => rest})
+    end
+
+    it "captures the rest of a path of 30 to 33 segments, either side of the stack's last offset" do
+      routes = tree({GET, "/g/*rest"})
+
+      (30..33).each do |segments|
+        rest = (["s"] * (segments - 1)).join('/')
+        routes.find(GET, "/g/#{rest}").try(&.params).should eq({"rest" => rest})
+      end
     end
 
     it "refuses a glob before the last segment" do
