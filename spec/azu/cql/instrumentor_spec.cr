@@ -1,6 +1,7 @@
 require "../../spec_helper"
 require "sqlite3"
 require "../../../src/azu/cql"
+require "../../../src/azu/dev/dev"
 
 private DB_FILE = File.join(Dir.tempdir, "azu_cql_instrumentor_spec.db")
 
@@ -19,6 +20,9 @@ private def build_schema
   end
   schema.build
   schema
+end
+
+private class SpecServerError < Exception
 end
 
 private class SpecRollback < Exception
@@ -237,6 +241,56 @@ describe Azu::CQL do
         publish_query("INSERT INTO users (email) VALUES ($1)", error: server_error, operation: :insert)
         store.queries.first.error.to_s.should contain "ada@example.com"
       end
+    end
+  end
+
+  it "keeps values quoted by a database server out of every card that shows an error" do
+    Azu::CQL::Instrumentor.install
+    errors = [
+      "duplicate key value violates unique constraint \"u\"\nDETAIL: Key (email)=(SECRET-1@example.com) already exists.",
+      "new row violates check constraint \"c\"\nDETAIL: Failing row contains (1, SECRET-2, hunter2).",
+      %(invalid input value for enum status: "SECRET-3"),
+      %(date/time field value out of range: "SECRET-4"),
+      %(value "SECRET-5" is out of range for type integer),
+      "invalid input syntax for type json\nDETAIL: Token \"SECRET-6\" is invalid.\nCONTEXT: JSON data, line 1: {SECRET-6",
+      "Incorrect integer value: 'SECRET-7' for column 'age' at row 1",
+      "Duplicate entry 'a\nSECRET-8' for key 'users.email'",
+      "Key (note)=(line1\nline2-SECRET-9) already exists.",
+    ]
+    previous = Azu::CONFIG.database.slow_query_ms
+    Azu::CONFIG.database.slow_query_ms = 0.0
+    begin
+      errors.each do |message|
+        publish_query("INSERT INTO users (email) VALUES ($1)", error: SpecServerError.new(message), operation: :insert)
+        observer = CQL::Telemetry.begin_transaction(CQL::Adapter::Postgres, false).not_nil!
+        observer.failed(SpecServerError.new(message))
+        observer.finish
+      end
+
+      html = Azu::Components::DevDashboardComponent.new(Azu::PerformanceMetrics.new).render
+      html.should contain "Recent queries"
+      html.should contain "Slow queries"
+      html.should contain "Transactions"
+      html.should contain "duplicate key value violates unique constraint"
+      html.scan(/SECRET|hunter2|example\.com/).should be_empty
+    ensure
+      Azu::CONFIG.database.slow_query_ms = previous
+    end
+  end
+
+  it "gives capture_params back as the app had it when the instrumentor is removed" do
+    ::CQL::Telemetry.capture_params = true # the app's own tracing
+    Azu::CONFIG.database.show_params = true
+    begin
+      with_azu_env(Azu::Environment::Development) do
+        Azu::CQL::Instrumentor.install
+        Azu::CQL::Instrumentor.install
+        Azu::CQL::Instrumentor.uninstall
+      end
+      ::CQL::Telemetry.capture_params.should be_true
+    ensure
+      Azu::CONFIG.database.show_params = false
+      ::CQL::Telemetry.capture_params = false
     end
   end
 

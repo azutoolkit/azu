@@ -9,8 +9,8 @@ module Azu
     # where neither the request, nor the call site, nor the open transaction can be seen.
     #
     # Bound values are never recorded unless `database.show_params` is on in development (see
-    # `params_visible?`): the dashboard keeps `?` placeholders, and error text without the data values
-    # a database server quotes in it.
+    # `params_visible?`): the dashboard keeps `?` placeholders, and shows an error as its class and the first
+    # line of its message with quoted values blanked (`QueryAnalysis.redact_error`).
     module Instrumentor
       # Marks an exception raised only to roll a transaction back on purpose (like `DB::Rollback`):
       # the dashboard shows such a rollback as rolled back, not as an error.
@@ -31,6 +31,7 @@ module Azu
       @@mutex = Mutex.new
       @@transactions = {} of Fiber => Array(Int64)
       @@capturing = false
+      @@capture_before = false
 
       # True while our subscribers are registered (false again after `CQL::Telemetry.reset!`).
       def self.installed? : Bool
@@ -39,7 +40,7 @@ module Azu
 
       # Whether bound values are shown: opted in with `database.show_params` and in development.
       def self.params_visible? : Bool
-        Azu::CONFIG.database.show_params? && Azu::CONFIG.env.development?
+        Azu.current_config.show_database_params?
       end
 
       # Registers both subscribers. It always subscribes again (subscribing under the same name replaces), so
@@ -57,7 +58,7 @@ module Azu
         @@mutex.synchronize do
           ::CQL::Telemetry.unsubscribe(NAME)
           ::CQL::Telemetry.unsubscribe_transactions(NAME)
-          ::CQL::Telemetry.capture_params = false if @@capturing
+          ::CQL::Telemetry.capture_params = @@capture_before if @@capturing
           @@capturing = false
           @@transactions.clear
           store.enabled = false
@@ -66,8 +67,11 @@ module Azu
 
       # CQL leaves bound values out of its events unless asked; asked only by `database.show_params`.
       private def self.capture_params : Nil
+        unless @@capturing
+          @@capture_before = ::CQL::Telemetry.capture_params
+          @@capturing = true
+        end
         ::CQL::Telemetry.capture_params = true
-        @@capturing = true
       end
 
       private def self.record_query(store : QueryStore, event : ::CQL::Telemetry::QueryEvent) : Nil
@@ -78,7 +82,7 @@ module Azu
           event.sql, params(event), event.duration.total_milliseconds, event.rows_affected,
           event.error.try { |error| error_text(error) }, call_site, current_transaction,
           context.try(&.request_id), context.try(&.endpoint), context.try(&.method), context.try(&.path),
-          Fiber.current.object_id, operation(event), pool_wait_ms(event), event.context, event.adapter.to_s
+          Fiber.current.object_id, operation(event), pool_wait_ms(event), event.context, event.adapter.to_s, shown?(event)
         )
       end
 
@@ -108,6 +112,10 @@ module Azu
         values.try(&.map { |value| describe(value) }) || Array.new(event.param_count) { "?" }
       end
 
+      private def self.shown?(event : ::CQL::Telemetry::QueryEvent) : Bool
+        params_visible? && !event.params.nil?
+      end
+
       private def self.describe(value : DB::Any) : String
         value.is_a?(Bytes) ? "<#{value.size} bytes>" : truncate(value.inspect)
       end
@@ -128,8 +136,9 @@ module Azu
       end
 
       private def self.error_text(error : Exception) : String
-        text = error.message.presence || error.class.name
-        params_visible? ? text : QueryAnalysis.redact_error(text)
+        message = error.message.presence
+        return error.class.name unless message
+        params_visible? ? message : "#{error.class.name}: #{QueryAnalysis.redact_error(message)}"
       end
 
       private def self.intentional?(error : Exception) : Bool

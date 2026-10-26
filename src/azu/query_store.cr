@@ -31,15 +31,12 @@ module Azu
     getter context : String?
     # Database adapter that ran the statement ("SQLite", "Postgres", ...).
     getter adapter : String?
+    # True when `params` holds the bound values (`database.show_params`) instead of `?` placeholders.
+    getter? params_shown : Bool = false
 
     def initialize(@id, @request_id, @endpoint, @method, @path, @fiber_id, @sql, @normalized_sql,
                    @operation, @table, @params, @duration_ms, @rows, @error, @caller,
-                   @transaction_id, @started_ms, @pool_wait_ms = 0.0, @context = nil, @adapter = nil)
-    end
-
-    # True when `params` holds the bound values (`database.show_params`) instead of `?` placeholders.
-    def params_shown? : Bool
-      @params.any? { |value| value != "?" }
+                   @transaction_id, @started_ms, @pool_wait_ms = 0.0, @context = nil, @adapter = nil, @params_shown = false)
     end
 
     def error? : Bool
@@ -163,15 +160,25 @@ module Azu
       sql.lstrip.split(/\s+/, 2).first?.try(&.upcase) || ""
     end
 
-    # An error message without the data values database servers quote in it: PostgreSQL's
-    # `Key (email)=(ada@example.com)` detail and `invalid input syntax for type integer: "abc"`, MySQL's
-    # `Duplicate entry 'ada@example.com' for key`. Applied to every error the dashboard shows unless
-    # `database.show_params` is on.
+    # Words after which a quoted name is an identifier or a fixed term (`relation "users"`, `for column 'age'`),
+    # not a data value.
+    NAME_WORDS = %w(relation column constraint table schema index function type role database trigger sequence view key)
+
+    # What is safe to show of a database error when bound values must stay hidden: the first line only (PostgreSQL's
+    # DETAIL, CONTEXT and HINT lines, `Failing row contains (...)` and multi-line values live after it), with
+    # every quoted segment blanked unless a word like `relation` or `column` says it is a name, and the value
+    # lists after `Key (columns)=` and `contains` blanked. A rule that keeps little instead of one that hunts for
+    # known shapes, since servers quote values in many places: `invalid input value for enum`, `value "..." is out
+    # of range`, `Incorrect integer value: '...'`, `Duplicate entry '...'`.
     def redact_error(message : String) : String
-      message
-        .gsub(/Key \([^)]*\)=\(.*\)/, "Key (…)=(…)")
-        .gsub(/(invalid input syntax for [^:]+): ".*"/, "\\1: \"…\"")
-        .gsub(/Duplicate entry '.*' for key/, "Duplicate entry '…' for key")
+      line = message.lines.first? || ""
+      line = line.sub(/\s*\b(?:DETAIL|CONTEXT|HINT):.*\z/, "")
+      line = line.matches?(/Key \([\w ,."]*\)=\(/) ? line.sub(/Key \(([\w ,."]*)\)=\(.*\z/, "Key (\\1)=(…)") : line.sub(/Key \(.*\z/, "Key (…)")
+      line = line.sub(/\bcontains \(.*\z/, "contains (…)")
+      line = line.gsub(/(?:(?<word>\w+) )?(?<quote>['"])(?<body>.*?)\k<quote>/) do |match, found|
+        NAME_WORDS.includes?(found["word"]?.try(&.downcase)) ? match : "#{found["word"]?.try { |word| "#{word} " }}#{found["quote"]}…#{found["quote"]}"
+      end
+      line.sub(/(?<!\w)(['"])[^'"]*\z/) { |_, found| "#{found[1]}…" } # a value cut by a line break
     end
 
     def table(sql : String) : String?
@@ -269,7 +276,7 @@ module Azu
                      error : String?, caller_location : String?, transaction_id : Int64?,
                      request_id : String?, endpoint : String?, method : String?, path : String?,
                      fiber_id : UInt64, operation : String? = nil, pool_wait_ms : Float64 = 0.0,
-                     context : String? = nil, adapter : String? = nil) : QueryMetric
+                     context : String? = nil, adapter : String? = nil, params_shown : Bool = false) : QueryMetric
       normalized = QueryAnalysis.normalize(sql)
       metric = @@mutex.synchronize do
         @next_id += 1
@@ -277,7 +284,7 @@ module Azu
           @next_id, request_id, endpoint, method, path, fiber_id, sql, normalized,
           operation || QueryAnalysis.operation(sql), QueryAnalysis.table(sql), params, duration_ms, rows, error,
           caller_location, transaction_id, Time.utc.to_unix_ms - duration_ms.to_i64,
-          pool_wait_ms, context, adapter
+          pool_wait_ms, context, adapter, params_shown
         )
         @queries << entry
         @queries.shift if @queries.size > MAX_QUERIES

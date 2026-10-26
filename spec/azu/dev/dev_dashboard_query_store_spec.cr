@@ -31,6 +31,24 @@ private class StubAdapter < Azu::DatabaseAdapter
   end
 end
 
+private class RaisingAdapter < StubAdapter
+  def read_only(sql : String, limit : Int32) : {Array(String), Array(Array(String?))}
+    raise %(invalid input value for enum status: "SECRET"\nDETAIL: Key (email)=(SECRET) already exists.)
+  end
+end
+
+private HOSTILE = %(<script>alert(1)</script><img src=x onerror=alert(2)>"'&)
+
+private class HostileAdapter < StubAdapter
+  def adapter_name : String?
+    HOSTILE
+  end
+
+  def connection_source : String?
+    HOSTILE
+  end
+end
+
 private class EmptyPoolAdapter < StubAdapter
   def pool : Azu::PoolSnapshot?
     Azu::PoolSnapshot.new(open: 0, idle: 0, in_flight: 0, max: 5)
@@ -122,7 +140,7 @@ describe "Dev dashboard Database tab backed by the query store" do
     it "shows the connection wait, the tag, shown values and the error text of a statement" do
       store.enabled = true
       store.record_query("SELECT * FROM users WHERE id = ?", ["7"], 80.0, nil, nil, "src/app.cr:10", nil, "req-1", "UsersEndpoint", "GET", "/users", 1_u64,
-        pool_wait_ms: 42.0, context: "job:nightly")
+        pool_wait_ms: 42.0, context: "job:nightly", params_shown: true)
       store.record_query("SELECT 1", ["?"], 1.0, nil, "no such table: x", nil, nil, "req-1", "UsersEndpoint", "GET", "/users", 1_u64)
 
       html = dashboard_page
@@ -165,6 +183,43 @@ describe "Dev dashboard Database tab backed by the query store" do
 
     it "lowers the health score for failed statements" do
       Azu::Components::Dashboard::DatabaseData::DatabaseStats.new(true, 10_i64, 2, 5.0, 1.0, 9.0, 0, 0, 0, 0, 0, errors: 5).health.should eq 90
+    end
+  end
+
+  describe "escaping" do
+    it "escapes hostile text in every field of the Database tab" do
+      store.enabled = true
+      store.adapter = HostileAdapter.new
+      store.record_transaction_begin(1_i64, false, HOSTILE, HOSTILE)
+      store.record_query("SELECT '#{HOSTILE}'", [HOSTILE], 90.0, 1_i64, HOSTILE, HOSTILE, 1_i64, HOSTILE, HOSTILE, HOSTILE, HOSTILE, 1_u64,
+        pool_wait_ms: 20.0, context: HOSTILE, adapter: HOSTILE, params_shown: true)
+      store.record_transaction_end(1_i64, false, 1.0, HOSTILE)
+      3.times { store.record_query("SELECT * FROM t WHERE t.a_id = 1", [] of String, 1.0, nil, nil, HOSTILE, nil, "r", HOSTILE, "GET", HOSTILE, 1_u64) }
+
+      html = dashboard_page
+      html.should_not contain "<script>alert(1)"
+      html.should_not contain "<img src=x"
+      html.should_not contain "onerror=alert(2)>"
+      html.should contain "&lt;script&gt;alert(1)&lt;/script&gt;"
+    end
+  end
+
+  describe "SQL playground errors" do
+    it "redacts the server's values from the 422 answer unless show_params is on in development" do
+      store.adapter = RaisingAdapter.new
+      handler = Azu::Handler::DevDashboard.new
+      with_azu_env(Azu::Environment::Development) do
+        _, body = post_sql(handler, %({"sql":"SELECT 1","mode":"run"}))
+        body.should contain "invalid input value for enum status"
+        body.should_not contain "SECRET"
+
+        Azu::CONFIG.database.show_params = true
+        begin
+          post_sql(handler, %({"sql":"SELECT 1","mode":"run"}))[1].should contain "SECRET"
+        ensure
+          Azu::CONFIG.database.show_params = false
+        end
+      end
     end
   end
 

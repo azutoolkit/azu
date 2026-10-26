@@ -20,7 +20,7 @@ What the dashboard uses of CQL's telemetry:
 | CQL provides | Dashboard shows | Since |
 | --- | --- | --- |
 | `QueryEvent` `sql`, `duration`, `rows_affected`, `error`, `operation`, `adapter` | timing badge, rows (writes only: a SELECT shows "-"), error, operation, database | 0.0.541 |
-| `QueryEvent#params` (only with `Telemetry.capture_params`) | `?` placeholders; the values only with `database.show_params` | 0.0.541 |
+| `QueryEvent#params` (only with `Telemetry.capture_params`) | `?` placeholders; the values only with `database.show_params` (see "What the tab shows of your data") | 0.0.541 |
 | `QueryEvent#context` (`Telemetry.with_context("job:x")`) | a `tag:` line under the SQL | 0.0.541 |
 | `QueryEvent#pool_wait` | "waited N ms for a connection" on slow statements, a "Pool waits" fact on the pool card | 0.0.798 |
 | `TransactionEvent` Begin, Commit, Rollback with `id`, `duration`, `nested`, `error` | the Transactions card; statements inside are counted per transaction | 0.0.541 |
@@ -32,19 +32,29 @@ The subscribers are synchronous on purpose: an `async: true` subscriber runs on 
 site and the open transaction are no longer visible. Slow statements are judged by `database.slow_query_ms`, not by
 `Telemetry.alert_on_slow`, so the tab and the log warning agree.
 
-## What the tab never shows
+## What the tab shows of your data
 
-Bound values often hold passwords and personal data, so the dashboard keeps them out:
+Bound values often hold passwords and personal data, so the tab keeps them out by default. What that does and does not cover:
 
-* Statements show `?` placeholders even when your app turned on `CQL::Telemetry.capture_params` for its own tracing.
-* Error text loses the data values servers quote in it: PostgreSQL's `Key (email)=(...)` and `invalid input syntax for type integer: "..."`,
-  MySQL's `Duplicate entry '...' for key`.
-* The opt-in is `database.show_params` (`AZU_DB_SHOW_PARAMS=true`), honoured in development only. It shows the values (long
-  ones cut at 200 characters, binary as `<n bytes>`), keeps the server's error text, and turns on `CQL::Telemetry.capture_params`
-  for the whole process while the instrumentor is installed.
-* SQL you write by hand is shown as written: bind values (`where(name: x)`) instead of interpolating them.
+* **Bound values** (`where(name: x)`, `insert.values(...)`) show as `?` placeholders, even when your app turned on
+  `CQL::Telemetry.capture_params` for its own tracing.
+* **Error text** shows the exception class and the first line of the message, with quoted segments blanked unless a word such as
+  `relation` or `column` marks them as a name (`relation "users" does not exist` stays, `invalid input value for enum status: "…"` does not).
+  PostgreSQL's `DETAIL`, `CONTEXT` and `HINT` lines, `Failing row contains (...)` and `Key (col)=(...)` values, and MySQL's
+  `Duplicate entry '...'` are dropped, also when the value spans several lines. This is a deliberately blunt rule, not a guarantee
+  about every driver message: a server can word an error in a way nobody anticipated. The SQL playground's 422 answer is redacted the same way.
+* **Hand-written SQL is shown as written.** A literal you put into a `schema.exec` string, or build by interpolation, is part of the
+  statement text and appears in Recent queries, Slow queries, Query patterns (the pattern view replaces literals with `?`) and
+  in the slow-query log line (`QueryStore#warn_if_slow` logs up to 300 characters of the SQL at warn level, in every
+  environment). Bind values instead of interpolating them.
+* **Opt-in.** `database.show_params` (`AZU_DB_SHOW_PARAMS=true`) shows the bound values (long ones cut at 200 characters, binary as
+  `<n bytes>`) and the server's error text unredacted. It is honoured in development only. It turns on `CQL::Telemetry.capture_params`
+  for the whole process while the instrumentor is installed, so every other telemetry subscriber (your tracing, logging) receives the
+  values as well; `Instrumentor.uninstall` puts the previous setting back.
 * A rollback on purpose (`DB::Rollback`, or an exception that includes `Azu::CQL::Instrumentor::IntentionalRollback`, which is
   what `Azu::CQL::Middleware` raises for a 4xx) is shown as "rolled back" without an error.
+* The page escapes every value it renders (SQL, errors, tags, endpoint names), and the tab, the store and the playground exist only
+  in development for loopback clients; the query store itself records in every environment but is never served outside development.
 
 Azu core does not depend on CQL. The integration is opt-in and lives in one initializer of your app,
 which configures CQL with its own `configure` and attaches the dashboard:

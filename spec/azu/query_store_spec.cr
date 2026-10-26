@@ -42,17 +42,43 @@ describe Azu::QueryAnalysis do
 end
 
 describe "Azu::QueryAnalysis.redact_error" do
-  it "removes the data values database servers quote" do
-    redact = ->(message : String) { Azu::QueryAnalysis.redact_error(message) }
-    redact.call("Key (email)=(ada@example.com) already exists.").should eq "Key (…)=(…) already exists."
-    redact.call(%(invalid input syntax for type integer: "12abc")).should eq %(invalid input syntax for type integer: "…")
-    redact.call("Duplicate entry 'ada@example.com' for key 'users.email'").should eq "Duplicate entry '…' for key 'users.email'"
+  # Every shape a server quotes a data value in, as seen in PostgreSQL, MySQL and SQLite messages.
+  shapes = {
+    "unique detail"       => "duplicate key value violates unique constraint \"u\"\nDETAIL: Key (email)=(SECRET@example.com) already exists.",
+    "key on one line"     => "duplicate key value violates unique constraint \"u\" DETAIL: Key (email)=(SECRET) already exists.",
+    "key alone"           => "Key (email)=(SECRET) already exists.",
+    "key multi-line"      => "Key (note)=(line1\nline2-SECRET) already exists.",
+    "failing row"         => "new row for relation \"users\" violates check constraint \"c\"\nDETAIL: Failing row contains (1, SECRET@example.com, SECRET).",
+    "failing row inline"  => "Failing row contains (1, SECRET, SECRET).",
+    "invalid syntax"      => %(invalid input syntax for type integer: "SECRET"),
+    "invalid enum"        => %(invalid input value for enum status: "SECRET"),
+    "datetime"            => %(date/time field value out of range: "SECRET"),
+    "out of range"        => %(value "SECRET" is out of range for type integer),
+    "json token"          => "invalid input syntax for type json\nDETAIL: Token \"SECRET\" is invalid.\nCONTEXT: JSON data, line 1: {\"a\": SECRET",
+    "mysql duplicate"     => "Duplicate entry 'SECRET@example.com' for key 'users.email'",
+    "mysql duplicate nl"  => "Duplicate entry 'a\nSECRET' for key 'users.email'",
+    "mysql incorrect"     => "Incorrect integer value: 'SECRET' for column 'age' at row 1",
+    "single quotes"       => "bad value 'SECRET' here",
+    "unterminated double" => "bad value \"SECRET\nmore",
+    "hint"                => "something failed\nHINT: use SECRET",
+  }
+
+  shapes.each do |name, message|
+    it "keeps the value out of #{name}" do
+      Azu::QueryAnalysis.redact_error(message).should_not contain "SECRET"
+      Azu::QueryAnalysis.redact_error(message).should_not contain "example.com"
+    end
   end
 
-  it "leaves messages without values alone" do
-    ["no such table: users", "UNIQUE constraint failed: users.email", "relation \"users\" does not exist"].each do |message|
-      Azu::QueryAnalysis.redact_error(message).should eq message
-    end
+  it "keeps the first line, and the names it can keep without values" do
+    redact = ->(message : String) { Azu::QueryAnalysis.redact_error(message) }
+    redact.call("duplicate key value violates unique constraint \"users_email_key\"\nDETAIL: Key (email)=(a@b.c) already exists.").should eq "duplicate key value violates unique constraint \"users_email_key\""
+    redact.call("Key (email)=(a@b.c) already exists.").should eq "Key (email)=(…)"
+    redact.call("Incorrect integer value: 'x' for column 'age' at row 1").should eq "Incorrect integer value: '…' for column 'age' at row 1"
+    redact.call("Duplicate entry 'a@b.c' for key 'users.email'").should eq "Duplicate entry '…' for key 'users.email'"
+    redact.call("relation \"users\" does not exist").should eq "relation \"users\" does not exist"
+    redact.call("no such table: users").should eq "no such table: users"
+    redact.call("UNIQUE constraint failed: users.email").should eq "UNIQUE constraint failed: users.email"
   end
 end
 
@@ -146,14 +172,14 @@ describe Azu::QueryMetric do
     full.operation.should eq "SELECT"
     full.pool_wait_ms.should eq 7.5
 
-    old = JSON.parse(plain.to_json).as_h.reject("pool_wait_ms", "context", "adapter").to_json
+    old = JSON.parse(plain.to_json).as_h.reject("pool_wait_ms", "context", "adapter", "params_shown").to_json
     Azu::QueryMetric.from_json(old).pool_wait_ms.should eq 0.0
   end
 
-  it "tells shown values from placeholders" do
+  it "records whether the params are values or placeholders" do
     store = Azu::QueryStore.new
     store.record_query("SELECT 1", ["?", "?"], 1.0, nil, nil, nil, nil, nil, nil, nil, nil, 1_u64).params_shown?.should be_false
-    store.record_query("SELECT 1", %w(1 "a"), 1.0, nil, nil, nil, nil, nil, nil, nil, nil, 1_u64).params_shown?.should be_true
+    store.record_query("SELECT 1", %w(1 "a"), 1.0, nil, nil, nil, nil, nil, nil, nil, nil, 1_u64, params_shown: true).params_shown?.should be_true
   end
 end
 

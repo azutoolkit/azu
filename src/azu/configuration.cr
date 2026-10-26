@@ -234,6 +234,11 @@ module Azu
     # Database integration settings (see `azu/cql`)
     getter database : DatabaseConfiguration = DatabaseConfiguration.new
 
+    # Whether the dashboard may show bound values and unredacted database errors: `database.show_params` in development only.
+    def show_database_params? : Bool
+      database.show_params? && env.development?
+    end
+
     # Cache configuration and manager
     getter cache : Cache::Manager do
       initialize_cache_with_retry
