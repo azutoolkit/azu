@@ -170,7 +170,8 @@ parameter names, so `/posts/:id` and `/posts/:post_id/comments` can both be decl
 value is the raw segment, not percent-decoded.
 
 Declaring the same method and path twice raises `Azu::Router::DuplicateRoute`, also when the paths differ only by a
-trailing slash or by their parameter names (`/posts/:id` and `/posts/:slug`).
+trailing slash or by their parameter names (`/posts/:id` and `/posts/:slug`). A route path that does not start with
+`/` raises `ArgumentError`.
 
 ## Accessing Route Parameters
 

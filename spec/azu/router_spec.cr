@@ -805,7 +805,6 @@ describe Azu::Router do
     router.get "/admin/secret", VerbEndpoint.new("get")
     router.get "/secret", VerbEndpoint.new("get")
     router.post "/users", VerbEndpoint.new("post")
-    router.get "secret", VerbEndpoint.new("get")
     router.ws "/chat", TestChannel
 
     # Parses the request line (and any header lines after it) as the server does and returns the status and body the router
@@ -849,6 +848,10 @@ describe Azu::Router do
       status, body = answer.call("GET secret HTTP/1.1")
       status.should eq 404
       body.should_not contain("handled by")
+    end
+
+    it "refuses a route path without a leading slash when it is declared" do
+      expect_raises(ArgumentError, %(route path "secret" must start with /)) { Azu::Router.new.get "secret", VerbEndpoint.new("get") }
     end
 
     it "does not read a path without a leading slash from its first slash on" do

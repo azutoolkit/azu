@@ -193,10 +193,10 @@ module Azu
       @paths[endpoint.class.name] = route.path
     end
 
-    # Into the tree. A path without its leading "/" can name no request, so its route is listed by `route_info` and
-    # found by nothing.
+    # Into the tree, which refuses a path without its leading "/": no request could reach it, and a route meant to
+    # shadow a broader one would silently not.
     private def insert(route : Route, path : Path) : Nil
-      @tree.add route.method, route.path, route if route.path.starts_with?('/')
+      @tree.add route.method, route.path, route
     rescue Tree::DuplicateError
       raise DuplicateRoute.new("http_method: #{route.method}, path: #{path}, endpoint: #{route.endpoint}")
     rescue ex : Tree::Error

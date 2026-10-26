@@ -112,6 +112,9 @@ as before keep matching as before, with these differences:
 - Two routes of one method whose paths differ only by a trailing slash or by their parameter names (`/a/:id` and
   `/a/:name`) raise `Azu::Router::DuplicateRoute`, where radix accepted both and found the second never (or neither).
   A wildcard that is not the last segment raises `ArgumentError`.
+- A route path that does not start with `/` raises `ArgumentError` when it is declared. Radix accepted it and matched
+  nothing, so a typo such as `get "files/private/*rest", Deny` next to `get "/files/*path", Download` silently let
+  the broader route serve the private files.
 - `Router#radix` is removed. Code that looked routes up with `router.radix.find("/get/users")` should call
   `router.process(context)`, or read `router.registered_routes`; `route_info`, `registered_routes` and `Route#resource`
   are unchanged.
