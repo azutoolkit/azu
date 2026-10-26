@@ -1,83 +1,21 @@
 ---
-description: Test `Azu::Channel`s and Spark live components.
+description: "Test `Azu::Channel`s and Spark live components with `Azu::Testing`: messages, broadcasts, refusals and the Spark wire protocol."
 ---
 
 # Test WebSockets
 
-Channels are tested over a real socket: an in-process `HTTP::Server` on a free port and `HTTP::WebSocket` as the
-client. That exercises the handshake, the origin check, your callbacks and the PubSub wiring together. Components
-can also be tested without any socket through `Azu::Spark::Testing`.
+`require "azu/testing"` loads `Azu::Testing::Client`, whose `connect` performs the WebSocket handshake by calling
+the app's handler chain and router in process and returns an `Azu::Testing::WebSocket`; the frames travel over
+in-process pipes, so no port is bound. That exercises the handshake, the origin check, your callbacks and the
+PubSub wiring together. Components can also be tested without any socket through `Azu::Spark::Testing`. The
+client's API is on [Testing](../../reference/api/testing.md#websocket).
 
-{% hint style="info" %}
-Specs normally use `Azu::Testing::Client#connect` (see [Testing](../../reference/api/testing.md#websocket)),
-which performs the handshake through the app and exchanges frames over in-process pipes. The `WsClient` below,
-which you keep in `spec/spec_helper.cr`, connects to a real port instead, which also exercises `HTTP::Server`'s
-socket and connection handling.
-{% endhint %}
-
-## A client for specs
-
-`HTTP::WebSocket` delivers messages to a callback and needs a fiber to run. The helper turns that into
-`send` and `receive` with a timeout, so a missing message fails the example instead of hanging it.
+## Connect and exchange messages
 
 ```crystal
 require "spec"
 require "azu"
-require "http/client"
-require "http/web_socket"
-
-# Collects the text frames the server sends.
-class WsClient
-  getter close_code : HTTP::WebSocket::CloseCode? = nil
-
-  def initialize(port : Int32, path : String = "/", origin : String? = nil)
-    headers = HTTP::Headers.new
-    headers["Origin"] = origin if origin
-    @messages = ::Channel(String).new(64)
-    @socket = HTTP::WebSocket.new("127.0.0.1", path, port, headers: headers)
-    @socket.on_message { |message| @messages.send(message) }
-    @socket.on_close do |code, _|
-      @close_code = code
-      @messages.close
-    end
-    spawn do
-      @socket.run
-    rescue IO::Error
-      # The server dropped the connection during the close handshake.
-    end
-  end
-
-  def send(message : String) : Nil
-    @socket.send(message)
-  end
-
-  # The next text frame, or nil when the socket closed or the timeout passed.
-  def receive(timeout : Time::Span = 2.seconds) : String?
-    select
-    when message = @messages.receive?
-      message
-    when timeout(timeout)
-      nil
-    end
-  end
-
-  def close : Nil
-    @socket.close
-  end
-end
-
-# Serves *app* on a free port while the block runs.
-def serve(app : Azu::App, &)
-  server = app.server
-  address = server.bind_unused_port("127.0.0.1")
-  spawn { server.listen }
-  Fiber.yield
-  begin
-    yield address.port
-  ensure
-    server.close
-  end
-end
+require "azu/testing"
 
 class EchoChannel < Azu::Channel
   def on_connect
@@ -106,73 +44,37 @@ describe EchoChannel do
     app = Azu::App.new
     app.routes { ws "/echo", EchoChannel }
 
-    serve(app) do |port|
-      client = WsClient.new(port, "/echo")
-      client.receive.should eq "welcome"
+    socket = Azu::Testing::Client.new(app).connect "/echo"
+    socket.receive.should eq "welcome"
 
-      client.send "hello"
-      client.receive.should eq "echo: hello"
+    socket.send "hello"
+    socket.receive.should eq "echo: hello"
+    socket.receive?(100.milliseconds).should be_nil
 
-      client.close
-    end
+    socket.close
+    socket.closed?.should be_true
   end
 end
 ```
 
-Registering the channel on a fresh `Azu::App` keeps specs isolated. A channel that declares
-`ws "/path"` in its class body registers on the default app, which you serve with
-`serve(Azu::App.default)`.
+`receive` waits up to two seconds for the next text frame and raises `Azu::Testing::WebSocket::Timeout` when none
+arrives (`Closed` once the socket is closed), so a missing message fails the example instead of hanging it.
+`receive?` returns `nil` instead, which is how you assert that nothing arrived. `close` sends a close frame and
+waits for the channel's `on_close`.
 
-## Testing broadcasting
+Registering the channel on a fresh `Azu::App` keeps specs isolated. A channel that declares `ws "/path"` in its
+class body registers on `Azu::App.default`, which `Azu::Testing::Client.new` uses when you pass no app.
 
-Two clients subscribed to the same topic both receive a broadcast. A message sent to a topic from the
-spec itself goes through `Azu::PubSub`, like a broadcast from an endpoint or a job would.
+## Test broadcasting
+
+Each `connect` opens a separate connection, with the client's cookies. Two connections subscribed to the same
+topic both receive a broadcast. A message sent to a topic from the spec itself goes
+through `Azu::PubSub`, like a broadcast from an endpoint or a job would.
 
 ```crystal
 require "spec"
 require "azu"
-require "http/web_socket"
-
-class WsClient
-  def initialize(port : Int32, path : String)
-    @messages = ::Channel(String).new(64)
-    @socket = HTTP::WebSocket.new("127.0.0.1", path, port)
-    @socket.on_message { |message| @messages.send(message) }
-    spawn do
-      @socket.run
-    rescue IO::Error
-    end
-  end
-
-  def send(message : String) : Nil
-    @socket.send(message)
-  end
-
-  def receive(timeout : Time::Span = 2.seconds) : String?
-    select
-    when message = @messages.receive?
-      message
-    when timeout(timeout)
-      nil
-    end
-  end
-
-  def close : Nil
-    @socket.close
-  end
-end
-
-def serve(app : Azu::App, &)
-  server = app.server
-  address = server.bind_unused_port("127.0.0.1")
-  spawn { server.listen }
-  Fiber.yield
-  begin
-    yield address.port
-  ensure
-    server.close
-  end
-end
+require "azu/testing"
 
 class RoomChannel < Azu::Channel
   def on_connect
@@ -209,72 +111,60 @@ describe RoomChannel do
   it "delivers a message to everyone in the room, and only to them" do
     app = Azu::App.new
     app.routes { ws "/rooms/:room", RoomChannel }
+    client = Azu::Testing::Client.new(app)
 
-    serve(app) do |port|
-      ada = WsClient.new(port, "/rooms/general")
-      grace = WsClient.new(port, "/rooms/general")
-      outsider = WsClient.new(port, "/rooms/random")
-      [ada, grace, outsider].each(&.receive) # "joined ..."
+    ada = client.connect "/rooms/general"
+    grace = client.connect "/rooms/general"
+    outsider = client.connect "/rooms/random"
+    [ada, grace, outsider].each(&.receive) # "joined ..."
 
-      ada.send "hi all"
+    ada.send "hi all"
 
-      ada.receive.should eq "hi all"
-      grace.receive.should eq "hi all"
-      outsider.receive(200.milliseconds).should be_nil
+    ada.receive.should eq "hi all"
+    grace.receive.should eq "hi all"
+    outsider.receive?(200.milliseconds).should be_nil
 
-      [ada, grace, outsider].each(&.close)
-    end
+    [ada, grace, outsider].each(&.close)
   end
 
   it "receives broadcasts that come from outside a channel" do
     app = Azu::App.new
     app.routes { ws "/rooms/:room", RoomChannel }
 
-    serve(app) do |port|
-      client = WsClient.new(port, "/rooms/general")
-      client.receive.should eq "joined general"
+    socket = Azu::Testing::Client.new(app).connect "/rooms/general"
+    socket.receive.should eq "joined general"
 
-      Azu::PubSub.broadcast("room:general", {event: "deploy"})
+    Azu::PubSub.broadcast("room:general", {event: "deploy"})
 
-      client.receive.should eq %({"event":"deploy"})
-      client.close
-    end
+    socket.receive.should eq %({"event":"deploy"})
+    socket.close
   end
 end
 ```
 
-Messages are asserted by waiting for them (`receive` with a timeout) and "nothing arrived" is asserted
-with a short timeout. Avoid fixed `sleep`s.
+Messages are asserted by waiting for them and "nothing arrived" with a short `receive?` timeout. Avoid fixed
+`sleep`s.
 
-## Testing authentication and refusals
+## Test authentication and refusals
 
-A channel that refuses a client closes with a code you can assert on. The origin check happens before
-the upgrade, so a foreign origin fails the handshake with 403:
+`connect` sends the client's cookies with the handshake, so a client logged in with `login_with` reaches the
+channel with its session. A channel that refuses a client closes the socket with a code you can assert on. The
+origin check happens before the upgrade, so a foreign origin fails the handshake and `connect` raises
+`Azu::Testing::WebSocket::Rejected`, which carries the app's answer:
 
 ```crystal
 require "spec"
 require "azu"
-require "http/web_socket"
-
-def serve(app : Azu::App, &)
-  server = app.server
-  address = server.bind_unused_port("127.0.0.1")
-  spawn { server.listen }
-  Fiber.yield
-  begin
-    yield address.port
-  ensure
-    server.close
-  end
-end
+require "azu/testing"
 
 class PrivateChannel < Azu::Channel
   def on_connect
-    unless params["token"]? == "let-me-in"
+    user = Azu.session_adapter.try(&.session(context)["user_id"]?)
+    unless user
       close(HTTP::WebSocket::CloseCode::PolicyViolation, "Unauthorized")
       return
     end
-    send "authenticated"
+    send "hello #{user}"
   end
 
   def on_message(message : String)
@@ -293,58 +183,59 @@ class PrivateChannel < Azu::Channel
   end
 end
 
+def private_app : Azu::App
+  app = Azu::App.new
+  app.routes { ws "/private", PrivateChannel }
+  app
+end
+
 describe PrivateChannel do
-  it "accepts a valid token" do
-    app = Azu::App.new
-    app.routes { ws "/private", PrivateChannel }
+  it "accepts a logged-in client" do
+    Azu::Testing::Client.open(private_app) do |client|
+      client.login_with { |session| session["user_id"] = "7" }
 
-    serve(app) do |port|
-      messages = ::Channel(String).new(4)
-      socket = HTTP::WebSocket.new("127.0.0.1", "/private?token=let-me-in", port)
-      socket.on_message { |message| messages.send(message) }
-      spawn { socket.run rescue nil }
-
-      messages.receive.should eq "authenticated"
+      socket = client.connect "/private"
+      socket.receive.should eq "hello 7"
       socket.close
     end
   end
 
-  it "closes the connection for a bad token" do
-    app = Azu::App.new
-    app.routes { ws "/private", PrivateChannel }
+  it "closes the connection for a client without a session" do
+    socket = Azu::Testing::Client.new(private_app).connect "/private"
 
-    serve(app) do |port|
-      closed = ::Channel({HTTP::WebSocket::CloseCode?, String?}).new(1)
-      socket = HTTP::WebSocket.new("127.0.0.1", "/private?token=wrong", port)
-      socket.on_close { |code, reason| closed.send({code, reason}) }
-      spawn { socket.run rescue nil }
-
-      code, reason = closed.receive
-      code.should eq HTTP::WebSocket::CloseCode::PolicyViolation
-      reason.should eq "Unauthorized"
-    end
+    socket.receive?.should be_nil
+    socket.close_code.should eq HTTP::WebSocket::CloseCode::PolicyViolation
   end
 
   it "refuses a foreign origin before upgrading" do
-    app = Azu::App.new
-    app.routes { ws "/private", PrivateChannel }
+    client = Azu::Testing::Client.new(private_app)
 
-    serve(app) do |port|
-      headers = HTTP::Headers{"Origin" => "https://evil.example"}
+    error = expect_raises(Azu::Testing::WebSocket::Rejected) do
+      client.connect "/private", headers: {"Origin" => "https://evil.example"}
+    end
+    error.response.status_code.should eq 403
+  end
 
-      expect_raises(Socket::Error, /403/) do
-        HTTP::WebSocket.new("127.0.0.1", "/private?token=let-me-in", port, headers: headers)
-      end
+  it "accepts an origin the app allows" do
+    app = private_app
+    app.config.websocket.allowed_origins << "https://app.example"
+
+    Azu::Testing::Client.open(app) do |client|
+      client.login_with { |session| session["user_id"] = "7" }
+
+      socket = client.connect "/private", headers: {"Origin" => "https://app.example"}
+      socket.receive.should eq "hello 7"
+      socket.close
     end
   end
 end
 ```
 
-Clients without an `Origin` header (like these specs) are accepted; browsers always send one. To test an
-allowed cross-origin client, add the origin to `Azu::CONFIG.websocket.allowed_origins` for the example
-and restore it afterwards.
+The client sends no `Origin` header unless you pass one, and a handshake without one is accepted; browsers
+always send one. `Client.open` closes the client when the block ends, which removes the in-memory session
+adapter `login_with` installed on the app.
 
-## Testing PubSub on its own
+## Test PubSub on its own
 
 Logic that publishes does not need a socket. Subscribe in the spec and assert on what arrives:
 
@@ -374,7 +265,7 @@ end
 With the in-memory backend the handler runs before `broadcast` returns, but waiting on a channel keeps
 the spec correct for the Redis backend too.
 
-## Testing Spark components
+## Test Spark components
 
 `Azu::Spark::Testing` mounts a component with a real session and no WebSocket. `trigger` sends a client
 event, `broadcast` and `send_info` deliver messages to `handle_info`, `html` is what the browser would
@@ -433,17 +324,17 @@ describe Chat do
 end
 ```
 
-## Testing the live connection
+## Test the live connection
 
 To test the real protocol, render a page, take the signed token out of it and speak the wire format over
-a socket. Frames are JSON objects `{"v": 1, "type": ...}`: the server greets with `hello`, you send
-`join` with the token, then `event` frames, and the server answers with `diff` frames carrying the
+a connection to `Azu::Spark.config.path`. Frames are JSON objects `{"v": 1, "type": ...}`: the app greets with
+`hello`, you send `join` with the token, then `event` frames, and the app answers with `diff` frames carrying the
 patched HTML.
 
 ```crystal
 require "spec"
 require "azu"
-require "http/web_socket"
+require "azu/testing"
 
 class Counter < Azu::Spark::Component
   mountable
@@ -459,60 +350,45 @@ class Counter < Azu::Spark::Component
   end
 end
 
+# Reads frames until one of *type* arrives; `receive` raises after two seconds without one.
+def await_frame(socket : Azu::Testing::WebSocket, type : String) : JSON::Any
+  loop do
+    frame = JSON.parse(socket.receive)
+    return frame if frame["type"].as_s == type
+  end
+end
+
 describe "Spark over a socket" do
   it "joins with the page token and applies an event" do
     app = Azu::App.new
     Azu::Spark.install(app.router)
-    server = app.server
-    address = server.bind_unused_port("127.0.0.1")
-    spawn { server.listen }
-    Fiber.yield
 
-    begin
-      page = Azu.with_config(app.config) { Azu::Spark.render(Counter) }
-      token = page.match!(/data-spark-token='([^']+)'/)[1]
-      root = page.match!(/data-spark-id='([^']+)'/)[1]
+    page = Azu.with_config(app.config) { Azu::Spark.render(Counter) }
+    token = page.match!(/data-spark-token='([^']+)'/)[1]
+    root = page.match!(/data-spark-id='([^']+)'/)[1]
 
-      frames = ::Channel(JSON::Any).new(16)
-      socket = HTTP::WebSocket.new("127.0.0.1", Azu::Spark.config.path, address.port)
-      socket.on_message { |text| frames.send(JSON.parse(text)) }
-      spawn { socket.run rescue nil }
+    socket = Azu::Testing::Client.new(app).connect(Azu::Spark.config.path)
+    await_frame(socket, "hello")
 
-      # Reads frames until one of the given type arrives; fails instead of hanging.
-      await = ->(type : String) do
-        loop do
-          select
-          when frame = frames.receive
-            break frame if frame["type"].as_s == type
-          when timeout(2.seconds)
-            raise "no #{type} frame arrived"
-          end
-        end
-      end
+    socket.send({v: 1, type: "join", id: 1, token: token}.to_json)
+    await_frame(socket, "diff")["patches"][0]["html"].as_s.should contain "Count: 0"
 
-      await.call("hello")
-      socket.send({v: 1, type: "join", id: 1, token: token}.to_json)
-      await.call("diff")["patches"][0]["html"].as_s.should contain "Count: 0"
+    socket.send({v: 1, type: "event", id: 2, target: root, event: "increment", payload: {} of String => String}.to_json)
+    await_frame(socket, "diff")["patches"][0]["html"].as_s.should contain "Count: 1"
 
-      socket.send({v: 1, type: "event", id: 2, target: root, event: "increment", payload: {} of String => String}.to_json)
-      await.call("diff")["patches"][0]["html"].as_s.should contain "Count: 1"
-
-      socket.close
-    ensure
-      server.close
-    end
+    socket.close
   end
 end
 ```
 
-The token is signed with the Spark secret of the app that serves the connection. Inside an endpoint
-that is automatic; a spec that calls `Azu::Spark.render` itself does it in the scope of the app, as above,
-because every `Azu::App` has its own configuration. Outside production and staging a random secret is
-generated per configuration, so the spec needs no setup.
+The token is signed with the Spark secret of the app that accepts the connection. Inside an endpoint that is
+automatic; a spec that calls `Azu::Spark.render` itself does it in the scope of the app, as above, because every
+`Azu::App` has its own configuration. Outside production and staging a random secret is generated per
+configuration, so the spec needs no setup.
 
 ## See also
 
-- [Testing Endpoints](test-endpoints.md)
-- [Create a WebSocket channel](../real-time/create-websocket-channel.md)
-- [Build a live component](../real-time/build-live-component.md)
-- [Channel Reference](../../reference/api/channel.md)
+- [Testing](../../reference/api/testing.md)
+- [Channel](../../reference/api/channel.md)
+- [Test endpoints](test-endpoints.md)
+- [Spark live views](../../explanation/spark-live-views.md)
