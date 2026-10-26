@@ -12,6 +12,13 @@ module Azu
       abstract def now : Time
       abstract def instant : Time::Instant
 
+      # A monotonic instant that may lag `instant` by a few milliseconds and is cheaper to read, for checks with a
+      # far longer interval (Static looks at its directory at most once a second). Compare it only with other
+      # `coarse_instant` readings: it may count from another origin than `instant`.
+      def coarse_instant : Time::Instant
+        instant
+      end
+
       # Waits for *span*. The system clock sleeps; a fake one advances instead, so retry and backoff code
       # runs in a spec without waiting.
       def sleep(span : Time::Span) : Nil
@@ -27,6 +34,14 @@ module Azu
       def instant : Time::Instant
         Time.instant
       end
+
+      {% if flag?(:linux) %}
+        # CLOCK_MONOTONIC_COARSE: the time of the last timer tick (1-4 ms old), read without asking the hardware.
+        def coarse_instant : Time::Instant
+          return instant unless LibC.clock_gettime(LibC::CLOCK_MONOTONIC_COARSE, out time) == 0
+          Time::Instant.new(time.tv_sec.to_i64, time.tv_nsec.to_i32)
+        end
+      {% end %}
     end
 
     # A clock that only moves when told to.
@@ -81,6 +96,10 @@ module Azu
 
     def self.instant : Time::Instant
       @@source.instant
+    end
+
+    def self.coarse_instant : Time::Instant
+      @@source.coarse_instant
     end
 
     def self.sleep(span : Time::Span) : Nil

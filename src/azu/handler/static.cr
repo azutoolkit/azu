@@ -123,7 +123,7 @@ module Azu
         @mime_types = MIME_TYPES.merge(normalized_mime_types(mime_types))
         @excluded = excluded.map { |entry| excluded_segments(entry) }
         @fingerprinted_cache_control = "public, max-age=#{cache_max_age}, immutable"
-        @clock_origin = Clock.instant
+        @clock_origin = Clock.coarse_instant
         @public_dir_found = Atomic(Bool).new(false)
         @next_directory_check = Atomic(Int64).new(0_i64)
         @next_entries_check = Atomic(Int64).new(0_i64)
@@ -199,8 +199,11 @@ module Azu
         end
       end
 
+      # Nanoseconds since the handler was built, on the coarse clock (its few milliseconds of lag are nothing next to a
+      # one-second recheck). It runs on every request that reaches the directory checks, so it is integer math only.
       private def clock_nanoseconds : Int64
-        (Clock.instant - @clock_origin).total_nanoseconds.to_i64
+        elapsed = Clock.coarse_instant - @clock_origin
+        elapsed.to_i * 1_000_000_000 + elapsed.nanoseconds
       end
 
       # A plain path that cannot name anything under the public directory can only fall through; decoding,

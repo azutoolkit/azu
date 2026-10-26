@@ -18,6 +18,23 @@ describe Azu::Clock do
     end
   end
 
+  it "reads a coarse instant that moves with instant, to within a few milliseconds" do
+    coarse, fine = Azu::Clock.coarse_instant, Azu::Clock.instant
+    until Azu::Clock.instant - fine >= 30.milliseconds
+      Azu::Clock.coarse_instant.should be >= coarse
+    end
+
+    ((Azu::Clock.coarse_instant - coarse) - (Azu::Clock.instant - fine)).abs.should be < 10.milliseconds
+  end
+
+  it "moves a fake's coarse instant with its instant" do
+    with_fake_clock do |clock|
+      mark = Azu::Clock.coarse_instant
+      clock.advance(90.seconds)
+      (Azu::Clock.coarse_instant - mark).should eq 90.seconds
+    end
+  end
+
   it "restores the previous source after the block, even when it raises" do
     original = Azu::Clock.source
     expect_raises(Exception, "boom") { Azu::Clock.use(Azu::Clock::Fake.new) { raise "boom" } }
