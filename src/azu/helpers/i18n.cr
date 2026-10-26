@@ -487,8 +487,8 @@ module Azu
           raise "Missing translation: #{key} for locale #{locale}"
         end
 
-        # Return key with markers for debugging
-        "[missing: #{key}]"
+        # The key, marked for debugging (`missing_key_format`, `%{key}` replaced)
+        missing_key_format.gsub("%{key}", key)
       end
 
       # Common locale display names

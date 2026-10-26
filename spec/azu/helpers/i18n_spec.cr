@@ -65,6 +65,16 @@ describe Azu::Helpers::I18n do
       result = Azu::Helpers::I18n.t("nonexistent.key")
       result.should contain "nonexistent.key"
     end
+
+    it "formats the marker with missing_key_format" do
+      previous = Azu::Helpers::I18n.missing_key_format
+      Azu::Helpers::I18n.missing_key_format = "?? %{key} ??"
+      begin
+        Azu::Helpers::I18n.t("nonexistent.key").should eq "?? nonexistent.key ??"
+      ensure
+        Azu::Helpers::I18n.missing_key_format = previous
+      end
+    end
   end
 
   describe "pluralization" do
