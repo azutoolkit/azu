@@ -15,7 +15,10 @@ module TemplatesRaceSpec
   end
 
   # A helper that does IO (a query, a cache read) lets another request's fiber run before the render finishes.
-  Azu::Helpers::Registry.register_function(:race_pause, Crinja.function { sleep 5.milliseconds; "" })
+  # Registered by each example that uses it: other specs reset the registry.
+  def self.register_pause : Nil
+    Azu::Helpers::Registry.register_function(:race_pause, Crinja.function { sleep 5.milliseconds; "" })
+  end
 
   # What the block returns, run in another fiber, or "timed out": a deadlock fails the example instead of the suite.
   def self.within_a_second(&block : -> String) : String
@@ -30,26 +33,28 @@ end
 
 describe "Azu::Templates under concurrent requests" do
   it "keeps each render's variables when a helper yields the fiber mid-render" do
+    TemplatesRaceSpec.register_pause
     with_compiled_templates({"race.jinja" => "{{ name }}-{{ race_pause() }}{{ name }}"}) do |config|
-      results = Channel(String).new
+      results = Channel(String).new(2)
 
       {"A", "B"}.each do |name|
         spawn { Azu.with_config(config) { results.send TemplatesRaceSpec::Page.new("race.jinja", {"name" => name}).render } }
       end
 
-      Array.new(2) { results.receive }.sort.should eq ["A-A", "B-B"]
+      Array.new(2) { TemplatesRaceSpec.within_a_second { results.receive } }.sort.should eq ["A-A", "B-B"]
     end
   end
 
   it "leaves no request's variables behind when a direct render overlaps a view" do
     files = {"secret.jinja" => "{{ secret }}{{ race_pause() }}", "direct.jinja" => "{{ race_pause() }}{{ x }}", "later.jinja" => "[{{ secret }}]"}
+    TemplatesRaceSpec.register_pause
     with_compiled_templates(files) do |config|
       env = config.templates.crinja
-      done = Channel(Nil).new
+      done = Channel(String).new(2)
 
-      spawn { Azu.with_config(config) { TemplatesRaceSpec::Page.new("secret.jinja", {"secret" => "A-SECRET"}).render }; done.send nil }
-      spawn { sleep 1.millisecond; config.templates.load("direct.jinja").render({"x" => 1}); done.send nil }
-      2.times { done.receive }
+      spawn { done.send Azu.with_config(config) { TemplatesRaceSpec::Page.new("secret.jinja", {"secret" => "A-SECRET"}).render } }
+      spawn { sleep 1.millisecond; done.send config.templates.load("direct.jinja").render({"x" => 1}) }
+      2.times { TemplatesRaceSpec.within_a_second { done.receive } }
 
       TemplatesRaceSpec::Page.new("later.jinja").render.should eq "[]"
       env.context.should be(env.global_context)
@@ -69,6 +74,7 @@ describe "Azu::Templates under concurrent requests" do
 
   it "renders a page whose helper reads a fragment another request is caching" do
     files = {"sidebar.jinja" => "<aside>{{ n }}</aside>", "page.jinja" => "{{ race_pause() }}{{ race_sidebar() }}"}
+    TemplatesRaceSpec.register_pause
     with_compiled_templates(files) do |config|
       key = "race-sidebar-#{Random::Secure.hex(4)}"
       # An endpoint caching a rendered fragment (`Azu.cache.fetch(key) { view(...) }`), and a page helper reading it
