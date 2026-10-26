@@ -376,5 +376,5 @@ end
 ## See Also
 
 - [Environments Reference](environments.md)
-- [Core Reference](../api/core.md)
+- [The Azu module](../api/app.md#the-azu-module)
 - [Cache Reference](../api/cache.md)

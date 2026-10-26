@@ -455,6 +455,6 @@ environment only: elsewhere it passes every request to the next handler, and bui
 
 ## See Also
 
-- [Core Reference](../api/core.md)
+- [App](../api/app.md)
 - [Handlers concept](../../explanation/concepts/middleware.md)
 - [How to Create Custom Middleware](../../how-to/middleware/create-custom-middleware.md)

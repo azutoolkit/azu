@@ -231,4 +231,4 @@ end
 ## See Also
 
 - [Configuration Options](options.md)
-- [Core Reference](../api/core.md)
+- [The Azu module](../api/app.md#the-azu-module)

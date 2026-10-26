@@ -60,7 +60,6 @@
 
 ## Reference
 
-* [Core module](reference/api/core.md)
 * [App](reference/api/app.md)
 * [Router](reference/api/router.md)
 * [Endpoint](reference/api/endpoint.md)
@@ -103,8 +102,6 @@
 * [Spark live views](explanation/spark-live-views.md)
 * [Type safety](explanation/architecture/type-safety.md)
 * [Performance design](explanation/architecture/performance-design.md)
-* [Why contracts?](explanation/design-decisions/why-contracts.md)
-* [Why type safety?](explanation/design-decisions/why-type-safety.md)
 
 ## Contributing
 

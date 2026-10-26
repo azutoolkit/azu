@@ -5,7 +5,6 @@ docs/README.md
 README.md
 docs/tutorials/getting-started.md
 docs/reference/api/app.md
-docs/reference/api/core.md
 docs/reference/api/endpoint.md
 docs/reference/api/openapi.md
 docs/reference/api/request.md
@@ -23,8 +22,6 @@ docs/how-to/errors/create-custom-errors.md
 docs/explanation/concepts/endpoints.md
 docs/explanation/concepts/contracts.md
 docs/explanation/architecture/type-safety.md
-docs/explanation/design-decisions/why-contracts.md
-docs/explanation/design-decisions/why-type-safety.md
 docs/how-to/database/create-models.md
 docs/how-to/database/define-schema.md
 docs/how-to/database/handle-transactions.md

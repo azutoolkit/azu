@@ -337,5 +337,5 @@ Before going live:
 Congratulations! You've completed the Azu tutorial series. Explore further:
 
 - [How-to Guides](../how-to/deployment/configure-production.md) - Task-specific solutions
-- [API Reference](../reference/api/core.md) - Complete API documentation
+- [API Reference](../reference/api/app.md) - Complete API documentation
 - [Architecture](../explanation/architecture/overview.md) - Deep dive into Azu internals

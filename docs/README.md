@@ -208,7 +208,7 @@ Also: [Everything in the box](explanation/features.md) (every feature, with its 
 
 | Area | Pages |
 |---|---|
-| Core API | [Core module](reference/api/core.md) · [App](reference/api/app.md) · [Router](reference/api/router.md) · [Endpoint](reference/api/endpoint.md) · [Request](reference/api/request.md) · [Response](reference/api/response.md) |
+| Core API | [App](reference/api/app.md) · [Router](reference/api/router.md) · [Endpoint](reference/api/endpoint.md) · [Request](reference/api/request.md) · [Response](reference/api/response.md) |
 | HTTP | [Content negotiation](reference/api/content-negotiation.md) · [Streaming and SSE](reference/api/streaming.md) · [OpenAPI](reference/api/openapi.md) · [Built-in handlers](reference/handlers/built-in.md) · [Error types](reference/errors/error-types.md) |
 | Real-time | [Channel](reference/api/channel.md) · [Presence](reference/api/presence.md) · [Component](reference/api/component.md) · [Spark client and reconnects](reference/spark-client.md) · [Spark benchmarks](reference/spark-benchmarks.md) |
 | Configuration | [Configuration options](reference/configuration/options.md) · [Environments](reference/configuration/environments.md) · [`Azu::Env`](reference/configuration/env.md) |
@@ -224,7 +224,6 @@ Also: [Everything in the box](explanation/features.md) (every feature, with its 
 | The whole box | [Everything in the box](explanation/features.md) |
 | Architecture | [Architecture overview](explanation/architecture/overview.md) · [Request lifecycle](explanation/architecture/request-lifecycle.md) · [Type safety](explanation/architecture/type-safety.md) · [Performance design](explanation/architecture/performance-design.md) |
 | Building blocks | [Endpoints](explanation/concepts/endpoints.md) · [Contracts](explanation/concepts/contracts.md) · [Middleware](explanation/concepts/middleware.md) · [Real-time](explanation/concepts/real-time.md) · [Components](explanation/concepts/components.md) · [Spark live views](explanation/spark-live-views.md) |
-| Design decisions | [Why contracts?](explanation/design-decisions/why-contracts.md) · [Why type safety?](explanation/design-decisions/why-type-safety.md) |
 
 ## Contributing
 

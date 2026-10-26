@@ -1,7 +1,7 @@
 # Development roadmap
 
 Where Azu is heading and where contributions help most. This page lists directions, not promises: there are
-no dates, and no API on this page exists unless the [API reference](../reference/api/core.md) documents it.
+no dates, and no API on this page exists unless the [API reference](../reference/api/app.md) documents it.
 
 ## Where Azu stands
 
