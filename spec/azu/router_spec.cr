@@ -847,8 +847,10 @@ describe Azu::Router do
     router = Azu::Router.new
     router.get "/admin/secret", VerbEndpoint.new("get")
     router.post "/users", VerbEndpoint.new("post")
+    router.get "secret", VerbEndpoint.new("get")
+    router.ws "/chat", TestChannel
 
-    # Parses the request line as the server does and returns the status and body the router answered with
+    # Parses the request line (and any header lines after it) as the server does and returns the status and body the router answered with
     answer = ->(request_line : String) do
       request = HTTP::Request.from_io(IO::Memory.new("#{request_line}\r\nHost: example.com\r\n\r\n")).as(HTTP::Request)
       io = IO::Memory.new
@@ -869,10 +871,20 @@ describe Azu::Router do
       body.should_not contain("handled by")
     end
 
-    it "does not route a path without a leading slash" do
+    it "does not let a verb split across the method and the path reach a route" do
       status, body = answer.call("PO st/users HTTP/1.1")
       status.should eq 404
       body.should_not contain("handled by")
+    end
+
+    it "does not route a path without a leading slash" do
+      status, body = answer.call("GET secret HTTP/1.1")
+      status.should eq 404
+      body.should_not contain("handled by")
+    end
+
+    it "reaches a WebSocket channel only through a GET upgrade" do
+      answer.call("POST /chat HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade")[0].should eq 404
     end
 
     it "treats the method as case-sensitive" do

@@ -283,15 +283,15 @@ module Azu
     end
 
     # Optimized path building with caching and efficient string operations. Nil when the request cannot name a
-    # route: the key joins method and path, so a path without its leading "/" (`PO st/users`) or a method that is
-    # not one of the verbs exactly (`GET/admin /secret`) would otherwise reach a route other than the one
-    # `request.method` and `request.path` show to middleware.
+    # route: the key joins method and path, so a method that is not one of the verbs exactly (`GET/admin /secret`)
+    # or a path without its leading "/" would otherwise reach a route other than the one `request.method` and
+    # `request.path` show to middleware. A WebSocket upgrade is a GET (RFC 6455); its key has no method.
     private def path(context) : String?
       request = context.request
       method_str = request.method
       path_str = request.path
       upgraded = upgrade?(context)
-      return unless path_str.starts_with?('/') && (upgraded || @method_cache.has_key?(method_str))
+      return unless path_str.starts_with?('/') && (upgraded ? method_str == "GET" : @method_cache.has_key?(method_str))
 
       cache_method = upgraded ? WEBSOCKET_CACHE : method_str
 
