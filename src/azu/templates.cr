@@ -96,6 +96,16 @@ module Azu
       end
     end
 
+    # :nodoc:
+    # A render's variables as the scope of its Crinja context, taken over instead of copied (rendering with a hash,
+    # Crinja copies it twice: `Crinja.variables`, then into the context's own scope).
+    class Scope < Crinja::Context
+      def initialize(parent : Crinja::Context, variables : Crinja::Variables)
+        super(parent)
+        @scope = variables
+      end
+    end
+
     getter crinja = Crinja.new
     getter path : Array(String)
     getter error_path : String
@@ -126,7 +136,7 @@ module Azu
           end
         {% end %}
 
-        Azu.current_config.templates.render(template, template_data)
+        Azu.current_config.templates.render_variables(template, template_data)
       end
 
       # Renders a template with explicit context injection.
@@ -150,7 +160,7 @@ module Azu
           template_data[key] = value unless template_data.has_key?(key)
         end
 
-        Azu.current_config.templates.render(template, template_data)
+        Azu.current_config.templates.render_variables(template, template_data)
       end
 
       def page_path
@@ -184,6 +194,13 @@ module Azu
     # the fiber, or threads under preview_mt) would read each other's. The lock is reentrant: a helper may render.
     def render(template : String, data = nil) : String
       exclusively { load(template).render(data) }
+    end
+
+    # :nodoc:
+    # `render` for variables built for this one render (`view`): they become the render's scope without a copy, so
+    # a top-level `set` in the template writes into them.
+    def render_variables(template : String, variables : Crinja::Variables) : String
+      exclusively { load(template).render(Scope.new(crinja.context, variables)) }
     end
 
     # :nodoc:
