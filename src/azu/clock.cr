@@ -12,12 +12,15 @@ module Azu
       abstract def now : Time
       abstract def instant : Time::Instant
 
-      # A monotonic instant that may lag `instant` by a few milliseconds and is cheaper to read, for checks with a
-      # far longer interval (Static looks at its directory at most once a second). Compare it only with other
-      # `coarse_instant` readings: it may count from another origin than `instant`.
-      def coarse_instant : Time::Instant
-        instant
+      # A monotonic reading in nanoseconds that may lag `instant` by up to one timer tick (1-10 ms) and is cheaper to
+      # read, for checks with a far longer interval (Static looks at its directory at most once a second). Compare it
+      # only with other `coarse_nanoseconds` readings: its origin is unspecified. By default it follows `instant`.
+      def coarse_nanoseconds : Int64
+        elapsed = instant - INSTANT_ORIGIN
+        elapsed.to_i * 1_000_000_000 + elapsed.nanoseconds
       end
+
+      private INSTANT_ORIGIN = Time.instant
 
       # Waits for *span*. The system clock sleeps; a fake one advances instead, so retry and backoff code
       # runs in a spec without waiting.
@@ -36,10 +39,13 @@ module Azu
       end
 
       {% if flag?(:linux) %}
-        # CLOCK_MONOTONIC_COARSE: the time of the last timer tick (1-4 ms old), read without asking the hardware.
-        def coarse_instant : Time::Instant
-          return instant unless LibC.clock_gettime(LibC::CLOCK_MONOTONIC_COARSE, out time) == 0
-          Time::Instant.new(time.tv_sec.to_i64, time.tv_nsec.to_i32)
+        # CLOCK_MONOTONIC_COARSE: the time of the last timer tick, up to one tick (1-10 ms) old, read without asking
+        # the hardware. CLOCK_MONOTONIC, which counts from the same origin, on a kernel without it.
+        def coarse_nanoseconds : Int64
+          if LibC.clock_gettime(LibC::CLOCK_MONOTONIC_COARSE, out time) != 0
+            LibC.clock_gettime(LibC::CLOCK_MONOTONIC, pointerof(time))
+          end
+          time.tv_sec.to_i64 * 1_000_000_000 + time.tv_nsec
         end
       {% end %}
     end
@@ -98,8 +104,8 @@ module Azu
       @@source.instant
     end
 
-    def self.coarse_instant : Time::Instant
-      @@source.coarse_instant
+    def self.coarse_nanoseconds : Int64
+      @@source.coarse_nanoseconds
     end
 
     def self.sleep(span : Time::Span) : Nil

@@ -18,20 +18,22 @@ describe Azu::Clock do
     end
   end
 
-  it "reads a coarse instant that moves with instant, to within a few milliseconds" do
-    coarse, fine = Azu::Clock.coarse_instant, Azu::Clock.instant
+  it "reads coarse nanoseconds that move with instant, to within a timer tick" do
+    coarse, fine = Azu::Clock.coarse_nanoseconds, Azu::Clock.instant
     until Azu::Clock.instant - fine >= 30.milliseconds
-      Azu::Clock.coarse_instant.should be >= coarse
+      Azu::Clock.coarse_nanoseconds.should be >= coarse
     end
+    coarse_elapsed = (Azu::Clock.coarse_nanoseconds - coarse).nanoseconds
 
-    ((Azu::Clock.coarse_instant - coarse) - (Azu::Clock.instant - fine)).abs.should be < 10.milliseconds
+    # A tick is 1-10 ms (CONFIG_HZ 1000 to 100); the bound leaves room for a loaded runner
+    (coarse_elapsed - (Azu::Clock.instant - fine)).abs.should be < 50.milliseconds
   end
 
-  it "moves a fake's coarse instant with its instant" do
+  it "moves a fake's coarse nanoseconds with its instant" do
     with_fake_clock do |clock|
-      mark = Azu::Clock.coarse_instant
+      mark = Azu::Clock.coarse_nanoseconds
       clock.advance(90.seconds)
-      (Azu::Clock.coarse_instant - mark).should eq 90.seconds
+      (Azu::Clock.coarse_nanoseconds - mark).should eq 90.seconds.total_nanoseconds.to_i64
     end
   end
 
