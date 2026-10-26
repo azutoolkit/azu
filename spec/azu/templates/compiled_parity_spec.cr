@@ -86,3 +86,14 @@ describe "Azu::Templates compiled templates (literal text and {{ identifier }})"
     output.should eq reloading.render("hello.jinja", {"name" => "Ada"})
   end
 end
+
+describe "Azu::Templates compiled templates mixed with Crinja's" do
+  it "renders a Crinja child that extends a compiled parent like Crinja" do
+    compiled = build(hot_reload: false, compiled: true)
+    reloading = build(hot_reload: true)
+
+    compiled.load("child.jinja").should_not be_a Azu::Templates::CompiledTemplate
+    compiled.render("child.jinja", {"name" => "Ada"}).should eq "<p>Hello Ada</p>"
+    compiled.render("child.jinja", {"name" => "Ada"}).should eq reloading.render("child.jinja", {"name" => "Ada"})
+  end
+end

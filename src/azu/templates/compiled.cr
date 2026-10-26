@@ -6,10 +6,11 @@ class Azu::Templates
 
   record CompiledSet, templates : Hash(String, {String, Proc(IO, Crinja, Nil)}) # name => {source, render proc}
 
-  # Renders with its compiled proc. Immutable and shared: a render's state is in the fiber's `env.context`.
+  # Renders with its compiled proc. Immutable and shared: a render's state is in the fiber's `env.context`. It keeps
+  # Crinja's parsed nodes too: a Crinja template that extends it renders the parent's nodes, not its `render`.
   class CompiledTemplate < Crinja::Template
     def initialize(source : String, @body : Proc(IO, Crinja, Nil), env : Crinja, name : String, filename : String)
-      super(source, env, name, filename, run_parser: false)
+      super(source, env, name, filename)
     end
 
     def render(io : IO, env : Crinja)
