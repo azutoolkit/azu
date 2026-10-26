@@ -76,6 +76,15 @@ describe Azu::Router::Tree do
       payload(routes, GET, hostile).should be_nil
       HotPath.bytes_per_call { routes.find(GET, hostile) }.should eq 0
     end
+
+    it "sizes the heap offsets by the deepest route, without a glob route, to miss a longer path" do
+      routes = tree({GET, "/s" * 40})
+      hostile = "/" * 8000 + "x"
+
+      payload(routes, GET, hostile).should be_nil
+      # 41 offsets (164 B), not one per slash of the path (32 KB)
+      HotPath.bytes_per_call { routes.find(GET, hostile) }.should be < 256
+    end
   end
 
   describe "named segments" do

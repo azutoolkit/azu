@@ -187,9 +187,10 @@ module Azu
         bounds[0, count + 1]
       end
 
-      # The first `count` offsets of `stack` on the heap, with room for every slash of `path`.
+      # The first `count` offsets of `stack` on the heap, with room for every slash of `path` when a glob route can take
+      # them all, else for those of the deepest route.
       private def on_heap(path : Bytes, stack : Slice(Int32), count : Int32) : Slice(Int32)
-        Slice(Int32).new(path.count(SLASH) + 1).tap(&.copy_from(stack.to_unsafe, count))
+        Slice(Int32).new((@any_glob ? path.count(SLASH) : @deepest) + 1).tap(&.copy_from(stack.to_unsafe, count))
       end
     end
   end
