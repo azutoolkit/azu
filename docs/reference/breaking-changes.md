@@ -16,7 +16,9 @@ release to the current API, with old and new code side by side; every release is
 endpoint, so an `OPTIONS` request ran the `GET` action and got its body. `get` now registers `GET` and `HEAD` only, and
 the router answers an `OPTIONS` itself: `204` with `Allow` listing the methods the path routes (`GET, HEAD, POST,
 OPTIONS`), or `404` for a path that routes none. An `options` route you declare still runs, and declaring one on the
-path of a `get` no longer raises `DuplicateRoute`. CORS preflights are unchanged: `Handler::CORS` answers them first.
+path of a `get` no longer raises `DuplicateRoute`. CORS preflights are unchanged: `Handler::CORS` answers them first. In tests,
+`client.options(SomeGetEndpoint)` (`Azu::Testing::Client`) now raises `ArgumentError` ("is not routed for OPTIONS")
+unless the endpoint declares `options`; call `client.options("/path")` to get the `Allow` answer.
 
 ## 0.6.2
 

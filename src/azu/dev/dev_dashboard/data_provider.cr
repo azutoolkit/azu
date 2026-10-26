@@ -24,7 +24,7 @@ module Azu
       # How many of the newest requests the error views inspect.
       ERROR_WINDOW = 50
       # Verbs Azu registers implicitly next to GET routes; hidden from the route views.
-      IMPLICIT_VERBS = %w[HEAD OPTIONS]
+      IMPLICIT_VERBS = %w[HEAD]
       VERB_ORDER     = %w[GET POST PUT PATCH DELETE]
       # Lower edges (ms) of the latency histogram buckets.
       HISTOGRAM_EDGES  = [0.0, 10.0, 50.0, 100.0, 300.0, 1000.0]
@@ -180,7 +180,7 @@ module Azu
 
       # --- Application ------------------------------------------------------
 
-      # Registered routes without implicit HEAD/OPTIONS, ordered by path then verb.
+      # Registered routes without the implicit HEAD, ordered by path then verb.
       def routes : Array(Hash(String, String))
         @routes ||= Azu.current_config.router.route_info
           .reject { |route| IMPLICIT_VERBS.includes?(route["method"]) }

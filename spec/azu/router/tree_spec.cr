@@ -160,7 +160,7 @@ describe Azu::Router::Tree do
       payload(routes, GET, "/axb").should be_nil
     end
 
-    it "lets a declared route name a parameter unlike the HEAD and OPTIONS routes Router#get adds" do
+    it "lets a declared route name a parameter unlike the HEAD and OPTIONS routes on the same path" do
       routes = tree({GET, "/posts/:id"}, {HEAD, "/posts/:id"}, {OPTIONS, "/posts/:id"})
       routes.add OPTIONS, "/posts/:post_id/comments", "Options comments"
       routes.add HEAD, "/posts/:post_id/comments", "Head comments"

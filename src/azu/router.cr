@@ -163,7 +163,8 @@ module Azu
     end
 
     # An `OPTIONS` that no `options` route takes: `204` with the methods the path routes in `Allow`, or `404` when it routes
-    # none. A CORS preflight never gets here: `Handler::CORS` answers it before the router.
+    # none. With `Handler::CORS` in the chain a preflight never gets here; without it, the browser gets no
+    # `Access-Control-*` header and refuses the cross-origin request, as it should.
     private def answer_options(context : HTTP::Server::Context) : String?
       path = context.request.path
       allowed = ALLOW_ORDER.select { |method| @tree.find(method, path) }

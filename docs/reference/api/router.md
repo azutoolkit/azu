@@ -316,6 +316,9 @@ end
 
 ## Limits
 
+- **`OPTIONS` under a mount.** A path below a mount is answered from the mounted app's routes, even when the parent
+  routes the same path itself (`get "/admin/stats"` next to `mount admin, at: "/admin"`): `GET /admin/stats` reaches the
+  parent's endpoint, `OPTIONS /admin/stats` answers `404` when the mounted app does not route `/stats`.
 - **No `405`.** A method a path does not route answers `404`, without an `Allow` header; only `OPTIONS` lists the
   methods.
 - **`root`.** `Router#root` registers `GET /` only (no `HEAD`), and `path_of` does not know it. A

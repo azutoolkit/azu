@@ -978,6 +978,8 @@ describe Azu::Router do
       status.should eq 204
       allow.should eq "GET, HEAD, POST, OPTIONS"
       raw.should_not contain "handled by"
+      raw.should_not contain "Content-Length"
+      raw.should end_with "\r\n\r\n"
     end
 
     it "lists the methods of a path with parameters" do

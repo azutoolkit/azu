@@ -68,23 +68,6 @@ describe Azu::Method do
     end
   end
 
-  describe "add_options?" do
-    it "returns true for methods that should add OPTIONS" do
-      Azu::Method::Get.add_options?.should be_true
-      Azu::Method::Post.add_options?.should be_true
-      Azu::Method::Put.add_options?.should be_true
-      Azu::Method::Patch.add_options?.should be_true
-      Azu::Method::Delete.add_options?.should be_true
-    end
-
-    it "returns false for methods that should not add OPTIONS" do
-      Azu::Method::Trace.add_options?.should be_false
-      Azu::Method::Connect.add_options?.should be_false
-      Azu::Method::Options.add_options?.should be_false
-      Azu::Method::Head.add_options?.should be_false
-    end
-  end
-
   describe "method comparison" do
     it "compares methods correctly" do
       Azu::Method::Get.should eq(Azu::Method::Get)
