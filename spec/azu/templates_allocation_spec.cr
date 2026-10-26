@@ -39,7 +39,8 @@ module TemplatesAllocationSpec
   # What `view` computed per render with a request before: query and cookies parsed, every variable, three tokens.
   def self.every_request_variable(context : HTTP::Server::Context) : Hash(String, Crinja::Value)
     request, csrf = Azu::Helpers::TemplateContext.new(context), Azu::Handler::CSRF
-    {request.params, request.cookies}
+    request.params
+    request.cookies
     {request.current_path, request.current_url, csrf.token(context), csrf.tag(context), csrf.metatag(context), request.flash,
      request.method, request.secure?, request.ajax?, request.referer || "", request.client_ip || "", request.accept_language || "en",
     }.map_with_index { |value, i| {Azu::Helpers::TemplateContext::VARIABLES[i], Crinja::Value.new(value)} }.to_h

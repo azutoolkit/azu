@@ -60,9 +60,8 @@ describe "Azu::Templates under concurrent requests" do
   it "lets a helper wait for a render in another fiber" do
     with_compiled_templates({"outer.jinja" => "<{{ race_elsewhere() }}>", "inner.jinja" => "inner"}) do |config|
       templates = config.templates
-      Azu::Helpers::Registry.register_function(:race_elsewhere, Crinja.function {
-        TemplatesRaceSpec.within_a_second { templates.render("inner.jinja") }
-      })
+      elsewhere = Crinja.function { TemplatesRaceSpec.within_a_second { templates.render("inner.jinja") } }
+      Azu::Helpers::Registry.register_function(:race_elsewhere, elsewhere)
 
       TemplatesRaceSpec::Page.new("outer.jinja").render.should eq "<inner>"
     end

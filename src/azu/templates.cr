@@ -108,11 +108,16 @@ module Azu
 
       # A request variable (`TemplateContext::VARIABLES`) the data does not set is computed when the template first
       # reads it, then kept. It shadows a global of the same name, as when `view` set them all before rendering.
-      def [](key : String)
-        if (request = @request) && !@scope.has_key?(key) && (value = request.template_var(key))
-          return @scope[key] = value
+      def [](key : String) : Crinja::Value
+        if value = @scope[key]?
+          value
+        elsif (request = @request) && (value = request.template_var(key))
+          @scope[key] = value
+        elsif enclosing = parent
+          enclosing[key]
+        else
+          undefined
         end
-        super
       end
     end
 
@@ -200,8 +205,8 @@ module Azu
     end
 
     # :nodoc:
-    # `render` for variables built for this one render (`view`): they become the render's scope without a copy, so
-    # a top-level `set` in the template writes into them. `request` supplies the request variables the template reads.
+    # `render` for variables built for this one render (`view`): it takes `variables` over as the render's scope,
+    # without a copy, and writes to it (a top-level `set`, the request variables the template reads from `request`).
     def render_variables(template : String, variables : Crinja::Variables, request : Helpers::TemplateContext? = nil) : String
       load(template).render(Scope.new(crinja.context, variables, request))
     end

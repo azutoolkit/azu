@@ -39,9 +39,25 @@ module Azu
       getter params : HTTP::Params { @request.query_params }
       getter cookies : HTTP::Cookies { HTTP::Cookies.from_client_headers(@request.headers) }
 
-      # The variables `view` gives a template rendered with a request, each computed by `template_var`.
-      VARIABLES = {"current_path", "current_url", "csrf_token", "csrf_tag", "csrf_metatag", "flash", "method", "secure",
-                   "ajax", "referer", "client_ip", "accept_locale"}
+      # :nodoc:
+      # The variables `view` gives a template rendered with a request: name => how to compute it for a context.
+      TEMPLATE_VARS = {
+        "current_path"  => ->(c : TemplateContext) { Crinja::Value.new(c.current_path) },
+        "current_url"   => ->(c : TemplateContext) { Crinja::Value.new(c.current_url) },
+        "csrf_token"    => ->(c : TemplateContext) { Crinja::Value.new(c.csrf_token) },
+        "csrf_tag"      => ->(c : TemplateContext) { Crinja::Value.new(c.csrf_tag) },
+        "csrf_metatag"  => ->(c : TemplateContext) { Crinja::Value.new(c.csrf_metatag) },
+        "flash"         => ->(c : TemplateContext) { Crinja::Value.new(c.flash) },
+        "method"        => ->(c : TemplateContext) { Crinja::Value.new(c.method) },
+        "secure"        => ->(c : TemplateContext) { Crinja::Value.new(c.secure?) },
+        "ajax"          => ->(c : TemplateContext) { Crinja::Value.new(c.ajax?) },
+        "referer"       => ->(c : TemplateContext) { Crinja::Value.new(c.referer || "") },
+        "client_ip"     => ->(c : TemplateContext) { Crinja::Value.new(c.client_ip || "") },
+        "accept_locale" => ->(c : TemplateContext) { Crinja::Value.new(c.accept_language || "en") },
+      }
+
+      # :nodoc:
+      VARIABLES = TEMPLATE_VARS.keys
 
       @flash : Hash(String, String)?
       @session : Hash(String, String)?
@@ -52,6 +68,7 @@ module Azu
         @response = @context.response
       end
 
+      # :nodoc:
       # The context of one render. The CSRF token is issued now, so the token cookie is set on every render whether
       # or not the template prints a token; everything else waits until the template reads it (`template_var`).
       def self.for_render(context : HTTP::Server::Context) : TemplateContext
@@ -204,27 +221,15 @@ module Azu
         end
       end
 
-      # Convert context to a hash for template rendering: every one of `VARIABLES`.
+      # Convert context to a hash for template rendering: every variable `view` gives a template.
       def to_template_vars : Hash(String, Crinja::Value)
-        VARIABLES.to_h { |name| {name, template_var(name).not_nil!} }
+        TEMPLATE_VARS.transform_values(&.call(self))
       end
 
-      # The template variable `name` (one of `VARIABLES`) for this request, nil for any other name.
+      # :nodoc:
+      # The template variable `name` for this request, nil for a name that is not one of `TEMPLATE_VARS`.
       def template_var(name : String) : Crinja::Value?
-        case name
-        when "current_path"  then Crinja::Value.new(current_path)
-        when "current_url"   then Crinja::Value.new(current_url)
-        when "csrf_token"    then Crinja::Value.new(csrf_token)
-        when "csrf_tag"      then Crinja::Value.new(csrf_tag)
-        when "csrf_metatag"  then Crinja::Value.new(csrf_metatag)
-        when "flash"         then Crinja::Value.new(flash)
-        when "method"        then Crinja::Value.new(method)
-        when "secure"        then Crinja::Value.new(secure?)
-        when "ajax"          then Crinja::Value.new(ajax?)
-        when "referer"       then Crinja::Value.new(referer || "")
-        when "client_ip"     then Crinja::Value.new(client_ip || "")
-        when "accept_locale" then Crinja::Value.new(accept_language || "en")
-        end
+        TEMPLATE_VARS[name]?.try &.call(self)
       end
 
       private def extract_flash : Hash(String, String)
