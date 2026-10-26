@@ -66,6 +66,35 @@ variables a page has not set itself, so the page's String wins and `{{ csrf_meta
 in the template or stop passing the String and use the variable azu provides. A page that already says `| safe` (the generated
 scaffold and auth pages do) works with both.
 
+**`csrf_tag` and `csrf_metatag` carry the token of `csrf_token` and of the cookie (a fix).** `view` issued a new token for
+each of the three variables and each one replaced the CSRF cookie, so only `csrf_metatag` matched it: a form that printed
+`{{ csrf_token }}` or `{{ csrf_tag }}` was refused with 403 under the default `SignedDoubleSubmit` strategy. Now a render
+issues one token, the cookie holds it, and a second `view` in the same request (a layout and a partial) reuses it. The cookie
+is still set on every `view` with a request, whether or not the template prints a token. The same held for an endpoint's
+`csrf_token`, `csrf_tag` and `csrf_metatag` helpers and for any code calling `Handler::CSRF.token(context)` twice under
+`SignedDoubleSubmit`, `DoubleSubmit`, or the synchronizer token with the cookie store on a request without the cookie: each
+call issued a token and replaced the cookie. Now one response gets one token, the one its cookie holds; a deleted, expired
+or other-path cookie of that name is replaced, not reused.
+
+**Request variables are computed when a template reads them.** `current_path`, `flash`, `csrf_token` and the other
+variables `view` gives a template with a request cost nothing when the template does not print them. `{{ debug() }}` lists
+only the ones the template has read so far, and `Azu.session_adapter`'s `flash` reader runs only for a template that reads
+`flash`.
+
+**Template macros and context-free includes keep no state between renders (security).** A macro was kept on the template,
+which every request shares, with the defaults it evaluated: `{% from "m.jinja" import panel %}` could import the macro an
+earlier request defined, its values included. `{% include "x.jinja" without context %}` rendered in the environment's
+global context, so its `{% set %}` reached every later render. Both now belong to their own render: an imported file's
+macros and top-level variables still reach the importing page (an imported macro can call its file's other macros), and
+an `import` of a plain text template (`m.txt`) no longer turns escaping off for the rest of the page. As in 0.5.120, those
+copied names replace the page's own of the same name (view data, macros defined before the import), so a macro library
+needs names no page uses: see [Import macros](templates/engine.md#import-macros).
+
+**A template a helper renders starts from the global context.** `templates.render(...)`, or `view` without a request,
+called inside another render (a helper that renders a fragment) sees only the globals and the data it is given: not the
+outer page's view data, `csrf_token` or `current_path`. Before, it inherited them, and a fragment cached with
+`Azu.cache.fetch(key) { ... }` could hold one user's values for everyone. Pass what the fragment needs explicitly.
+
 **`urlize` is Azu's own.** It escapes the text around the links and links only `http`, `https` and `www.` addresses
 (Crinja's linked any `scheme://`, `javascript://` too, and did not escape the rest of the text). `button_to` and
 `button_to_delete_*` write the `confirm:` text as `\uXXXX` escapes inside the JavaScript string, so an apostrophe no

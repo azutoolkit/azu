@@ -165,3 +165,38 @@ describe Azu::Handler::Static do
     FileUtils.rm_rf(dir) if dir
   end
 end
+
+describe Azu::Templates do
+  it "loads templates the compiled map does not hold from several fibers at once" do
+    dir = File.tempname("azu_mt_templates")
+    Dir.mkdir_p(dir)
+    # `.txt` is not compiled at boot, so each first render parses it and stores it in Crinja's template cache. Without
+    # the lock on that cache this crashes, raises from a corrupted Hash, or wedges the process (spinning at 100% CPU,
+    # ignoring SIGTERM): CI then hangs until the job times out instead of failing fast.
+    count = 400
+    count.times { |i| File.write(File.join(dir, "t#{i}.txt"), "{{ v }}-#{i}") }
+    wrong = Atomic(Int32).new(0)
+    begin
+      5.times do
+        config = Azu::Configuration.new
+        config.template_hot_reload = false
+        config.templates.path = dir
+        templates = config.templates
+        done = parallel(count) do |i|
+          # A render that raises counts as wrong: it would otherwise only end its fiber
+          output = begin
+            templates.render("t#{i}.txt", {"v" => "x"})
+          rescue
+            nil
+          end
+          wrong.add(1) unless output == "x-#{i}"
+        end
+        wait_for(done, count)
+      end
+    ensure
+      FileUtils.rm_rf(dir)
+    end
+
+    wrong.get.should eq 0
+  end
+end

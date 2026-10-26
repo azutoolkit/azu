@@ -119,7 +119,7 @@ module Azu
 
           # Apply globals
           @@globals.each do |name, value|
-            crinja.context[name.to_s] = value
+            crinja.global_context[name.to_s] = value
           end
         end
       end

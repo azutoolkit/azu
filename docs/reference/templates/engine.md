@@ -203,6 +203,12 @@ a `with` block:
 {{ forms.input("name") }}
 ```
 
+An import (`import`, `import ... as` and `from ... import`) copies every macro and top-level `{% set %}` of the imported
+file into the importing page, which is how an imported macro reaches its file's other macros. They replace the page's
+names: an imported `{% set title %}` replaces the `title` the view passed, a macro of the file replaces a page macro of
+the same name defined before the import, and `{% from "m.html" import outer as inner %}` where `outer` calls `inner()`
+recurses until the stack overflows. Give the macros and variables of a macro library names no page uses (a prefix).
+
 ## Filters
 
 Filters transform values:
