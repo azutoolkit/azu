@@ -72,9 +72,9 @@ module Azu::OpenAPI
       collect(mount.child.router) if @mounts_seen.add?(mount.object_id)
     end
 
-    # Registering a GET also registers HEAD and OPTIONS for the same endpoint.
+    # Registering a GET also registers HEAD for the same endpoint.
     private def implied_by_get?(route : Router::Route, routes : Array(Router::Route)) : Bool
-      return false unless route.method.head? || route.method.options?
+      return false unless route.method.head?
       routes.any? { |other| other.method.get? && other.path == route.path && other.endpoint == route.endpoint }
     end
 

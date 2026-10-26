@@ -1,5 +1,6 @@
 require "crinja"
 require "./templates/crinja_patches"
+require "./templates/compiled"
 require "./helpers"
 
 module Azu
@@ -29,6 +30,7 @@ module Azu
     @helpers_revision : UInt64? = nil
     @builtin_crinja : Crinja?
     @preloaded : PreloadedLoader?
+    @compiled : CompiledSet?
     @preload_lock : Mutex = Mutex.new
     @preload_count : Int32 = 0
     @preloaded_strict : Bool = false
@@ -85,6 +87,15 @@ module Azu
     @[Deprecated("Use `preload_ignore=`.")]
     def compile_ignore=(patterns : Array(String))
       self.preload_ignore = patterns
+    end
+
+    # Templates compiled into the binary (`Templates.compile`): preloading uses them instead of parsing the files.
+    def compiled=(set : CompiledSet)
+      @preload_lock.synchronize do
+        @compiled = set
+        @preloaded = nil
+        crinja.loader = @loader.not_nil!
+      end
     end
 
     # :nodoc:
@@ -406,7 +417,11 @@ module Azu
 
     # False when the file was not preloaded.
     private def parse_into(templates, name : String, file : String, strict : Bool) : Bool
-      templates[name] = Crinja::Template.new(File.read(file), crinja, name, file)
+      source = File.read(file)
+      # only the very file it was compiled from (not a namesake, not an edit), and only with the whitespace and syntax
+      # options it was compiled for (Crinja's defaults)
+      compiled = @compiled.try(&.templates[name]?).try { |entry| entry if entry[0] == source && compiled_options? }
+      templates[name] = compiled ? CompiledTemplate.new(*compiled, crinja, name, file) : Crinja::Template.new(source, crinja, name, file)
       true
     rescue ex : Exception
       if BUILTIN.has_key?(name)
@@ -417,6 +432,11 @@ module Azu
         Log.for("azu.templates").warn(exception: ex) { "template #{name} (#{file}) was not preloaded: #{ex.message}" }
       end
       false
+    end
+
+    private def compiled_options? : Bool
+      config = crinja.config
+      !(config.keep_trailing_newline || config.trim_blocks || config.lstrip_blocks || config.liquid_compatibility_mode)
     end
 
     # One rule for the default, shared with `Configuration#template_hot_reload?`.

@@ -19,6 +19,15 @@ connections was unbounded. The accepted sockets now carry the new `config.limits
 `max_connections` 10 000 (the next connection gets `503`). WebSockets are exempt once upgraded. An app that takes uploads over a
 very slow link, or a stream that waits on the client for more than 30 s, raises the matching limit; `SERVER_*` variables set them.
 A server you bind yourself (`server.bind_tcp`) is unchanged; use `Azu::ServerLimits.bind_tcp` to give it the same limits.
+**`OPTIONS` answers with `Allow` instead of running the `GET` endpoint.** `get` registered an `OPTIONS` route to its own
+endpoint, so an `OPTIONS` request ran the `GET` action and got its body. `get` now registers `GET` and `HEAD` only, and
+the router answers an `OPTIONS` itself: `204` with `Allow` listing the methods the path routes (`GET, HEAD, POST,
+OPTIONS`), or `404` for a path that routes none. An `options` route you declare still runs, and declaring one on the
+path of a `get` no longer raises `DuplicateRoute`. CORS preflights are unchanged: `Handler::CORS` answers them first. In tests,
+`client.options(SomeGetEndpoint)` (`Azu::Testing::Client`) now raises `ArgumentError` ("is not routed for OPTIONS")
+unless the endpoint declares `options`; call `client.options("/path")` to get the `Allow` answer.
+
+## 0.7.0
 
 **`CSRF` walks a multipart body in one pass, and reads at most 1 MB of a form.** The search for `_csrf` in a multipart body
 cost more than the body's size for a body of thousands of tiny parts (seconds of CPU for a request with any cookie); it now
@@ -29,6 +38,7 @@ looks at each byte a bounded number of times, gives up after 64 parts, and a `cs
 above its file inputs (the scaffolds' upload forms too), or send the `X-CSRF-TOKEN` header. A form with more than 64
 fields before `_csrf`, or with `_csrf` after the first 64 KB, is refused with `403` where the 0.6.1 behaviour was already
 to refuse it after a file. The multipart total size is not bounded by `CSRF`; see the built-in handler reference.
+
 **`Throttle` keeps clients that a proxy forwarded garbage for apart, and its lists take CIDR blocks and refuse bad entries.**
 `blacklist` and `whitelist` now accept CIDR blocks (`"10.0.0.0/8"`) and raise `ArgumentError` when the handler is built for
 an entry that is not an IP address or block (`"unknown"`, a host name, `"1.2.3.4:80"`); before they compared text and ignored
@@ -37,6 +47,8 @@ such entries silently. `trusted_proxies` refuses a catch-all block (`0.0.0.0/0`,
 the proxy's own requests refused. The table is kept in two parts (clients in their window, blocked clients), which makes
 making room O(1); a table at `max_clients` full of blocked clients cost milliseconds per new client before. Because the
 `ipv6_prefix` default of 64 changes how every IPv6 client is counted (see the entry below), this release is a minor one.
+
+## 0.6.2
 
 **`HEAD` responses carry no body.** A `HEAD` to a `get` route sent the `GET` body, which a client reusing the
 connection read as the start of its next response. The body is now counted and discarded: the response has the `GET`

@@ -28,6 +28,9 @@ module Azu
     METHOD_OVERRIDE     = "_method"
     OVERRIDE_HEADER     = "X-HTTP-Method-Override"
     OVERRIDABLE_METHODS = %w(PUT PATCH DELETE)
+    # The methods an `OPTIONS` answer lists in `Allow`, in this order; `OPTIONS` itself comes last.
+    ALLOW_ORDER = [Azu::Method::Get, Azu::Method::Head, Azu::Method::Post, Azu::Method::Put, Azu::Method::Patch,
+                   Azu::Method::Delete, Azu::Method::Connect, Azu::Method::Trace]
 
     # The routes `process` finds requests in, by method and path segment
     @tree = Tree(Route).new
@@ -85,10 +88,6 @@ module Azu
 
         {% if method == "get" %}
           add path, handler, Azu::Method::Head
-
-          {% if !%w(trace connect options head).includes? method %}
-          add path, handler, Azu::Method::Options if method.add_options?
-          {% end %}
         {% end %}
       end
     {% end %}
@@ -149,6 +148,7 @@ module Azu
       method_override(context)
       request = context.request
       match = route_method(context).try { |method| @tree.find(method, request.path) }
+      return answer_options(context) if match.nil? && request.method == "OPTIONS" && !upgrade?(context)
       return not_found(context).to_s(context) unless match
       # Nil for a route without parameters also forgets the `mount_path` of the mount that led here
       request.path_params = match.params
@@ -159,6 +159,21 @@ module Azu
       context.request.headers["X-Azu-Endpoint"] = endpoint_class_name
 
       route.endpoint.call(context)
+      ""
+    end
+
+    # An `OPTIONS` that no `options` route takes: `204` with the methods the path routes in `Allow`, or `404` when it routes
+    # none. With `Handler::CORS` in the chain a preflight never gets here; without it, the browser gets no
+    # `Access-Control-*` header and refuses the cross-origin request, as it should.
+    private def answer_options(context : HTTP::Server::Context) : String?
+      path = context.request.path
+      allowed = ALLOW_ORDER.select { |method| @tree.find(method, path) }
+      allowed << Azu::Method::Get if allowed.empty? && @tree.find(Azu::Method::WebSocket, path)
+      return not_found(context).to_s(context) if allowed.empty?
+
+      response = context.response
+      response.status = :no_content
+      response.headers["Allow"] = (allowed.map(&.to_s.upcase) << "OPTIONS").join(", ")
       ""
     end
 
