@@ -8,12 +8,11 @@ This document lists breaking changes between Azu versions and migration guides.
 
 Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
 
-**The router matches only exact HTTP methods and paths that start with `/`.** A request whose method is not one of the
-verbs spelled exactly (`GET`, `POST`, ... : methods are case-sensitive, so `get` is not `GET`) or whose path does not start
-with `/` answers `404` instead of being routed. The router builds its lookup key from the method and the path together, so
-such a request could reach a route other than the one `request.method` and `request.path` show to the handlers before the
-router; a handler that guards a path prefix now always sees the path that is routed. A WebSocket upgrade reaches its channel
-only as a `GET`. Clients that send the standard verbs in upper case see no change; a client that sends one in lower case
+**The router matches only exact HTTP methods and paths that start with `/` (security fix: upgrade).** A request whose
+method is not one of the verbs spelled exactly (`GET`, `POST`, ...: methods are case-sensitive, so `get` is not `GET`) or
+whose path does not start with `/` answers `404`, and a WebSocket route is reached only by a `GET` upgrade. The route a
+request reaches is now always the one its `request.method` and `request.path` name, which handlers before the router rely
+on. Clients that send the standard verbs in upper case see no change; a client that sends one in lower case
 (`fetch(url, {method: "patch"})` sends `patch`, as does `curl -X patch`) must send `PATCH`.
 
 **`Static` can refuse paths (additive, nothing to change).** `Azu::Handler::Static.new(except: ["/templates"])` never serves

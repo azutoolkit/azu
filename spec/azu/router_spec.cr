@@ -842,7 +842,8 @@ describe Azu::Router do
   end
 
   # The router keys a route by method and path together, so a request reaches a route only when each is exactly
-  # what the route was declared with: middleware that checks `request.path` or `request.method` sees what is routed.
+  # what the route was declared with: the route matched is the one `request.path` and `request.method` name (the
+  # method as the router sees it, after a POST's `_method` override).
   describe "requests that do not name a route" do
     router = Azu::Router.new
     router.get "/admin/secret", VerbEndpoint.new("get")
