@@ -39,4 +39,31 @@ describe "Azu::Templates imports" do
       end
     end
   end
+
+  it "keep a macro on its render, not on the template every render shares" do
+    with_compiled_templates({"m.jinja" => "{% macro x() %}{% endmacro %}"}) do |config|
+      template = config.templates.load("m.jinja")
+      template.render
+
+      template.macros.should be_empty
+    end
+  end
+
+  {
+    "from"      => %({% from "m.jinja" import a %}{% from "m.jinja" import a as b %}{{ a() }}{{ b() }}),
+    "import as" => %({% import "m.jinja" as x %}{% import "m.jinja" as y %}{{ x.a() }}{{ y.a() }}),
+  }.each do |form, page|
+    it "import the same file twice in one page with #{form}" do
+      with_compiled_templates({"m.jinja" => "{% macro a() %}A{% endmacro %}", "page.jinja" => page}) do
+        TemplatesImportsSpec::Page.new("page.jinja").render.should eq "AA"
+      end
+    end
+  end
+
+  it "refuse a from-import cycle instead of recursing until the stack overflows" do
+    files = {"a.jinja" => %({% from "b.jinja" import x %}a), "b.jinja" => %({% from "a.jinja" import y %}b)}
+    with_compiled_templates(files) do
+      expect_raises(Crinja::Context::TagCycleException) { TemplatesImportsSpec::Page.new("a.jinja").render }
+    end
+  end
 end

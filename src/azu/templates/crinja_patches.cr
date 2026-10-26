@@ -61,10 +61,17 @@ class Crinja::Template
   # context, as in Crinja. Its macros and top-level variables are then copied into the importer's context, where
   # Crinja put them (it rendered the import there), so an imported macro reaches its file's other macros and
   # variables when it is called; that context belongs to one render. The import's autoescape stays its own.
+  # A file that imports itself, directly or through others, raises `Context::TagCycleException`; one file imported
+  # twice by the same page does not.
   def render_for_import : Context
     importer = env.context
+    importer.import_path_stack << name
     scope = Context.new(importer)
-    render(scope)
+    begin
+      render(scope)
+    ensure
+      importer.import_path_stack.pop
+    end
     importer.macros.merge!(scope.macros)
     scope.scope.each { |key, value| importer[key] = value }
     scope
@@ -98,9 +105,7 @@ class Crinja::Tag::Import
     name_expr = parser.parse_expression
     context_var = parser.if_identifier("as") { parser.next_token; parser.current_token.value }
     parser.close
-    include_name = env.evaluate(name_expr).to_s
-    env.context.import_path_stack << include_name
-    template = env.get_template(include_name)
+    template = env.get_template(env.evaluate(name_expr).to_s)
 
     scope = template.render_for_import
     scope.macros.each { |key, value| env.context.macros["#{context_var}.#{key}"] = value } if context_var
