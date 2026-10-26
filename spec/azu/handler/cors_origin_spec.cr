@@ -12,6 +12,16 @@ private def cors_get(cors : Azu::Handler::CORS, origin : String?, method = "GET"
   context
 end
 
+# Records the headers as they stand when the response is flushed: what a client receives of a preflight.
+private class FlushRecordingResponse < HTTP::Server::Response
+  getter at_flush : HTTP::Headers?
+
+  def flush
+    @at_flush ||= headers.dup
+    super
+  end
+end
+
 private def vary_of(context) : Array(String)
   (context.response.headers.get?("Vary") || [] of String).flat_map(&.split(',')).map(&.strip)
 end
@@ -205,6 +215,62 @@ describe "Azu::Handler::CORS origins and credentials" do
     end
   end
 
+  describe "the origins of a handler" do
+    it "are changed with origins=, not through the array the reader returns" do
+      cors = Azu::Handler::CORS.new(origins: ["https://a.test"])
+      cors.origins << "https://b.test"
+      cors.origins << "*"
+      cors.origins.should eq ["https://a.test"]
+      cors_get(cors, "https://b.test").response.status_code.should eq 403
+      cors.origins = ["https://a.test", "https://b.test"] of (String | Regex)
+      cors_get(cors, "https://b.test").response.status_code.should eq 200
+    end
+
+    it "do not follow the array the caller built them from" do
+      list = ["https://a.test"] of (String | Regex)
+      cors = Azu::Handler::CORS.new(origins: list)
+      list << "*"
+      cors_get(cors, "https://z.test").response.status_code.should eq 403
+      source = ["https://a.test"] of (String | Regex)
+      cors.origins = source
+      source << "*"
+      cors_get(cors, "https://z.test").response.status_code.should eq 403
+    end
+
+    it "accepts an extended regex that ends in a comment" do
+      cors = Azu::Handler::CORS.new(origins: [/https:\/\/a\.test  # the app/x])
+      cors_get(cors, "https://a.test").response.status_code.should eq 200
+      cors_get(cors, "https://a.test.evil").response.status_code.should eq 403
+    end
+  end
+
+  describe "preflight responses" do
+    it "snapshot of the headers at the moment the response is flushed has the origin's headers already" do
+      cors = Azu::Handler::CORS.new(origins: ["https://app.example"], methods: ["PUT"], headers: ["Content-Type"], credentials: true, expose_headers: ["X-Request-ID"])
+      cors.next = ->(context : HTTP::Server::Context) { }
+      request = HTTP::Request.new("OPTIONS", "/", HTTP::Headers{"Origin" => "https://app.example", "Access-Control-Request-Method" => "PUT"})
+      response = FlushRecordingResponse.new(IO::Memory.new)
+      cors.call(HTTP::Server::Context.new(request, response))
+      flushed = response.at_flush.not_nil!
+      flushed["Access-Control-Allow-Origin"].should eq "https://app.example"
+      flushed["Access-Control-Allow-Credentials"].should eq "true"
+      flushed["Access-Control-Expose-Headers"].should eq "X-Request-ID"
+      flushed["Access-Control-Allow-Methods"].should eq "PUT"
+      flushed.get("Vary").join(",").split(',').map(&.strip).should eq ["Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"]
+    end
+
+    it "vary by the request method and headers they answer, a refused one too" do
+      cors = Azu::Handler::CORS.new(origins: ["https://app.example"], methods: ["PUT"], headers: ["Content-Type"])
+      cors.next = ->(context : HTTP::Server::Context) { }
+      refused, _ = create_context("OPTIONS", "/", HTTP::Headers{"Origin" => "https://app.example", "Access-Control-Request-Method" => "DELETE"})
+      cors.call(refused)
+      refused.response.status_code.should eq 403
+      vary_of(refused).should contain("Access-Control-Request-Method")
+      ordinary = cors_get(cors, "https://app.example")
+      vary_of(ordinary).should eq ["Origin"]
+    end
+  end
+
   describe "preflight" do
     preflight = ->(cors : Azu::Handler::CORS, origin : String, method : String?, request_headers : String?) {
       cors.next = ->(context : HTTP::Server::Context) { }
@@ -367,7 +433,7 @@ describe "Azu::Handler::CORS origins and credentials" do
       response.headers["Access-Control-Allow-Credentials"].should eq "true"
       response.headers["Access-Control-Expose-Headers"].should eq "X-Request-ID"
       response.headers["Access-Control-Allow-Headers"].should eq "Content-Type"
-      response.headers["Vary"].should eq "Origin"
+      response.headers["Vary"].should eq "Origin,Access-Control-Request-Method,Access-Control-Request-Headers"
     end
 
     it "refuses a preflight asking for one allowed and one forbidden header on the wire" do

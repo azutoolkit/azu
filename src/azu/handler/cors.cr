@@ -26,7 +26,13 @@ module Azu
       DEFAULT_ORIGINS = [] of (String | Regex)
 
       property headers, methods, max_age
-      getter origins : OriginType
+      @origins : OriginType
+
+      # A copy: the origins are changed with `origins=` (which checks them), not by editing the array returned here.
+      def origins : OriginType
+        @origins.dup
+      end
+
       getter? credentials : Bool
       @origin : Origin
 
@@ -54,6 +60,7 @@ module Azu
       end
 
       def origins=(origins : OriginType) : OriginType
+        origins = origins.dup
         origin = Origin.new(origins)
         ensure_not_wildcard_with_credentials!(origin, @credentials)
         @origin = origin
@@ -87,6 +94,8 @@ module Azu
           put_expose_header(context.response)
           put_response_headers(context.response, request_origin)
           # A refused preflight is already answered and closed: nothing more is granted on it.
+          # The answer to a preflight also depends on what it asks for.
+          Vary.add(context.response.headers, Headers::REQUEST_METHOD, Headers::REQUEST_HEADERS) if is_preflight_request
           return if is_preflight_request && !Preflight.process(context, self)
 
           call_next(context) unless is_preflight_request
@@ -192,8 +201,14 @@ module Azu
 
       @patterns : CORS::OriginType
 
+      # The regex that must match the whole Origin. In extended mode (`x`) the source may end in a `# comment`, which
+      # would swallow the closing parenthesis: the line break ends it.
+      private def anchored(regex : Regex) : Regex
+        Regex.new("\\A(?:#{regex.source}#{"\n" if regex.options.extended?})\\z", regex.options)
+      end
+
       def initialize(@origins : CORS::OriginType)
-        @patterns = @origins.map { |origin| origin.is_a?(Regex) ? Regex.new("\\A(?:#{origin.source})\\z", origin.options) : origin }
+        @patterns = @origins.map { |origin| origin.is_a?(Regex) ? anchored(origin) : origin }
       end
 
       NULL_ORIGIN = "null"
