@@ -57,8 +57,9 @@ only the ones the template has read so far, and `Azu.session_adapter`'s `flash` 
 **Template macros and context-free includes keep no state between renders (security).** A macro was kept on the template,
 which every request shares, with the defaults it evaluated: `{% from "m.jinja" import panel %}` could import the macro an
 earlier request defined, its values included. `{% include "x.jinja" without context %}` rendered in the environment's
-global context, so its `{% set %}` reached every later render. Both now belong to their own render. `{% from ... import a %}`
-gives the importer `a` only (it used to leak every macro of the imported template into the importer's context).
+global context, so its `{% set %}` reached every later render. Both now belong to their own render: an imported file's
+macros and top-level variables still reach the importing page (an imported macro can call its file's other macros), and
+an `import` of a plain text template (`m.txt`) no longer turns escaping off for the rest of the page.
 
 **`urlize` is Azu's own.** It escapes the text around the links and links only `http`, `https` and `www.` addresses
 (Crinja's linked any `scheme://`, `javascript://` too, and did not escape the rest of the text). `button_to` and

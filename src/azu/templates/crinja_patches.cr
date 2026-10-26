@@ -57,11 +57,16 @@ class Crinja::Template
 
   # :nodoc:
   # Renders this template for `{% from %}` or `{% import %}` in a context of its own and returns it: it holds what
-  # the import defined. A child of the current context, so the import sees the importer's variables with or without
-  # context, as it does in Crinja (which renders an import in the importer's context).
+  # the import defined. A child of the importer's context, so the import sees the importer's variables with or without
+  # context, as in Crinja. Its macros and top-level variables are then copied into the importer's context, where
+  # Crinja put them (it rendered the import there), so an imported macro reaches its file's other macros and
+  # variables when it is called; that context belongs to one render. The import's autoescape stays its own.
   def render_for_import : Context
-    scope = Context.new(env.context)
+    importer = env.context
+    scope = Context.new(importer)
     render(scope)
+    importer.macros.merge!(scope.macros)
+    scope.scope.each { |key, value| importer[key] = value }
     scope
   end
 end
@@ -97,10 +102,7 @@ class Crinja::Tag::Import
     env.context.import_path_stack << include_name
     template = env.get_template(include_name)
 
-    if context_var.nil?
-      template.render(env) # into the current context, as in Crinja
-    else
-      template.render_for_import.macros.each { |key, value| env.context.macros["#{context_var}.#{key}"] = value }
-    end
+    scope = template.render_for_import
+    scope.macros.each { |key, value| env.context.macros["#{context_var}.#{key}"] = value } if context_var
   end
 end
