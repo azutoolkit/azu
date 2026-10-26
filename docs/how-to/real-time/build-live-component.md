@@ -65,7 +65,6 @@ class Counter < Azu::Spark::Component
   end
 end
 
-Azu::Spark.configure { |c| c.secret = ENV.fetch("SPARK_SECRET", "development-only-secret") }
 Azu::Spark.install
 
 struct PageResponse
@@ -97,9 +96,11 @@ end
 ```
 
 `Azu::Spark.install` registers the WebSocket route (`/spark`) and the client script
-(`/_spark/azu_spark.js`) on the router, so no CDN or inline script is involved. In production and
-staging `SPARK_SECRET` (or `c.secret`) is required, because it signs the join tokens. Props given to
-`Spark.render` are checked at compile time against the `prop` declarations.
+(`/_spark/azu_spark.js`) on the router, so no CDN or inline script is involved. Spark reads the secret
+that signs the join tokens from `SPARK_SECRET` itself, so set `SPARK_SECRET` in production and staging.
+Without it, development and test use a random per-process secret (tokens do not survive a restart), and
+production and staging raise `Azu::Spark::ConfigurationError` the first time a token is signed or verified,
+not at boot. Props given to `Spark.render` are checked at compile time against the `prop` declarations.
 
 Without JavaScript the page still shows the initial HTML; with it, every click updates the component.
 

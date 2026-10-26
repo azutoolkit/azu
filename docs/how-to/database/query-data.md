@@ -132,8 +132,8 @@ users = User
   .all
 ```
 
-`where(deleted_at: nil)` does not produce `IS NULL` (it compares with `= NULL` and matches nothing); use the block
-form or a SQL fragment for null checks, as above.
+`where(deleted_at: nil)` produces `WHERE users.deleted_at IS NULL`, the same check as the block form
+`deleted_at.null` and the SQL fragment above.
 
 ## Ordering, Limits and Pagination
 
@@ -379,9 +379,8 @@ Post.published.popular.count
 
 ## Eager Loading
 
-Reading an association per record runs one query per record (the N+1 problem). `preload` loads the `has_many`
-associations of all records with one extra query. It is implemented for `has_many` only; for a `belongs_to` target use a
-join or load the parents with one `where(id: ids)` query:
+Reading an association per record runs one query per record (the N+1 problem). `preload` loads the named association
+of all records with one extra query. It works for `has_many`, `has_one` and `belongs_to`:
 
 ```crystal
 require "cql"
@@ -445,6 +444,9 @@ User.all.each { |user| puts user.posts.size }
 
 # Two queries in total
 User.preload(:posts).all.each { |user| puts user.posts.size }
+
+# belongs_to: two queries in total as well
+Post.preload(:user).all.each { |post| puts post.user.try(&.name) }
 ```
 
 ## Raw SQL

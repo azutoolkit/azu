@@ -17,7 +17,7 @@ PORT=4000
 | Variable | Default | Meaning |
 |---|---|---|
 | `CRYSTAL_ENV` | `development` | `development`, `test`, `pipeline`, `staging`, `production`, ... |
-| `HOST`, `PORT` | `0.0.0.0`, `4000` | where the server listens |
+| `HOST`, `PORT` | `127.0.0.1` in `development`, `0.0.0.0` otherwise; `4000` | where the server listens |
 | `PORT_REUSE` | `true` | `SO_REUSEPORT` on the listening socket |
 | `TEMPLATE_HOT_RELOAD` | on in `development`, `test`, `pipeline` | re-read changed template files |
 | `TEMPLATES_PATH` | see [templates](../templates/render-html-templates.md) | comma separated template directories |
@@ -48,15 +48,18 @@ puts MyApp.env
 
 Keep secrets out of the image and out of source control: pass them as environment variables (`docker run -e`,
 `systemd` `EnvironmentFile=`, your platform's secret store) and read them with `ENV[...]`, which raises at boot
-when one is missing. Azu itself reads `SPARK_SECRET`; the application reads the rest.
+when one is missing. Azu itself reads `SPARK_SECRET` and `CSRF_SECRET`; the application reads the rest.
 
-An application generated with `azu new` reads `SESSION_SECRET` and `CSRF_SECRET` with `Azu::Env.secret` and refuses to
-start in production without them (in development it loads them from its git-ignored `.env`). Write the same guard
-yourself with [`Azu::Env.secret`](../../reference/configuration/env.md); without a key the CSRF handler generates a
-random one for each process, so tokens issued by one instance are rejected by another:
+`Azu::Handler::CSRF` reads `CSRF_SECRET` through [`Azu::Env.secret`](../../reference/configuration/env.md) when it is
+built without a `secret_key:`. In production, building the handler without `CSRF_SECRET` raises
+`Azu::Env::MissingError`; in other environments the handler uses a random key for the process and logs a warning,
+so its tokens are rejected after a restart and by other instances. Set the same `CSRF_SECRET` on every instance.
+An application generated with `azu new` reads `SESSION_SECRET` the same way (in development both come from its
+git-ignored `.env`). Read secrets of your own with `Azu::Env.secret` too:
 
 ```crystal
-csrf = Azu::Handler::CSRF.new(secret_key: Azu::Env.secret("CSRF_SECRET"))
+csrf = Azu::Handler::CSRF.new # signs with CSRF_SECRET
+session_secret = Azu::Env.secret("SESSION_SECRET")
 ```
 
 Generate a value with `openssl rand -base64 48`.
@@ -158,14 +161,25 @@ module MyApp
 end
 ```
 
-Streaming responses (SSE) count as in flight until the client disconnects, and WebSocket connections are not
-waited for.
+Open WebSocket connections are sent a close frame with code 1001 (going away) when shutdown begins and count as in
+flight until the peer answers, within the same `shutdown_timeout`; streaming responses count as in flight until their
+handler returns. See [Graceful shutdown](graceful-shutdown.md).
 
 ## Database Connections
 
-The pool of the database connection is part of the connection URL (`DATABASE_URL`), as with any
-crystal-db driver, for example `postgres://user:pass@host/db?initial_pool_size=5&max_pool_size=10`.
-See the [database guides](../database/define-schema.md).
+Where the pool settings go depends on which pool serves the schema:
+
+- `Azu::CQL.schema` with a `postgres://` or `postgresql://` URL uses CQL's own engine pool by default. Size it with
+  `pool_size`, `pool_min_size` and `checkout_timeout` on the URL; crystal-db's `max_pool_size` and
+  `initial_pool_size` are renamed to the first two, so
+  `postgres://user:pass@host/db?initial_pool_size=5&max_pool_size=10` still works.
+- `driver: :db` on `Azu::CQL.schema`, or `AZU_CQL_DRIVER=db`, selects crystal-db's pool instead. SQLite and MySQL
+  always use it, and so does a schema made directly with `CQL::Schema.define`. It reads crystal-db's URL parameters
+  (`initial_pool_size`, `max_pool_size`, `max_idle_pool_size`, `checkout_timeout`, ...).
+
+When `Azu::CQL.schema` takes its URL from `Azu::CQL.configure { |c| c.db = ... }`, `c.pool.size` sets the size for
+either pool, and parameters on the URL win. See the [Database dashboard](../../reference/database-dashboard.md)
+reference and the [database guides](../database/define-schema.md).
 
 ## Rate Limiting
 

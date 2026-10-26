@@ -219,6 +219,8 @@ the browser sends with the upgrade request. Check it in `on_connect` and close t
 not valid:
 
 ```crystal
+require "crypto/subtle"
+
 class PrivateChannel < Azu::Channel
   @user : String?
 
@@ -252,12 +254,16 @@ class PrivateChannel < Azu::Channel
 
   # Replace with a real check: a signed token, a session lookup, ...
   private def authenticate(token : String?) : String?
-    "alice" if token == ENV.fetch("CHANNEL_TOKEN", "change-me")
+    expected = ENV["CHANNEL_TOKEN"]?
+    return nil if token.nil? || expected.nil? || expected.empty?
+    "alice" if Crypto::Subtle.constant_time_compare(token, expected)
   end
 end
 ```
 
-`on_message` checks `@user` again because a client can send frames before the close handshake completes.
+`authenticate` refuses every connection while `CHANNEL_TOKEN` is unset, and compares in constant time so the
+response time does not reveal how much of the token matched. `on_message` checks `@user` again because a
+client can send frames before the close handshake completes.
 
 ## Rooms
 

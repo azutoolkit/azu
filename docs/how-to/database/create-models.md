@@ -168,10 +168,11 @@ Post.find!(1_i64).user               # => User? (belongs_to is optional unless y
 ```
 
 Pass `foreign_key:` on `has_many` and `has_one`: without it CQL guesses `<model_name>_id` from the class name.
-`dependent:` is accepted (`:destroy`, `:delete_all`, `:nullify`, `:restrict_with_error` for `has_many`) but
-`delete!` does not apply it, so children are not removed with their parent. Declare `on_delete: :cascade` on the
-foreign key in the [schema](define-schema.md) and let the database do it (SQLite only enforces foreign keys when
-`PRAGMA foreign_keys = ON`). `preload` only works for `has_many`.
+`dependent:` (`:destroy`, `:delete_all`, `:nullify`, `:restrict_with_error` for `has_many`; `:destroy`, `:delete`,
+`:nullify` for `has_one`) is applied by `delete!`, in the same transaction as the parent's own delete. An
+`on_delete: :cascade` foreign key in the [schema](define-schema.md) also covers rows deleted with plain SQL (SQLite
+only enforces foreign keys when `PRAGMA foreign_keys = ON`). `preload` works for `has_many`, `has_one` and
+`belongs_to`.
 
 ### Many to Many
 

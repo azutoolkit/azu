@@ -21,7 +21,8 @@ Things that are per process in Azu:
 - the memory cache (`CACHE_STORE=memory`, the default) and the router path cache;
 - `Azu::Handler::Throttle` counters;
 - the in-memory `Azu::PubSub` backend (see [WebSocket Scaling](#websocket-scaling));
-- the CSRF key, unless every instance is given the same one (`Azu::Handler::CSRF.new(secret_key: ENV["CSRF_SECRET"]?)`);
+- the CSRF key while `CSRF_SECRET` is unset: `Azu::Handler::CSRF` reads `CSRF_SECRET` itself (and raises in production
+  without it), so set the same `CSRF_SECRET` everywhere;
 - the Spark signing secret: set the same `SPARK_SECRET` everywhere.
 
 ## Session Storage

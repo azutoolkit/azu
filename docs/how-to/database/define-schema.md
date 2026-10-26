@@ -72,8 +72,8 @@ ProductsDB = CQL::Schema.define(:products, adapter: CQL::Adapter::SQLite, uri: "
 end
 ```
 
-Column options: `null:`, `default:` (a literal value, not a block), `unique:`, `size:` and `as:` (a different name in
-the database). `index: true` is accepted but creates nothing; see [Indexes](#indexes).
+Column options: `null:`, `default:` (a literal value, not a block), `unique:`, `size:`, `as:` (a different name in
+the database) and `index: true` (an index on the column; see [Indexes](#indexes)).
 
 ### Primary Keys
 
@@ -183,9 +183,10 @@ end
 
 ## Indexes
 
-`index [...]` and `index: true` inside `table` only record the index on the table object: `build` does not emit
-`CREATE INDEX`. Create real indexes with `schema.alter`, which runs immediately, or in a
-[migration](run-migrations.md). A `unique: true` column option is a real `UNIQUE` constraint, so it is indexed.
+`index [...]` and the `index: true` column option declare an index that `build` (and `create!` in a migration)
+creates right after the table, with `CREATE INDEX IF NOT EXISTS`. The name is `idx_<table>_<columns>` unless you pass
+`name:` to `index`. A `unique: true` column option is a `UNIQUE` constraint, so it is indexed too. To add an index to a table
+that already exists, use `schema.alter`, which runs immediately, or a [migration](run-migrations.md).
 
 ```crystal
 require "cql"
@@ -195,16 +196,17 @@ IndexedDB = CQL::Schema.define(:indexed, adapter: CQL::Adapter::SQLite, uri: "sq
   table :users do
     primary :id, Int64
     column :email, String, unique: true
-    column :organization_id, Int64
+    column :organization_id, Int64, index: true
     column :username, String
+    index [:organization_id, :username], unique: true
   end
 end
 
+# CREATE TABLE, then idx_users_organization_id and the unique idx_users_organization_id_username
 IndexedDB.build
 
 IndexedDB.alter(:users) do
-  create_index :index_users_on_organization_id, [:organization_id]
-  create_index :index_users_on_org_username, [:organization_id, :username], unique: true
+  create_index :index_users_on_username, [:username]
 end
 ```
 

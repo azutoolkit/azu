@@ -8,8 +8,10 @@ Every example is self-contained: it defines the schema and models it needs.
 
 ## Use Indexes
 
-Add indexes for columns you filter, join and sort on. Indexes declared inside a `table` block are not created, so
-create them in a [migration](../database/run-migrations.md) (or with `schema.alter`):
+Add indexes for columns you filter, join and sort on. Indexes declared inside a `table` block (`index [...]`,
+`index: true`) are created with the table by `build` and `create!` (see
+[Define a schema](../database/define-schema.md#indexes)). To add them to tables that already exist, use a
+[migration](../database/run-migrations.md) (or `schema.alter`):
 
 ```crystal
 require "cql"
@@ -133,8 +135,8 @@ end
 
 ### The Solution
 
-`preload` loads the `has_many` associations of every returned record with one extra query. It works for `has_many`
-only; a `belongs_to` target is best loaded by joining or by fetching the parents with one `where(id: ids)`:
+`preload` loads the named association of every returned record with one extra query (one per chunk of ids when there
+are more ids than the database accepts as parameters). It works for `has_many`, `has_one` and `belongs_to`:
 
 ```crystal
 require "cql"
@@ -184,9 +186,9 @@ User.preload(:posts).all.each do |user|
 end
 
 # belongs_to side: one query for the posts, one for their authors
-posts = Post.limit(50).all
-authors = User.where(id: posts.map(&.user_id).uniq!).all.index_by(&.id!)
-posts.each { |post| puts "#{post.title} by #{authors[post.user_id].name}" }
+Post.limit(50).preload(:user).all.each do |post|
+  puts "#{post.title} by #{post.user.try(&.name)}"
+end
 
 # Or let the database count: one grouped query
 counts = AcmeDB.query
@@ -413,9 +415,12 @@ statement and the driver can cache and reuse the prepared statement (crystal-db 
 
 ## Connection Pooling
 
-The pool belongs to the crystal-db connection: set its size with URI parameters (`initial_pool_size`, `max_pool_size`,
-`max_idle_pool_size`, `checkout_timeout` in seconds). With `require "azu/cql"`, `Azu::CQL.schema` fills them from
-`CQL.config.pool` and leaves parameters already in the URL alone:
+A schema made with `CQL::Schema.define` uses crystal-db's pool: set its size with URI parameters (`initial_pool_size`,
+`max_pool_size`, `max_idle_pool_size`, `checkout_timeout` in seconds). With `require "azu/cql"`, `Azu::CQL.schema`
+on a `postgres://` URL uses CQL's own engine pool instead (sized with `pool_size`, `pool_min_size` and
+`checkout_timeout`; crystal-db's names are translated), unless `driver: :db` or `AZU_CQL_DRIVER=db` keeps
+crystal-db's. When its URL comes from `CQL.config`, `Azu::CQL.schema` fills the pool settings from `CQL.config.pool`,
+and parameters already in the URL win (see [Configure production](../deployment/configure-production.md#database-connections)):
 
 ```crystal
 require "cql"

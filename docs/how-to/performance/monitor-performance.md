@@ -34,13 +34,15 @@ module MyApp
 end
 
 handlers = Azu::App.default.default_handlers
-handlers.unshift Azu::Handler::PerformanceMonitor.new
+if monitor = MyApp.config.performance_monitor # nil unless PERFORMANCE_MONITORING=true
+  handlers.unshift monitor
+end
 handlers.unshift Azu::Handler::DevDashboard.new if MyApp.env.development?
 
 MyApp.start handlers
 ```
 
-`default_handlers` is the stack `start` uses on its own (request id, logging, error pages, security headers, static files); the monitor and the dashboard go in front of it. `DevDashboard` serves only when the environment is development, whatever the list says. Open `/dev-dashboard`.
+`default_handlers` is the stack `start` uses on its own (request id, logging, error pages, security headers, static files); the monitor and the dashboard go in front of it. Put the shared monitor from `config.performance_monitor` in the chain: the dashboard and the code below read that instance, so a `Handler::PerformanceMonitor.new` of your own would record numbers that neither of them shows. `DevDashboard` serves only when the environment is development, whatever the list says. Open `/dev-dashboard`.
 
 ## What you get
 

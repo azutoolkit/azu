@@ -2,13 +2,16 @@
 
 This guide shows you how to containerize and deploy your Azu application with Docker.
 
+A project generated with `azu new --docker` by the [azu CLI](https://github.com/azutoolkit/azu_cli) already has a
+multi-stage `Dockerfile` and a `.dockerignore`.
+
 ## Basic Dockerfile
 
 Create a multi-stage Dockerfile:
 
 ```dockerfile
 # Build stage
-FROM crystallang/crystal:1.17.1-alpine AS builder
+FROM crystallang/crystal:1.19.1-alpine AS builder
 
 WORKDIR /app
 
@@ -34,9 +37,8 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /app/bin/app .
 
-# Copy static assets if any
+# Static files and templates (the app sets config.templates.path = "./public/templates")
 COPY public/ public/
-COPY views/ views/
 
 # Create non-root user
 RUN adduser -D -u 1000 appuser
@@ -44,7 +46,8 @@ USER appuser
 
 EXPOSE 8080
 
-ENV AZU_ENV=production
+# Production binds 0.0.0.0 unless HOST says otherwise
+ENV CRYSTAL_ENV=production
 ENV PORT=8080
 
 CMD ["./app"]
@@ -78,12 +81,16 @@ docker build -t myapp:latest .
 # Run the container
 docker run -p 8080:8080 \
   -e DATABASE_URL=postgres://... \
-  -e REDIS_URL=redis://... \
+  -e CACHE_STORE=redis \
+  -e CACHE_REDIS_URL=redis://... \
   myapp:latest
 
 # Run with env file
 docker run -p 8080:8080 --env-file .env.production myapp:latest
 ```
+
+The cache reads `CACHE_STORE` and `CACHE_REDIS_URL`, not `REDIS_URL`; see
+[Set up a Redis cache](../caching/setup-redis-cache.md).
 
 ## Docker Compose
 
@@ -98,10 +105,11 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - AZU_ENV=production
+      - CRYSTAL_ENV=production
       - PORT=8080
       - DATABASE_URL=postgres://user:password@db:5432/myapp
-      - REDIS_URL=redis://redis:6379/0
+      - CACHE_STORE=redis
+      - CACHE_REDIS_URL=redis://redis:6379/0
     depends_on:
       db:
         condition: service_healthy
@@ -158,7 +166,9 @@ services:
       - .:/app
       - /app/lib  # Exclude lib directory
     environment:
-      - AZU_ENV=development
+      - CRYSTAL_ENV=development
+      # Development binds 127.0.0.1 by default, which is unreachable from outside the container
+      - HOST=0.0.0.0
       - PORT=4000
       - DATABASE_URL=postgres://user:password@db:5432/myapp_dev
     depends_on:
@@ -189,7 +199,7 @@ Development Dockerfile:
 
 ```dockerfile
 # Dockerfile.dev
-FROM crystallang/crystal:1.17.1
+FROM crystallang/crystal:1.19.1
 
 WORKDIR /app
 
@@ -214,9 +224,10 @@ services:
     expose:
       - "8080"
     environment:
-      - AZU_ENV=production
+      - CRYSTAL_ENV=production
       - DATABASE_URL=postgres://user:password@db:5432/myapp
-      - REDIS_URL=redis://redis:6379/0
+      - CACHE_STORE=redis
+      - CACHE_REDIS_URL=redis://redis:6379/0
     depends_on:
       - db
       - redis

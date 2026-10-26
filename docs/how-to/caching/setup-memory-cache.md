@@ -195,7 +195,7 @@ The store is protected by a mutex, so any number of fibers can use `Azu.cache` a
 
 ## Observing the Cache
 
-`stats` reports the size of the store:
+`stats` reports the size of the store and its hit rate:
 
 ```crystal
 require "azu"
@@ -203,10 +203,12 @@ require "azu"
 stats = Azu.cache.stats
 puts stats["size"]      # entries
 puts stats["max_size"]  # limit
+puts stats["hit_rate"]  # percent of lookups that found an entry
 ```
 
-Its `hit_rate` is how full the store is, not a measured hit rate; Azu does not count hits and misses. To count them,
-subscribe to the cache operations:
+`hit_rate` is the memory store's hits divided by its lookups, times 100, counted since the store was created (`0.0`
+before the first lookup; `clear` does not reset it): three hits and one miss give `75.0`. To count hits and misses yourself, for example per
+key, subscribe to the cache operations:
 
 ```crystal
 require "azu"

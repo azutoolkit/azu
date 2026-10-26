@@ -5,10 +5,11 @@ the framework itself costs and how to measure it, see [Performance Design](../..
 
 ## Declare Endpoints as Structs
 
-The router keeps one endpoint value per route. A `struct` is copied for every request, so the params and context
-`call` sees are its own. A `class` is a single object shared by all concurrent requests: when its `call` waits (a
-query, a `sleep`), the next request overwrites its params. Three simultaneous requests to a class endpoint that
-slept in `call` all read the params of the last one; the same three to a struct each read their own.
+The router keeps one endpoint value per route, and each request works on its own copy: a `struct` is copied on
+dispatch, and a `class` is `dup`ed before `call`. So the params and context `call` sees are its own either way, even
+while `call` waits (a query, a `sleep`) and other requests to the same route run. A `struct` copy needs no extra heap
+object, which the `dup` of a class does. Both copies are shallow: an object that an instance variable points to is
+shared by every request, so keep request state in local variables.
 
 ```crystal
 require "azu"
@@ -323,7 +324,8 @@ struct SlowEndpoint
   get "/slow"
 
   def call : SlowResponse
-    result = Channel(String).new
+    # One slot of buffer: the fiber can deliver its result and finish even after the timeout
+    result = Channel(String).new(1)
 
     spawn do
       sleep 2.seconds # stands in for a slow upstream
@@ -340,8 +342,8 @@ struct SlowEndpoint
 end
 ```
 
-The fiber keeps running after the timeout and blocks forever on `result.send`, because nobody receives. Give the channel
-a buffer (`Channel(String).new(1)`) when the caller may give up first.
+The spawned fiber keeps running after the timeout; with the buffer, its `send` does not wait for a receiver, so the
+fiber ends when the slow call does.
 
 ## Measure
 
