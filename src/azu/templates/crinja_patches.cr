@@ -114,8 +114,8 @@ end
 
 abstract class Crinja::FeatureLibrary(T)
   # :nodoc:
-  # Counts the stores: a compiled template resolves its filters once, and again when this (or `aliases` or `disabled`
-  # in size) changes.
+  # Counts the stores: a compiled template resolves its filters once, and again when this (or `aliases` or `disabled`)
+  # changes.
   getter revision : Int32 = 0
 
   def []=(name, obj : T)

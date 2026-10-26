@@ -14,11 +14,22 @@ class Azu::Templates
     # Renders to `io`, calling the template's `n`th filter as `filters[n]`.
     alias Body = Proc(IO, Crinja, Array(Crinja::Callable?), Nil)
 
-    # What renders share, built on the first and again when what it was built from changes: the autoescape flag of
-    # the file name and each filter (nil when unknown or disabled: the call asks `env.filters`, which raises).
-    private record State, env : Crinja, stamp : {Int32, Int32, Int32}, rule : Crinja::Config::Autoescape, autoescape : Bool, filters : Array(Crinja::Callable?)
+    # What renders share, built on the first and again when what it was built from changes: each filter (nil when
+    # unknown or disabled: the call asks `env.filters`, which raises). `disabled` and `aliases` are copies, compared
+    # by value on every render, so an in-place change is seen.
+    private class State
+      getter env : Crinja, revision : Int32, aliases : Hash(String, String), disabled : Array(String)
+      getter filters : Array(Crinja::Callable?)
 
-    @state : State?
+      def initialize(@env, @revision, @aliases, @disabled, @filters)
+      end
+
+      def current?(env : Crinja, library) : Bool
+        @env.same?(env) && @revision == library.revision && @disabled == library.disabled && @aliases == library.aliases
+      end
+    end
+
+    @state = Atomic(State?).new(nil)
 
     def initialize(source : String, @filter_names : Array(String), @body : Body, env : Crinja, name : String, filename : String)
       super(source, env, name, filename)
@@ -39,21 +50,23 @@ class Azu::Templates
     # Unlike Crinja, which renders to a buffer first, it writes to `io` as it goes: on an error `io` holds the output
     # so far. Azu's own render paths go through a `String`, so they are unaffected.
     def render(io : IO, env : Crinja)
-      state = state(env)
-      env.context.autoescape = state.autoescape # as Crinja's renderer does
-      @body.call(io, env, state.filters)
+      filters = state(env).filters
+      env.context.autoescape = env.config.autoescape?(filename) # as Crinja's renderer does, on every render
+      @body.call(io, env, filters)
     rescue e : Crinja::Error
       e.template ||= self
       raise e
     end
 
-    # Immutable, published with one assignment: a render racing a rebuild uses either state.
+    # Immutable, published with one atomic pointer store: a render racing a rebuild uses either state.
     private def state(env : Crinja) : State
-      filters, rule = env.filters, env.config.autoescape
-      stamp = {filters.revision, filters.aliases.size, filters.disabled.size}
-      state = @state
-      return state if state && state.env.same?(env) && state.stamp == stamp && state.rule.same?(rule)
-      @state = State.new(env, stamp, rule, rule.autoescape?(filename), @filter_names.map { |name| filters[name] rescue nil })
+      library = env.filters
+      state = @state.get
+      return state if state && state.current?(env, library)
+      state = State.new(env, library.revision, library.aliases.dup, library.disabled.dup,
+        @filter_names.map { |name| library[name] rescue nil })
+      @state.set(state)
+      state
     end
   end
 end
