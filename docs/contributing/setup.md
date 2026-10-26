@@ -113,8 +113,9 @@ something that is not meant to compile (shell output, historical APIs) use anoth
 
 ## Troubleshooting
 
-- **`shards install` complains about the Crystal version:** use `shards install --ignore-crystal-version` if you
-  run a compiler newer than the one `shard.yml` was written for.
+- **`shards install` prints `may be incompatible with Crystal`:** it is a warning about a dependency's declared
+  `crystal:` constraint, and the install goes on. Azu is tested on 1.22.1 and newer only; on an older compiler it is
+  unsupported even though shards lets it install.
 - **The linker cannot find `sqlite3`:** install the SQLite development package for your system.
 - **Dependencies out of date:** `shards update`.
 
