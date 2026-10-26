@@ -974,8 +974,13 @@ end
 ### Checking for Deprecations
 
 Apps that stay on Crystal 1.19.1 must use Azu 0.5.123 or older and a CQL release that compiles on 1.19.1 (0.0.766 or older,
-or 0.0.879 or newer; 0.0.798 and 0.0.808 do not build). Pin it in your own `shard.yml`, for example
+or 0.0.879 or newer; 0.0.798 and 0.0.808 do not compile on 1.19.1). Pin it in your own `shard.yml`, for example
 `cql: '>= 0.0.609, < 0.0.798'`.
+
+Azu 0.5.124 and newer declare `crystal: '>= 1.22.1'`. `shards install` does not refuse on an older compiler: it prints
+`W: Shard "azu" may be incompatible with Crystal 1.19.1` and installs anyway (it warns for a dependency's `crystal:` line and
+never enforces the `crystal:` line of your own `shard.yml`). The specs and CI run on 1.22.1 and newer only, so
+0.5.124 and newer is unsupported on older compilers, whatever the warning lets through.
 
 ### Unreleased (0.6 work)
 
