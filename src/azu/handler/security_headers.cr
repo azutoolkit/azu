@@ -33,9 +33,9 @@ module Azu
       def call(context : HTTP::Server::Context)
         headers = context.response.headers
         # One pass over the headers set before this handler (in the default stack, X-Request-ID alone) finds ours,
-        # comparing names as HTTP::Headers does (`each_key` and `Key#==` lean on the internals TrustedHeader names)
+        # comparing names as HTTP::Headers does (through the internals TrustedHeader names)
         present = 0
-        headers.each_key do |name|
+        TrustedHeader.each_key(headers) do |name|
           @headers.each_with_index { |(key, _), index| present |= 1 << index if key == name }
         end
         @headers.each_with_index { |(key, value), index| TrustedHeader.set(headers, key, value) if present.bit(index) == 0 }

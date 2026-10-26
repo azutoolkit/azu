@@ -22,11 +22,14 @@ end
 
 # Bytes Static allocates per request for `path` under `dir`, after a first call that memoizes request.path (a
 # connection's request has parsed it already). The clock does not move, so the directory is not looked at again.
+# The path is set after the request is built: Crystal 1.22 refuses a non-ASCII resource in `HTTP::Request.new` (and so
+# on the wire), but a handler ahead of Static can still set one with `HTTP::Request#path=`.
 private def static_bytes(dir : String, path : String) : Float64
   with_fake_clock do
     handler = Azu::Handler::Static.new(dir, fallthrough: true)
     handler.next = StaticNoopNext.new
-    context = HTTP::Server::Context.new(HTTP::Request.new("GET", path), HTTP::Server::Response.new(IO::Memory.new))
+    request = HTTP::Request.new("GET", "/").tap(&.path = path)
+    context = HTTP::Server::Context.new(request, HTTP::Server::Response.new(IO::Memory.new))
     handler.call(context)
     HotPath.bytes_per_call { handler.call(context) }
   end

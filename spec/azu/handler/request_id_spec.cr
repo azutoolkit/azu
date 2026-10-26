@@ -287,8 +287,10 @@ describe Azu::Handler::RequestId do
     it "replaces a supplied id that is not a valid header value, and never echoes it" do
       handler = Azu::Handler::RequestId.new
       handler.next = create_next_handler(1)[0]
-      # The wire parser refuses CR and LF, but a hand-built request can carry them: merge! does not check values
-      headers = HTTP::Headers.new.merge!({"X-Request-ID" => "a\rSet-Cookie: x"})
+      # The wire parser and HTTP::Headers refuse CR and LF; a header written without that check (as TrustedHeader
+      # writes one) still reaches the handler with them
+      headers = HTTP::Headers.new
+      Azu::Handler::TrustedHeader.set(headers, Azu::Handler::TrustedHeader.key("X-Request-ID"), "a\rSet-Cookie: x")
       context, io = create_context("GET", "/test", headers)
 
       handler.call(context)
