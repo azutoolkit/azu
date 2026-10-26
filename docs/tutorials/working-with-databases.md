@@ -17,7 +17,7 @@ By the end of this tutorial, you'll have:
 
 - Completed [Building a User API](building-a-user-api.md) tutorial (the contracts, responses and endpoints below are
   the same ones, now backed by a database)
-- Crystal 1.19.1 or newer
+- Crystal 1.22.1 or newer
 - SQLite (included on most systems), or PostgreSQL if you prefer it
 
 ## Step 1: Add CQL dependencies
@@ -41,7 +41,7 @@ dependencies:
   # pg:                         # PostgreSQL
   #   github: will/crystal-pg
 
-crystal: ">= 1.19.1"
+crystal: ">= 1.22.1"
 license: MIT
 ```
 {% endcode %}

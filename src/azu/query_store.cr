@@ -25,10 +25,18 @@ module Azu
     getter caller : String?
     getter transaction_id : Int64?
     getter started_ms : Int64
+    # Time the statement waited for a pooled connection (part of `duration_ms`); 0 when the ORM does not report it.
+    getter pool_wait_ms : Float64 = 0.0
+    # Free-form tag the application set for the statement (`CQL::Telemetry.with_context`).
+    getter context : String?
+    # Database adapter that ran the statement ("SQLite", "Postgres", ...).
+    getter adapter : String?
+    # True when `params` holds the bound values (`database.show_params`) instead of `?` placeholders.
+    getter? params_shown : Bool = false
 
     def initialize(@id, @request_id, @endpoint, @method, @path, @fiber_id, @sql, @normalized_sql,
                    @operation, @table, @params, @duration_ms, @rows, @error, @caller,
-                   @transaction_id, @started_ms)
+                   @transaction_id, @started_ms, @pool_wait_ms = 0.0, @context = nil, @adapter = nil, @params_shown = false)
     end
 
     def error? : Bool
@@ -117,6 +125,14 @@ module Azu
 
   # Hooks an ORM integration provides to the dashboard.
   abstract class DatabaseAdapter
+    # Name of the database adapter ("SQLite", "Postgres", "CockroachDB", ...), for the pool card.
+    def adapter_name : String?
+    end
+
+    # Where connections come from ("crystal-db pool", "native PostgreSQL engine"), for the pool card.
+    def connection_source : String?
+    end
+
     # Runs read-only SQL (always rolled back) and returns columns and rows.
     abstract def read_only(sql : String, limit : Int32) : {Array(String), Array(Array(String?))}
 
@@ -142,6 +158,66 @@ module Azu
 
     def operation(sql : String) : String
       sql.lstrip.split(/\s+/, 2).first?.try(&.upcase) || ""
+    end
+
+    NAME = "[\\w.$]+"
+
+    # Messages whose whole first line is server wording with no data in it, and the canonical text built from the
+    # identifiers they name (only `[\w.$]+` is accepted as one). English servers only.
+    NAMED_ERRORS = [
+      {/\Arelation "(#{NAME})" does not exist\z/, %(relation "%s" does not exist)},
+      {/\Acolumn "(#{NAME})" does not exist\z/, %(column "%s" does not exist)},
+      {/\Anull value in column "(#{NAME})" of relation "(#{NAME})" violates not-null constraint\z/, %(null value in column "%s" of relation "%s" violates not-null constraint)},
+      {/\Anull value in column "(#{NAME})" violates not-null constraint\z/, %(null value in column "%s" violates not-null constraint)},
+      {/\Aduplicate key value violates unique constraint "(#{NAME})"\z/, %(duplicate key value violates unique constraint "%s")},
+      {/\Ainsert or update on table "(#{NAME})" violates foreign key constraint "(#{NAME})"\z/, %(insert or update on table "%s" violates foreign key constraint "%s")},
+      {/\Aupdate or delete on table "(#{NAME})" violates foreign key constraint "(#{NAME})" on table "(#{NAME})"\z/, %(update or delete on table "%s" violates foreign key constraint "%s" on table "%s")},
+      {/\AUNIQUE constraint failed: (#{NAME}(?:, #{NAME})*)\z/, "UNIQUE constraint failed: %s"},
+      {/\ANOT NULL constraint failed: (#{NAME})\z/, "NOT NULL constraint failed: %s"},
+      {/\Ano such table: (#{NAME})\z/, "no such table: %s"},
+      {/\Ano such column: (#{NAME})\z/, "no such column: %s"},
+      {/\ATable '(#{NAME})' doesn't exist\z/, "Table '%s' doesn't exist"},
+      {/\AUnknown column '(#{NAME})' in '(field list|where clause|order clause|on clause|group statement|having clause)'\z/, "Unknown column '%s' in '%s'"},
+      {/\Asyntax error( at or near .*)?\z/, "syntax error"},
+      {/\Anear .*: syntax error\z/, "syntax error"},
+    ]
+
+    # Value-free messages that are shown as they are.
+    PLAIN_ERRORS = ["database is locked", "FOREIGN KEY constraint failed", "deadlock detected", "canceling statement due to statement timeout",
+                    "canceling statement due to user request", "CHECK constraint failed"]
+
+    # MySQL puts the value in the first line, so only a one-line message is recognised (the value cannot hide a line break).
+    MYSQL_DUPLICATE = /\ADuplicate entry .* for key '(#{NAME})'\z/
+
+    # What the dashboard shows of a database error while bound values must stay hidden: the exception class, its SQLSTATE
+    # when it has one, and a canonical text only for a message shape recognised from its whole first line. Anything else
+    # shows the class (and code) alone. Never raises.
+    def safe_error(error : Exception) : String
+      text = canonical_error(error.message.to_s)
+      code = error.responds_to?(:sqlstate) ? error.sqlstate.to_s : ""
+      label = code.matches?(/\A[0-9A-Z]{5}\z/) ? "#{error.class.name} (SQLSTATE #{code})" : error.class.name
+      text ? "#{label}: #{text}" : label
+    rescue
+      error.class.name
+    end
+
+    # The canonical text of a recognised message, or nil.
+    def canonical_error(message : String) : String?
+      message = message.scrub
+      first = message.split(/[\r\n]/, 2).first
+      first = first.sub(/\A(?:ERROR|FATAL): /, "").sub(/ \(SQLSTATE [0-9A-Z]{5}\)\z/, "") # CQL's own wrapper
+      if first == message && (found = MYSQL_DUPLICATE.match(first))
+        return "Duplicate entry for key '#{found[1]}'"
+      end
+      return first if PLAIN_ERRORS.includes?(first)
+      NAMED_ERRORS.each do |pattern, template|
+        if found = pattern.match(first)
+          return found.size == 1 ? template : template % found.captures.map(&.to_s)
+        end
+      end
+      nil
+    rescue
+      nil
     end
 
     def table(sql : String) : String?
@@ -238,14 +314,16 @@ module Azu
     def record_query(sql : String, params : Array(String), duration_ms : Float64, rows : Int64?,
                      error : String?, caller_location : String?, transaction_id : Int64?,
                      request_id : String?, endpoint : String?, method : String?, path : String?,
-                     fiber_id : UInt64) : QueryMetric
+                     fiber_id : UInt64, operation : String? = nil, pool_wait_ms : Float64 = 0.0,
+                     context : String? = nil, adapter : String? = nil, params_shown : Bool = false) : QueryMetric
       normalized = QueryAnalysis.normalize(sql)
       metric = @@mutex.synchronize do
         @next_id += 1
         entry = QueryMetric.new(
           @next_id, request_id, endpoint, method, path, fiber_id, sql, normalized,
-          QueryAnalysis.operation(sql), QueryAnalysis.table(sql), params, duration_ms, rows, error,
-          caller_location, transaction_id, Time.utc.to_unix_ms - duration_ms.to_i64
+          operation || QueryAnalysis.operation(sql), QueryAnalysis.table(sql), params, duration_ms, rows, error,
+          caller_location, transaction_id, Time.utc.to_unix_ms - duration_ms.to_i64,
+          pool_wait_ms, context, adapter, params_shown
         )
         @queries << entry
         @queries.shift if @queries.size > MAX_QUERIES

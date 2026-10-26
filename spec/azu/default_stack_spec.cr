@@ -66,7 +66,65 @@ describe Azu::App do
   end
 end
 
+# What SecurityHeaders passes the request to; it answers nothing, so the response keeps only the headers set before.
+private class Answered
+  include HTTP::Handler
+
+  def call(context : HTTP::Server::Context)
+  end
+end
+
+# The response headers after `handler` ran on a response that already holds `preset`, as the default stack's does
+# (RequestId sets X-Request-ID first).
+private def headers_after(handler : Azu::Handler::SecurityHeaders, preset : HTTP::Headers) : Array({String, Array(String)})
+  handler.next = Answered.new
+  context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/"), HTTP::Server::Response.new(IO::Memory.new))
+  context.response.headers.merge!(preset)
+  handler.call(context)
+  context.response.headers.to_a
+end
+
 describe Azu::Handler::SecurityHeaders do
+  it "adds its headers after the ones already set, with the default values" do
+    headers_after(Azu::Handler::SecurityHeaders.new, HTTP::Headers{"X-Request-ID" => "req-1"}).should eq [
+      {"X-Request-ID", ["req-1"]},
+      {"X-Content-Type-Options", ["nosniff"]},
+      {"X-Frame-Options", ["SAMEORIGIN"]},
+      {"Referrer-Policy", ["strict-origin-when-cross-origin"]},
+    ]
+  end
+
+  it "adds the configured values, the policy and HSTS" do
+    handler = Azu::Handler::SecurityHeaders.new("DENY", "no-referrer", "default-src 'self'", hsts: true)
+
+    headers_after(handler, HTTP::Headers{"X-Request-ID" => "req-1"}).should eq [
+      {"X-Request-ID", ["req-1"]},
+      {"X-Content-Type-Options", ["nosniff"]},
+      {"X-Frame-Options", ["DENY"]},
+      {"Referrer-Policy", ["no-referrer"]},
+      {"Content-Security-Policy", ["default-src 'self'"]},
+      {"Strict-Transport-Security", [Azu::Handler::SecurityHeaders::HSTS_VALUE]},
+    ]
+  end
+
+  it "never overwrites a header already on the response, however it is spelled" do
+    handler = Azu::Handler::SecurityHeaders.new(content_security_policy: "default-src 'self'", hsts: true)
+    preset = HTTP::Headers{"x_frame_options" => "DENY", "content-security-policy" => "none", "STRICT-TRANSPORT-SECURITY" => "max-age=1"}
+
+    headers_after(handler, preset).should eq [
+      {"x_frame_options", ["DENY"]},
+      {"content-security-policy", ["none"]},
+      {"STRICT-TRANSPORT-SECURITY", ["max-age=1"]},
+      {"X-Content-Type-Options", ["nosniff"]},
+      {"Referrer-Policy", ["strict-origin-when-cross-origin"]},
+    ]
+  end
+
+  it "refuses a value no response could carry when it is built, not on every request" do
+    expect_raises(ArgumentError) { Azu::Handler::SecurityHeaders.new(content_security_policy: "default-src 'self'\r\nX-Injected: 1") }
+    expect_raises(ArgumentError) { Azu::Handler::SecurityHeaders.new(frame_options: "DENY\n") }
+  end
+
   it "leaves a header the application set and only sends HSTS on request" do
     handler = Azu::Handler::SecurityHeaders.new(content_security_policy: "default-src 'self'", hsts: true)
     serve([handler] of HTTP::Handler) do |client|

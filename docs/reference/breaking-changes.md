@@ -34,10 +34,16 @@ HTML: a name with the inner extension `txt`, `text`, `json`, `js`, `mjs`, `css`,
   `capitalize`, `truncate`, `replace`, `format` and the `~` operator (`{{ (x | safe) ~ "a" }}`, `{{ (x | e) | upper }}`
   gives `&amp;LT;`). Apply them to the plain value and mark the result last (`{{ (x | upper) | e }}`), or build the markup
   yourself with `Crinja::SafeString.new(html)` in a helper. `trim`, `default`, `join` and `{% set %}` keep it.
-- Strings your code passes into a template that are HTML must be marked: `{{ csrf_tag }}` and `{{ csrf_metatag }}` (the
-  template variables) are safe already, but `Azu::Spark.render(...)` and `Azu::Spark.script_tag` return plain Strings, so a
+- Strings your code passes into a template that are HTML must be marked: `{{ csrf_tag }}` and `{{ csrf_metatag }}` are
+  safe when azu supplies them (not when your page passes its own String under that name), but `Azu::Spark.render(...)` and `Azu::Spark.script_tag` return plain Strings, so a
   template that prints them needs `{{ spark_view | safe }}`. Wrap them as `Crinja::Value.new(Crinja::SafeString.new(html))`
   in the data you pass to `view`.
+- Escaping is decided per template name, also for `{% include %}`, `{% extends %}` and imports: a `.html` or `.jinja`
+  page that includes `x.js.jinja` or `x.md.jinja` prints that part unescaped, and a `.txt.jinja` that includes a
+  `.jinja` prints that part escaped. Name partials for what they contain.
+- `urlize` expects escaped plain text; markup in a `SafeString` is tolerated (tags, attributes and existing links are left
+  alone), but it is no sanitizer. `html_attrs` of `simple_format` and `link_attrs` of `auto_link` escape their values and
+  check names, but do not check URLs: do not put a user value in `href`/`src` there.
 - `{% autoescape false %}...{% endautoescape %}` turns the escaping off for a block, `{% autoescape true %}` on again
   inside a plain text template.
 - The global `Crinja.render("{{ x }}", ...)` (Crinja's own default environment, not `Azu::CONFIG.templates.crinja`) does
@@ -45,11 +51,13 @@ HTML: a name with the inner extension `txt`, `text`, `json`, `js`, `mjs`, `css`,
 - Last resort: `Azu::CONFIG.template_autoescape = false` or `TEMPLATE_AUTOESCAPE=false` restores the old behavior (the start logs a warning while it is off, and when the variable holds a
   value other than `true` or `false`, which leaves escaping on).
 
-**Releases that autoescape need `csrf_metatag | safe` in generated apps (urgent).** The template variables `csrf_tag` and
-`csrf_metatag` are `Crinja::SafeString` now. Before this fix, 0.5.120 printed `&lt;input ...` for `{{ csrf_tag }}` and
-`{{ csrf_metatag }}` in a page that did not say `| safe`, and the form carried no CSRF token. A page that says `| safe`
-(the generated scaffold and auth pages do) works with both; the generated welcome page (`{{ csrf_metatag }}` without
-`| safe`) needs it until azu_cli is updated.
+**Generated apps still print `csrf_metatag` escaped until azu_cli changes (urgent).** The template variables `csrf_tag` and
+`csrf_metatag` that azu fills in from the request are `Crinja::SafeString` now, but this alone does **not** fix generated
+apps: their pages pass `csrf_tag` / `csrf_metatag` as Strings in `view data: {...}`, and `view` only fills the context
+variables a page has not set itself, so the page's String wins and `{{ csrf_metatag }}` prints `&lt;meta ...`. Since 0.5.120
+(autoescape) such a page carries no CSRF token in that tag. Until azu_cli is updated, either write `{{ csrf_metatag | safe }}`
+in the template or stop passing the String and use the variable azu provides. A page that already says `| safe` (the generated
+scaffold and auth pages do) works with both.
 
 **`urlize` is Azu's own.** It escapes the text around the links and links only `http`, `https` and `www.` addresses
 (Crinja's linked any `scheme://`, `javascript://` too, and did not escape the rest of the text). `button_to` and
@@ -180,7 +188,14 @@ read. `Router#process` returns `""` for a routed request instead of the renderin
 
 **A request id is cut from a buffered chunk of secure random bytes.** The format `req_<ms>_<16 hex>` is unchanged.
 
-**A `Static` public directory created after boot is picked up within a second**, not at once.
+**An invalid `SecurityHeaders` value raises `ArgumentError` when the handler is built.** A value a header cannot carry (a
+line break in `content_security_policy:`, `frame_options:` or `referrer_policy:`) used to raise on every request, which
+`Rescuer` answered with a `500`; the application now fails to boot instead.
+
+**A `Static` public directory created after boot is picked up within a second**, not at once, **and a top-level file
+or directory added to an existing one usually within a second, at most a minute** (`Handler::Static` reads the
+top-level names again when the directory's modification time or identity changes, checked once a second, and every
+60 seconds regardless).
 
 **A Redis cache needs an explicit URL, and `clear` only removes the cache's own keys.**
 
@@ -733,7 +748,7 @@ crystal build --warnings=all src/app.cr
 
 | Azu Version | Crystal Version |
 |-------------|-----------------|
-| 0.5.x | 1.19.1 and newer (tested on 1.19.1 and the latest release) |
+| 0.5.x | 1.22.1 and newer (tested on 1.22.1 and the latest release; releases up to 0.5.123 asked for 1.19.1) |
 | 0.4.x | 0.35.0 - 1.0.0 |
 | 0.3.x | 0.35.0 - 0.36.x |
 

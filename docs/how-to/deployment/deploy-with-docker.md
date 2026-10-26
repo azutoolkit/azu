@@ -18,7 +18,7 @@ Create a multi-stage Dockerfile:
 {% code title="Dockerfile" %}
 ```dockerfile
 # Build stage
-FROM crystallang/crystal:1.19.1-alpine AS builder
+FROM crystallang/crystal:1.22.1-alpine AS builder
 
 WORKDIR /app
 

@@ -1,5 +1,6 @@
 require "../spec_helper"
 require "../support/integration_helpers"
+require "../../benchmark/micro/harness"
 
 include IntegrationHelpers
 
@@ -30,8 +31,17 @@ describe Azu::RequestContext do
     it "has the form req_<unix ms>_<16 hex digits>" do
       before = Time.utc.to_unix_ms
       id = Azu::RequestContext.generate_id
+      after = Time.utc.to_unix_ms
       id.should match(/\Areq_(\d+)_[0-9a-f]{16}\z/)
       id.split('_')[1].to_i64.should be >= before
+      id.split('_')[1].to_i64.should be <= after
+    end
+
+    it "takes the time of each call, not of an earlier call that formatted the prefix" do
+      first = Azu::RequestContext.generate_id.split('_')[1].to_i64
+      until Time.utc.to_unix_ms > first
+      end
+      Azu::RequestContext.generate_id.split('_')[1].to_i64.should be > first
     end
 
     it "refuses a number of random bytes it cannot serve" do
@@ -50,6 +60,22 @@ describe Azu::RequestContext do
       suffixes = ids.map { |id| id.split('_').last.to_u64(16) }
       suffixes.each_cons(2).count { |pair| pair[1] == pair[0] + 1 }.should eq 0
     end
+
+    it "spells every hex digit at every position of the random part" do
+      # A digit table or a nibble order gone wrong would leave a position with fewer than 16 values
+      suffixes = Array.new(10_000) { Azu::RequestContext.generate_id.split('_').last }
+      16.times { |position| suffixes.map(&.[position]).uniq.sort.join.should eq "0123456789abcdef" }
+    end
+
+    {% if flag?(:preview_mt) %}
+      # GC.stats.total_bytes counts every thread, so a window would include the other workers' garbage
+      pending "builds an id in one allocation"
+    {% else %}
+      it "builds an id in one allocation" do
+        # One String of 34 bytes (`req_` + 13 digits + `_` + 16 hex digits) plus its header: 48 B in the GC
+        HotPath.bytes_per_call { Azu::RequestContext.generate_id }.should be <= 48
+      end
+    {% end %}
 
     it "gives every fiber its own ids when requests run at once" do
       done = Channel(Array(String)).new

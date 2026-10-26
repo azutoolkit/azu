@@ -4,11 +4,11 @@ description: "Build a small Azu app in about 15 minutes: a validated endpoint, a
 
 # Getting started
 
-You type every file. You need [Crystal](https://crystal-lang.org/install/) 1.19.1 or newer and a terminal.
+You type every file. You need [Crystal](https://crystal-lang.org/install/) 1.22.1 or newer and a terminal.
 
 ```bash
 crystal --version
-# Crystal 1.19.1 (...)
+# Crystal 1.22.1 (...)
 ```
 
 {% hint style="info" %}
@@ -28,7 +28,7 @@ Create `shard.yml`:
 ```yaml
 name: hello
 version: 0.1.0
-crystal: ">= 1.19.1"
+crystal: ">= 1.22.1"
 
 dependencies:
   azu:

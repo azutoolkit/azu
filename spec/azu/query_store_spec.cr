@@ -41,6 +41,146 @@ describe Azu::QueryAnalysis do
   end
 end
 
+private CANARY = "Zq9Kx7"
+
+private class CodedError < Exception
+  getter sqlstate : String
+
+  def initialize(message : String, @sqlstate : String)
+    super(message)
+  end
+end
+
+private def safe(message : String) : String
+  Azu::QueryAnalysis.safe_error(Exception.new(message))
+end
+
+describe "Azu::QueryAnalysis.safe_error" do
+  # Every shape the three reviews found, as a server could quote a data value in it.
+  nasty = {
+    "unique detail"       => "duplicate key value violates unique constraint \"u\"\nDETAIL: Key (email)=(#{CANARY}@example.com) already exists.",
+    "key on one line"     => "duplicate key value violates unique constraint \"u\" DETAIL: Key (email)=(#{CANARY}) already exists.",
+    "key multi-line"      => "Key (note)=(line1\nline2-#{CANARY}) already exists.",
+    "failing row"         => "new row for relation \"users\" violates check constraint \"c\"\nDETAIL: Failing row contains (1, #{CANARY}, x).",
+    "invalid syntax"      => %(invalid input syntax for type integer: "#{CANARY}"),
+    "invalid enum"        => %(invalid input value for enum status: "#{CANARY}"),
+    "datetime"            => %(date/time field value out of range: "#{CANARY}"),
+    "out of range"        => %(value "#{CANARY}" is out of range for type integer),
+    "json token"          => "invalid input syntax for type json\nDETAIL: Token \"#{CANARY}\" is invalid.\nCONTEXT: JSON data, line 1: {#{CANARY}",
+    "mysql duplicate"     => "Duplicate entry '#{CANARY}@example.com' for key 'users.email'",
+    "mysql newline"       => "Duplicate entry 'a\n#{CANARY}' for key 'users.email'",
+    "mysql O'Brien"       => "Duplicate entry 'O'Brien-#{CANARY}@example.com' for key 'users.email'",
+    "mysql quote+newline" => "Duplicate entry 'it's #{CANARY}\nmore' for key 'users.email'",
+    "mysql fake key"      => "Duplicate entry 'x' for key '#{CANARY}'\nmore' for key 'users.email'",
+    "mysql incorrect"     => "Incorrect integer value: '#{CANARY}' for column 'age' at row 1",
+    "apostrophe"          => "Incorrect integer value: 'it's #{CANARY}' for column 'age' at row 1",
+    "quote in value"      => %(invalid input syntax for type integer: "a"#{CANARY}"),
+    "name word in value"  => %(invalid input syntax for type integer: "x column "#{CANARY}" y"),
+    "relation in value"   => %(invalid input syntax for type integer: "a" relation "#{CANARY}"),
+    "timezone"            => %(invalid value for parameter "TimeZone": "#{CANARY}\nmore),
+    "timezone quote"      => %(invalid value for parameter "TimeZone": "a"#{CANARY}"),
+    "cockroach"           => %(duplicate key value (id)=(#{CANARY}) violates unique constraint "t_pkey"),
+    "cockroach columns"   => "duplicate key value (a, b)=(#{CANARY}, x) violates unique constraint",
+    "prefix-less hyphen"  => "duplicate key value (my-col)=(#{CANARY})",
+    "prefix-less nested"  => "duplicate key value (lower(email))=(#{CANARY})",
+    "typographic"         => "Duplicate entry ‘#{CANARY}’ for key ‘users.email’",
+    "localized"           => "bad value «#{CANARY}» „#{CANARY}“ ‚#{CANARY}‘ ‹#{CANARY}› 「#{CANARY}」 here",
+    "backticks"           => "bad value `#{CANARY}` here",
+    "hint"                => "something failed\nHINT: use #{CANARY}",
+    "nul"                 => "relation \"users\" does not exist\u0000#{CANARY}",
+    "carriage return"     => "relation \"users\" does not exist\r#{CANARY}",
+    "invalid utf-8"       => String.new(Bytes[0xff, 0xfe, 0x22]) + "bad #{CANARY} " + String.new(Bytes[0xc3]),
+    "invalid utf-8 enum"  => %(invalid input value for enum status: "#{CANARY}) + String.new(Bytes[0xff]) + %("),
+  }
+
+  nasty.each do |name, message|
+    it "keeps the value out of #{name}" do
+      safe(message).should_not contain CANARY
+      safe(message).should_not contain "example.com"
+    end
+  end
+
+  it "shows only the class for a message it does not recognise" do
+    safe("something unexpected: #{CANARY}").should eq "Exception"
+    safe("").should eq "Exception"
+    Azu::QueryAnalysis.safe_error(IO::Error.new("x")).should eq "IO::Error"
+  end
+
+  it "builds a canonical text for each recognised shape" do
+    {
+      %(relation "users" does not exist)                                                           => %(relation "users" does not exist),
+      %(column "age" does not exist)                                                               => %(column "age" does not exist),
+      %(null value in column "name" of relation "users" violates not-null constraint)              => %(null value in column "name" of relation "users" violates not-null constraint),
+      %(null value in column "name" violates not-null constraint)                                  => %(null value in column "name" violates not-null constraint),
+      %(duplicate key value violates unique constraint "users_email_key")                          => %(duplicate key value violates unique constraint "users_email_key"),
+      %(insert or update on table "posts" violates foreign key constraint "posts_user_fk")         => %(insert or update on table "posts" violates foreign key constraint "posts_user_fk"),
+      %(update or delete on table "users" violates foreign key constraint "p_fk" on table "posts") => %(update or delete on table "users" violates foreign key constraint "p_fk" on table "posts"),
+      "UNIQUE constraint failed: users.email"                                                      => "UNIQUE constraint failed: users.email",
+      "UNIQUE constraint failed: users.a, users.b"                                                 => "UNIQUE constraint failed: users.a, users.b",
+      "NOT NULL constraint failed: users.name"                                                     => "NOT NULL constraint failed: users.name",
+      "no such table: users"                                                                       => "no such table: users",
+      "no such column: age"                                                                        => "no such column: age",
+      "Table 'shop.users' doesn't exist"                                                           => "Table 'shop.users' doesn't exist",
+      "Unknown column 'age' in 'field list'"                                                       => "Unknown column 'age' in 'field list'",
+      "Duplicate entry 'a@b.c' for key 'users.email'"                                              => "Duplicate entry for key 'users.email'",
+      %(syntax error at or near "#{CANARY}")                                                       => "syntax error",
+      %(near "#{CANARY}": syntax error)                                                            => "syntax error",
+      "database is locked"                                                                         => "database is locked",
+      "FOREIGN KEY constraint failed"                                                              => "FOREIGN KEY constraint failed",
+      %(ERROR: relation "users" does not exist (SQLSTATE 42P01))                                   => %(relation "users" does not exist),
+      %(relation "users" does not exist\nDETAIL: whatever #{CANARY})                               => %(relation "users" does not exist),
+    }.each do |message, text|
+      safe(message).should eq "Exception: #{text}"
+    end
+  end
+
+  it "accepts only plain identifiers in a recognised shape" do
+    safe(%(relation "a b" does not exist)).should eq "Exception"
+    safe(%(relation "#{CANARY}" does not exist, #{CANARY})).should eq "Exception"
+    safe(%(relation "a"b" does not exist)).should eq "Exception"
+    safe("no such table: a;b").should eq "Exception"
+  end
+
+  it "adds the SQLSTATE the exception exposes" do
+    Azu::QueryAnalysis.safe_error(CodedError.new("no such table: t", "42P01")).should eq "CodedError (SQLSTATE 42P01): no such table: t"
+    Azu::QueryAnalysis.safe_error(CodedError.new("whatever #{CANARY}", "23505")).should eq "CodedError (SQLSTATE 23505)"
+    Azu::QueryAnalysis.safe_error(CodedError.new("x #{CANARY}", "bad code #{CANARY}")).should eq "CodedError"
+  end
+
+  it "stays fast on a megabyte of nasty input" do
+    inputs = ["'x" * 500_000, "relation \"a\" " * 100_000, "'a\"b`c‘d“e" * 100_000, "x" * 1_000_000 + "'", "Duplicate entry '" + "'' for key '" * 90_000,
+              "\n" * 1_000_000, String.new(Bytes.new(1_000_000, 0xff_u8)), "(" * 1_000_000]
+    inputs.each do |message|
+      Time.measure { safe(message).should_not contain CANARY }.should be < 2.seconds
+    end
+  end
+
+  it "keeps a canary out of messages generated from server shapes and nasty values" do
+    templates = [
+      "Duplicate entry '%V%' for key 'users.email'", "Incorrect integer value: '%V%' for column 'age' at row 1",
+      "invalid input syntax for type integer: \"%V%\"", "invalid input value for enum status: \"%V%\"",
+      "invalid value for parameter \"TimeZone\": \"%V%\"", "duplicate key value (id)=(%V%) violates unique constraint \"t_pkey\"",
+      "duplicate key value (my-col)=(%V%)", "duplicate key value (lower(email))=(%V%)", "Key (email)=(%V%) already exists.",
+      "duplicate key value violates unique constraint \"u\"\nDETAIL: Key (email)=(%V%) already exists.",
+      "new row violates check constraint \"c\"\nDETAIL: Failing row contains (1, %V%).", "value \"%V%\" is out of range for type integer",
+      "date/time field value out of range: \"%V%\"", "invalid input syntax for type json\nDETAIL: Token \"%V%\" is invalid.\nCONTEXT: JSON data, line 1: %V%",
+      "syntax error at or near \"%V%\"", "near \"%V%\": syntax error", "relation \"u\" does not exist\nDETAIL: %V%",
+      "Data too long for column 'name' at row 1: %V%", "Truncated incorrect DOUBLE value: '%V%'", "%V%",
+    ]
+    fragments = [CANARY, "it's #{CANARY}", "a\"#{CANARY}", "x\n#{CANARY}", "DETAIL: #{CANARY}", "CONTEXT: #{CANARY}", "HINT: #{CANARY}",
+                 "«#{CANARY}»", "„#{CANARY}“", "‚#{CANARY}‘", "「#{CANARY}」", "'#{CANARY}'", "`#{CANARY}`", "a' for key '#{CANARY}", "#{CANARY}\r\nmore",
+                 "\u0000#{CANARY}", ")=(#{CANARY}", "Key (a)=(#{CANARY}", "contains (#{CANARY}", "#{CANARY}" + String.new(Bytes[0xff]), "x\" relation \"#{CANARY}"]
+    random = Random.new(7)
+    templates.each do |template|
+      600.times do
+        value = Array.new(random.rand(1..3)) { fragments.sample(random) }.join(random.next_bool ? "" : " ")
+        message = template.gsub("%V%", value)
+        safe(message).should_not contain CANARY
+      end
+    end
+  end
+end
+
 describe Azu::QueryStore do
   it "assigns increasing ids and filters by since" do
     store = Azu::QueryStore.new
@@ -115,6 +255,30 @@ describe Azu::QueryStore do
     store.clear
     store.queries.should be_empty
     store.transactions.should be_empty
+  end
+end
+
+describe Azu::QueryMetric do
+  it "keeps the new fields optional when recording and when reading older JSON" do
+    store = Azu::QueryStore.new
+    plain = store.record_query("SELECT 1", ["?"], 1.0, nil, nil, nil, nil, nil, nil, nil, nil, 1_u64)
+    plain.pool_wait_ms.should eq 0.0
+    plain.context.should be_nil
+    plain.operation.should eq "SELECT"
+
+    full = store.record_query("(SELECT 1)", [] of String, 1.0, nil, nil, nil, nil, nil, nil, nil, nil, 1_u64,
+      operation: "SELECT", pool_wait_ms: 7.5, context: "job:x", adapter: "Postgres")
+    full.operation.should eq "SELECT"
+    full.pool_wait_ms.should eq 7.5
+
+    old = JSON.parse(plain.to_json).as_h.reject("pool_wait_ms", "context", "adapter", "params_shown").to_json
+    Azu::QueryMetric.from_json(old).pool_wait_ms.should eq 0.0
+  end
+
+  it "records whether the params are values or placeholders" do
+    store = Azu::QueryStore.new
+    store.record_query("SELECT 1", ["?", "?"], 1.0, nil, nil, nil, nil, nil, nil, nil, nil, 1_u64).params_shown?.should be_false
+    store.record_query("SELECT 1", %w(1 "a"), 1.0, nil, nil, nil, nil, nil, nil, nil, nil, 1_u64, params_shown: true).params_shown?.should be_true
   end
 end
 

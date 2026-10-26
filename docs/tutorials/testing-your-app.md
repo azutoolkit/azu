@@ -23,7 +23,7 @@ By the end of this tutorial, you'll be able to:
 
 - Completed the previous tutorials (the examples use a small user API like the one you built)
 - Basic understanding of testing concepts
-- Crystal 1.19.1 or newer
+- Crystal 1.22.1 or newer
 
 {% hint style="info" %}
 Specs normally use `Azu::Testing::Client` (see [Testing](../reference/api/testing.md)), which sends requests and

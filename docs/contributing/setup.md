@@ -6,7 +6,7 @@ description: How to get a working checkout of Azu, run its specs and checks, and
 
 ## Prerequisites
 
-- **Crystal 1.19.1 or newer.** CI runs 1.19.1 and the latest release. Install it from
+- **Crystal 1.22.1 or newer.** CI runs 1.22.1 and the latest release. Install it from
   [crystal-lang.org/install](https://crystal-lang.org/install/) and check it with `crystal --version`.
 - **Git**, and a fork of [azutoolkit/azu](https://github.com/azutoolkit/azu) if you want to open a pull request.
 - **SQLite development headers** (`libsqlite3-dev` on Debian and Ubuntu): the specs link against SQLite.

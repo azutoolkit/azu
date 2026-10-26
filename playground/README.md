@@ -13,7 +13,7 @@ shards install                 # installs azu (path), cql and sqlite3
 crystal run azu_cql_demo.cr
 ```
 
-Needs Crystal 1.17+ and the SQLite dev library (`libsqlite3-dev` on Debian/Ubuntu, `brew install sqlite` on macOS).
+Needs Crystal 1.22.1 or newer and the SQLite dev library (`libsqlite3-dev` on Debian/Ubuntu, `brew install sqlite` on macOS).
 The server listens on <http://localhost:4000>; the dashboard is at <http://localhost:4000/__dev>.
 The database file `playground/azu_cql_demo.db` is recreated and re-seeded on every start.
 

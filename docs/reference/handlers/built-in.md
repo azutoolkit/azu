@@ -144,7 +144,8 @@ Azu::Handler::SecurityHeaders.new(
 
 Sets `X-Content-Type-Options: nosniff`, `X-Frame-Options`, `Referrer-Policy`, and, only when asked,
 `Content-Security-Policy` (the string you pass) and `Strict-Transport-Security: max-age=31536000; includeSubDomains`
-(`hsts: true`). A header the application already set is left alone, so one endpoint can loosen a policy.
+(`hsts: true`). A header the application already set is left alone, so one endpoint can loosen a policy. A value a
+header cannot carry (a line break, for one) raises `ArgumentError` when the handler is built, not on each request.
 
 {% hint style="warning" %}
 Enable HSTS only for sites served over HTTPS; browsers remember it.
@@ -253,8 +254,19 @@ Other behavior:
 - Text files (the extensions listed under "Which files are served") larger than 860 bytes are gzip or deflate compressed
   when the client accepts it.
 - Methods other than `GET` and `HEAD` answer `405` with `Allow` (or fall through).
-- A `public_dir` that does not exist costs no file system calls per request: the handler looks for it again at most
-  once a second, so a directory created after boot is picked up within a second.
+- A `public_dir` that does not exist costs no file system calls per request (one monotonic clock read). A public dir created after boot is
+  picked up within a second (the handler looks for a missing one again at most once a second); once found it is not
+  checked again. With no public directory and `fallthrough: true`, a plain path (no `%`, NUL, backslash, `//`, `/.` or trailing
+  slash) falls through before any path work and allocates nothing; any other path takes the full route (decode, refuse or redirect).
+- With a public directory and `fallthrough: true`, a plain path whose first segment names no top-level entry of it (compared
+  ignoring ASCII case and trailing dots; a non-ASCII segment always takes the full route, and so does every path when a
+  top-level name is not ASCII) also falls through, with no file system call and no allocation per request. Files added below an existing entry are served at once. A new top-level file or directory is
+  served from the handler's next read of the names: it looks at most once a second and reads them again when the
+  directory's modification time or identity (device and inode, so a swapped `public` symlink counts) changed, and every
+  60 seconds regardless. That assumes adding a name moves the directory's modification time, as local file systems do;
+  a copy that keeps timestamps (`rsync -a`, `cp -a`, archives with fixed dates) or a network or FUSE file system may
+  delay a new top-level name up to that minute. A directory with more than 10,000 top-level names keeps none, and every
+  path takes the full route.
 - A file in `public/` shadows a route with the same path, so keep only public files there.
 
 ## Handler::Compression

@@ -148,12 +148,13 @@ module Azu
     # Escape `{{ }}` output of `.jinja`, `.j2` and string templates like `.html` (default). `TEMPLATE_AUTOESCAPE=false`
     # turns it off; any other value keeps it on. `| safe` marks a value as markup without turning it off.
     @template_autoescape_env : String? = ENV["TEMPLATE_AUTOESCAPE"]?
+    @template_autoescape_set = false
     @template_autoescape : Bool = ENV.fetch("TEMPLATE_AUTOESCAPE", "true") != "false"
 
     # Warns that autoescape is off (every `{{ }}` of a `.jinja` page is then raw HTML), or that `TEMPLATE_AUTOESCAPE`
     # holds a value that is neither "true" nor "false" and so left it on. `App#start` calls it.
     def warn_about_template_autoescape : Nil
-      value = @template_autoescape_env
+      value = @template_autoescape_set ? nil : @template_autoescape_env # the setter overrides the variable
       if !template_autoescape?
         log.warn { "template_autoescape is off: {{ }} output of .jinja and .j2 templates is not escaped, so every unescaped user value is an XSS hole. Turn it on again, or escape with `| e`" }
       elsif value && !value.empty? && value != "true"
@@ -168,6 +169,7 @@ module Azu
     # Also applies to the templates of this configuration when they were built already.
     def template_autoescape=(enabled : Bool)
       @template_autoescape = enabled
+      @template_autoescape_set = true
       @templates.try(&.autoescape = enabled)
     end
 
@@ -233,6 +235,11 @@ module Azu
 
     # Database integration settings (see `azu/cql`)
     getter database : DatabaseConfiguration = DatabaseConfiguration.new
+
+    # Whether the dashboard may show bound values and unredacted database errors: `database.show_params` in development only.
+    def show_database_params? : Bool
+      database.show_params? && env.development?
+    end
 
     # Cache configuration and manager
     getter cache : Cache::Manager do
@@ -335,6 +342,10 @@ module Azu
     property driver : String? = Env.fetch?("AZU_CQL_DRIVER")
     # Record queries/transactions into `Azu::QueryStore`.
     property? instrument : Bool = ENV.fetch("AZU_DB_INSTRUMENT", "true") == "true"
+    # Show the bound values of each statement in the dashboard and keep database error text as the server wrote it.
+    # Off by default, and only honoured in development: values often hold personal data or secrets. Turning it on
+    # also turns on `CQL::Telemetry.capture_params` (CQL leaves values out of its events otherwise).
+    property? show_params : Bool = ENV.fetch("AZU_DB_SHOW_PARAMS", "false") == "true"
     # Same query shape this many times in one request raises an N+1 alert.
     property n_plus_one_threshold : Int32 = ENV.fetch("AZU_DB_N_PLUS_ONE_THRESHOLD", "3").to_i
     # Queries slower than this (ms) are flagged as slow.

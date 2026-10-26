@@ -100,7 +100,7 @@ An application created with `azu new my_app --docker` already has a `Dockerfile`
 
 {% code title="Dockerfile" %}
 ```dockerfile
-FROM crystallang/crystal:1.19.1 AS build
+FROM crystallang/crystal:1.22.1 AS build
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libsqlite3-dev libssl-dev \
  && rm -rf /var/lib/apt/lists/*

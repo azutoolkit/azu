@@ -21,7 +21,7 @@ By the end of this tutorial, you'll have:
 
 - Completed [Adding WebSockets](adding-websockets.md) tutorial
 - Understanding of WebSocket basics
-- Crystal 1.19.1 or newer
+- Crystal 1.22.1 or newer
 
 ## Step 1: Understanding live components
 

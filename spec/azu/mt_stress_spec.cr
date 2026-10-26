@@ -1,6 +1,8 @@
+require "file_utils"
 require "../spec_helper"
 
-# Races the in-flight accounting of `App` and the copy-on-write path cache. Fibers only run in
+# Races the in-flight accounting of `App`, the copy-on-write path cache and the entry names Static
+# publishes. Fibers only run in
 # parallel in a `-Dpreview_mt` build (CI has a job for it: `crystal spec -Dpreview_mt` with
 # CRYSTAL_WORKERS=4); in an ordinary build the same examples run on one thread, interleaved at
 # `Fiber.yield`, and still check the invariants.
@@ -109,5 +111,60 @@ describe Azu::Router do
     wrong.get.should eq 0
     router.path_cache.stats[:size].should eq 300
     paths.each { |path| router.path_cache.get("GET", path).should eq "/get#{path}" }
+  end
+end
+
+# Counts the requests Static passed on, from every fiber.
+private class CountingNext
+  include HTTP::Handler
+
+  getter passed = Atomic(Int32).new(0)
+
+  def call(context : HTTP::Server::Context)
+    @passed.add(1)
+  end
+end
+
+describe Azu::Handler::Static do
+  # A nilable reference in an Atomic is stored and loaded as one word; a `Set?` instance variable was two stores (type
+  # id, then pointer), and a reader in between crashed on a null set. This check is what pins the publication.
+  it "publishes the entry names through an Atomic" do
+    typeof(Azu::Handler::Static.new("/azu-mt-no-such-dir").@entries).to_s.should start_with("Atomic(")
+  end
+
+  # A smoke test only: it never reproduced the torn read above against the old code (0 failures in several runs),
+  # which takes millions of nil-to-set stores with readers in a tight loop, more than requests can drive here.
+  it "publishes the entry names it reads whole while other fibers look them up" do
+    dir = File.tempname("azu_mt_static")
+    Dir.mkdir_p(dir)
+    File.write(File.join(dir, "robots.txt"), "robots")
+    with_fake_clock do |clock|
+      counter = CountingNext.new
+      fresh = -> { Azu::Handler::Static.new(dir).tap { |static| static.next = counter } }
+      holder = Atomic(Azu::Handler::Static).new(fresh.call)
+      stop = Atomic(Int32).new(0)
+      calls = Atomic(Int32).new(0)
+      readers = 4
+      done = parallel(readers) do |_|
+        # A path that names no entry: every lookup reads the names a fresh handler is publishing
+        context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/plaintext"), HTTP::Server::Response.new(IO::Memory.new))
+        until stop.get == 1
+          holder.get.call(context)
+          Fiber.yield if calls.add(1) % 64 == 0
+        end
+      end
+
+      10_000.times do
+        holder.set(fresh.call)
+        clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+        Fiber.yield
+      end
+      stop.set(1)
+      wait_for(done, readers)
+
+      counter.passed.get.should eq calls.get
+    end
+  ensure
+    FileUtils.rm_rf(dir) if dir
   end
 end
