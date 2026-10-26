@@ -58,6 +58,14 @@ describe Azu::Router::Tree do
 
       HotPath.bytes_per_call { routes.find(GET, "/api/v1/resource57") }.should eq 0
     end
+
+    it "allocates nothing to miss a path of more segments than any route, without a glob route" do
+      routes = tree({GET, "/users/:id"})
+      hostile = "/" * 8000 + "x"
+
+      payload(routes, GET, hostile).should be_nil
+      HotPath.bytes_per_call { routes.find(GET, hostile) }.should eq 0
+    end
   end
 
   describe "named segments" do

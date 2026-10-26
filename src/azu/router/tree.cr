@@ -7,6 +7,11 @@ module Azu
     # route ends at, one payload per `Azu::Method`. `find` reads the request path in place: the segment boundaries are
     # byte offsets kept on the stack and a static child is looked up by a slice of the path, so finding a static route
     # allocates nothing.
+    #
+    # Every `add` happens before serving; `find` then only reads the tree, so any fiber or thread may call it. A find
+    # visits each node at most once (the static child, then the parameter, then the glob, moving on when one dead-ends),
+    # so it costs at most one step per node, and it refuses a path of more segments than any route can take before
+    # reading it whole.
     class Tree(T)
       private SLASH = '/'.ord.to_u8
       # How many offsets `find` keeps on the stack; a path of more segments has them on the heap.
@@ -105,12 +110,16 @@ module Azu
       def initialize
         @root = Node(T).new
         @names = {} of String => String
+        # The segment count of the deepest route, and whether a glob route takes paths of any depth
+        @deepest = 0
+        @any_glob = false
       end
 
       def add(method : Azu::Method, path : String, payload : T) : Nil
         node = @root
         params = [] of Param
-        segments(path).each_with_index do |segment, index|
+        segments = segments(path)
+        segments.each_with_index do |segment, index|
           case segment[0]?
           when ':', '*'
             glob = segment.starts_with?('*')
@@ -121,6 +130,8 @@ module Azu
           end
         end
         node.add method, Entry(T).new(payload, path, params)
+        @deepest = Math.max(@deepest, segments.size)
+        @any_glob ||= params.last?.try(&.glob) || false
       end
 
       # Trailing slashes aside, as Router strips them from the request path.
@@ -133,7 +144,7 @@ module Azu
         return if size > 0 && bytes[0] != SLASH
 
         stack = uninitialized StaticArray(Int32, STACK_BOUNDS)
-        bounds = bounds(bytes[0, size], stack.to_slice)
+        return unless bounds = bounds(bytes[0, size], stack.to_slice)
         entry = @root.search(path, bounds, 0, method)
         Match(T).new(entry, entry.params(path, bounds)) if entry
       end
@@ -153,13 +164,25 @@ module Azu
       end
 
       # The offset of each slash of `path`, then its size: segment `i` lies between `bounds[i]` and `bounds[i + 1]`.
-      private def bounds(path : Bytes, stack : Slice(Int32)) : Slice(Int32)
-        count = path.count(SLASH)
-        bounds = count < stack.size ? stack[0, count + 1] : Slice(Int32).new(count + 1)
-        index = -1
-        path.each_with_index { |byte, offset| bounds[index += 1] = offset if byte == SLASH }
+      # Nil as soon as the path has more segments than any route takes. They are kept in `stack`, unless the path has
+      # more segments than it holds, which only a glob or a deeper route can take.
+      private def bounds(path : Bytes, stack : Slice(Int32)) : Slice(Int32)?
+        bounds = stack
+        count = 0
+        path.each_with_index do |byte, offset|
+          next unless byte == SLASH
+          return if count == @deepest && !@any_glob
+          bounds = on_heap(path, stack, count) if count == stack.size - 1
+          bounds[count] = offset
+          count += 1
+        end
         bounds[count] = path.size
-        bounds
+        bounds[0, count + 1]
+      end
+
+      # The first `count` offsets of `stack` on the heap, with room for every slash of `path`.
+      private def on_heap(path : Bytes, stack : Slice(Int32), count : Int32) : Slice(Int32)
+        Slice(Int32).new(path.count(SLASH) + 1).tap(&.copy_from(stack.to_unsafe, count))
       end
     end
   end
