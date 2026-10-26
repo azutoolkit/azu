@@ -126,6 +126,14 @@ private class CountingNext
 end
 
 describe Azu::Handler::Static do
+  # A nilable reference in an Atomic is stored and loaded as one word; a `Set?` instance variable was two stores (type
+  # id, then pointer), and a reader in between crashed on a null set. This check is what pins the publication.
+  it "publishes the entry names through an Atomic" do
+    typeof(Azu::Handler::Static.new("/azu-mt-no-such-dir").@entries).to_s.should start_with("Atomic(")
+  end
+
+  # A smoke test only: it never reproduced the torn read above against the old code (0 failures in several runs),
+  # which takes millions of nil-to-set stores with readers in a tight loop, more than requests can drive here.
   it "publishes the entry names it reads whole while other fibers look them up" do
     dir = File.tempname("azu_mt_static")
     Dir.mkdir_p(dir)
