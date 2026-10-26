@@ -226,6 +226,29 @@ describe Azu::Testing::Client do
     client.get(TestingSpec::SaveNote, id: 3, title: "named").json["id"].as_i.should eq 3
   end
 
+  it "decodes a typed call into the endpoint's own response type" do
+    client = Azu::Testing::Client.new(TestingSpec.app).accept(:json)
+
+    note = client.post(TestingSpec::SaveNote, TestingSpec::NoteRequest.new(5_i64, "typed")).value
+    note.should be_a(TestingSpec::NoteResponse)
+    typeof(note).should eq TestingSpec::NoteResponse
+    note.title.should eq "typed"
+
+    client.get(TestingSpec::SaveNote, id: 3, title: "named").value.id.should eq 3
+  end
+
+  it "keeps the response of a typed call and refuses to decode an unsuccessful one" do
+    client = Azu::Testing::Client.new(TestingSpec.app).accept(:json)
+    typed = client.post(TestingSpec::SaveNote, TestingSpec::NoteRequest.new(5_i64, ""))
+
+    typed.status_code.should eq 422
+    typed.response.should be_a(Azu::Testing::Response)
+    typed.problem?.should be_true
+    error = expect_raises(Azu::Testing::UnexpectedStatus) { typed.value }
+    error.response.status_code.should eq 422
+    error.message.to_s.should contain "422"
+  end
+
   it "turns an exception that escapes the chain into a 500 and keeps the exception" do
     client = Azu::Testing::Client.new(TestingSpec.app, [] of HTTP::Handler)
     response = client.get "/boom"

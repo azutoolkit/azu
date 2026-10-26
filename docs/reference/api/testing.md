@@ -149,6 +149,12 @@ at several paths for it, raises `ArgumentError` naming what is routed (use the p
 form (`client.get(Endpoint, id: 8)`) the field names `headers` and `form` are the call's own arguments; send such a field
 with a request struct.
 
+A typed call answers a `TypedResponse`: the `Response` (every method of it works, and `response` returns it) plus
+`value`, the body decoded as the endpoint's own response type. So the assertion is typed too:
+`client.post(CreateUserEndpoint, request).value` is a `UserResponse`. `value` raises
+`Azu::Testing::UnexpectedStatus` (which carries the `response`) unless the status is a 2xx, and does not compile for a
+response type that is not `JSON::Serializable`; read `body` for those.
+
 ```crystal
 require "azu"
 require "azu/testing"
@@ -188,6 +194,55 @@ app.routes { get "/items/:id", ShowEndpoint }
 client = Azu::Testing::Client.new(app)
 client.get(ShowEndpoint, ShowRequest.new(7_i64, true)).body # => "7 true"
 client.get(ShowEndpoint, id: 8).body                         # => "8 false"
+```
+
+```crystal
+require "azu"
+require "azu/testing"
+
+struct NewUserRequest
+  include Azu::Request
+
+  getter name : String = ""
+
+  validate name, presence: true
+
+  def initialize(@name = "")
+  end
+end
+
+struct UserResponse
+  include Azu::Response
+  include JSON::Serializable
+
+  getter name : String
+
+  def initialize(@name : String)
+  end
+
+  def render
+    to_json
+  end
+end
+
+struct CreateUserEndpoint
+  include Azu::Endpoint(NewUserRequest, UserResponse)
+
+  def call : UserResponse
+    status 201
+    UserResponse.new(new_user_request.name)
+  end
+end
+
+app = Azu::App.new
+app.routes { post "/users", CreateUserEndpoint }
+
+client = Azu::Testing::Client.new(app).accept(:json)
+created = client.post(CreateUserEndpoint, NewUserRequest.new("Ada"))
+created.status_code # => 201
+created.value.name   # => "Ada"
+
+client.post(CreateUserEndpoint, NewUserRequest.new("")).status_code # => 422
 ```
 
 ### Cookies and redirects

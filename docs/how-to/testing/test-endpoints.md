@@ -239,7 +239,9 @@ end
 ```
 
 The typed calls send a JSON body for POST, PUT and PATCH (`form: true` sends a form) and query parameters for
-GET, DELETE, HEAD and OPTIONS. `problem?` is true for a problem document labelled either
+GET, DELETE, HEAD and OPTIONS. When the response type is `JSON::Serializable`, `.value` decodes the body into it, so
+`client.post(CreateUserEndpoint, request).value.email` is checked by the compiler
+(see [Typed calls](../../reference/api/testing.md#typed-calls)). `problem?` is true for a problem document labelled either
 `application/problem+json` or `application/json`.
 
 Request contracts can also be tested without a request, which is quicker when you only care about the rules:

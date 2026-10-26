@@ -1,6 +1,7 @@
 require "../../azu"
 require "./cookie_jar"
 require "./response"
+require "./typed_response"
 require "./sessions"
 require "./web_socket"
 require "./client"
