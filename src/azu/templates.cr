@@ -53,7 +53,7 @@ module Azu
 
     # :nodoc:
     # A template that does not parse. The message names the template and carries Crinja's line.
-    class CompileError < Crinja::Error
+    class PreloadError < Crinja::Error
     end
 
     # :nodoc:
@@ -71,6 +71,16 @@ module Azu
         @preloaded = nil
         crinja.loader = @loader.not_nil!
       end
+    end
+
+    @[Deprecated("Use `preload_ignore`.")]
+    def compile_ignore : Array(String)
+      preload_ignore
+    end
+
+    @[Deprecated("Use `preload_ignore=`.")]
+    def compile_ignore=(patterns : Array(String))
+      self.preload_ignore = patterns
     end
 
     # :nodoc:
@@ -212,6 +222,12 @@ module Azu
       initialize_loader
     end
 
+    # The keyword `compile_ignore:` of 0.5.113 to 0.5.132.
+    @[Deprecated("Use `preload_ignore:`.")]
+    def self.new(path : Array(String), error_path : String, hot_reload : Bool? = nil, *, compile_ignore : Array(String), autoescape : Bool = true)
+      new(path, error_path, hot_reload, compile_ignore, autoescape)
+    end
+
     # Whether `.jinja`, `.j2` and string templates are autoescaped like `.html` (default). Decided at render time,
     # so it applies to preloaded templates too.
     getter? autoescape : Bool = true
@@ -307,7 +323,7 @@ module Azu
 
     # Reads and parses every template below the template directories and the error directory once, and makes the
     # result the environment's loader. Searched in order like the file system loader, the first directory that has
-    # a name wins. `strict` (boot, `prepare`) raises `CompileError` naming the template that does not parse or cannot
+    # a name wins. `strict` (boot, `prepare`) raises `PreloadError` naming the template that does not parse or cannot
     # be read, and publishes nothing. Lazy (first render without `prepare`) logs it once and preloads the others;
     # the broken one stays with the file loader, which raises when it is rendered. An app `error.html` that does not
     # parse is left to the built-in fallback in both cases.
@@ -351,7 +367,7 @@ module Azu
     # Names relative to `dir` of the `*.html`, `*.jinja` and `*.j2` files below it, dot directories and symlinked
     # directories skipped (the file loader still serves what is in them). Walks the tree instead of globbing, so a
     # directory with `[`, `{` or `*` in its name works, and so does a trailing slash. A directory that cannot be read
-    # raises `CompileError` when strict; otherwise it is logged and skipped, and the file loader serves from it.
+    # raises `PreloadError` when strict; otherwise it is logged and skipped, and the file loader serves from it.
     private def template_names(dir : String, strict : Bool, prefix : String = "", names : Array(String) = [] of String) : Array(String)
       each_entry(dir) do |entry|
         next if entry.starts_with?('.')
@@ -365,7 +381,7 @@ module Azu
       end
       names
     rescue ex : File::Error
-      raise CompileError.new("template directory #{dir}: #{ex.message}", ex) if strict
+      raise PreloadError.new("template directory #{dir}: #{ex.message}", ex) if strict
       Log.for("azu.templates").warn(exception: ex) { "template directory #{dir} was not preloaded: #{ex.message}. Templates in it may be shadowed by later directories; requests for them fall back to the file loader" }
       names
     end
@@ -387,7 +403,7 @@ module Azu
       if BUILTIN.has_key?(name)
         Log.for("azu.templates").warn(exception: ex) { "#{file} does not parse, the built-in #{name} is used instead" }
       elsif strict
-        raise CompileError.new("template #{name} (#{file}): #{ex.message}", ex)
+        raise PreloadError.new("template #{name} (#{file}): #{ex.message}", ex)
       else
         Log.for("azu.templates").warn(exception: ex) { "template #{name} (#{file}) was not preloaded: #{ex.message}" }
       end

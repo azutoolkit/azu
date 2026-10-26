@@ -122,7 +122,7 @@ describe "Azu::Templates autoescape" do
     end
   end
 
-  it "escapes a template added after the compile (found by the file loader)" do
+  it "escapes a template added after the preload (found by the file loader)" do
     with_template_dir do |dir|
       File.write(File.join(dir, "first.jinja"), "1")
       templates = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false)

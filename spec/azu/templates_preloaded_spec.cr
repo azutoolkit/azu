@@ -51,7 +51,7 @@ describe "Azu::Templates preloaded (every environment but development)" do
       File.write(File.join(dir, "ok.jinja"), "fine")
       File.write(File.join(dir, "broken.jinja"), "line one\n{% if %}\n")
       templates = Azu::Templates.new([dir], File.join(dir, "errors"), hot_reload: false)
-      error = expect_raises(Azu::Templates::CompileError) { templates.prepare }
+      error = expect_raises(Azu::Templates::PreloadError) { templates.prepare }
       error.message.to_s.should contain "broken.jinja"
       error.message.to_s.should contain "broken.jinja:2:1"
     end
@@ -125,7 +125,7 @@ describe "Azu::Templates preloaded (every environment but development)" do
   end
 
   it "reports a template that cannot be parsed as a Crinja error, so error handlers rescue it" do
-    Azu::Templates::CompileError.new("x").should be_a Crinja::Error
+    Azu::Templates::PreloadError.new("x").should be_a Crinja::Error
   end
 
   it "preloads once and keeps serving the others when a template is broken and prepare was not called" do
@@ -373,13 +373,13 @@ private class DeniedTemplates < Azu::Templates
 end
 
 describe "Azu::Templates with an unreadable directory (stubbed, also as root)" do
-  it "raises CompileError naming the subdirectory, with the cause attached, when strict" do
+  it "raises PreloadError naming the subdirectory, with the cause attached, when strict" do
     with_template_dir do |dir|
       Dir.mkdir_p(File.join(dir, "a", "locked"))
       File.write(File.join(dir, "ok.jinja"), "ok")
       error = expect_raises(Crinja::Error) { DeniedTemplates.new([dir], File.join(dir, "errors"), hot_reload: false).prepare }
       error.message.to_s.should contain File.join(dir, "a", "locked")
-      error.should be_a Azu::Templates::CompileError
+      error.should be_a Azu::Templates::PreloadError
       error.cause.should be_a File::AccessDeniedError
     end
   end
@@ -480,19 +480,27 @@ describe "Azu::Configuration templates" do
       Azu::Configuration.new.template_preload_ignore.should eq ["old/**"]
       ENV["TEMPLATE_PRELOAD_IGNORE"] = "new/**, other/*"
       Azu::Configuration.new.template_preload_ignore.should eq ["new/**", "other/*"]
+      # Set, even empty, the new name wins
+      ENV["TEMPLATE_PRELOAD_IGNORE"] = ""
+      Azu::Configuration.new.template_preload_ignore.should be_empty
     ensure
       preload ? (ENV["TEMPLATE_PRELOAD_IGNORE"] = preload) : ENV.delete("TEMPLATE_PRELOAD_IGNORE")
       compile ? (ENV["TEMPLATE_COMPILE_IGNORE"] = compile) : ENV.delete("TEMPLATE_COMPILE_IGNORE")
     end
   end
 
-  it "keeps template_compile_ignore and compiled? as deprecated aliases" do
+  it "keeps the 0.5.113 names as deprecated aliases" do
     config = Azu::Configuration.new
+    templates = config.templates
     config.template_compile_ignore = ["vendor/**"]
-    config.template_preload_ignore.should eq ["vendor/**"]
     config.template_compile_ignore.should eq ["vendor/**"]
+    templates.preload_ignore.should eq ["vendor/**"]
+    templates.compile_ignore = ["swagger/*"]
+    templates.compile_ignore.should eq ["swagger/*"]
     config.template_hot_reload = false
-    config.templates.compiled?.should be_true
+    templates.compiled?.should be_true
+
+    Azu::Templates.new(["spec/test_templates"], "spec/test_errors", hot_reload: false, compile_ignore: ["x/**"]).preload_ignore.should eq ["x/**"]
   end
 
   it "has one rule for the reload default, used by Configuration and Templates" do

@@ -55,7 +55,7 @@ describe "view allocations" do
   {% else %}
     it "hands its variables to the render without copying them" do
       data = {"a" => Crinja::Value.new(1), "b" => Crinja::Value.new("two"), "c" => Crinja::Value.new(3), "d" => Crinja::Value.new(4), "e" => Crinja::Value.new(5)}
-      with_compiled_templates({"variables.jinja" => TemplatesAllocationSpec::VARIABLES_SOURCE}) do |config|
+      with_preloaded_templates({"variables.jinja" => TemplatesAllocationSpec::VARIABLES_SOURCE}) do |config|
         page = TemplatesAllocationSpec::VariablesPage.new(data)
         template = config.templates.load("variables.jinja")
         page.render.should eq "1two345"
@@ -80,7 +80,7 @@ describe "view with a request" do
     pending "costs a template that reads no request variable only the token its cookie needs"
   {% else %}
     it "costs a template that reads no request variable only the token its cookie needs" do
-      with_compiled_templates({"plain.jinja" => TemplatesAllocationSpec::PLAIN_SOURCE}) do
+      with_preloaded_templates({"plain.jinja" => TemplatesAllocationSpec::PLAIN_SOURCE}) do
         context = TemplatesAllocationSpec.request_context
         with_request = TemplatesAllocationSpec::RequestPage.new("plain.jinja", context)
         without_request = TemplatesAllocationSpec::VariablesPage.new({"title" => Crinja::Value.new("Items")}, "plain.jinja")

@@ -250,7 +250,7 @@ Restart the server and open <http://127.0.0.1:4000/>. Add a third test while you
   end
 ```
 
-Outside development Azu compiles templates once at boot, so a broken template fails at startup instead of on the first visitor. In development it reloads them when they change.
+Outside development Azu preloads templates (reads and parses them once) at boot, so a broken template fails at startup instead of on the first visitor. In development it reloads them when they change.
 
 ## 5. The development dashboard
 

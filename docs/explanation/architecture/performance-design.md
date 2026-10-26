@@ -51,7 +51,7 @@ standard library's gzip.
 
 ## Templates
 
-With `template_hot_reload` off (every environment but development, test and pipeline), `Azu::Templates` compiles:
+With `template_hot_reload` off (every environment but development, test and pipeline), `Azu::Templates` preloads:
 `Azu.prepare` reads and parses every template file once and keeps the result in an immutable map, so a render does
 a lookup by name and no file is read or parsed per request. All templates stay resident in memory, an edited file
 needs a restart (also a template mounted into a container from a volume or a Kubernetes ConfigMap), and a template

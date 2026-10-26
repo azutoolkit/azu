@@ -176,7 +176,7 @@ Azu::CONFIG.template_preload_ignore = ["vendor/**", "swagger/*.html"] # or TEMPL
 A directory that cannot be read stops the boot with its name (`Azu.prepare`); a first render without `prepare` logs a
 warning once and skips it, and because the names inside are unknown, a valid copy of one of them in a later directory
 is served instead of falling back to the file loader's precedence. A name that does not parse in one directory is not
-replaced by a copy in a later directory; `Azu.prepare` validates again even when a first render compiled earlier.
+replaced by a copy in a later directory; `Azu.prepare` validates again even when a first render preloaded earlier.
 A directory that does not exist is skipped (an API-only app costs nothing); a very broad one such as `.` is scanned
 whole at boot, with the count and time logged at debug level.
 

@@ -137,8 +137,11 @@ before it showed on the next request, and a template with a syntax error now sto
 line) instead of failing its first request, including a file that is not a template (a vendored `index.html`; list
 those in `template_preload_ignore`). Set `template_hot_reload = true` (or `TEMPLATE_HOT_RELOAD=true`) to keep
 reloading in an environment. See [Configuration](configuration/options.md#templates). This mode was called "compiled"
-until the compiled templates of 0.6: `Templates#compiled?`, `template_compile_ignore` and `TEMPLATE_COMPILE_IGNORE` still
-work but are deprecated; use `preloaded?`, `template_preload_ignore` and `TEMPLATE_PRELOAD_IGNORE`.
+in 0.5.113 to 0.5.132; the word now belongs to templates compiled to Crystal code. The old names still work but are
+deprecated: `Templates#compiled?`, `Templates#compile_ignore` / `compile_ignore=`, `Templates.new(..., compile_ignore:)`,
+`Configuration#template_compile_ignore` / `template_compile_ignore=` and `TEMPLATE_COMPILE_IGNORE` (read when
+`TEMPLATE_PRELOAD_IGNORE` is not set); use `preloaded?`, `preload_ignore`, `preload_ignore:`, `template_preload_ignore`
+and `TEMPLATE_PRELOAD_IGNORE`.
 
 **The router finds routes in its own segment tree; the `radix` shard and `Router#radix` are gone.** Routes declared
 as before keep matching as before, with these differences:
@@ -813,6 +816,9 @@ end
 ### Deprecated in 0.5.x
 
 - Implicit request types - Always specify request type parameter
+- The template preload names of 0.5.113 to 0.5.132: `Templates#compiled?`, `Templates#compile_ignore`, the
+  `compile_ignore:` keyword, `Configuration#template_compile_ignore` and `TEMPLATE_COMPILE_IGNORE` (see "Templates are
+  preloaded outside development")
 
 ### Removed in 0.5.x
 
