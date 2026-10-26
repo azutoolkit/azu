@@ -18,6 +18,7 @@ module Azu
       # request, and a request whose first path segment names no entry of `public/` pays none either. A directory
       # created after boot, or a top-level entry added to it, is served from the next check on.
       MISSING_DIRECTORY_RECHECK = 1.second
+      ENTRIES_RECHECK           = MISSING_DIRECTORY_RECHECK
 
       # A directory modified less than this before its entries were read is read again at the next check: on a file
       # system with coarse timestamps an entry added in the same tick would leave the modification time unchanged.
@@ -120,15 +121,24 @@ module Azu
         @public_dir_found = Atomic(Bool).new(false)
         @next_directory_check = Atomic(Int64).new(0_i64)
         @next_entries_check = Atomic(Int64).new(0_i64)
+        @entries = Atomic(Entries?).new(nil)
         public_dir?
       end
 
       @excluded : Array(Array(String))
       @mime_types : Hash(String, String)
-      # Fingerprints of the public directory's entry names, nil when they could not be read
-      @entries : Set(UInt64)? = nil
-      # The modification time `@entries` were read at, nil when it is not trusted
-      @entries_mtime : Time? = nil
+
+      # What one read of the public directory found, never changed once published: a lookup sees the whole of one
+      # read or none (nil: not read yet, or unreadable, so every path takes the full route).
+      private class Entries
+        # Fingerprints of the entry names
+        getter fingerprints : Set(UInt64)
+        # The directory's modification time at the read, nil when it is not trusted
+        getter mtime : Time?
+
+        def initialize(@fingerprints : Set(UInt64), @mtime : Time?)
+        end
+      end
 
       def call(context : HTTP::Server::Context)
         return allow_get_or_head(context) unless method_get_or_head?(context.request.method)
@@ -192,26 +202,25 @@ module Azu
         segment = path.to_slice[1, (path.byte_index('/'.ord, 1) || path.bytesize) - 1]
         return true if segment.empty? || segment.any? { |byte| byte >= 0x80 }
         refresh_entries
-        entries = @entries
-        entries.nil? || entries.includes?(fingerprint(segment))
+        entries = @entries.get
+        entries.nil? || entries.fingerprints.includes?(fingerprint(segment))
       end
 
       # Reads the entry names again when the directory's modification time changed, at most once per
-      # MISSING_DIRECTORY_RECHECK; one fiber reads, the others keep the names they have meanwhile.
+      # ENTRIES_RECHECK; one fiber reads and publishes, the others keep the names they have meanwhile.
       private def refresh_entries : Nil
         now = clock_nanoseconds
         due = @next_entries_check.get
         return if now < due
-        return unless @next_entries_check.compare_and_set(due, now + MISSING_DIRECTORY_RECHECK.total_nanoseconds.to_i64)[1]
+        return unless @next_entries_check.compare_and_set(due, now + ENTRIES_RECHECK.total_nanoseconds.to_i64)[1]
 
         mtime = File.info?(@public_dir).try(&.modification_time)
-        return if mtime && mtime == @entries_mtime
-        @entries = mtime ? Dir.children(@public_dir).to_set { |name| fingerprint(name.downcase(:fold).to_slice) } : Set(UInt64).new
+        return if mtime && mtime == @entries.get.try(&.mtime)
+        names = mtime ? Dir.children(@public_dir).to_set { |name| fingerprint(name.downcase(:fold).to_slice) } : Set(UInt64).new
         trusted = mtime && Clock.now - mtime >= COARSE_MTIME
-        @entries_mtime = trusted ? mtime : nil
+        @entries.set(Entries.new(names, trusted ? mtime : nil))
       rescue IO::Error
-        @entries = nil
-        @entries_mtime = nil
+        @entries.set(nil)
       end
 
       # Two names that differ only in ASCII case share a fingerprint, as a case-insensitive file system would
