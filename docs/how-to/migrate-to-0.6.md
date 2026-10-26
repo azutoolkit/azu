@@ -182,6 +182,27 @@ app.config.error_format = Azu::ErrorFormat::Legacy
 Endpoints that validated by hand and re-rendered a form should declare a request type without
 validations.
 
+## Templates are autoescaped
+
+`.jinja`, `.j2` and string templates escape `{{ }}` output like `.html` (JSON, JavaScript, CSS, Markdown, YAML, SQL, shell
+and plain text templates excluded). Check three things:
+
+1. Markup you print on purpose needs `| safe`: `{{ spark_html | safe }}` for `Azu::Spark.render` and `Azu::Spark.script_tag`
+   output, and for `t()` values that contain HTML. The built-in helpers and `csrf_tag` / `csrf_metatag` are safe already.
+2. `{{ x | e }}` still works and does not escape twice. Filters that rebuild the string (`upper`, `lower`, `title`,
+   `truncate`, `replace`, `format`, the `~` operator) return plain text: `{{ (x | e) | upper }}` prints `&amp;LT;`. Put
+   `| e` or `| safe` last.
+3. Your own helpers that return HTML must return `Crinja::SafeString.new(html)`.
+
+```jinja
+{{ csrf_metatag }}              {# safe: a template variable #}
+{{ spark_html | safe }}         {# a String from Azu::Spark.render #}
+{{ (title | upper) | e }}       {# transform first, mark last #}
+```
+
+`template_autoescape = false` (or `TEMPLATE_AUTOESCAPE=false`) restores the old behavior while you migrate; the start logs a
+warning. See [Breaking changes](../reference/breaking-changes.md).
+
 ## Still shared between apps
 
 These are process-wide in 0.6 and are not per app: the endpoint verb macros, `Channel.ws`, the PubSub
