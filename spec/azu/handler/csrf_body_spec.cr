@@ -64,15 +64,29 @@ end
 private class StalledBody < IO
   getter stalled_reads = 0
 
-  def initialize(@head : String)
+  def initialize(@head : String, @step : Int32 = 4096)
     @io = IO::Memory.new(@head)
-    @served = false
   end
 
   def read(slice : Bytes) : Int32
-    return @io.read(slice).tap { @served = true } unless @served
+    count = @io.read(slice[0, Math.min(slice.size, @step)])
+    return count if count > 0
     @stalled_reads += 1
     raise IO::TimeoutError.new("the client stalled")
+  end
+
+  def write(slice : Bytes) : NoReturn
+    raise IO::Error.new("read only")
+  end
+end
+
+# Hands out *size* bytes per read, as a client that slices its writes finely does.
+private class DripBody < IO
+  def initialize(@io : IO, @size : Int32)
+  end
+
+  def read(slice : Bytes) : Int32
+    @io.read(slice[0, Math.min(slice.size, @size)])
   end
 
   def write(slice : Bytes) : NoReturn
@@ -326,6 +340,28 @@ describe "Azu::Handler::CSRF request bodies" do
       stalled.stalled_reads.should eq 0
     end
 
+    [257, 274, 300, 399, 510, 511, 512, 700, 4000].each do |size|
+      [4096, 100, 37].each do |step|
+        it "decides a #{size}-byte head sent #{step} bytes at a time without waiting for the client that then stalls" do
+          handler = csrf_handler
+          token = issue_token(handler)
+          base = (text_part("B", "pad", "") + text_part("B", "_csrf", token)).bytesize
+          head = text_part("B", "pad", "p" * (size - base)) + text_part("B", "_csrf", token)
+          head.bytesize.should eq size
+          stalled = StalledBody.new(head, step)
+          headers = HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=B", "Cookie" => "csrf_token=#{token}"}
+          request = HTTP::Request.new("POST", "/save", headers)
+          request.body = stalled
+          reached = false
+          handler.next = ->(context : HTTP::Server::Context) { reached = true }
+          context = HTTP::Server::Context.new(request, HTTP::Server::Response.new(IO::Memory.new))
+          handler.call(context)
+          reached.should be_true
+          stalled.stalled_reads.should eq 0
+        end
+      end
+    end
+
     it "walks at most 64 parts: the token as the 64th is found, as the 65th is not" do
       handler = csrf_handler
       token = issue_token(handler)
@@ -400,6 +436,54 @@ describe "Azu::Handler::CSRF request bodies" do
       field.call("--B", "_csrf").should be_nil
       field.call("--B\r\n", "_csrf").should be_nil
       field.call("--B\xff\xfe\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\ntok\r\n--B--", "_csrf").should eq "tok"
+    end
+  end
+
+  describe "the work of a request does not depend on how the client slices its writes" do
+    shapes = {
+      "line breaks"                 => "\n" * Azu::Handler::CSRF::MULTIPART_SCAN_LIMIT,
+      "tiny parts"                  => ("--B\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n\r\n" * 2_500),
+      "a long line without a break" => "x" * Azu::Handler::CSRF::MULTIPART_SCAN_LIMIT,
+    }
+    shapes.each do |name, body|
+      [1, 7, 1024, 4096].each do |size|
+        it "stays cheap for #{name} in #{size}-byte reads" do
+          handler = csrf_handler
+          token = issue_token(handler)
+          handler.next = ->(context : HTTP::Server::Context) { }
+          headers = HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=B", "Cookie" => "csrf_token=#{token}"}
+          request = HTTP::Request.new("POST", "/save", headers)
+          request.body = DripBody.new(IO::Memory.new(body), size)
+          context = HTTP::Server::Context.new(request, HTTP::Server::Response.new(IO::Memory.new))
+          started = Time.instant
+          handler.call(context)
+          (Time.instant - started).should be < 0.1.seconds # 0.2 s and more when the walk restarts after every KB
+          context.response.status_code.should eq 403
+        end
+      end
+    end
+  end
+
+  describe "max_form_size" do
+    it "is set by argument, by property and by CSRF_MAX_FORM_SIZE" do
+      Azu::Handler::CSRF.new(max_form_size: 123_u64).max_form_size.should eq 123
+      handler = Azu::Handler::CSRF.new
+      handler.max_form_size = 5_000_000_u64
+      handler.max_form_size.should eq 5_000_000
+      ENV["CSRF_MAX_FORM_SIZE"] = "2048"
+      begin
+        Azu::Handler::CSRF.new.max_form_size.should eq 2048
+        ENV["CSRF_MAX_FORM_SIZE"] = "not a number"
+        Azu::Handler::CSRF.new.max_form_size.should eq Azu::Handler::CSRF::FORM_SIZE_LIMIT
+      ensure
+        ENV.delete("CSRF_MAX_FORM_SIZE")
+      end
+    end
+
+    it "lets the cookie strategies without a signed cookie read the body before the 403, within the limit" do
+      handler = Azu::Handler::CSRF.new(strategy: Azu::Handler::CSRF::Strategy::DoubleSubmit, secure_cookies: false)
+      _, _, read = post_through(handler, "attacker-chosen", "application/x-www-form-urlencoded", "a=" + "x" * 500)
+      read.should eq 502
     end
   end
 

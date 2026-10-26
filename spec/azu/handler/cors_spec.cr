@@ -221,7 +221,7 @@ describe Azu::Handler::CORS do
 
       handler.call(context)
 
-      context.response.headers["Vary"].split(',').map(&.strip).should eq ["Accept-Encoding", "Origin"]
+      context.response.headers["Vary"].split(',').map(&.strip).should eq ["Accept-Encoding", "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"]
     end
 
     it "varies by Origin on a request without one when origins are restricted, and still serves it" do
@@ -553,7 +553,7 @@ describe Azu::Handler::CORS do
 
       response.status_code.should eq(200)
       response.headers["Access-Control-Allow-Origin"]?.should eq("https://app.example")
-      response.headers["Vary"]?.should eq("Origin")
+      response.headers["Vary"]?.should eq("Origin,Access-Control-Request-Method,Access-Control-Request-Headers")
       response.headers["Access-Control-Allow-Methods"]?.should eq("POST")
       response.headers["Access-Control-Allow-Headers"]?.should eq("Content-Type")
       response.headers["Access-Control-Max-Age"]?.should eq("600")
@@ -641,7 +641,7 @@ describe Azu::Handler::CORS do
 
       response.status_code.should eq 200
       response.headers["Access-Control-Allow-Origin"]?.should eq "https://a.com"
-      response.headers["Vary"]?.should eq "Origin"
+      response.headers["Vary"]?.should eq "Origin,Access-Control-Request-Method,Access-Control-Request-Headers"
       response.headers["Access-Control-Allow-Methods"]?.should eq "POST"
     end
 

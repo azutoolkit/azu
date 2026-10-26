@@ -381,6 +381,7 @@ These are read outside `Azu::Configuration`:
 | Variable | Type | Default | Meaning |
 |---|---|---|---|
 | `AZU_STRICT_ENVS` | comma separated environment names | `production` | Environments in which [`Azu::Env.secret`](env.md) raises `Azu::Env::MissingError` for an unset secret instead of using a random per-process value (`Azu::Env.strict_environments=` overrides it) |
+| `CSRF_MAX_FORM_SIZE` | `UInt64` | `1048576` | The most of a urlencoded body `Handler::CSRF` reads to find the token (`max_form_size`); a larger one answers `413` |
 | `CSRF_SECRET` | `String` | `Azu::Env.secret("CSRF_SECRET")`: random per process, `Azu::Env::MissingError` in the strict environments | Key `Handler::CSRF` signs its tokens with when it is given none |
 | `PERFORMANCE_SLOW_REQUEST_THRESHOLD` | `Float64` (milliseconds) | `1000` | `Handler::PerformanceMonitor` (`azu/dev`) logs a warning for a request that takes longer |
 | `PERFORMANCE_MEMORY_THRESHOLD` | `Int64` (bytes) | `10485760` (10 MB) | `Handler::PerformanceMonitor` (`azu/dev`) logs a warning for a request whose memory use grows by more |

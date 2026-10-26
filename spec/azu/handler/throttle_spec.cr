@@ -527,6 +527,30 @@ describe Azu::Handler::Throttle do
     end
   end
 
+  describe "the block and release log lines" do
+    it "are bounded like the refusals, with a summary of those left out" do
+      with_fake_clock do |clock|
+        backend = ::Log::MemoryBackend.new
+        log = ::Log.new("throttle_event_spec", backend, :warn)
+        handler = Azu::Handler::Throttle.new(5, 900, 0, [] of String, [] of String, log)
+        handler.next = create_next_handler(0)[0]
+        100.times do |n|
+          context, _ = create_context_with_remote_addr("GET", "/", "10.4.#{n // 250}.#{n % 250 + 1}")
+          handler.call(context)
+        end
+        messages = backend.entries.map(&.message)
+        budget = Azu::Handler::Throttle::LOG_PER_SECOND
+        messages.count(&.ends_with?(" blocked")).should eq budget
+        messages.count(&.includes?("-> 429")).should eq budget # the refusals have a budget of their own
+
+        clock.advance(1.1.seconds)
+        context, _ = create_context_with_remote_addr("GET", "/", "10.9.9.9")
+        handler.call(context)
+        backend.entries.map(&.message).any?(&.includes?("suppressed #{100 - budget} similar block and release lines")).should be_true
+      end
+    end
+  end
+
   describe "statistics" do
     it "tracks number of IPs being monitored" do
       handler = Azu::Handler::Throttle.new(
