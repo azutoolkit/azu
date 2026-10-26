@@ -326,29 +326,27 @@ end
 
 describe "the include Azu facade" do
   # App.default cannot start again once it has stopped, and Azu.shutdown stops the process-wide parts: give the example
-  # its own default app and put everything back.
+  # its own default app and put everything back. The app has its own configuration too, because starting freezes its
+  # router and the global one takes routes in other specs (`Endpoint.get` called in an example).
   around_each do |example|
     original = Azu::App.default
-    config = Azu::CONFIG
-    saved = {config.configured_host, config.port, config.handlers}
     pub_sub = Azu::PubSub.backend
     presence = Azu::Presence.default
-    Azu::App.default = Azu::App.new(config)
+    Azu::App.default = Azu::App.new(Azu::Configuration.new)
     begin
       example.run
     ensure
       Azu::App.default = original
-      config.host, config.port, config.handlers = saved
       Azu::PubSub.backend = pub_sub
       Azu::Presence.default = presence
     end
   end
 
   it "starts App.default through App#start" do
-    config = Azu::CONFIG
+    app = Azu::App.default
+    config = app.config
     config.host = "127.0.0.1"
     config.port = 0
-    app = Azu::App.default
     finished = ::Channel(Nil).new
     spawn(name: "facade-start-spec") do
       AppStartSpec::Facade.start([] of HTTP::Handler)
