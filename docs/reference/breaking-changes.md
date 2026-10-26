@@ -20,6 +20,24 @@ of one network now share a counter (and a block); (2) trackers whose window ende
 clients are compared in a normalized spelling, so `::ffff:1.2.3.4` and `1.2.3.4` are one address and `2001:DB8::1` equals
 `2001:db8:0:0:0:0:0:1`; (4) log lines name the IPv6 network (`2001:db8:0:0:0:0:0:0/64`) instead of the address. An app behind
 a proxy that wants one counter per client lists the proxy in `trusted_proxies`.
+**`CSRF` bounds the body it reads for the form token.** A POST, PUT, PATCH or DELETE without an `X-CSRF-TOKEN` header had its
+whole body read into memory by `CSRF`, whatever its size, before any limit applied. A urlencoded body is now read up to
+`upload.max_file_size`, and a larger one (by `Content-Length` or as it streams in) is answered `413` instead of `403`, with
+`Connection: close`. A multipart body is searched for `_csrf` only in its first 64 KB, and the field must come before the
+first file part: a form that put `_csrf` after an `<input type="file">` (or after more than 64 KB of other fields) is now
+refused with `403` where it passed. Move `csrf_field()` to the top of the form, or send the token in the `X-CSRF-TOKEN`
+header. The `_csrf` field of a file's content is no longer taken for the token, and the urlencoded content type is matched
+whatever its case.
+**`CORS` refuses a wildcard with credentials, and sends `*` for a plain wildcard.** `CORS.new(origins: ["*"], credentials: true)`
+(and setting either option so that both hold) now raises `ArgumentError` where it used to echo every `Origin`, `null` included,
+with `Access-Control-Allow-Credentials: true`: any site could read a signed-in user's responses. List the origins (or a regex)
+when you need credentials. With `origins: ["*"]` and no credentials the response now carries the literal
+`Access-Control-Allow-Origin: *` instead of the echoed origin (it still varies by `Origin`). `Origin: null` is matched only when
+`"null"` is listed (it matched `"*"` and any permissive regex), an `Origin` that is not a plain `scheme://host[:port]` or comes
+in several headers is refused with `403`, and a preflight must ask for allowed headers only: before, one allowed header in
+`Access-Control-Request-Headers` let the others through, while a preflight with no `Access-Control-Request-Headers` at all (it was
+refused with `403`) now passes for an allowed origin and method and gets no `Access-Control-Allow-Headers`. An app that built `CORS` with the wildcard and credentials must change
+its configuration to boot, which is why this release is a minor one.
 
 **Responses get the request variables, and CSRF values need a CSRF handler.** A response's `view` had no request: its
 template got no `csrf_token`, `current_path` or other [request variable](templates/helpers.md#request-variables), and

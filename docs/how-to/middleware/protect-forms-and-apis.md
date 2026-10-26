@@ -36,6 +36,10 @@ of the visitor's `csrf_token` cookie. Put `csrf_field()` in every form:
 ```
 {% endcode %}
 
+In a form with file inputs, keep `csrf_field()` above them: `CSRF` looks for `_csrf` in the first 64 KB of a multipart
+body and stops at the first file part (see [CSRF](../../reference/handlers/built-in.md#handlercsrf)). An AJAX upload can send the
+token in the `X-CSRF-TOKEN` header instead.
+
 <!-- prelude -->
 ```crystal
 struct SignupPage
