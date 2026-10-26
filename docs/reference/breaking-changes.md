@@ -8,6 +8,12 @@ This document lists breaking changes between Azu versions and migration guides.
 
 Step by step, with old and new code side by side: [Migrate to 0.6](../how-to/migrate-to-0.6.md).
 
+**The router matches only exact HTTP methods and paths that start with `/` (security fix: upgrade).** A request whose
+method is not one of the verbs spelled exactly (`GET`, `POST`, ...: methods are case-sensitive, so `get` is not `GET`) or
+whose path does not start with `/` answers `404`, and a WebSocket route is reached only by a `GET` upgrade. The route a
+request reaches is now always the one its `request.method` and `request.path` name, which handlers before the router rely
+on. Clients that send the standard verbs in upper case see no change; a client that sends one in lower case
+(`fetch(url, {method: "patch"})` sends `patch`, as does `curl -X patch`) must send `PATCH`.
 **`.jinja` and `.j2` templates are autoescaped (security).** Crinja escapes only `html`, `htm` and `xml` templates, and
 `.jinja` is the framework's own default extension (`Renderable#page_path`), so `{{ user.name }}` in a page was stored XSS
 unless the author remembered `| e`. Now every template is escaped, string templates included, except formats that are not
