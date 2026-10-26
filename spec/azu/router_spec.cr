@@ -843,6 +843,8 @@ describe Azu::Router do
     router.get "/admin/secret", VerbEndpoint.new("get")
     router.get "/secret", VerbEndpoint.new("get")
     router.post "/users", VerbEndpoint.new("post")
+    # A path without its leading slash has no segments once read from its first slash: it would reach the root
+    router.root VerbEndpoint.new("root")
     router.ws "/chat", TestChannel
 
     # Parses the request line (and any header lines after it) as the server does and returns the status and body the router
