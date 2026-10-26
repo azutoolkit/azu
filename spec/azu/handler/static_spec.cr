@@ -797,6 +797,13 @@ describe Azu::Handler::Static do
           end
         end
       end
+
+      it "keeps no names for a directory with more than MAX_ENTRIES of them, so every path takes the full route" do
+        with_temp_dir({"robots.txt" => "robots"}) do |dir|
+          Azu::Handler::Static::MAX_ENTRIES.times { |index| File.touch(File.join(dir, "file-#{index}.txt")) }
+          static_bytes(dir, "/plaintext").should be > 0
+        end
+      end
     {% end %}
 
     it "serves a top-level file added after boot once the directory is looked at again, not before" do
@@ -855,6 +862,41 @@ describe Azu::Handler::Static do
 
           File.write(File.join(dir, "late.txt"), "late")
           File.touch(dir, recent)
+          clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
+          static_body(handler, "/late.txt").should eq("late")
+        end
+      end
+    end
+
+    it "reads the names again every ENTRIES_REREAD, even when the modification time does not move" do
+      with_temp_dir({"robots.txt" => "robots"}) do |dir|
+        with_fake_clock do |clock|
+          trusted = Time.utc - 1.minute
+          File.touch(dir, trusted)
+          handler = falling_through_static(dir)
+          static_body(handler, "/late.txt").should eq("OK")
+
+          # rsync -a, cp -a and archives with fixed timestamps can add a name and keep the time
+          File.write(File.join(dir, "late.txt"), "late")
+          File.touch(dir, trusted)
+          clock.advance(Azu::Handler::Static::ENTRIES_REREAD + 1.millisecond)
+          static_body(handler, "/late.txt").should eq("late")
+        end
+      end
+    end
+
+    it "reads the names again when the public directory is swapped for another with the same modification time" do
+      with_temp_dir({"one/robots.txt" => "robots", "two/robots.txt" => "robots", "two/late.txt" => "late"}) do |root|
+        with_fake_clock do |clock|
+          trusted = Time.utc - 1.minute
+          {"one", "two"}.each { |name| File.touch(File.join(root, name), trusted) }
+          public_dir = File.join(root, "public")
+          File.symlink(File.join(root, "one"), public_dir)
+          handler = falling_through_static(public_dir)
+          static_body(handler, "/late.txt").should eq("OK")
+
+          File.delete(public_dir) # a deploy that switches the link to a new release
+          File.symlink(File.join(root, "two"), public_dir)
           clock.advance(Azu::Handler::Static::ENTRIES_RECHECK + 1.millisecond)
           static_body(handler, "/late.txt").should eq("late")
         end

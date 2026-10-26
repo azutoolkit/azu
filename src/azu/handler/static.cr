@@ -13,12 +13,18 @@ module Azu
       # The hash has at least one letter, so a date (`report-20240101.pdf`) is not one.
       FINGERPRINTED = /[-.](?=[0-9]*[a-f])[0-9a-f]{8,}(?:\.[a-z0-9]+)+\z/i
 
-      # How long a public directory that does not exist is believed to stay missing, and how long the entry names
-      # of one that does are believed unchanged. An application with no `public/` pays no file system calls per
-      # request, and a request whose first path segment names no entry of `public/` pays none either. A directory
-      # created after boot, or a top-level entry added to it, is served from the next check on.
+      # How long a public directory that does not exist is believed to stay missing. An application with no `public/`
+      # pays no file system calls per request, and a directory created after boot is served from the next check on.
       MISSING_DIRECTORY_RECHECK = 1.second
-      ENTRIES_RECHECK           = MISSING_DIRECTORY_RECHECK
+      # How often the public directory's modification time and identity are compared with those its entry names were
+      # read at. A request whose first path segment names no entry pays no file system call.
+      ENTRIES_RECHECK = MISSING_DIRECTORY_RECHECK
+      # How long the entry names are kept at most, whatever the directory's modification time and identity say: a copy
+      # that keeps timestamps (`rsync -a`, `cp -a`, archives with fixed dates) or a network file system can add a name
+      # without changing either.
+      ENTRIES_REREAD = 60.seconds
+      # A directory with more top-level names than this keeps none, and every path takes the full lookup.
+      MAX_ENTRIES = 10_000
 
       # A directory modified less than this before its entries were read is read again at the next check: on a file
       # system with coarse timestamps an entry added in the same tick would leave the modification time unchanged.
@@ -131,12 +137,21 @@ module Azu
       # What one read of the public directory found, never changed once published: a lookup sees the whole of one
       # read or none (nil: not read yet, or unreadable, so every path takes the full route).
       private class Entries
-        # Fingerprints of the entry names
-        getter fingerprints : Set(UInt64)
-        # The directory's modification time at the read, nil when it is not trusted
-        getter mtime : Time?
+        # Fingerprints of the entry names; nil when they are not kept, so every path takes the full route
+        getter fingerprints : Set(UInt64)?
 
-        def initialize(@fingerprints : Set(UInt64), @mtime : Time?)
+        # *directory*: what was read, nil when it did not exist. *mtime*: its modification time, nil when not trusted.
+        # *read_at*: the clock reading of the read.
+        def initialize(@fingerprints : Set(UInt64)?, @directory : File::Info?, @mtime : Time?, @read_at : Int64)
+        end
+
+        # Whether reading at *now* would find the same names: the directory is still missing, or it is the same
+        # directory (device and inode) with the same trusted modification time, read less than ENTRIES_REREAD ago.
+        def current?(directory : File::Info?, now : Int64) : Bool
+          read = @directory
+          return directory.nil? if read.nil?
+          return false unless directory && (mtime = @mtime) && now - @read_at < ENTRIES_REREAD.total_nanoseconds.to_i64
+          read.same_file?(directory) && directory.modification_time == mtime
         end
       end
 
@@ -202,25 +217,35 @@ module Azu
         segment = path.to_slice[1, (path.byte_index('/'.ord, 1) || path.bytesize) - 1]
         return true if segment.empty? || segment.any? { |byte| byte >= 0x80 }
         refresh_entries
-        entries = @entries.get
-        entries.nil? || entries.fingerprints.includes?(fingerprint(segment))
+        fingerprints = @entries.get.try(&.fingerprints)
+        fingerprints.nil? || fingerprints.includes?(fingerprint(segment))
       end
 
-      # Reads the entry names again when the directory's modification time changed, at most once per
-      # ENTRIES_RECHECK; one fiber reads and publishes, the others keep the names they have meanwhile.
+      # Reads the entry names again unless `Entries#current?`, checked at most once per ENTRIES_RECHECK; one
+      # fiber reads and publishes, the others keep the names they have meanwhile.
       private def refresh_entries : Nil
         now = clock_nanoseconds
         due = @next_entries_check.get
         return if now < due
         return unless @next_entries_check.compare_and_set(due, now + ENTRIES_RECHECK.total_nanoseconds.to_i64)[1]
 
-        mtime = File.info?(@public_dir).try(&.modification_time)
-        return if mtime && mtime == @entries.get.try(&.mtime)
-        names = mtime ? Dir.children(@public_dir).to_set { |name| fingerprint(name.downcase(:fold).to_slice) } : Set(UInt64).new
+        directory = File.info?(@public_dir)
+        return if @entries.get.try(&.current?(directory, now))
+        mtime = directory.try(&.modification_time)
         trusted = mtime && Clock.now - mtime >= COARSE_MTIME
-        @entries.set(Entries.new(names, trusted ? mtime : nil))
+        @entries.set(Entries.new(directory ? entry_fingerprints : Set(UInt64).new, directory, trusted ? mtime : nil, now))
       rescue IO::Error
         @entries.set(nil)
+      end
+
+      # Fingerprints of the public directory's entry names; nil past MAX_ENTRIES.
+      private def entry_fingerprints : Set(UInt64)?
+        fingerprints = Set(UInt64).new
+        Dir.each_child(@public_dir) do |name|
+          return if fingerprints.size >= MAX_ENTRIES
+          fingerprints << fingerprint(name.downcase(:fold).to_slice)
+        end
+        fingerprints
       end
 
       # Two names that differ only in ASCII case share a fingerprint, as a case-insensitive file system would
