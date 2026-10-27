@@ -64,6 +64,7 @@ module Azu
       property fingerprint : String
       # The request path, set when the error is written for a request; the problem `instance`.
       property instance : String?
+      @report : ExceptionPage::Report?
 
       private def templates : Templates
         Azu.current_config.templates
@@ -85,6 +86,17 @@ module Azu
 
       private def debug_backtrace : String?
         inspect_with_backtrace if env.development?
+      end
+
+      # The triage of this error (what was raised, where, the likely causes, the signals around it) for `context`:
+      # built once, then shared by the exception page, the JSON body and the dev dashboard.
+      def exception_report(context : HTTP::Server::Context) : ExceptionPage::Report
+        @report ||= ExceptionPage::Report.build(self, context, status_code, error_id)
+      end
+
+      # The report while it may reach the client: in development only, like the context and the backtrace.
+      private def debug_report : ExceptionPage::Report?
+        @report if env.development?
       end
 
       def initialize(@detail = "", @source = "", @errors = Array(String).new, @context = nil)
@@ -118,7 +130,7 @@ module Azu
       end
 
       def html(context)
-        return ExceptionPage.redacted(context, self).to_s if env.development?
+        return ExceptionPage.new(exception_report(context)).render if env.development?
         html
       end
 
@@ -186,6 +198,7 @@ module Azu
         instance.try { |path| problem["instance"] = JSON::Any.new(path) }
         debug_context.try { |ctx| problem["context"] = JSON.parse(ctx.to_h.to_json) }
         debug_backtrace.try { |trace| problem["backtrace"] = JSON::Any.new(trace) }
+        debug_report.try { |report| problem["exception"] = JSON.parse(report.to_json) }
         problem.to_json
       end
 
@@ -201,6 +214,7 @@ module Azu
           Fingerprint: fingerprint,
           Context:     debug_context.try(&.to_h),
           Backtrace:   debug_backtrace,
+          Exception:   debug_report,
           Timestamp:   Time.utc.to_rfc3339,
         }.to_json
       end
@@ -209,7 +223,7 @@ module Azu
         context_info = debug_context.try { |ctx| format_context_text(ctx) } || "Context: None"
 
         <<-TEXT
-    Status: #{status_code}
+    #{debug_report.try { |report| format_triage_text(report) }}Status: #{status_code}
     Link: #{link}
     Title: #{title}
     Detail: #{detail}
@@ -239,6 +253,7 @@ module Azu
       end
 
       def to_s(context : HTTP::Server::Context)
+        exception_report(context) if env.development?
         context.response.status_code = status_code
         context.response.headers["X-Error-ID"] = error_id
         context.response.headers["X-Error-Fingerprint"] = fingerprint
@@ -304,6 +319,16 @@ module Azu
           xml << "<user_agent>#{HTML.escape(ctx.user_agent.to_s)}</user_agent>" if ctx.user_agent
           xml << "<timestamp>#{ctx.timestamp.to_rfc3339}</timestamp>"
           xml << "</context>"
+        end
+      end
+
+      private def format_triage_text(report : ExceptionPage::Report) : String
+        String.build do |str|
+          str << report.exception_class << ": " << report.message << '\n'
+          report.location.try { |frame| str << "Raised in: " << frame.location << '\n' }
+          report.hints.first(3).each { |hint| str << "Likely cause: " << hint.title << '\n' }
+          report.dashboard_url.try { |url| str << "Details: " << url << '\n' }
+          str << '\n'
         end
       end
 

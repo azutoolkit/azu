@@ -68,6 +68,7 @@ the trash button to clear the recorded numbers.
 | --- | --- | --- |
 | Overview | What needs attention, uptime, memory, latency, routes, traffic, errors, cache, database, components and runtime | All of the below |
 | Logs | Requests, cache operations and component events, newest first; each opens into a request and response inspector | The monitor; cache and component events while monitoring is on |
+| Errors | Every server error since boot, grouped by class and the line that raised it; each opens its exception page ([Debug exceptions](../errors/debug-exceptions.md)) | `Rescuer`, in development, with or without the monitor |
 | Routes | The handler pipeline given to `start` and every registered route | The app itself |
 | Components | Mount, refresh and event timings of live components | Live components, while monitoring is on |
 | Performance Tracing | Latency distribution, slowest requests, endpoints by average time, profiler spans, memory trend | The monitor, the profiler and the memory monitor |

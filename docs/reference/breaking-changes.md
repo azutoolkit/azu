@@ -13,7 +13,21 @@ from an early 0.5 release to the current API, with old and new code side by side
 
 ## Next release
 
-Nothing yet.
+**The development exception page is Azu's own, and the `exception_page` shard is gone** (released as a minor version).
+`Azu::ExceptionPage` no longer inherits from the shard's `::ExceptionPage`, so its `styles` override and the shard's
+other methods are gone; `ExceptionPage.redacted(context, exception).to_s` still renders the page. The page triages the
+exception (where the app raised it, likely causes, the request's queries and the endpoint's history) and the dev
+dashboard has an **Errors** tab that keeps every server error; see [Debug exceptions](../how-to/errors/debug-exceptions.md).
+An app that required `exception_page` through Azu adds the shard to its own `shard.yml`. In development the JSON problem
+body gains an `exception` member and the text body starts with the triage; production bodies are unchanged.
+
+**The built-in `error.html` and `error_debug.html` are redesigned.** They take the same data, but `error.html` no longer
+prints `source` or `fingerprint`, prints `detail` and `errors` for a status below 500 only, and loads no web font. An app
+whose own `error.html` overrides Azu's is not affected.
+
+**`DevDashboard` UI files moved.** `widgets.cr`, `status.cr`, `format.cr`, `dashboard.css`, `theme_boot.js` and
+`icons.svg` moved from `src/azu/dev/dev_dashboard/` to `src/azu/ui/`, shared with the exception page; their module names
+are unchanged.
 
 ## 0.9.0
 

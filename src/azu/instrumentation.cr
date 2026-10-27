@@ -45,6 +45,7 @@ module Azu
     @@cache_subscriptions = [] of Subscription(CacheOperation)
     @@component_subscriptions = [] of Subscription(ComponentEvent)
     @@redis_subscriptions = [] of Subscription(RedisCommand)
+    @@exception_subscriptions = [] of Subscription(ExceptionPage::Report)
     @@prepare_hooks = [] of Hook
     @@finalize_hooks = [] of Hook
 
@@ -62,6 +63,23 @@ module Azu
     # Listens to finished Redis calls (count them, time them, count errors); see `on_cache` for `enabled`.
     def self.on_redis(enabled : Proc(Bool) = -> { true }, &block : RedisCommand ->) : Nil
       @@redis_subscriptions << Subscription(RedisCommand).new(enabled, ->(command : RedisCommand) { block.call(command); nil })
+    end
+
+    # Listens to requests that failed with a server error (an unexpected exception or a 5xx `Response::Error`), with
+    # the triage the exception page shows (`ExceptionPage::Report`). The dev dashboard keeps them; an error tracker
+    # can forward them. See `on_cache` for `enabled`.
+    def self.on_exception(enabled : Proc(Bool) = -> { true }, &block : ExceptionPage::Report ->) : Nil
+      @@exception_subscriptions << Subscription(ExceptionPage::Report).new(enabled, ->(report : ExceptionPage::Report) { block.call(report); nil })
+    end
+
+    # Whether an enabled subscriber listens to exceptions, so the report is worth building.
+    def self.exception? : Bool
+      active?(@@exception_subscriptions)
+    end
+
+    # Reports a failed request to the enabled exception subscribers.
+    def self.exception(report : ExceptionPage::Report) : Nil
+      notify(@@exception_subscriptions, report)
     end
 
     # Runs when `Configuration#prepare` starts what an app needs to run.
@@ -84,16 +102,17 @@ module Azu
 
     # For specs: runs the block with no subscribers and hooks registered, then restores the previous ones.
     def self.isolate(&)
-      saved = {@@cache_subscriptions, @@component_subscriptions, @@redis_subscriptions, @@prepare_hooks, @@finalize_hooks}
+      saved = {@@cache_subscriptions, @@component_subscriptions, @@redis_subscriptions, @@exception_subscriptions, @@prepare_hooks, @@finalize_hooks}
       @@cache_subscriptions = [] of Subscription(CacheOperation)
       @@component_subscriptions = [] of Subscription(ComponentEvent)
       @@redis_subscriptions = [] of Subscription(RedisCommand)
+      @@exception_subscriptions = [] of Subscription(ExceptionPage::Report)
       @@prepare_hooks = [] of Hook
       @@finalize_hooks = [] of Hook
       begin
         yield
       ensure
-        @@cache_subscriptions, @@component_subscriptions, @@redis_subscriptions, @@prepare_hooks, @@finalize_hooks = saved
+        @@cache_subscriptions, @@component_subscriptions, @@redis_subscriptions, @@exception_subscriptions, @@prepare_hooks, @@finalize_hooks = saved
       end
     end
 

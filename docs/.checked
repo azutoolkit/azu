@@ -101,3 +101,4 @@ docs/reference/api/session-adapter.md
 docs/reference/api/handler-pipeline.md
 docs/reference/configuration/spark.md
 docs/reference/templates/renderable.md
+docs/how-to/errors/debug-exceptions.md
