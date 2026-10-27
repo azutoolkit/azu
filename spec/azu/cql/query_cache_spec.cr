@@ -99,7 +99,7 @@ module QueryCacheSpec
     end
   end
 
-  def self.serve(query_cache : Bool = true, &)
+  def self.serve(query_cache : Bool = true, transaction : Bool = false, &)
     app = Azu::App.new
     app.routes do
       endpoint Repeat
@@ -107,7 +107,7 @@ module QueryCacheSpec
       endpoint Slow
       endpoint Quick
     end
-    handlers = [Azu::Handler::RequestId.new, Azu::Handler::Rescuer.new, Azu::CQL::Middleware.new(SCHEMA, query_cache: query_cache)] of HTTP::Handler
+    handlers = [Azu::Handler::RequestId.new, Azu::Handler::Rescuer.new, Azu::CQL::Middleware.new(SCHEMA, transaction: transaction, query_cache: query_cache)] of HTTP::Handler
     server = app.server(handlers)
     address = server.bind_unused_port("127.0.0.1")
     spawn { server.listen }
@@ -141,7 +141,7 @@ module QueryCacheSpec
 
   def self.counters : {Int64, Int64}
     stats = ::CQL::Cache::RequestQueryCacheHelper.stats
-    {stats["hits"].as(Int64), stats["misses"].as(Int64)}
+    {stats["hits"]?.as?(Int64) || 0_i64, stats["misses"]?.as?(Int64) || 0_i64}
   end
 end
 
@@ -196,6 +196,16 @@ describe "Azu::CQL::Middleware query_cache:" do
         ::CQL::Cache::RequestQueryCacheHelper.enabled?.should be_false
 
         QueryCacheSpec.get(base, "/repeat", "req-after")["stats"]["repeated"].should eq 2
+      end
+    end
+  end
+
+  it "counts inside a request transaction and ends the tracker when it rolls back" do
+    QueryCacheSpec.with_cql_cache do
+      QueryCacheSpec.serve(transaction: true) do |base|
+        QueryCacheSpec.get(base, "/repeat", "req-tx")["stats"]["repeated"].should eq 2
+        HTTP::Client.get("#{base}/failing").status_code.should eq 500
+        ::CQL::Cache::RequestQueryCacheHelper.enabled?.should be_false
       end
     end
   end
