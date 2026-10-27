@@ -11,6 +11,7 @@ require "./error_store"
 require "./exception_signals"
 require "./dev_dashboard_component"
 require "./dev_dashboard"
+require "./telemetry"
 
 module Azu
   module Dev
