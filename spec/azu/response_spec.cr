@@ -69,11 +69,12 @@ describe Azu::Response do
   describe "Error rendering" do
     it "generates HTML error page" do
       error = Azu::Response::Error.new("Test error", HTTP::Status::INTERNAL_SERVER_ERROR, [] of String)
-      html = error.html
+      html = with_azu_env(Azu::Environment::Production) { error.html }
 
       html.should contain("Test error")
       html.should contain(error.error_id)
-      html.should contain(error.fingerprint)
+      # The public page leaves the fingerprint to the X-Error-Fingerprint header.
+      html.should_not contain(error.fingerprint)
     end
 
     it "generates JSON error response" do
