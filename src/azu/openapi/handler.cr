@@ -22,6 +22,7 @@ module Azu::OpenAPI
       @docs = docs.try(&.rstrip('/'))
       raise ArgumentError.new("The docs page cannot be served at the document's path #{path}") if @docs == @path
       @lock = Mutex.new
+      @document = nil.as(Document?)
       @json = nil.as(String?)
       @html = nil.as(String?)
     end
@@ -53,9 +54,9 @@ module Azu::OpenAPI
       @lock.synchronize { @html ||= DocsPage.render(document.to_h, @path.empty? ? "/" : @path) }
     end
 
-    # Built under the lock by its callers.
+    # Built once, under the lock its callers hold.
     private def document : Document
-      OpenAPI.document(@app, @info, @servers)
+      @document ||= OpenAPI.document(@app, @info, @servers)
     end
   end
 end

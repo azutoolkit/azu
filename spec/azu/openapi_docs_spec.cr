@@ -86,7 +86,7 @@ describe "Azu::OpenAPI::Handler docs page" do
     response.status_code.should eq 200
     response.content_type.should eq "text/html"
     response.body.should_not contain "<script"
-    response.body.should_not contain "http"
+    response.body.should_not match /(src|href)="?[a-z]+:/i
     policy = response.header("Content-Security-Policy").not_nil!
     policy.should start_with "default-src 'none'; style-src 'sha256-"
     style = response.body[/<style>(.*?)<\/style>/m, 1]
@@ -117,6 +117,17 @@ describe "Azu::OpenAPI::Handler docs page" do
     body.should contain "array of string"
     body.should contain "application/x-www-form-urlencoded"
     body.should contain "422"
+  end
+
+  it "escapes quotes in text and in attributes" do
+    app = OpenAPIDocsSpec.app
+    info = Azu::OpenAPI::Info.new(%(Shop "x" 'y'), "1")
+    handler = Azu::OpenAPI::Handler.new(app, info: info, path: %(/api"onload="x.json), docs: "/docs")
+    body = Azu::Testing::Client.new(app, [handler] of HTTP::Handler).get("/docs").body
+
+    body.should contain "Shop &quot;x&quot; &#39;y&#39;"
+    body.should contain %(<a href="/api&quot;onload=&quot;x.json">)
+    body.should_not contain %("onload=")
   end
 
   it "describes the shared schemas and links to them" do

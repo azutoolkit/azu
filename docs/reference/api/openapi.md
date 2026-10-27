@@ -181,7 +181,8 @@ document is built by the first request and kept, so routes added after that do n
 pick them up. It describes the `App` it is given, nothing else.
 
 With `docs: "/docs"` it also answers `GET` and `HEAD` at `/docs` with an HTML page of the same document: every
-operation with its parameters, request bodies and responses, then the shared schemas, linked from where they are used.
+operation with its parameters, request bodies and responses, then the shared schemas, linked from where they are used
+(the shared error responses, `BadRequest`, `NotFound` and `ValidationFailed`, are named, not expanded).
 The page is rendered on the server, so it works offline and has no script and nothing loaded from elsewhere; every
 value is HTML-escaped. It carries its own `Content-Security-Policy` (`default-src 'none'` and the hash of its inline
 style), which replaces the app's policy for that path only. It is a reference to read, not a console: to send requests
