@@ -4,22 +4,50 @@ description: The breaking changes between Azu versions, and how to migrate acros
 
 # Breaking changes
 
-Every change merged to `master` is released as a new patch version (`0.5.N`), so each change is listed under the
-first release that shipped it, newest first. Changes that are merged but not released yet are under
-[Next release](#next-release). [Migrate to 0.6](../how-to/migrate-to-0.6.md) walks an application from an early 0.5
-release to the current API, with old and new code side by side; every release is tagged on
+Every change merged to `master` is released: as a patch version by default, as a minor one when its commit message
+carries `(MINOR)` (0.6.0, 0.7.0, 0.8.0 and 0.9.0 did), so each change is listed under the first release that shipped it,
+newest first; a release that shipped a breaking change as a patch says so in its entry. Changes that are merged but not
+released yet are under [Next release](#next-release). [Migrate to 0.6](../how-to/migrate-to-0.6.md) walks an application
+from an early 0.5 release to the current API, with old and new code side by side; every release is tagged on
 [GitHub](https://github.com/azutoolkit/azu/releases).
 
 ## Next release
 
-**The server cuts slow connections and caps their number.** `App#start` bound a plain `HTTP::Server` listener: a client could hold
-a connection open for ever by sending a header byte at a time, never finishing a body, or never sending anything, and the number of
-connections was unbounded. The accepted sockets now carry the new `config.limits`: `header_timeout` 10 s (answered `408`),
-`read_timeout` 30 s with a `min_body_rate` of 1 KB/s after it, `write_timeout` 60 s, `keep_alive_timeout` 60 s and
-`max_connections` 10 000 or the open-file limit less 256 if lower (the next connection gets `503`). The rules also run on HTTPS
-connections, on the decrypted request. WebSockets are exempt once upgraded. A timeout of `0` or less switches that wait off. An app that takes uploads over a
-very slow link, or a stream that waits on the client for more than 30 s, raises the matching limit; `SERVER_*` variables set them.
-A server you bind yourself (`server.bind_tcp`) is unchanged; use `Azu::ServerLimits.bind_tcp` to give it the same limits. (The limits first shipped in 0.8.1, a patch release, without a minor marker; read this entry as a minor-release change.)
+Nothing yet.
+
+## 0.9.0
+
+**The server limits of 0.8.1 also run on HTTPS, and their configuration is stricter** (#258, the release that carries the
+`(MINOR)` marker the limits lacked in 0.8.1). The rules now run on HTTPS connections, on the decrypted request, with the TLS
+handshake inside `header_timeout`; a connection over `max_connections` on a TLS port is closed without a `503`. A timeout of `0`
+or less switches that wait off, and a `SERVER_*` value that is not a number is logged and the default kept. The default
+`max_connections` is the open-file limit less 256 when that is below 10 000. A request body the client stops sending raises in
+the handler's read and `Rescuer` answers `408` with one log line. An upload sent with `Expect: 100-continue` is no longer cut by
+`header_timeout`.
+
+**Typed `Azu::Testing::Client` calls answer `TypedResponse(T)` instead of `Response`** (#259, released as a patch). A call
+such as `client.post(CreateUserEndpoint, NewUserRequest.new("Ada"))` returns an `Azu::Testing::TypedResponse(T)`, `T` being the
+endpoint's response type: every method of `Response` still works on it and `value` decodes the body as `T`. Code that stores
+the result in a variable or argument typed `Azu::Testing::Response` takes `.response`. Calls on a plain `Routable` still
+answer a `Response`.
+
+## 0.8.1
+
+**The server cuts slow connections and caps their number** (#256; released as a patch, without the `(MINOR)` marker: read
+it as a minor-release change). `App#start` bound a plain `HTTP::Server` listener: a client could hold a connection open for
+ever by sending a header byte at a time, never finishing a body, or never sending anything, and the number of connections was
+unbounded. The accepted sockets now carry the new `config.limits`: `header_timeout` 10 s (answered `408` over plain HTTP; from
+0.9.0 a TLS connection is just closed), `read_timeout` 30 s with a `min_body_rate` of 1 KB/s after it, `write_timeout` 60 s,
+`keep_alive_timeout` 60 s and `max_connections` 10 000 (the next connection gets `503`). WebSockets are exempt once upgraded.
+An app that takes uploads over a very slow link, or a stream that waits on the client for more than 30 s, raises the matching
+limit; `SERVER_*` variables set them. A server you bind yourself (`server.bind_tcp`) is unchanged; use
+`Azu::ServerLimits.bind_tcp` to give it the same limits. 0.9.0 extends the rules to HTTPS (see above).
+
+**`Templates.compile` is gone.** The compiled-templates milestone of 0.7.1 (#254) was reverted (#257): a build that calls
+the `Azu::Templates.compile` macro or `Templates#compiled=` no longer compiles. Templates render through Crinja, as before
+0.7.1.
+
+## 0.8.0
 
 **Multipart uploads have request-wide limits, and temp files are private and removed after the request.** `upload.max_file_size`
 bounded each file only, so a client could stream any number of files of up to 10 MB each. New `upload.max_request_size` (64 MB,
@@ -29,6 +57,8 @@ files are created `0600`, with a random name in which the client's file name onl
 `Endpoint` deletes them in its `ensure`, when the request is done: **an endpoint that handed `temp_path` to a background job
 or kept it for later must copy the file first.** A second file under one field name now deletes the first's temp file.
 
+## 0.7.3
+
 **`CORS#origins` returns a copy, and preflight responses vary by what they ask for.** `cors.origins << "https://b.test"` edited the
 live list on 0.6; the reader now returns a copy, so that does nothing (and `<< "*"` can no longer sneak the wildcard past the
 credentials check). Assign the whole list with `cors.origins = [...]`. A preflight response now carries
@@ -37,6 +67,8 @@ blacklisted trusted proxy forwards with an `X-Forwarded-For` that names no clien
 used to inherit the proxy's whitelist entry and was never throttled); block and release lines are rate-limited in the log like
 the refusals. **`CSRF`**: `CSRF_MAX_FORM_SIZE` and `CSRF.new(max_form_size:)` set the urlencoded read limit.
 
+## 0.7.2
+
 **`OPTIONS` answers with `Allow` instead of running the `GET` endpoint.** `get` registered an `OPTIONS` route to its own
 endpoint, so an `OPTIONS` request ran the `GET` action and got its body. `get` now registers `GET` and `HEAD` only, and
 the router answers an `OPTIONS` itself: `204` with `Allow` listing the methods the path routes (`GET, HEAD, POST,
@@ -44,6 +76,10 @@ OPTIONS`), or `404` for a path that routes none. An `options` route you declare 
 path of a `get` no longer raises `DuplicateRoute`. CORS preflights are unchanged: `Handler::CORS` answers them first. In tests,
 `client.options(SomeGetEndpoint)` (`Azu::Testing::Client`) now raises `ArgumentError` ("is not routed for OPTIONS")
 unless the endpoint declares `options`; call `client.options("/path")` to get the `Allow` answer.
+
+## 0.7.1
+
+No breaking change. It added `Azu::Templates.compile` (#254), which 0.8.1 removed again.
 
 ## 0.7.0
 

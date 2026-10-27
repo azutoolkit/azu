@@ -636,3 +636,67 @@ describe "Azu::Handler::CSRF request bodies" do
     end
   end
 end
+
+# An in-memory body that counts the read calls made on it: a reader that scans a byte at a time makes one per byte.
+private class ReadCounter < IO::Memory
+  getter reads = 0
+
+  def read(slice : Bytes) : Int32
+    @reads += 1
+    super
+  end
+end
+
+describe Azu::Handler::CSRF::ReplayedBody do
+  upload = "z" * 3_000_000
+  body = "--B\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\ntoken\r\n" \
+         "--B\r\nContent-Disposition: form-data; name=\"doc\"; filename=\"big.bin\"\r\n\r\n#{upload}\r\n--B--\r\n"
+
+  # The body as the endpoint gets it after CSRF read *prefix_size* bytes of it, and the rest it reads from.
+  replay = ->(prefix_size : Int32) {
+    rest = ReadCounter.new(body)
+    prefix = Bytes.new(prefix_size)
+    rest.read_fully(prefix)
+    {Azu::Handler::CSRF::ReplayedBody.new(prefix, rest), rest}
+  }
+
+  parse = ->(io : IO, limit : UInt64) {
+    sizes = {} of String => Int32
+    HTTP::FormData.parse(Azu::Params::Multipart::LimitedBody.new(io, limit), "B") do |part|
+      sizes[part.name] = part.body.gets_to_end.bytesize
+    end
+    sizes
+  }
+
+  it "lets the multipart parser scan ahead, so a large upload is not read a byte at a time" do
+    replayed, rest = replay.call(4096)
+    parse.call(replayed, 10_000_000_u64).should eq({"_csrf" => 5, "doc" => 3_000_000})
+    rest.reads.should be < body.bytesize // 50
+  end
+
+  it "parses an upload about as fast as the body it replays" do
+    direct = Time.measure { parse.call(IO::Memory.new(body), 10_000_000_u64) }
+    replayed, _ = replay.call(4096)
+    through_csrf = Time.measure { parse.call(replayed, 10_000_000_u64) }
+    (through_csrf / direct).should be < 5.0 # a byte at a time was about 90 times slower
+  end
+
+  it "hands out the body as it was sent, however it is taken, and keeps the request size limit exact" do
+    [0, 1, 100, 4096, body.bytesize].each do |prefix_size|
+      replayed, _ = replay.call(prefix_size)
+      parse.call(replayed, body.bytesize.to_u64).should eq({"_csrf" => 5, "doc" => 3_000_000})
+      replayed, _ = replay.call(prefix_size)
+      expect_raises(Azu::Params::TooLarge) { parse.call(replayed, body.bytesize.to_u64 - 1) }
+    end
+  end
+
+  it "peeks the prefix first, then the rest, and skips across them" do
+    replayed = Azu::Handler::CSRF::ReplayedBody.new("abc".to_slice, IO::Memory.new("defgh"))
+    String.new(replayed.peek.not_nil!).should eq "abc"
+    replayed.skip(2)
+    String.new(replayed.peek.not_nil!).should eq "c"
+    replayed.skip(2)
+    String.new(replayed.peek.not_nil!).should eq "efgh"
+    replayed.gets_to_end.should eq "efgh"
+  end
+end
