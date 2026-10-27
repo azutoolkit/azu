@@ -20,6 +20,8 @@ The left column says what failed and where:
 - **Likely cause**: what an exception of that class usually means and where to look, ranked by severity;
 - the source around the line that raised.
 
+![The development exception page for a NilAssertionError](../../assets/exception-page/dev-dark.png)
+
 The right column has four tabs:
 
 | Tab | Shows |
@@ -63,6 +65,8 @@ With `require "azu/dev"` and `Azu::Handler::DevDashboard` mounted (see [Use the 
 every server error is kept: unexpected exceptions and 5xx responses, not 4xx refusals. The dashboard's **Errors** tab
 lists them grouped by class and the line of your code that raised them, with a count, the occurrences of the last hour
 and when each was last seen.
+
+![The dev dashboard's Errors tab](../../assets/exception-page/dashboard-errors.png)
 
 **Open** shows the error's exception page as it was when it happened, with the previous and next occurrences one click
 away. The exception page of a live request links to it (**Open in dashboard**), and so does the Logs entry of the
