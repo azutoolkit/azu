@@ -51,7 +51,7 @@ module Azu
       # Outside the transaction, so the cache scope also covers the commit and ends after it, on an exception too.
       private def within_query_cache(request_id : String, &) : Nil
         return yield unless @query_cache
-        ::CQL.with_request_cache(request_id) { yield }
+        RequestCache.scope(request_id) { yield }
       end
 
       private def within_transaction(context : HTTP::Server::Context) : Nil

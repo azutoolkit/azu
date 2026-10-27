@@ -32,22 +32,31 @@ module QueryCacheSpec
   struct StatsResponse
     include Azu::Response
 
-    def initialize(@cql_request_id : String, @tracking : Bool)
+    def initialize(@stats : Azu::CQL::RequestCacheStats?, @cql_request_id : String, @tracking : Bool)
     end
 
     def render : String
-      {cql_request_id: @cql_request_id, tracking: @tracking}.to_json
+      stats = @stats
+      {
+        request_id:     stats.try(&.request_id),
+        queries:        stats.try(&.queries),
+        repeated:       stats.try(&.repeated),
+        cql_request_id: @cql_request_id,
+        tracking:       @tracking,
+      }.to_json
     end
   end
 
+  # The same SELECT three times and another one once.
   struct Repeat
     include Azu::Endpoint(NoParams, StatsResponse)
 
     get "/notes/repeat"
 
     def call : StatsResponse
-      SCHEMA.query.from(:notes).select(:title).all(String)
-      StatsResponse.new(CQL::Cache::RequestQueryCacheHelper.stats["request_id"].to_s, CQL::Cache::RequestQueryCacheHelper.enabled?)
+      3.times { SCHEMA.query.from(:notes).select(:title).all(String) }
+      SCHEMA.query.from(:notes).select(:id).all(Int64)
+      StatsResponse.new(Azu::CQL.request_cache_stats, CQL::Cache::RequestQueryCacheHelper.stats["request_id"].to_s, CQL::Cache::RequestQueryCacheHelper.enabled?)
     end
   end
 
@@ -95,6 +104,27 @@ describe "Azu::CQL::Middleware query_cache" do
         body["cql_request_id"].should eq "req-repeat"
         body["tracking"].should be_true
       end
+    end
+  end
+
+  it "counts the statements the request repeated, from zero for each request" do
+    QueryCacheSpec.with_cql_cache do
+      QueryCacheSpec.serve do |base|
+        2.times do |attempt|
+          body = JSON.parse(QueryCacheSpec.get(base, "/notes/repeat", "req-count-#{attempt}").body)
+          body["request_id"].should eq "req-count-#{attempt}"
+          body["queries"].should eq 4
+          body["repeated"].should eq 2
+        end
+      end
+    end
+  end
+
+  it "has no stats while CQL's cache is off" do
+    QueryCacheSpec.serve do |base|
+      body = JSON.parse(QueryCacheSpec.get(base, "/notes/repeat", "req-off").body)
+      body["queries"].raw.should be_nil
+      body["tracking"].should be_false
     end
   end
 end
