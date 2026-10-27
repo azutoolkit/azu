@@ -164,4 +164,56 @@ describe "Azu::CQL::Middleware query_cache:" do
       Azu::CQL.request_cache_stats.should be_nil
     end
   end
+
+  it "leaves CQL's tracker untouched by default" do
+    Azu::CQL::Middleware.new(QueryCacheSpec::SCHEMA).query_cache?.should be_false
+    QueryCacheSpec.with_cql_cache do
+      before = QueryCacheSpec.counters
+      QueryCacheSpec.serve(query_cache: false) do |base|
+        body = QueryCacheSpec.get(base, "/repeat", "req-off")
+        body["stats"].raw.should be_nil
+        body["tracker"]["enabled"].should be_false
+      end
+      QueryCacheSpec.counters.should eq before
+    end
+  end
+
+  it "reports nothing when CQL's request cache is off" do
+    QueryCacheSpec.serve do |base|
+      body = QueryCacheSpec.get(base, "/repeat", "req-cql-off")
+      body["stats"].raw.should be_nil
+      body["tracker"]["enabled"].should be_false
+    end
+  end
+
+  it "ends the tracker when the endpoint raises" do
+    QueryCacheSpec.with_cql_cache do
+      QueryCacheSpec.serve do |base|
+        response = HTTP::Client.get("#{base}/failing", HTTP::Headers{"X-Request-ID" => "req-failing"})
+        response.status_code.should eq 500
+        ::CQL::Cache::RequestQueryCacheHelper.enabled?.should be_false
+
+        QueryCacheSpec.get(base, "/repeat", "req-after")["stats"]["repeated"].should eq 2
+      end
+    end
+  end
+
+  # CQL's request query cache is one process-wide tracker today: overlapping requests share its counters, and a
+  # request that starts clears the statements of the ones in flight. Un-pend once CQL scopes it per fiber.
+  pending "keeps the counts of concurrent requests apart (needs CQL's request cache scoped per fiber)" do
+    QueryCacheSpec.with_cql_cache do
+      QueryCacheSpec.serve do |base|
+        slow = Channel(JSON::Any).new
+        spawn { slow.send QueryCacheSpec.get(base, "/slow", "req-slow") }
+        sleep 30.milliseconds # the slow request has run its first SELECT and waits
+        quick = QueryCacheSpec.get(base, "/quick", "req-quick")
+        quick["stats"]["repeated"].should eq 1
+
+        slow_stats = slow.receive["stats"]
+        slow_stats["request_id"].should eq "req-slow"
+        slow_stats["queries"].should eq 3
+        slow_stats["repeated"].should eq 2
+      end
+    end
+  end
 end
