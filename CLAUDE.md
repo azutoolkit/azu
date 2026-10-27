@@ -72,6 +72,7 @@ src/azu/
 │   ├── performance_reporter.cr # Log/JSON reporters
 │   ├── development_tools.cr    # Profiler, memory leak detector
 │   ├── dev_dashboard.cr        # Handler::DevDashboard
+│   ├── telemetry.cr            # Dev::Telemetry: 1 Hz JSON snapshots to azu dev's dashboard over AZU_TELEMETRY_SOCKET
 │   └── dev_dashboard_component.cr + dev_dashboard/  # The dashboard page and its sections
 └── helpers/            # Template helpers DSL
     ├── helpers.cr      # Main require & DSL macros
