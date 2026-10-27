@@ -73,10 +73,10 @@ src/azu/
 │   ├── performance_monitor.cr  # Handler::PerformanceMonitor
 │   ├── performance_reporter.cr # Log/JSON reporters
 │   ├── development_tools.cr    # Profiler, memory leak detector
+│   ├── telemetry.cr            # Dev::Telemetry: 1 Hz JSON snapshots to azu dev's dashboard over AZU_TELEMETRY_SOCKET
 │   ├── dev_dashboard.cr        # Handler::DevDashboard (also /errors/<id>, errors.json)
 │   ├── error_store.cr          # ErrorStore: server errors kept for the Errors tab (fed by Instrumentation.on_exception)
 │   ├── exception_signals.cr    # The exception page's "Performance context" panel
-│   ├── telemetry.cr            # Dev::Telemetry: 1 Hz JSON snapshots to azu dev's dashboard over AZU_TELEMETRY_SOCKET
 │   └── dev_dashboard_component.cr + dev_dashboard/  # The dashboard page and its sections
 └── helpers/            # Template helpers DSL
     ├── helpers.cr      # Main require & DSL macros
