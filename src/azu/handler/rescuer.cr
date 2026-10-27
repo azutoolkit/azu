@@ -24,7 +24,7 @@ module Azu
       end
 
       private def recover(context : HTTP::Server::Context, ex : Exception) : Nil
-        return slow_client(context) if ex.is_a?(IO::TimeoutError)
+        return slow_client(context) if ex.is_a?(ServerLimits::ClientTooSlow)
 
         request_id = context.request.headers["X-Request-ID"]? || generate_request_id
         error_context = ErrorContext.from_http_context(context, request_id, load_environment: Azu.current_config.env.development?)
