@@ -100,7 +100,8 @@ module Azu
       end
 
       # Hands out the bytes the handler already read, then the rest of the request body, so the endpoint reads the
-      # whole body as it was sent.
+      # whole body as it was sent. It peeks and skips like the body it replays, so the multipart parser
+      # (`IO::Delimited`) scans ahead instead of reading a byte at a time.
       class ReplayedBody < IO
         def initialize(prefix : Bytes, @rest : IO)
           @prefix = IO::Memory.new(prefix)
@@ -110,6 +111,22 @@ module Azu
           return 0 if slice.empty?
           count = @prefix.read(slice)
           count > 0 ? count : @rest.read(slice)
+        end
+
+        # The prefix bytes left, else what the rest has buffered (nil when it cannot tell).
+        def peek : Bytes?
+          left = prefix_left
+          left.empty? ? @rest.peek : left
+        end
+
+        def skip(bytes_count : Int) : Nil
+          from_prefix = Math.min(bytes_count, prefix_left.size)
+          @prefix.skip(from_prefix)
+          @rest.skip(bytes_count - from_prefix) if bytes_count > from_prefix
+        end
+
+        private def prefix_left : Bytes
+          @prefix.to_slice[@prefix.pos..]
         end
 
         def write(slice : Bytes) : NoReturn
