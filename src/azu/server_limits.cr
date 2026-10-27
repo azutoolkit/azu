@@ -29,23 +29,40 @@ module Azu
     end
   end
 
-  # Where the requests of a connection begin and end in the bytes the client sends, as far as the bytes tell: the end of
-  # each request's headers, and the end of its body when it has a `Content-Length` (or none, which is a body of 0). A
-  # body of unknown length (`Transfer-Encoding`) ends where the server answers it: `restart` scans for the next request.
+  # Where the requests of a connection begin and end in the bytes the client sends, read the way `HTTP::Request.from_io`
+  # reads them: the end of each request's headers, and the end of its body when it has a `Content-Length` (or none,
+  # which is a body of 0). A header name is matched as `HTTP::Headers` matches it (case-insensitively, `_` as `-`).
+  #
+  # Where the stream cannot tell the body's length exactly as the server's parser will, it does not guess: a body with
+  # `Transfer-Encoding`, a `Content-Length` it cannot read whole (a duplicate, a value that is not plain digits, a line
+  # longer than `LINE_LIMIT`), or a header line the parser refuses (no name, a name that is not a token, which covers a
+  # folded line, a stray CR) makes the body one of unknown length, which ends where the server answers it: `restart`
+  # scans for the next request.
   class RequestStream
-    # The bytes of a header line kept to recognise it: `Content-Length` and `Transfer-Encoding` with their values.
+    # The bytes of a header line kept to read it. A framing header (`Content-Length`, `Transfer-Encoding`) is read only
+    # when its whole line fits; the name of any other line is told apart from those within it.
     LINE_LIMIT = 64
+    # The most digits of a `Content-Length` read: more could overflow `Int64`, so the length is unknown.
+    MAX_DIGITS = 18
+
+    CONTENT_LENGTH    = "content-length".to_slice
+    TRANSFER_ENCODING = "transfer-encoding".to_slice
+    TOKEN_SYMBOLS     = "!#$%&'*+-.^_`|~".to_slice
 
     # The requests whose headers have ended.
     getter parsed : Int32 = 0
     # Bytes of the next request's headers have arrived (its blank lines included).
     getter? partial : Bool = false
+    # The body length the headers of the last request gave; nil when it is unknown.
+    getter body_length : Int64? = 0_i64
 
     @body_left : Int64? = 0_i64
 
     def initialize
       @line = Bytes.new(LINE_LIMIT)
       @line_length = 0
+      @carriage_returns = 0
+      @last_byte = 0_u8
       @seen_line = false
       @in_body = false
       @content_length = nil.as(Int64?)
@@ -79,49 +96,101 @@ module Azu
     end
 
     # Scans header bytes from *index*; returns the index just past the blank line that ends them, or the end of *bytes*.
-    # Lines end in LF, with or without a CR; blank lines before the request line are not the end.
+    # A line ends in LF, and a CR just before it is not part of it; blank lines before the request line are not the end.
     private def scan(bytes : Bytes, index : Int32) : Int32
       @partial = true
       while index < bytes.size
         byte = bytes[index]
         index += 1
         if byte == '\n'.ord
-          if @line_length == 0 && @seen_line
-            end_headers
-            return index
-          end
-          end_line if @line_length > 0
-        elsif byte != '\r'.ord
+          return index if end_line
+        else
           @line[@line_length] = byte if @line_length < LINE_LIMIT
           @line_length += 1
+          @carriage_returns += 1 if byte == '\r'.ord
+          @last_byte = byte
         end
       end
       index
     end
 
-    # A header line is a body length, or not; the first line is the request line.
-    private def end_line : Nil
-      read_length if @seen_line
-      @seen_line = true
-      @line_length = 0
+    # The first line is the request line, the next ones are headers; true at the blank line that ends them.
+    private def end_line : Bool
+      length, stray_cr = @line_length, @carriage_returns
+      if length > 0 && @last_byte == '\r'.ord
+        length -= 1
+        stray_cr -= 1
+      end
+      @line_length = @carriage_returns = 0
+      if length == 0
+        return false unless @seen_line
+        end_headers
+        return true
+      end
+      if @seen_line
+        read_header(length, stray_cr > 0)
+      else
+        @seen_line = true
+      end
+      false
     end
 
-    private def read_length : Nil
-      line = String.new(@line[0, Math.min(@line_length, LINE_LIMIT)])
-      name, colon, value = line.partition(':')
-      return if colon.empty?
-      case name.strip.downcase
-      when "transfer-encoding" then @unknown_length = true
-      when "content-length"
-        length = @line_length <= LINE_LIMIT ? value.strip.to_i64?(whitespace: false) : nil
-        @unknown_length = true if length.nil? || length < 0 || (@content_length && @content_length != length)
-        @content_length = length
+    private def read_header(length : Int32, stray_cr : Bool) : Nil
+      window = @line[0, Math.min(length, LINE_LIMIT)]
+      colon = window.index(':'.ord.to_u8)
+      # No colon within the window: a name of LINE_LIMIT bytes or more is not a framing header (the server refuses a
+      # line with no colon at all).
+      return unknown_length! if stray_cr || (colon.nil? && length <= LINE_LIMIT)
+      return unless colon
+      name = window[0, colon]
+      return unknown_length! unless token?(name)
+      if header?(name, TRANSFER_ENCODING)
+        unknown_length!
+      elsif header?(name, CONTENT_LENGTH)
+        read_length(length <= LINE_LIMIT ? window[colon + 1..] : nil)
       end
+    end
+
+    # *value*: what follows the colon, nil when the line did not fit. Only one `Content-Length`, of plain digits.
+    private def read_length(value : Bytes?) : Nil
+      length = value.try { |bytes| digits(bytes) } unless @content_length
+      length ? (@content_length = length) : unknown_length!
+    end
+
+    # `[ \t]*[0-9]{1,18}`, all of *bytes*; nil otherwise.
+    private def digits(bytes : Bytes) : Int64?
+      start = bytes.index { |byte| byte != ' '.ord && byte != '\t'.ord } || bytes.size
+      count = bytes.size - start
+      return unless 0 < count && count <= MAX_DIGITS
+      bytes[start, count].reduce(0_i64) do |total, byte|
+        return unless byte.unsafe_chr.ascii_number?
+        total * 10 + (byte - '0'.ord.to_u8)
+      end
+    end
+
+    # *name* is *expected* as `HTTP::Headers` compares names: ASCII letters in any case, `_` the same as `-`.
+    private def header?(name : Bytes, expected : Bytes) : Bool
+      return false unless name.size == expected.size
+      name.each_with_index do |byte, index|
+        byte += 32 if byte.unsafe_chr.ascii_uppercase?
+        byte = '-'.ord.to_u8 if byte == '_'.ord
+        return false unless byte == expected[index]
+      end
+      true
+    end
+
+    # An RFC 9110 token, as `HTTP.valid_token?` reads it.
+    private def token?(name : Bytes) : Bool
+      !name.empty? && name.all? { |byte| byte.unsafe_chr.ascii_alphanumeric? || TOKEN_SYMBOLS.includes?(byte) }
+    end
+
+    private def unknown_length! : Nil
+      @unknown_length = true
     end
 
     private def end_headers : Nil
       @parsed += 1
-      @body_left = @unknown_length ? nil : (@content_length || 0_i64)
+      @body_length = @body_left = @unknown_length ? nil : (@content_length || 0_i64)
       @in_body = @body_left != 0
       start_headers
     end
@@ -129,6 +198,7 @@ module Azu
     private def start_headers : Nil
       @partial = false
       @line_length = 0
+      @carriage_returns = 0
       @seen_line = false
       @content_length = nil
       @unknown_length = false
@@ -175,7 +245,7 @@ module Azu
     def before_read : Time::Span?
       next_request if @wrote && @phase.body?
       case @phase
-      when .headers? then soonest(@deadline.try { |deadline| remaining(deadline) }, @limits.read_timeout)
+      when .headers? then soonest(@deadline.try { |deadline| ServerLimits.remaining(deadline) }, @limits.read_timeout)
       when .body?
         @waiting_since = Time.instant
         soonest(@limits.read_timeout, body_credit)
@@ -256,13 +326,6 @@ module Azu
       slice.size > 9 && slice[0, 7] == "HTTP/1.".to_slice && slice[8] == ' '.ord && slice[9] == '1'.ord
     end
 
-    # What is left until *deadline*; a deadline that has passed is a timeout now.
-    private def remaining(deadline : Time::Instant) : Time::Span
-      left = deadline - Time.instant
-      raise ServerLimits::ClientTooSlow.new if left <= Time::Span.zero
-      left
-    end
-
     private def soonest(first : Time::Span?, second : Time::Span?) : Time::Span?
       return second unless first
       return first unless second
@@ -272,9 +335,13 @@ module Azu
 
   # An accepted TCP connection with the limits of `ServerLimitsConfiguration`. A plain one runs its `RequestClock` on
   # the bytes it reads; under TLS it is the transport of a `LimitedSSLSocket`, which runs the clock on the decrypted
-  # stream, and only bounds the handshake itself.
+  # stream: this socket bounds the handshake, and holds every read of one decrypted read to the deadline the clock gave
+  # it (`read_deadline`), however the client slices the TLS record.
   class LimitedSocket < TCPSocket
     getter clock : RequestClock
+    # Under TLS, when the read the layer above waits on has to end, however many reads of this socket it takes (a TLS
+    # record can come a byte at a time).
+    property read_deadline : Time::Instant?
 
     def initialize(@limits : ServerLimitsConfiguration, @gate : ConnectionGate?, @tls : Bool, *, handle, family, type, protocol, blocking)
       super(handle: handle, family: family, type: type, protocol: protocol, blocking: blocking)
@@ -315,7 +382,10 @@ module Azu
     end
 
     private def unbuffered_read(slice : Bytes) : Int32
-      return super if @tls && @tls_ready # the layer above set the timeout for this read
+      if @tls && @tls_ready # the layer above set when this read must end
+        @read_deadline.try { |deadline| self.read_timeout = ServerLimits.remaining(deadline) }
+        return super
+      end
 
       self.read_timeout = @clock.before_read
       count = super
@@ -363,10 +433,13 @@ module Azu
     end
 
     def unbuffered_read(slice : Bytes) : Int32
-      @transport.read_timeout = @clock.before_read
+      timeout = @transport.read_timeout = @clock.before_read
+      @transport.read_deadline = timeout.try { |span| Time.instant + span }
       count = super
       @clock.after_read(slice[0, count])
       count
+    ensure
+      @transport.read_deadline = nil
     end
 
     def unbuffered_write(slice : Bytes) : Nil
@@ -436,6 +509,13 @@ module Azu
     # *ex* as a `ClientTooSlow`: a timeout of a limited connection's own read or write is the client's.
     def self.client_too_slow(ex : IO::TimeoutError) : ClientTooSlow
       ex.as?(ClientTooSlow) || ClientTooSlow.new(ex.message || "The client was too slow", ex)
+    end
+
+    # What is left until *deadline*; a deadline that has passed is a timeout now.
+    def self.remaining(deadline : Time::Instant) : Time::Span
+      left = deadline - Time.instant
+      raise ClientTooSlow.new if left <= Time::Span.zero
+      left
     end
 
     # Takes the limits off *io* once a handler has upgraded the connection.
