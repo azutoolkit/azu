@@ -256,7 +256,7 @@ to the response.
   commit, a rollback, an exception.
 * **Concurrent requests share the counters for now.** CQL keeps one request query cache for the whole process, so
   requests served at the same time add to each other's counts, and a request that starts forgets the statements of
-  the ones in flight; when another request ends the tracker first, the counts read zero. The numbers are exact when
+  the ones in flight, so a repeat after another request starts counts as distinct. The numbers are exact when
   one request runs at a time (development, a spec); Azu keeps them per request as soon as CQL scopes that state per
   fiber, with no change on your side.
 
