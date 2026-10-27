@@ -60,7 +60,9 @@ src/azu/
 ├── params.cr           # Parameter extraction & uploads
 ├── handler/            # Middleware handlers (12 files)
 ├── templates.cr        # Crinja template engine
-├── instrumentation.cr  # The seam optional subsystems plug into: cache/component hooks, prepare/finalize hooks
+├── instrumentation.cr  # The seam optional subsystems plug into: cache/component/exception hooks, prepare/finalize hooks
+├── exception_page.cr + exception_page/  # Development exception page: Report (frames, redacted request), triage hints (`ExceptionPage.hint`), panels (`ExceptionPage.on_panels`, core Database panel), page.cr/css/js; production uses templates/error.html
+├── ui/                 # Markup widgets, status/format vocabulary, dashboard.css, theme_boot.js, icons.svg: shared by the dev dashboard and the exception page
 ├── query_store.cr      # Query/transaction telemetry + N+1 analysis (fed by azu/cql, read by the dashboard)
 ├── request_context.cr  # Fiber-keyed current request for tagging SQL/logs
 ├── cql/                # Opt-in CQL bridge (`require "azu/cql"`), see docs/reference/database-dashboard.md; driver.cr picks CQL's native engine pool (default for postgres://) or crystal-db (`driver: :db`, `AZU_CQL_DRIVER`)
@@ -71,7 +73,9 @@ src/azu/
 │   ├── performance_monitor.cr  # Handler::PerformanceMonitor
 │   ├── performance_reporter.cr # Log/JSON reporters
 │   ├── development_tools.cr    # Profiler, memory leak detector
-│   ├── dev_dashboard.cr        # Handler::DevDashboard
+│   ├── dev_dashboard.cr        # Handler::DevDashboard (also /errors/<id>, errors.json)
+│   ├── error_store.cr          # ErrorStore: server errors kept for the Errors tab (fed by Instrumentation.on_exception)
+│   ├── exception_signals.cr    # The exception page's "Performance context" panel
 │   └── dev_dashboard_component.cr + dev_dashboard/  # The dashboard page and its sections
 └── helpers/            # Template helpers DSL
     ├── helpers.cr      # Main require & DSL macros
@@ -274,7 +278,6 @@ The dev dashboard, performance monitor, profiler and reporter live in `src/azu/d
 
 | Shard          | Purpose                  |
 | -------------- | ------------------------ |
-| exception_page | Beautiful error pages    |
 | schema         | Type-safe validation     |
 | crinja         | Jinja2 template engine   |
 | redis ~> 2.9.0 | Caching & sessions       |

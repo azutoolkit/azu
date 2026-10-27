@@ -5,10 +5,11 @@ require "./performance_reporter"
 require "./development_tools"
 require "../cache"
 require "./dev_dashboard/data_provider"
-require "./dev_dashboard/widgets"
+require "../ui/widgets"
 require "./dev_dashboard/overview_section"
 require "./dev_dashboard/routes_section"
 require "./dev_dashboard/logs_section"
+require "./dev_dashboard/errors_section"
 require "./dev_dashboard/tracing_section"
 require "./dev_dashboard/database_section"
 require "./dev_dashboard/cache_section"
@@ -65,6 +66,7 @@ module Azu
       include Dashboard::OverviewSection
       include Dashboard::RoutesSection
       include Dashboard::LogsSection
+      include Dashboard::ErrorsSection
       include Dashboard::TracingSection
       include Dashboard::DatabaseSection
       include Dashboard::CacheSection
@@ -79,6 +81,7 @@ module Azu
       TABS = [
         Tab.new("overview", "Overview", "overview", "Monitor", "Health, traffic and runtime at a glance"),
         Tab.new("logs", "Logs", "logs", "Monitor", "Requests, cache operations and component events as they happen"),
+        Tab.new("errors", "Errors", "alert", "Monitor", "Every server error since boot, grouped by where it was raised; open one for its exception page"),
         Tab.new("routes", "Routes", "routes", "Application", "The middleware pipeline and every registered endpoint"),
         Tab.new("components", "Components", "components", "Application", "Live component lifecycle"),
         Tab.new("tracing", "Performance Tracing", "tracing", "Performance", "Where request time goes"),
@@ -87,22 +90,26 @@ module Azu
         Tab.new("config", "Config", "config", "System", "Operational switches of the running app"),
       ]
 
-      STYLES     = {{ read_file("#{__DIR__}/dev_dashboard/dashboard.css") }}
+      STYLES     = {{ read_file("#{__DIR__}/../ui/dashboard.css") }}
       SCRIPT     = {{ read_file("#{__DIR__}/dev_dashboard/dashboard.js") }}
-      THEME_BOOT = {{ read_file("#{__DIR__}/dev_dashboard/theme_boot.js") }}
-      ICONS      = {{ read_file("#{__DIR__}/dev_dashboard/icons.svg") }}
+      THEME_BOOT = {{ read_file("#{__DIR__}/../ui/theme_boot.js") }}
+      ICONS      = {{ read_file("#{__DIR__}/../ui/icons.svg") }}
 
       getter metrics : PerformanceMetrics
       getter log : ::Log
       getter start_time : Time
+      # Where the dashboard is mounted, for links to its own routes (a kept error's page).
+      getter path : String
+      getter errors : ErrorStore
 
       private getter provider : DashboardDataProvider
 
       # `start_time` should be when the app booted (the handler passes its own), so
       # uptime is meaningful even though a component is built per request.
-      def initialize(metrics : PerformanceMetrics? = nil, @log : ::Log = Azu.current_config.log, @start_time : Time = Time.utc)
+      def initialize(metrics : PerformanceMetrics? = nil, @log : ::Log = Azu.current_config.log, @start_time : Time = Time.utc,
+                     @path : String = Handler::DevDashboard::DEFAULT_PATH, @errors : ErrorStore = ErrorStore.instance)
         @metrics = metrics || Azu.current_config.performance_monitor.try(&.metrics) || PerformanceMetrics.new
-        @provider = DashboardDataProvider.new(@metrics, @start_time, @log)
+        @provider = DashboardDataProvider.new(@metrics, @start_time, @log, @errors, @path)
       end
 
       # The dashboard is a whole document, so it skips Component#render's
@@ -217,6 +224,7 @@ module Azu
         count, status = case tab.id
                         when "routes"   then {provider.routes.size, Status::Idle}
                         when "logs"     then {provider.recent_errors.size, Status::Bad}
+                        when "errors"   then {errors.size, Status::Bad}
                         when "database" then {provider.database_stats.slow, Status::Warn}
                         else                 {0, Status::Idle}
                         end
@@ -259,6 +267,7 @@ module Azu
         case id
         when "overview"   then render_overview
         when "logs"       then render_logs
+        when "errors"     then render_errors
         when "routes"     then render_routes
         when "components" then render_components
         when "tracing"    then render_tracing

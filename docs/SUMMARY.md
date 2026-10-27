@@ -33,6 +33,7 @@
 * [Validate file types](how-to/file-handling/validate-file-types.md)
 * [Handle errors gracefully](how-to/errors/handle-errors-gracefully.md)
 * [Create custom errors](how-to/errors/create-custom-errors.md)
+* [Debug exceptions](how-to/errors/debug-exceptions.md)
 * [Create custom middleware](how-to/middleware/create-custom-middleware.md)
 * [Add logging](how-to/middleware/add-logging.md)
 * [Use sessions](how-to/middleware/use-sessions.md)

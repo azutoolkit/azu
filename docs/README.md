@@ -200,7 +200,7 @@ Also: [Examples](examples.md) (runnable apps in `playground/`) · [Everything in
 | Apps and APIs | [Mount an app under a prefix](how-to/apps/mount-an-app.md) · [Run several apps in one process](how-to/apps/run-several-apps.md) · [Publish your OpenAPI document](how-to/api/publish-openapi.md) |
 | Validation | [Validate requests](how-to/validation/validate-requests.md) · [Handle validation errors](how-to/validation/handle-validation-errors.md) |
 | Files | [Handle file uploads](how-to/file-handling/handle-file-uploads.md) · [Validate file types](how-to/file-handling/validate-file-types.md) |
-| Errors | [Handle errors gracefully](how-to/errors/handle-errors-gracefully.md) · [Create custom errors](how-to/errors/create-custom-errors.md) |
+| Errors | [Handle errors gracefully](how-to/errors/handle-errors-gracefully.md) · [Create custom errors](how-to/errors/create-custom-errors.md) · [Debug exceptions](how-to/errors/debug-exceptions.md) |
 | Middleware | [Create custom middleware](how-to/middleware/create-custom-middleware.md) · [Add logging](how-to/middleware/add-logging.md) · [Use sessions](how-to/middleware/use-sessions.md) · [Protect forms and APIs](how-to/middleware/protect-forms-and-apis.md) |
 | Templates | [Render HTML templates](how-to/templates/render-html-templates.md) · [Enable hot reload](how-to/templates/enable-hot-reload.md) · [Localize your app](how-to/templates/localize-your-app.md) |
 | Real-time | [Create a WebSocket channel](how-to/real-time/create-websocket-channel.md) · [Broadcast messages](how-to/real-time/broadcast-messages.md) · [Build a live component](how-to/real-time/build-live-component.md) · [Stream server-sent events](how-to/real-time/stream-server-sent-events.md) |

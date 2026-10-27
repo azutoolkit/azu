@@ -153,10 +153,12 @@ so `Rescuer` never sees it. The
 router answers an unrouted path with `404` itself, and a negotiated endpoint answers `406` itself.
 
 The body is chosen by the first media type of the `Accept` header: JSON, HTML, XML or plain text, and plain text
-without a header or with `*/*`. In development the error includes the request context and HTML clients receive
-Azu's exception page. In any other environment the context is `null` and HTML clients get the `error.html` template
-(the app's own, or Azu's built-in one), an unexpected exception included: a `500` page titled
-`500 - Internal Server Error` that does not show the exception's message.
+without a header or with `*/*`. In development the error includes the request context, HTML clients receive
+Azu's exception page and JSON clients an `exception` member with the same triage (see
+[Debug exceptions](../../how-to/errors/debug-exceptions.md)); a server error is also reported to
+`Instrumentation.on_exception` subscribers, so the dev dashboard keeps it. In any other environment the context is
+`null` and HTML clients get the `error.html` template (the app's own, or Azu's built-in one), an unexpected exception
+included: a `500` page titled `500 · Internal Server Error` that does not show the exception's message.
 Without `Rescuer`, an exception reaching Crystal's server becomes a bare `text/plain` `500 Internal Server Error`
 and a stack trace in the log.
 
