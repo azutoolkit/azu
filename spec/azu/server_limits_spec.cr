@@ -151,12 +151,16 @@ private def exchange(address : Socket::IPAddress, text : String, sizes : Array(I
   bytes = text.to_slice
   offset = 0
   piece = 0
-  while offset < bytes.size
-    size = Math.min(sizes.try(&.[piece % sizes.size]) || bytes.size, bytes.size - offset)
-    socket.write(bytes[offset, size])
-    socket.flush
-    offset += size
-    piece += 1
+  begin
+    while offset < bytes.size
+      size = Math.min(sizes.try(&.[piece % sizes.size]) || bytes.size, bytes.size - offset)
+      socket.write(bytes[offset, size])
+      socket.flush
+      offset += size
+      piece += 1
+    end
+  rescue IO::Error
+    # The server answered and closed before the client was done writing (a request it refuses): read the answer.
   end
   text, closed, _ = read_all(socket, 4.seconds)
   # An error page carries its own id and time.
@@ -175,6 +179,115 @@ private def pipelined(post_lines : String, body : String) : String
 end
 
 CHUNKED = "5\r\nhello\r\n0\r\n\r\n"
+
+TLS_DIR = Path[Dir.tempdir, "azu_server_limits_tls"].to_s
+
+private def tls_server_context : OpenSSL::SSL::Context::Server
+  Dir.mkdir_p(TLS_DIR)
+  key = "#{TLS_DIR}/key.pem"
+  cert = "#{TLS_DIR}/cert.pem"
+  unless File.exists?(cert)
+    Process.run("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", cert, "-days", "2", "-subj", "/CN=localhost"], output: Process::Redirect::Close, error: Process::Redirect::Close)
+  end
+  context = OpenSSL::SSL::Context::Server.new
+  context.certificate_chain = cert
+  context.private_key = key
+  context
+end
+
+# The limited server over plain HTTP, or over TLS when *tls*.
+private def with_server(app : Azu::App, tls : Bool, handlers = [] of HTTP::Handler, &)
+  return with_limited_server(app, handlers) { |address| yield address } unless tls
+  server = app.server(handlers)
+  address = Azu.bind_tls(server, "127.0.0.1", 0, tls_server_context, false, false, app.config.limits)
+  spawn { server.listen }
+  begin
+    yield address
+  ensure
+    server.close
+  end
+end
+
+# A connection to *address*, over TLS when *tls*: {what to talk on, the TCP socket under it}. Every write is sent at once
+# (under TLS, as a record of its own).
+private def connect(address : Socket::IPAddress, tls : Bool) : {IO, TCPSocket}
+  tcp = TCPSocket.new(address.address, address.port)
+  tcp.tcp_nodelay = true
+  return {tcp, tcp} unless tls
+  context = OpenSSL::SSL::Context::Client.new
+  context.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+  socket = OpenSSL::SSL::Socket::Client.new(tcp, context, hostname: "localhost")
+  socket.sync = true
+  {socket, tcp}
+end
+
+# Everything the server sends on *io* until it closes the connection or *within* passes; {text, seconds taken}.
+private def read_until_close(io : IO, tcp : TCPSocket, within : Time::Span = 6.seconds) : {String, Float64}
+  started = Time.instant
+  tcp.read_timeout = within
+  text = IO::Memory.new
+  buffer = Bytes.new(4096)
+  begin
+    while (count = io.read(buffer)) > 0
+      text.write(buffer[0, count])
+    end
+  rescue IO::Error | OpenSSL::Error
+  end
+  {text.to_s, (Time.instant - started).total_seconds}
+end
+
+private def statuses(text : String) : Array(String)
+  text.scan(/HTTP\/1.1 \d+/).map(&.[0])
+end
+
+private def quiet_rescuer : Array(HTTP::Handler)
+  [Azu::Handler::Rescuer.new(::Log.new("server_limits_spec", ::Log::MemoryBackend.new, :debug))] of HTTP::Handler
+end
+
+# Whether a `drip_proxy` drips (a reference: an `Atomic` is a struct, and a copy of it would not switch the proxy).
+private class DripSwitch
+  @on = Atomic(Bool).new(false)
+
+  def on? : Bool
+    @on.get
+  end
+
+  def turn_on : Nil
+    @on.set(true)
+  end
+end
+
+# Forwards what a client sends to *target*; once switched on, *per* bytes every *period*. {proxy, switch}
+private def drip_proxy(target : Socket::IPAddress, per : Int32, period : Time::Span) : {TCPServer, DripSwitch}
+  drip = DripSwitch.new
+  proxy = TCPServer.new("127.0.0.1", 0)
+  spawn do
+    client = proxy.accept? || next
+    upstream = TCPSocket.new(target.address, target.port)
+    upstream.tcp_nodelay = true
+    spawn do
+      IO.copy(upstream, client) rescue nil
+      client.close rescue nil
+    end
+    buffer = Bytes.new(65_536)
+    loop do
+      count = client.read(buffer)
+      break if count == 0
+      offset = 0
+      while offset < count
+        size = drip.on? ? Math.min(per, count - offset) : count - offset
+        upstream.write(buffer[offset, size])
+        upstream.flush
+        offset += size
+        sleep period if drip.on?
+      end
+    end
+  rescue IO::Error
+  ensure
+    upstream.try { |socket| socket.close rescue nil }
+  end
+  {proxy, drip}
+end
 
 # Content-Length and Transfer-Encoding as clients may spell them, well or badly: {header lines, body}. A value that is
 # not a number (`-5`, `5x`, two that differ) makes Crystal's server raise and drop the connection, printing the error:
@@ -371,6 +484,82 @@ describe "server limits" do
       end
     end
 
+    {false, true}.each do |tls|
+      transport = tls ? "TLS" : "plain HTTP"
+
+      describe "requests answered from the buffer, with no read between them (#{transport})" do
+        it "times the wait after two requests sent in one write as idle (keep_alive_timeout), not as a body" do
+          with_server(limited_app(header: 0.6, read: 0.4, keep_alive: 1.5), tls) do |address|
+            io, tcp = connect(address, tls)
+            io << "GET / HTTP/1.1\r\nHost: x\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n"
+            io.flush
+            text, seconds = read_until_close(io, tcp)
+            statuses(text).should eq ["HTTP/1.1 200", "HTTP/1.1 200"]
+            seconds.should be > 1.2 # read_timeout would have cut it at 0.4 s
+            seconds.should be < 3.0
+          end
+        end
+
+        it "does the same for three" do
+          with_server(limited_app(header: 0.6, read: 0.4, keep_alive: 1.5), tls) do |address|
+            io, tcp = connect(address, tls)
+            io << "GET / HTTP/1.1\r\nHost: x\r\n\r\n" * 3
+            io.flush
+            text, seconds = read_until_close(io, tcp)
+            statuses(text).should eq ["HTTP/1.1 200"] * 3
+            seconds.should be > 1.2
+          end
+        end
+
+        it "times the next request's headers after them with header_timeout" do
+          with_server(limited_app(header: 0.6, read: 3.0, keep_alive: 5.0), tls) do |address|
+            io, tcp = connect(address, tls)
+            io << "GET / HTTP/1.1\r\nHost: x\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n"
+            io.flush
+            sleep 0.2.seconds
+            spawn do
+              "GET / HTTP/1.1\r\nHost: x\r\nX-Slow: #{"a" * 40}".each_char do |char|
+                io << char
+                io.flush
+                sleep 0.15.seconds
+              end
+            rescue IO::Error | OpenSSL::Error
+            end
+            text, seconds = read_until_close(io, tcp)
+            seconds.should be < 1.5 # header_timeout, not read_timeout (3 s)
+            # Over plain HTTP the late request is told 408; under TLS the connection is just closed.
+            statuses(text).should eq(tls ? ["HTTP/1.1 200"] * 2 : ["HTTP/1.1 200", "HTTP/1.1 200", "HTTP/1.1 408"])
+          end
+        end
+
+        it "times the body of the last one as a body when it is still coming, and the wait after it as idle" do
+          with_server(limited_app(header: 0.6, read: 0.6, keep_alive: 1.5), tls) do |address|
+            io, tcp = connect(address, tls)
+            io << "GET / HTTP/1.1\r\nHost: x\r\n\r\nPOST /body HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nabc"
+            io.flush
+            sleep 0.3.seconds
+            io << "defghij"
+            io.flush
+            text, seconds = read_until_close(io, tcp)
+            statuses(text).should eq ["HTTP/1.1 200", "HTTP/1.1 200"]
+            text.should contain("body 10")
+            seconds.should be > 1.2
+          end
+        end
+
+        it "cuts the body of the last one at read_timeout when it stops coming" do
+          with_server(limited_app(header: 0.6, read: 0.4, keep_alive: 3.0), tls, quiet_rescuer) do |address|
+            io, tcp = connect(address, tls)
+            io << "GET / HTTP/1.1\r\nHost: x\r\n\r\nPOST /body HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nabc"
+            io.flush
+            text, seconds = read_until_close(io, tcp)
+            statuses(text).should eq ["HTTP/1.1 200", "HTTP/1.1 408"]
+            seconds.should be < 1.5 # as a body: not keep_alive_timeout (3 s)
+          end
+        end
+      end
+    end
+
     it "serves requests sent together in one write" do
       with_limited_server(limited_app) do |address|
         socket = TCPSocket.new(address.address, address.port)
@@ -406,8 +595,13 @@ describe "server limits" do
         FRAMINGS.each do |lines, body|
           text = pipelined(lines, body)
           whole, _, _ = exchange(limited, text)
-          exchange(limited, text, [1])[0].should eq whole
-          exchange(limited, text, Array.new(6) { random.rand(1..30) })[0].should eq whole
+          [[1], Array.new(6) { random.rand(1..30) }].each do |sizes|
+            sliced = exchange(limited, text, sizes)[0]
+            # A request the server refuses is answered and the connection closed while the client may still be
+            # writing; the reset that follows can cut the answer short (seen with -Dpreview_mt, stock server too).
+            next if whole.includes?("HTTP/1.1 400") && whole.starts_with?(sliced)
+            {lines, sizes, sliced}.should eq({lines, sizes, whole})
+          end
         end
         [{"Content_Length: 5", "hello"}, {"Transfer_Encoding: chunked", CHUNKED}].each do |lines, body|
           text = pipelined(lines, body)
@@ -450,6 +644,29 @@ describe "server limits" do
         closed.should be_true
         text.scan(/HTTP\/1.1 \d+/).map(&.[0]).should eq ["HTTP/1.1 200", "HTTP/1.1 408"]
         seconds.should be < 2.0
+      end
+    end
+  end
+
+  describe "a body of unknown length" do
+    it "ends where it is answered: the next request's headers are timed with header_timeout" do
+      with_limited_server(limited_app(header: 0.6, read: 3.0, keep_alive: 5.0)) do |address|
+        socket = TCPSocket.new(address.address, address.port)
+        socket << "POST /body HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n#{CHUNKED}"
+        socket.flush
+        sleep 0.3.seconds
+        spawn do
+          "GET / HTTP/1.1\r\nHost: x\r\nX-Slow: #{"a" * 40}".each_char do |char|
+            socket << char
+            socket.flush
+            sleep 0.15.seconds
+          end
+        rescue IO::Error
+        end
+        text, closed, seconds = read_all(socket, 6.seconds)
+        closed.should be_true
+        statuses(text).should eq ["HTTP/1.1 200", "HTTP/1.1 408"]
+        seconds.should be < 1.5
       end
     end
   end
@@ -694,12 +911,55 @@ describe "server limits" do
       Azu::ServerLimits::ClientTooSlow.new.should be_a(IO::TimeoutError)
     end
 
+    it "counts every response the server wrote between two reads of the socket" do
+      clock = Azu::RequestClock.new(Azu::ServerLimitsConfiguration.new)
+      clock.before_read
+      clock.after_read("GET / HTTP/1.1\r\n\r\nGET / HTTP/1.1\r\n\r\n".to_slice)
+      2.times { clock.after_write("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello".to_slice) }
+      clock.before_read # the server waits for a third request
+      clock.phase.idle?.should be_true
+
+      clock.after_read(("GET / HTTP/1.1\r\n\r\n" * 3).to_slice)
+      3.times { clock.after_write("HTTP/1.1 200 OK\r\n\r\n".to_slice) }
+      clock.before_read
+      clock.phase.idle?.should be_true
+    end
+
+    it "keeps timing the body of the last request read with the ones answered before it" do
+      clock = Azu::RequestClock.new(Azu::ServerLimitsConfiguration.new)
+      clock.before_read
+      clock.after_read("GET / HTTP/1.1\r\n\r\nPOST / HTTP/1.1\r\nContent-Length: 5\r\n\r\nab".to_slice)
+      clock.after_write("HTTP/1.1 200 OK\r\n\r\n".to_slice)
+      clock.before_read # the rest of the POST body
+      clock.phase.body?.should be_true
+      clock.after_read("cde".to_slice)
+      clock.after_write("HTTP/1.1 200 OK\r\n\r\n".to_slice)
+      clock.before_read
+      clock.phase.idle?.should be_true
+    end
+
+    it "does not give a body fresh credit when its handler writes before it has read it all (full duplex)" do
+      limits = Azu::ServerLimitsConfiguration.new
+      limits.read_timeout = 1.second
+      limits.min_body_rate = 1024
+      clock = Azu::RequestClock.new(limits)
+      clock.before_read
+      clock.after_read("POST / HTTP/1.1\r\nContent-Length: 999999\r\n\r\nab".to_slice)
+      clock.before_read
+      sleep 0.6.seconds
+      clock.after_read("c".to_slice)
+      clock.after_write("HTTP/1.1 200 OK\r\n\r\nc".to_slice) # an echo
+      clock.before_read.not_nil!.should be < 0.6.seconds
+      clock.phase.body?.should be_true
+    end
+
     it "does not take 100 Continue for the response" do
       clock = Azu::RequestClock.new(Azu::ServerLimitsConfiguration.new)
       clock.after_read("POST / HTTP/1.1\r\nContent-Length: 5\r\n\r\n".to_slice)
       clock.after_write("HTTP/1.1 100 Continue\r\n\r\n".to_slice)
       clock.before_read
       clock.phase.body?.should be_true
+      clock.after_read("hello".to_slice)
       clock.after_write("HTTP/1.1 200 OK\r\n".to_slice)
       clock.before_read
       clock.phase.idle?.should be_true
@@ -861,6 +1121,49 @@ describe "server limits" do
         text = (socket.gets_to_end rescue "")
         text.should_not contain("hello")
         (Time.instant - started).should be < 2.seconds
+      ensure
+        proxy.close
+        server.close
+      end
+    end
+
+    it "takes a body record that comes slower than read_timeout but above min_body_rate" do
+      # One 4000-byte record at 2000 B/s: 2 s to arrive, four times read_timeout, twice min_body_rate.
+      server, address = tls_server.call(limited_app(header: 1.0, read: 0.5, keep_alive: 5.0, rate: 1000))
+      proxy, drip = drip_proxy(address, 200, 0.1.seconds)
+      begin
+        tcp = TCPSocket.new("127.0.0.1", proxy.local_address.port)
+        socket = OpenSSL::SSL::Socket::Client.new(tcp, client_context, hostname: "localhost")
+        socket.sync = true
+        socket << "POST /body HTTP/1.1\r\nHost: x\r\nContent-Length: 4000\r\nConnection: close\r\n\r\n"
+        sleep 0.2.seconds
+        drip.turn_on
+        started = Time.instant
+        socket << "z" * 4000
+        text, _ = read_until_close(socket, tcp, 8.seconds)
+        text.should contain("body 4000")
+        (Time.instant - started).should be > 1.5.seconds
+      ensure
+        proxy.close
+        server.close
+      end
+    end
+
+    it "cuts a body record dripped below min_body_rate about read_timeout after it starts" do
+      server, address = tls_server.call(limited_app(header: 1.0, read: 0.6, keep_alive: 5.0, rate: 1024))
+      proxy, drip = drip_proxy(address, 1, 0.05.seconds)
+      begin
+        tcp = TCPSocket.new("127.0.0.1", proxy.local_address.port)
+        socket = OpenSSL::SSL::Socket::Client.new(tcp, client_context, hostname: "localhost")
+        socket.sync = true
+        socket << "POST /body HTTP/1.1\r\nHost: x\r\nContent-Length: 2000\r\nConnection: close\r\n\r\n"
+        sleep 0.2.seconds
+        drip.turn_on
+        started = Time.instant
+        spawn { socket << "z" * 2000 rescue nil } # 20 B/s: 100 s at this pace
+        text, _ = read_until_close(socket, tcp, 8.seconds)
+        text.should_not contain("body 2000")
+        (Time.instant - started).should be < 1.5.seconds
       ensure
         proxy.close
         server.close

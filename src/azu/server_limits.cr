@@ -69,6 +69,11 @@ module Azu
       @unknown_length = false
     end
 
+    # In the body of the last request whose headers ended, its length known or not.
+    def in_body? : Bool
+      @in_body
+    end
+
     # In the body of a request whose length the headers did not give.
     def unknown_body? : Bool
       @in_body && @body_left.nil?
@@ -214,10 +219,11 @@ module Azu
   # handler is done with it, each read within `read_timeout`, and the time the server waits for the body paid for at
   # `min_body_rate` (a credit of at most `read_timeout`, so a body that keeps that pace is never cut, however long it
   # is, and time the server spends not reading is not the client's). `Idle`: the connection waits for the next request,
-  # `keep_alive_timeout`. The server never says when a request is over, so the first read after a final response was
-  # written is taken as the end of the request; an informational `1xx` (`100 Continue`) is not a response. Where the
-  # next request begins is known from the bytes (`RequestStream`), so a request the client sent along with the previous
-  # one is timed from the end of that one's response, as headers or, once they are complete, as a body.
+  # `keep_alive_timeout`. The server never says when a request is over; it reads the socket only once it has used every
+  # byte read before, so at a read after a final response (an informational `1xx`, `100 Continue`, is not one) every
+  # request whose headers came is answered but one whose body is still read, however many were answered from the
+  # buffer. Where the next request begins is known from the bytes (`RequestStream`), so a request the client sent along
+  # with the previous one is timed from the end of that one's response, as headers or, once they are complete, as a body.
   # `Released`: an upgraded connection (WebSocket) has no limit at all.
   class RequestClock
     enum Phase
@@ -243,7 +249,7 @@ module Azu
     # How long the next read may wait, nil for as long as it takes; raises `ServerLimits::ClientTooSlow` when a deadline
     # has passed.
     def before_read : Time::Span?
-      next_request if @wrote && @phase.body?
+      catch_up if @wrote || @phase.body?
       case @phase
       when .headers? then soonest(@deadline.try { |deadline| ServerLimits.remaining(deadline) }, @limits.read_timeout)
       when .body?
@@ -280,11 +286,23 @@ module Azu
       @phase.headers? && @stream.partial?
     end
 
-    # The request the server worked on was answered: the next one may have been sent already, in part or whole.
-    private def next_request : Nil
-      @answered += 1
-      @wrote = false
-      @stream.restart if @stream.unknown_body?
+    # The server reads the socket only once it has taken every byte read before (its buffer is empty), so every
+    # request whose headers came has been answered, but the last one when the server is still reading its body. That
+    # holds however many responses were written since the last read: requests the client sent together are answered
+    # from the buffer, with no read between them. A body of unknown length ends where the server answers it, which is
+    # the last request's answer when no earlier one was still owed. A response written while the body of its own request
+    # is still read (a full-duplex handler) does not start that body's clock again.
+    private def catch_up : Nil
+      wrote, @wrote = @wrote, false
+      answered = @stream.parsed
+      if @stream.unknown_body?
+        return unless wrote # the handler is reading it
+        answered - @answered > 1 ? (answered -= 1) : @stream.restart
+      elsif @stream.in_body?
+        answered -= 1
+      end
+      return unless answered > @answered
+      @answered = answered
       if @stream.parsed > @answered
         start_body
       elsif @stream.partial?
@@ -336,7 +354,8 @@ module Azu
   # An accepted TCP connection with the limits of `ServerLimitsConfiguration`. A plain one runs its `RequestClock` on
   # the bytes it reads; under TLS it is the transport of a `LimitedSSLSocket`, which runs the clock on the decrypted
   # stream: this socket bounds the handshake, and holds every read of one decrypted read to the deadline the clock gave
-  # it (`read_deadline`), however the client slices the TLS record.
+  # it (`read_deadline`), however the client slices the TLS record; the bytes of a body record move that deadline as
+  # they come, at `min_body_rate` (`earn`).
   class LimitedSocket < TCPSocket
     getter clock : RequestClock
     # Under TLS, when the read the layer above waits on has to end, however many reads of this socket it takes (a TLS
@@ -384,7 +403,9 @@ module Azu
     private def unbuffered_read(slice : Bytes) : Int32
       if @tls && @tls_ready # the layer above set when this read must end
         @read_deadline.try { |deadline| self.read_timeout = ServerLimits.remaining(deadline) }
-        return super
+        count = super
+        earn(count)
+        return count
       end
 
       self.read_timeout = @clock.before_read
@@ -394,6 +415,18 @@ module Azu
     rescue ex : IO::TimeoutError
       refuse_slow_request if !@tls && @clock.refusable?
       raise ServerLimits.client_too_slow(ex)
+    end
+
+    # Under TLS, the bytes of a body record earn time as they come, as decrypted ones do (`min_body_rate`, at most
+    # `read_timeout` ahead), so a record need not arrive whole within `read_timeout`, and one dripped slower than the
+    # rate is still cut. Without the rate each read of a body gets `read_timeout`, as over plain HTTP.
+    private def earn(count : Int32) : Nil
+      return unless count > 0 && @clock.phase.body?
+      deadline = @read_deadline || return
+      cap = @limits.read_timeout || return
+      rate = @limits.min_body_rate
+      earned = rate > 0 ? deadline + (count / rate).seconds : deadline + cap
+      @read_deadline = {earned, Time.instant + cap}.min
     end
 
     private def unbuffered_write(slice : Bytes) : Nil
