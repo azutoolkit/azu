@@ -143,35 +143,6 @@ module Azu
         end
       end
 
-      # A count of the lines written in the current second, and of those left out.
-      private class LogBudget
-        @mutex = Mutex.new
-        @window = Clock.instant
-        @logged = 0
-        @suppressed = 0
-
-        # {whether to write this line, how many lines the previous window left out}
-        def take : {Bool, Int32}
-          now = Clock.instant
-          @mutex.synchronize do
-            summary = 0
-            if now - @window >= 1.second
-              summary = @suppressed
-              @window = now
-              @logged = 0
-              @suppressed = 0
-            end
-            if @logged < LOG_PER_SECOND
-              @logged += 1
-              {true, summary}
-            else
-              @suppressed += 1
-              {false, summary}
-            end
-          end
-        end
-      end
-
       # At most this many refusals are logged a second; the rest are counted and summarised.
       LOG_PER_SECOND = 10
 
@@ -192,8 +163,8 @@ module Azu
         whitelist : Array(String) = [] of String
 
       @log : ::Log?
-      @refusal_lines = LogBudget.new
-      @event_lines = LogBudget.new
+      @refusal_lines = LogBudget.new(LOG_PER_SECOND)
+      @event_lines = LogBudget.new(LOG_PER_SECOND)
       # Clients inside their window, then clients that are blocked. Both keep the order clients entered them in, which
       # is what makes eviction and sweeping cheap: the front of `@tracker` is the oldest first-seen client, and the
       # front of `@blocked` is the block that ends first (every block lasts `duration`).

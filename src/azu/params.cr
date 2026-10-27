@@ -409,6 +409,10 @@ module Azu
           # Clean up any successfully created files
           files.each_value(&.cleanup)
           raise ex
+        rescue ex : IO::TimeoutError
+          # The client stopped sending: not a malformed form (`Rescuer` answers 408).
+          files.each_value(&.cleanup)
+          raise ex
         rescue ex
           # Clean up any successfully created files
           files.each_value(&.cleanup)
