@@ -13,6 +13,8 @@ module Azu
       getter fiber_id : UInt64
       # The request being served; nil for a context opened with `RequestContext.with` (jobs, specs).
       getter http_context : HTTP::Server::Context?
+      # When the context was opened, so an error can say how long the request ran before it failed.
+      getter started_at : Time::Instant = Time.instant
 
       def initialize(@request_id, @method, @path, @fiber_id, @endpoint = nil, @http_context = nil)
       end

@@ -1,8 +1,9 @@
 require "../performance_metrics"
 require "../development_tools"
-require "./format"
-require "./status"
+require "../../ui/format"
+require "../../ui/status"
 require "./database_data"
+require "../error_store"
 
 module Azu
   module Components
@@ -41,8 +42,9 @@ module Azu
 
       # One titled group of key/value rows inside a log entry's inspector.
       record Pane, title : String, rows : Array(Tuple(String, String))
+      # `link` is the exception page of a request that failed with a server error, while the dashboard keeps it.
       record LogEntry, time : Time, level : Level, tag : String, message : String,
-        status : Int32?, duration_ms : Float64?, panes : Array(Pane) do
+        status : Int32?, duration_ms : Float64?, panes : Array(Pane), link : String? = nil do
         # Plain-text rendering, used both for clipboard copies and as the search haystack.
         def to_text : String
           String.build do |io|
@@ -64,15 +66,20 @@ module Azu
       @cache_stats : CacheStats?
       @routes : Array(Hash(String, String))?
 
-      def initialize(@metrics : PerformanceMetrics, @start_time : Time, @log : ::Log)
+      def initialize(@metrics : PerformanceMetrics, @start_time : Time, @log : ::Log,
+                     @errors : ErrorStore = ErrorStore.instance, @path : String = Handler::DevDashboard::DEFAULT_PATH)
       end
 
       def uptime : Time::Span
         Time.utc - @start_time
       end
 
-      # Resident set size of this process, nil where the OS does not expose it.
       def rss_bytes : Int64?
+        DashboardDataProvider.rss_bytes
+      end
+
+      # Resident set size of this process, nil where the OS does not expose it.
+      def self.rss_bytes : Int64?
         kilobytes = if File.exists?("/proc/self/status")
                       File.read("/proc/self/status")[/^VmRSS:\s+(\d+)\s+kB/m, 1]?.try(&.to_i64)
                     else
@@ -254,7 +261,7 @@ module Azu
       end
 
       # Off Linux there is no /proc, so ask `ps` (one short-lived process per render).
-      private def ps_rss_kilobytes : Int64?
+      private def self.ps_rss_kilobytes : Int64?
         output = IO::Memory.new
         Process.run("ps", ["-o", "rss=", "-p", Process.pid.to_s], output: output)
         output.to_s.strip.to_i64?
@@ -279,7 +286,12 @@ module Azu
             {"Memory before", Format.megabytes(request.memory_before)}, {"Memory after", Format.megabytes(request.memory_after)},
             {"Memory delta", Format.megabytes(request.memory_delta)},
           ]),
-        ])
+        ], error_link(request))
+      end
+
+      private def error_link(request : PerformanceMetrics::RequestMetric) : String?
+        return unless request.status_code >= 500 && (id = request.request_id)
+        @errors.report_for_request(id).try { |report| "#{@path}/errors/#{report.id}" }
       end
 
       private def cache_entry(operation : PerformanceMetrics::CacheMetric) : LogEntry

@@ -16,6 +16,7 @@ module Azu
       rescue ex : HTTP::Server::ClientError
         @log.debug(exception: ex.cause) { ex.message }
       rescue ex : Response::Error
+        publish(context, ex) if ex.status_code >= 500
         ex.to_s(context)
         context.response.flush unless context.response.closed?
         log_response_error(context, ex)
@@ -26,14 +27,25 @@ module Azu
       private def recover(context : HTTP::Server::Context, ex : Exception) : Nil
         return slow_client(context) if ex.is_a?(ServerLimits::ClientTooSlow)
 
-        request_id = context.request.headers["X-Request-ID"]? || generate_request_id
+        # The id the request ran under (RequestId opens the scope), so the page, its SQL and the dashboard agree.
+        request_id = RequestContext.current?.try(&.request_id) || context.request.headers["X-Request-ID"]? || generate_request_id
         error_context = ErrorContext.from_http_context(context, request_id, load_environment: Azu.current_config.env.development?)
 
         enhanced_error = Response::Error.from_exception(ex, 500, error_context)
+        publish(context, enhanced_error)
         enhanced_error.to_s(context)
         context.response.flush unless context.response.closed?
 
         @log.error(exception: ex) { "Error Processing Request ".colorize(:red) }
+      end
+
+      # A server error goes to the exception subscribers (the dev dashboard keeps it) before it is written, so the page
+      # can link to where it is kept. The report is built in development, or when a subscriber listens elsewhere.
+      private def publish(context : HTTP::Server::Context, error : Response::Error) : Nil
+        return unless Azu.current_config.env.development? || Instrumentation.exception?
+        Instrumentation.exception(error.exception_report(context))
+      rescue ex
+        @log.debug(exception: ex) { "Could not report the exception" }
       end
 
       # The client stopped sending the request (see `ServerLimitsConfiguration`): not the server's failure, and one line,

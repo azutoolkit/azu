@@ -1,129 +1,146 @@
 <!DOCTYPE html>
 <html lang="en">
-
+{#- The page a client sees for an error outside development: the status, a plain sentence about it and a reference to
+    quote to support. It names no exception, file or setting, loads nothing from the network and runs no script, so it
+    works under a strict Content-Security-Policy (style-src aside). An app replaces it with its own error.html. -#}
+{%- if status == 400 %}{% set heading = "That request didn't look right" %}{% set lead = "The server couldn't understand the request. Check what was sent and try again." %}
+{%- elif status == 401 %}{% set heading = "Please sign in" %}{% set lead = "You need to be signed in to see this page." %}
+{%- elif status == 403 %}{% set heading = "You don't have access to this page" %}{% set lead = "If you think you should, ask whoever manages your account." %}
+{%- elif status == 404 %}{% set heading = "We couldn't find that page" %}{% set lead = "The link may be broken, or the page may have moved or been removed." %}
+{%- elif status == 405 %}{% set heading = "That action isn't allowed here" %}{% set lead = "This page doesn't accept that kind of request." %}
+{%- elif status == 408 %}{% set heading = "The request took too long" %}{% set lead = "The connection was too slow to finish. Please try again." %}
+{%- elif status == 409 %}{% set heading = "That changed in the meantime" %}{% set lead = "Someone else updated this first. Reload the page and try again." %}
+{%- elif status == 413 %}{% set heading = "That's too large to send" %}{% set lead = "Try a smaller file or less data." %}
+{%- elif status == 415 %}{% set heading = "That format isn't supported" %}{% set lead = "The server can't read the kind of content that was sent." %}
+{%- elif status == 422 %}{% set heading = "Some details need another look" %}{% set lead = "The request was understood, but some of its values weren't accepted." %}
+{%- elif status == 429 %}{% set heading = "Slow down a little" %}{% set lead = "Too many requests in a short time. Wait a moment, then try again." %}
+{%- elif status == 502 or status == 504 %}{% set heading = "A service we rely on isn't responding" %}{% set lead = "It's usually brief. Please try again in a moment." %}
+{%- elif status == 503 %}{% set heading = "We'll be right back" %}{% set lead = "The service is temporarily unavailable, often for maintenance. Please try again soon." %}
+{%- elif status >= 500 %}{% set heading = "Something went wrong on our end" %}{% set lead = "It's not you. We've logged the problem; please try again in a moment." %}
+{%- else %}{% set heading = title %}{% set lead = "The request couldn't be completed." %}
+{%- endif %}
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{status}} - {{title}}</title>
-  <link href="https://fonts.googleapis.com/css?family=Nunito:400,700" rel="stylesheet">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex">
+  <title>{{ status }} · {{ title }}</title>
+  <link rel="icon" href="data:,">
   <style>
-    * {
-      -webkit-box-sizing: border-box;
-      box-sizing: border-box;
+    :root {
+      color-scheme: light dark;
+      --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --bg: #f3f5f9;
+      --glow-a: rgb(99 140 255 / 0.16);
+      --glow-b: rgb(52 211 153 / 0.12);
+      --glass: rgb(255 255 255 / 0.74);
+      --border: rgb(15 23 42 / 0.12);
+      --border-strong: rgb(15 23 42 / 0.56);
+      --hover: rgb(15 23 42 / 0.05);
+      --shadow-lg: 0 24px 60px rgb(15 23 42 / 0.16);
+      --text: #111827;
+      --muted: #4b5563;
+      --faint: #5b6575;
+      --accent: #1d4ed8;
+      --accent-hover: #1e40af;
+      --on-accent: #ffffff;
+      --focus: #1d4ed8;
+      --good: #0a6b42;
+      --bad: #a31f19;
+      --warn: #7a4100;
     }
-
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0a0d13;
+        --glow-a: rgb(76 110 245 / 0.2);
+        --glow-b: rgb(45 212 191 / 0.1);
+        --glass: rgb(22 27 38 / 0.68);
+        --border: rgb(148 163 184 / 0.16);
+        --border-strong: rgb(148 163 184 / 0.62);
+        --hover: rgb(148 163 184 / 0.1);
+        --shadow-lg: 0 24px 60px rgb(0 0 0 / 0.55);
+        --text: #e8ebf2;
+        --muted: #a0a8b9;
+        --faint: #98a1b3;
+        --accent: #7ba4ff;
+        --accent-hover: #a3c0ff;
+        --on-accent: #0a0d13;
+        --focus: #9db9ff;
+        --good: #43e0a0;
+        --bad: #ff8a8a;
+        --warn: #f6bd4b;
+      }
+    }
+    *, *::before, *::after { box-sizing: border-box; }
     body {
-      padding: 0;
-      margin: 0;
+      margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px;
+      font: 1rem/1.6 var(--font-sans); color: var(--text);
+      background-color: var(--bg);
+      background-image:
+        radial-gradient(60rem 36rem at 8% -12%, var(--glow-a), transparent 62%),
+        radial-gradient(48rem 30rem at 102% 4%, var(--glow-b), transparent 58%);
+      background-attachment: fixed;
+      -webkit-font-smoothing: antialiased;
     }
-
-    #notfound {
-      position: relative;
-      height: 100vh;
+    main {
+      width: 100%; max-width: 34rem; padding: 2.5rem 2rem 2rem; text-align: center;
+      border: 1px solid var(--border); border-radius: 18px; background: var(--glass); box-shadow: var(--shadow-lg);
+      -webkit-backdrop-filter: blur(16px) saturate(150%); backdrop-filter: blur(16px) saturate(150%);
     }
-
-    #notfound .notfound {
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      -webkit-transform: translate(-50%, -50%);
-      -ms-transform: translate(-50%, -50%);
-      transform: translate(-50%, -50%);
+    .status { display: inline-flex; align-items: center; gap: 0.4em; padding: 2px 10px; border-radius: 999px; font-size: 0.8125rem; font-weight: 700; color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); border: 1px solid color-mix(in srgb, var(--c) 40%, transparent); }
+    .status::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: currentColor; }
+    .client { --c: var(--warn); }
+    .server { --c: var(--bad); }
+    h1 {
+      margin: 0.75rem 0 0; font-size: clamp(4.5rem, 3rem + 8vw, 7rem); font-weight: 800; line-height: 1; letter-spacing: -0.05em;
+      background: linear-gradient(100deg, var(--accent), var(--good)); -webkit-background-clip: text; background-clip: text; color: transparent;
+      font-variant-numeric: tabular-nums;
     }
-
-    .notfound {
-      max-width: 560px;
-      width: 100%;
-      padding-left: 160px;
-      line-height: 1.1;
+    h2 { margin: 1rem 0 0; font-size: 1.375rem; line-height: 1.25; letter-spacing: -0.02em; text-wrap: balance; }
+    p { margin: 0.5rem 0 0; color: var(--muted); text-wrap: pretty; }
+    ul { margin: 1rem 0 0; padding: 0.75rem 1rem; list-style: none; text-align: start; border-radius: 12px; background: var(--hover); color: var(--muted); font-size: 0.9375rem; }
+    li + li { margin-top: 0.25rem; }
+    .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.75rem; margin-top: 1.75rem; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 1.1rem;
+      border: 1px solid transparent; border-radius: 8px; font-size: 0.9375rem; font-weight: 600; text-decoration: none;
+      background: var(--accent); color: var(--on-accent); transition: background-color 0.15s;
     }
-
-    .notfound .notfound-404:before {
-      content: '';
-      position: absolute;
-      width: 100%;
-      height: 100%;
-      -webkit-transform: scale(2.4);
-      -ms-transform: scale(2.4);
-      transform: scale(2.4);
-      border-radius: 50%;
-      background-color: #f2f5f8;
-      z-index: -1;
-    }
-
-    .notfound h1 {
-      font-family: 'Nunito', sans-serif;
-      font-size: 65px;
-      font-weight: 700;
-      margin-top: 0px;
-      margin-bottom: 10px;
-      color: #151723;
-      text-transform: uppercase;
-    }
-
-    .notfound h2 {
-      font-family: 'Nunito', sans-serif;
-      font-size: 21px;
-      font-weight: 400;
-      margin: 0;
-      text-transform: uppercase;
-      color: #151723;
-    }
-
-    .notfound p {
-      font-family: 'Nunito', sans-serif;
-      color: #999fa5;
-      font-weight: 400;
-    }
-
-    .notfound a {
-      font-family: 'Nunito', sans-serif;
-      display: inline-block;
-      font-weight: 700;
-      border-radius: 40px;
-      text-decoration: none;
-      color: #388dbc;
-    }
-
-    @media only screen and (max-width: 767px) {
-      .notfound .notfound-404 {
-        width: 110px;
-        height: 110px;
-      }
-
-      .notfound {
-        padding-left: 15px;
-        padding-right: 15px;
-        padding-top: 110px;
-      }
-    }
+    .btn:hover { background: var(--accent-hover); }
+    .btn.secondary { background: transparent; color: var(--text); border-color: var(--border-strong); }
+    .btn.secondary:hover { background: var(--hover); }
+    .reference { margin-top: 1.75rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--faint); font-size: 0.8125rem; }
+    .reference code { font-family: var(--font-mono); color: var(--muted); overflow-wrap: anywhere; user-select: all; }
+    :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+    @media (prefers-reduced-motion: no-preference) { main { animation: rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1); } }
+    @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+    @media (forced-colors: active) { .btn, main, .status { border: 1px solid CanvasText; } h1 { color: CanvasText; background: none; } }
   </style>
-  <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
-  <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
-  <!--[if lt IE 9]>
-		  <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
-		  <script sr\c="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
-		<![endif]-->
-
 </head>
-
 <body>
-  <div id="notfound">
-    <div class="notfound">
-      <h1>{{status}}</h1>
-      <h2>{{title}}</h2>
-      <p>{{detail}}</p>
-      <p>{{source}}</p>
-      <ol>
-        {% for error in errors %}
-        <li>{{error}}</li>
-        {% endfor %}
-      </ol>
-      <p><small>Error ID: {{error_id}} | Fingerprint: {{fingerprint}}</small></p>
-      <a href="/">Back to homepage</a>
+  <main>
+    <span class="status {% if status >= 500 %}server{% else %}client{% endif %}">Error {{ status }}</span>
+    <h1>{{ status }}</h1>
+    <h2>{{ heading }}</h2>
+    <p>{{ lead }}</p>
+    {%- if status < 500 and detail and detail != title and detail != heading %}
+    <p>{{ detail }}</p>
+    {%- endif %}
+    {%- if status < 500 and errors and errors | length > 0 %}
+    <ul>
+      {%- for error in errors %}
+      <li>{{ error }}</li>
+      {%- endfor %}
+    </ul>
+    {%- endif %}
+    <div class="actions">
+      <a class="btn" href="/">Go to the home page</a>
+      <a class="btn secondary" href="">Try again</a>
     </div>
-  </div>
+    {%- if error_id %}
+    <p class="reference">Reference <code>{{ error_id }}</code><br>Quote it if you contact support.</p>
+    {%- endif %}
+  </main>
 </body>
-
 </html>

@@ -109,8 +109,10 @@ Notes on the rows:
 
 - `TEMPLATE_HOT_RELOAD=true|false` overrides the default in every environment.
 - In development, `Rescuer` includes the request context (headers, params, process environment) in the error and
-  HTML clients get an exception page. Elsewhere the context is `null` and HTML clients get the `error.html`
-  template, for an unexpected exception too: a `500` page that does not show the exception's message.
+  HTML clients get Azu's exception page, which triages the exception (see [Debug exceptions](../../how-to/errors/debug-exceptions.md));
+  JSON clients get the same triage in an `exception` member. Elsewhere the context is `null` and HTML clients get the
+  `error.html` template, for an unexpected exception too: a `500` page that shows a plain sentence about the status and
+  a reference id, never the exception's message.
 - Spark signs its page tokens with `SPARK_SECRET`; what happens without one in each environment is on
   [Spark configuration](spark.md#the-secret).
 - `Handler::DevDashboard` checks `Azu.current_config.env.development?` on every request, so the environment of the app serving
