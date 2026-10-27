@@ -262,6 +262,45 @@ describe Azu::Testing::Client do
     end
   end
 
+  describe "typed value of a response that is not JSON" do
+    it "does not compile" do
+      next pending!("crystal is not installed") unless Process.find_executable("crystal")
+
+      dir = File.tempname("azu-testing-compile")
+      Dir.mkdir_p(dir)
+      program = File.join(dir, "main.cr")
+      File.write(program, <<-CR)
+        require "azu"
+        require "azu/testing"
+        struct One
+          include Azu::Request
+          def initialize
+          end
+        end
+        struct Out
+          include Azu::Response
+          def render
+            ""
+          end
+        end
+        struct Ep
+          include Azu::Endpoint(One, Out)
+          def call : Out
+            Out.new
+          end
+        end
+        Azu::Testing::Client.new.post(Ep, One.new).value
+        CR
+      search_path = [File.expand_path("../../../src", __DIR__), File.expand_path("../../../lib", __DIR__), `crystal env CRYSTAL_PATH`.strip].join(':')
+      error = IO::Memory.new
+      status = Process.run("crystal", ["build", "--no-codegen", "--no-color", program], env: {"CRYSTAL_PATH" => search_path}, output: Process::Redirect::Close, error: error)
+      status.success?.should be_false
+      error.to_s.should contain "Out is not JSON::Serializable"
+    ensure
+      FileUtils.rm_rf(dir) if dir
+    end
+  end
+
   describe "typed request of the wrong type" do
     it "does not compile" do
       next pending!("crystal is not installed") unless Process.find_executable("crystal")

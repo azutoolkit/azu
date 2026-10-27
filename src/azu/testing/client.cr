@@ -76,19 +76,21 @@ module Azu
         # Calls the route of *endpoint* with the fields of *request*, which must be the endpoint's own request
         # type. Path fields (`/users/:id`) fill the path; the others go to the query string for the verbs
         # OpenAPI gives no body (GET, DELETE, HEAD, OPTIONS) and to a JSON body, or a form with `form: true`.
-        def {{ verb.id }}(endpoint : E.class, request : R, *, headers = nil, form : Bool = false) : Response forall E, R
+        # For an `Azu::Endpoint` the answer is a `TypedResponse` whose `value` is the endpoint's response type, for a
+        # plain `Routable` a `Response` (chosen at compile time by `typed`, hence no return type here).
+        def {{ verb.id }}(endpoint : E.class, request : R, *, headers = nil, form : Bool = false) forall E, R
           \{% begin %}
           \{% contract = E.ancestors.find { |a| a.name(generic_args: false) == "Azu::Endpoint" } %}
           \{% if contract && !(R <= contract.type_vars[0]) %}
             \{% raise "#{E} takes a #{contract.type_vars[0]}, not a #{R}" %}
           \{% end %}
           \{% end %}
-          call_endpoint({{ verb.upcase }}, endpoint, request.to_www_form, request.to_json, headers, form)
+          typed(endpoint, call_endpoint({{ verb.upcase }}, endpoint, request.to_www_form, request.to_json, headers, form))
         end
 
-        # Calls the route of *endpoint* with path (and query) fields given as named arguments.
-        def {{ verb.id }}(endpoint : E.class, *, headers = nil, form : Bool = false, **fields) : Response forall E
-          call_endpoint({{ verb.upcase }}, endpoint, encode(fields), fields.to_json, headers, form)
+        # Calls the route of *endpoint* with path (and query) fields given as named arguments; answers like the overload above.
+        def {{ verb.id }}(endpoint : E.class, *, headers = nil, form : Bool = false, **fields) forall E
+          typed(endpoint, call_endpoint({{ verb.upcase }}, endpoint, encode(fields), fields.to_json, headers, form))
         end
       {% end %}
 
@@ -170,6 +172,18 @@ module Azu
 
       private def sessions : Sessions
         @sessions ||= Sessions.acquire(@app.config)
+      end
+
+      # The response of a call to *endpoint*, typed with its response type when it is an `Azu::Endpoint`.
+      private def typed(endpoint : E.class, response : Response) forall E
+        {% begin %}
+          {% contract = E.ancestors.find { |ancestor| ancestor.name(generic_args: false) == "Azu::Endpoint" } %}
+          {% if contract %}
+            TypedResponse({{ contract.type_vars[1] }}).new(response)
+          {% else %}
+            response
+          {% end %}
+        {% end %}
       end
 
       private def call_endpoint(verb : String, endpoint : E.class, form_fields : String, json : String, headers, form : Bool) : Response forall E
