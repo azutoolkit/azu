@@ -66,6 +66,7 @@ out like this is [`playground/azu_cql_postgres`](https://github.com/azutoolkit/a
 | `health_check(schema, timeout = 2.seconds)` | `Proc(Bool)` | A check for `Azu::Handler::HealthCheck` |
 | `engine(schema)` | `::CQL::Postgres::AsyncEngine?` | The native PostgreSQL engine behind a schema, `nil` on crystal-db's pool |
 | `transaction(schema) { ... }` | | Runs the block in `schema.transaction`; its statements show as one transaction in the tab |
+| `request_cache_stats` | `Azu::CQL::RequestCacheStats?` | The repeated-query counts of the request being served by `Middleware.new(query_cache: true)`; see [Repeated queries per request](api/cql-bridge.md#repeated-queries-per-request) |
 | `track(schema)`, `untrack(schema)`, `shutdown` | `Nil` | The schemas whose pools `Azu.shutdown` closes (`schema` and `attach` track for you) |
 | `Instrumentor.install`, `Instrumentor.uninstall`, `Instrumentor.installed?` | | The `CQL::Telemetry` subscribers (named `azu.dashboard`); installing twice replaces them |
 
@@ -187,6 +188,11 @@ at least `n_plus_one_threshold` times is reported with its count, total time, ca
 statement counts as a `SELECT` by CQL's own `operation` label, so a CTE or a `UNION` built with CQL counts too; raw
 `schema.exec` is classified by its first keyword. An alert whose count is three times the threshold or more is
 critical, the others high.
+
+To count statements repeated with the very same parameters within a request (a value read twice rather than a loop),
+mount `Azu::CQL::Middleware.new(AppDB, query_cache: true)` and read `Azu::CQL.request_cache_stats`; see
+[Repeated queries per request](api/cql-bridge.md#repeated-queries-per-request). It needs CQL's cache on
+(`config.cache.on = true`, the default only in development).
 
 ### SQL playground
 

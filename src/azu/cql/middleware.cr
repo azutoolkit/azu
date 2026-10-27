@@ -13,19 +13,24 @@ module Azu
     # CQL exceptions become `Response::ValidationError` (422). Transactions are per fiber, so requests
     # served concurrently never share one. Without `transaction` CQL checks out a pooled connection per
     # statement, as usual.
+    #
+    # With `query_cache: true` the request also runs in CQL's request query cache (`::CQL.with_request_cache`) under
+    # its request id, and `Azu::CQL.request_cache_stats` reports its repeated queries. It needs CQL's cache on
+    # (`config.cache.on`), and until CQL scopes that tracker per fiber, concurrent requests share its counters.
     class Middleware
       include HTTP::Handler
 
       getter? transaction : Bool
       getter rollback_from : Int32
+      getter? query_cache : Bool
 
       # `schema` is resolved on first use when given as a block (`Middleware.new(transaction: true) { AppDB }`),
       # since initializers run before `db/schema.cr`.
-      def initialize(@schema : ::CQL::Schema, @transaction : Bool = false, @rollback_from : Int32 = 400)
+      def initialize(@schema : ::CQL::Schema, @transaction : Bool = false, @rollback_from : Int32 = 400, @query_cache : Bool = false)
         @provider = nil
       end
 
-      def initialize(@transaction : Bool = false, @rollback_from : Int32 = 400, &@provider : -> ::CQL::Schema)
+      def initialize(@transaction : Bool = false, @rollback_from : Int32 = 400, @query_cache : Bool = false, &@provider : -> ::CQL::Schema)
         @schema = nil
       end
 
@@ -36,8 +41,8 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context) : Nil
-        RequestContext.scope(context) do |_|
-          @transaction ? within_transaction(context) : call_next(context)
+        RequestContext.scope(context) do |info|
+          within_query_cache(info) { @transaction ? within_transaction(context) : call_next(context) }
         rescue error : ::CQL::RecordInvalid
           raise CQL.unprocessable(error)
         rescue error : ::CQL::ValidationError
@@ -45,6 +50,12 @@ module Azu
         rescue error : ::CQL::ActiveRecord::Validations::ValidationError
           raise CQL.unprocessable(error)
         end
+      end
+
+      # Outside the transaction, so the tracker also ends when the transaction rolls back or the commit fails.
+      private def within_query_cache(info : RequestContext::Info, &) : Nil
+        return yield unless @query_cache
+        RequestCache.scope(info.request_id) { yield }
       end
 
       private def within_transaction(context : HTTP::Server::Context) : Nil

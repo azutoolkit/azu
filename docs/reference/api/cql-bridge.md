@@ -173,6 +173,8 @@ server = app.server(handlers)
 * Transactions are tied to the serving fiber, so concurrent requests never share one.
 * Without `transaction`, CQL keeps checking out a pooled connection per statement; only the tagging applies.
 * Escaping `CQL::RecordInvalid`, `CQL::ValidationError` and the model validation error become 422s.
+* With `query_cache: true` it also counts the request's repeated queries: see
+  [Repeated queries per request](#repeated-queries-per-request). Off by default.
 
 {% hint style="warning" %}
 If the commit itself fails, the middleware discards the body the handler buffered (while headers have not been sent)
@@ -180,6 +182,83 @@ before re-raising, so the `Rescuer`'s error page is not appended to a success bo
 Crystal does once the body exceeds its output buffer (about 8 KB), cannot be taken back: for large bodies the client
 may see the success status and a truncated reply.
 {% endhint %}
+
+### Repeated queries per request
+
+Running the same `SELECT` (same SQL, same parameters) twice in one request is usually a missing variable or a missing
+`preload`. `query_cache: true` makes the middleware open CQL's request query cache for each request, under the
+request's own id (the `X-Request-ID` that `RequestId` accepted or generated), and `Azu::CQL.request_cache_stats` tells
+you how it went so far:
+
+```crystal
+require "azu"
+require "azu/cql"
+require "sqlite3"
+
+Azu::CQL.configure do |config|
+  config.cache.on = true            # CQL turns its cache on by default only in development
+  config.cache.request_cache = true # already the default once the cache is on
+end
+
+AppDB = Azu::CQL.schema(:app, "sqlite3://./db/app.db") do
+  table :users do
+    primary :id, Int64
+    column :name, String
+  end
+end
+
+struct UsersResponse
+  include Azu::Response
+
+  def initialize(@names : Array(String))
+  end
+
+  def render
+    @names.to_json
+  end
+end
+
+struct ListUsers
+  include Azu::Endpoint(Azu::Request, UsersResponse)
+
+  get "/users"
+
+  def call : UsersResponse
+    names = AppDB.query.from(:users).select(:name).all(String)
+    if stats = Azu::CQL.request_cache_stats
+      Log.info { "#{stats.request_id}: #{stats.repeated} of #{stats.queries} queries were repeats" }
+    end
+    UsersResponse.new(names)
+  end
+end
+
+app = Azu::App.new
+app.routes { endpoint ListUsers }
+handlers = [
+  Azu::Handler::RequestId.new,
+  Azu::Handler::Rescuer.new,
+  Azu::CQL::Middleware.new(AppDB, query_cache: true),
+] of HTTP::Handler
+server = app.server(handlers)
+```
+
+`Azu::CQL.request_cache_stats` returns an `Azu::CQL::RequestCacheStats` (`request_id`, `queries`, `repeated`,
+`distinct`, so `queries == distinct + repeated`) while a `query_cache: true` request is being served, and `nil`
+otherwise: outside a request, with the option off, or when CQL's cache or its request cache is off. Nothing is added
+to the response.
+
+* It is a diagnostic, not a cache: CQL records which statements ran and stores no rows, so nothing gets faster.
+  Turn it on in development or a spec, not in production: while a request has it open, every `SELECT` in the
+  process goes through CQL's one tracker and its lock.
+* It counts the queries run on the fiber serving the request; work the endpoint hands to fibers it spawns is not
+  part of the request's counts once CQL tracks per fiber.
+* The tracker sits inside the request scope and outside the transaction, so it ends however the request ends: a
+  commit, a rollback, an exception.
+* **Concurrent requests share the counters for now.** CQL keeps one request query cache for the whole process, so
+  requests served at the same time add to each other's counts, and a request that starts forgets the statements of
+  the ones in flight, so a repeat after another request starts counts as distinct. The numbers are exact when
+  one request runs at a time (development, a spec); Azu keeps them per request as soon as CQL scopes that state per
+  fiber, with no change on your side.
 
 ## Behavior
 

@@ -26,6 +26,7 @@ require "./driver"
 require "./engine_query"
 require "./mapping"
 require "./validation"
+require "./request_cache"
 require "./middleware"
 
 # The dashboard is fed through CQL's event framework. `Telemetry.subscribe_transactions` and `Schema#pool_stats`
