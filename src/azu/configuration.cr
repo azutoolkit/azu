@@ -392,9 +392,10 @@ module Azu
     property write_timeout : Time::Span? = ServerLimitsConfiguration.seconds("SERVER_WRITE_TIMEOUT", 60)
     # How long a kept-alive connection may wait for the next request.
     property keep_alive_timeout : Time::Span? = ServerLimitsConfiguration.seconds("SERVER_KEEP_ALIVE_TIMEOUT", 60)
-    # The slowest a request body may arrive, in bytes per second, after `read_timeout` of grace (the credit a fast start
-    # buys is capped at ten times `read_timeout`): a body that comes in slower is cut even if every read is within
-    # `read_timeout`. 0 or less turns the rule off.
+    # The slowest a request body may arrive, in bytes per second: the time the server waits for it is paid for by its
+    # bytes at this rate, with at most `read_timeout` of credit, so a body that comes in slower is cut even if every read
+    # is within `read_timeout`: a body of n bytes is waited for at most `read_timeout + n / min_body_rate`. 0 or less
+    # turns the rule off.
     property min_body_rate : Int32 = ServerLimitsConfiguration.integer("SERVER_MIN_BODY_RATE", 1024)
     # Connections served at once; the next one is closed (answered `503` with `Retry-After` on a plain connection).
     # 0 or less means no limit. The default is 10 000, or the process's open-file limit less a margin when that is

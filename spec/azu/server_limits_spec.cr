@@ -131,6 +131,69 @@ ensure
   previous ? (ENV[name] = previous) : ENV.delete(name)
 end
 
+# The same app with none of the limits: what Crystal's own server answers, the reference for the limited one.
+private def with_plain_server(app : Azu::App, &)
+  server = app.server
+  address = server.bind_tcp("127.0.0.1", 0)
+  spawn { server.listen }
+  begin
+    yield address
+  ensure
+    server.close
+  end
+end
+
+# Sends *text* in pieces of *sizes* (cycled; nil: one write) and reads everything until the server closes.
+private def exchange(address : Socket::IPAddress, text : String, sizes : Array(Int32)? = nil) : {String, Bool, Float64}
+  socket = TCPSocket.new(address.address, address.port)
+  socket.tcp_nodelay = true
+  started = Time.instant
+  bytes = text.to_slice
+  offset = 0
+  piece = 0
+  while offset < bytes.size
+    size = Math.min(sizes.try(&.[piece % sizes.size]) || bytes.size, bytes.size - offset)
+    socket.write(bytes[offset, size])
+    socket.flush
+    offset += size
+    piece += 1
+  end
+  text, closed, _ = read_all(socket, 4.seconds)
+  # An error page carries its own id and time.
+  text = text.gsub(/\b[0-9a-f]{32}\b/, "ID").gsub(/Timestamp: \S+/, "Timestamp")
+  {text, closed, (Time.instant - started).total_seconds}
+rescue ex : IO::Error
+  {"(#{ex.class}: #{ex.message})", true, 0.0}
+ensure
+  socket.try &.close
+end
+
+private def pipelined(post_lines : String, body : String) : String
+  "GET / HTTP/1.1\r\nHost: x\r\n\r\n" \
+  "POST /body HTTP/1.1\r\nHost: x\r\n#{post_lines}\r\n\r\n#{body}" \
+  "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+end
+
+CHUNKED = "5\r\nhello\r\n0\r\n\r\n"
+
+# Content-Length and Transfer-Encoding as clients may spell them, well or badly: {header lines, body}. A value that is
+# not a number (`-5`, `5x`, two that differ) makes Crystal's server raise and drop the connection, printing the error:
+# those are in the RequestStream corpus (spec/azu/request_stream_spec.cr) instead.
+FRAMINGS = [
+  {"Content-Length: 5", "hello"}, {"content-length: 5", "hello"}, {"CONTENT-LENGTH: 5", "hello"},
+  {"Content_Length: 5", "hello"}, {"content_length: 5", "hello"}, {"Content-Length:5", "hello"},
+  {"Content-Length: \t5", "hello"}, {"Content-Length: 5 ", "hello"}, {"Content-Length: 05", "hello"},
+  {"Content-Length: #{" " * 80}5", "hello"}, {"X-Pad: #{"a" * 300}\r\nContent_Length: 5", "hello"},
+  {"Content-Length: 5\r\nContent-Length: 5", "hello"}, {"Content-Length: 5\r\nContent_Length: 5", "hello"},
+  {"Content-Length : 5", "hello"},
+  {"X-A: b\r\n folded\r\nContent-Length: 5", "hello"}, {"X-A: b\r\n\tfolded", ""},
+  {"Content-Length: 6", "hello"}, {"Content-Length: 4", "hello"},
+  {"Transfer-Encoding: chunked", CHUNKED}, {"transfer_encoding: chunked", CHUNKED},
+  {"Transfer_Encoding: chunked", CHUNKED}, {"Transfer-Encoding: Chunked", CHUNKED},
+  {"Transfer-Encoding: gzip, chunked", CHUNKED}, {"Transfer-Encoding: chunked\r\nContent-Length: 5", CHUNKED},
+  {"Transfer_Encoding: chunked\r\nContent_Length: 5", CHUNKED}, {"Content_Length: 5\r\nTransfer_Encoding: chunked", CHUNKED},
+]
+
 describe "server limits" do
   it "answers requests as before" do
     with_limited_server(limited_app) do |address|
@@ -315,6 +378,102 @@ describe "server limits" do
         socket.flush
         text, _, _ = read_all(socket)
         text.scan(/hello|body \d+/).map(&.[0]).should eq ["hello", "body 3", "hello"]
+      end
+    end
+  end
+
+  describe "framing" do
+    it "answers every spelling of Content-Length and Transfer-Encoding as Crystal's server does, without waiting" do
+      app = limited_app(header: 1.5, read: 1.5, keep_alive: 3.0)
+      with_plain_server(app) do |plain|
+        with_limited_server(app) do |limited|
+          FRAMINGS.each do |lines, body|
+            text = pipelined(lines, body)
+            expected, _, _ = exchange(plain, text)
+            got, closed, seconds = exchange(limited, text)
+            {lines, got}.should eq({lines, expected})
+            closed.should be_true
+            seconds.should be < 1.2 # every request is answered at once: none waits for a timeout
+          end
+        end
+      end
+    end
+
+    it "answers the same however the client slices its writes" do
+      app = limited_app(header: 1.5, read: 1.5, keep_alive: 3.0)
+      random = Random.new(42)
+      with_limited_server(app) do |limited|
+        FRAMINGS.each do |lines, body|
+          text = pipelined(lines, body)
+          whole, _, _ = exchange(limited, text)
+          exchange(limited, text, [1])[0].should eq whole
+          exchange(limited, text, Array.new(6) { random.rand(1..30) })[0].should eq whole
+        end
+        [{"Content_Length: 5", "hello"}, {"Transfer_Encoding: chunked", CHUNKED}].each do |lines, body|
+          text = pipelined(lines, body)
+          whole, _, _ = exchange(limited, text)
+          whole.scan(/hello|body \d+/).map(&.[0]).should eq ["hello", "body 5", "hello"]
+          (1...text.bytesize).each { |at| {at, exchange(limited, text, [at, text.bytesize])[0]}.should eq({at, whole}) }
+        end
+      end
+    end
+
+    {"Content_Length: 10" => "0123456789", "content_length: 10" => "0123456789",
+     "Transfer_Encoding: chunked" => "a\r\n0123456789\r\n0\r\n\r\n"}.each do |lines, body|
+      it "times the idle connection after a body framed by #{lines.inspect} as idle, not as a new request" do
+        with_limited_server(limited_app(header: 0.6, read: 0.5, keep_alive: 3.0)) do |address|
+          socket = TCPSocket.new(address.address, address.port)
+          socket << "POST /body HTTP/1.1\r\nHost: x\r\n#{lines}\r\n\r\n#{body}"
+          socket.flush
+          socket.read_timeout = 3.seconds
+          socket.gets.to_s.should start_with("HTTP/1.1 200")
+          loop { break if socket.gets.to_s.strip.empty? }
+          buffer = Bytes.new(7)
+          socket.read_fully(buffer)
+          String.new(buffer).should eq "body 10"
+          sleep 1.2.seconds # longer than header_timeout and read_timeout, within keep_alive_timeout
+          socket << "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+          socket.flush
+          text, _, _ = read_all(socket)
+          text.should start_with("HTTP/1.1 200")
+          text.should contain("hello")
+        end
+      end
+    end
+
+    it "times a request pipelined behind an underscore-framed body as headers, from the end of the response" do
+      with_limited_server(limited_app(header: 0.6, read: 3.0, keep_alive: 5.0)) do |address|
+        socket = TCPSocket.new(address.address, address.port)
+        socket << "POST /body HTTP/1.1\r\nHost: x\r\nContent_Length: 5\r\n\r\nhelloGET / HTTP/1.1\r\nHost: x\r\n"
+        socket.flush
+        text, closed, seconds = read_all(socket, 6.seconds)
+        closed.should be_true
+        text.scan(/HTTP\/1.1 \d+/).map(&.[0]).should eq ["HTTP/1.1 200", "HTTP/1.1 408"]
+        seconds.should be < 2.0
+      end
+    end
+  end
+
+  describe "the worst case of a body that hardly comes" do
+    it "cuts it about read_timeout after it starts, however the drip is paced" do
+      # A byte just before the read would time out: the credit runs down to what one byte earns at min_body_rate.
+      with_limited_server(limited_app(read: 0.5, rate: 1024)) do |address|
+        socket = TCPSocket.new(address.address, address.port)
+        socket << "POST /body HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\n"
+        socket.flush
+        started = Time.instant
+        spawn do
+          100.times do
+            sleep 0.45.seconds
+            socket << "a"
+            socket.flush
+          end
+        rescue IO::Error
+        end
+        _, closed, _ = read_all(socket, 8.seconds)
+        closed.should be_true
+        # At most read_timeout + its bytes / min_body_rate (0.5 s and a few ms), well under 2 x read_timeout.
+        (Time.instant - started).should be < 0.8.seconds
       end
     end
   end
@@ -661,6 +820,49 @@ describe "server limits" do
         closed.should be_true
         seconds.should be < 3.0
       ensure
+        server.close
+      end
+    end
+
+    it "cuts a client that drips one TLS record of its headers, with the header deadline" do
+      server, address = tls_server.call(limited_app(header: 1.0, read: 5.0, keep_alive: 5.0))
+      drip = Atomic(Bool).new(false)
+      proxy = TCPServer.new("127.0.0.1", 0)
+      spawn do
+        client = proxy.accept? || next
+        upstream = TCPSocket.new(address.address, address.port)
+        spawn do
+          IO.copy(upstream, client) rescue nil
+          client.close rescue nil
+        end
+        buffer = Bytes.new(4096)
+        loop do
+          count = client.read(buffer)
+          break if count == 0
+          buffer[0, count].each do |byte|
+            upstream.write_byte(byte)
+            upstream.flush
+            sleep 0.05.seconds if drip.get
+          end
+        end
+      rescue IO::Error
+      ensure
+        upstream.try { |socket| socket.close rescue nil }
+      end
+      begin
+        tcp = TCPSocket.new("127.0.0.1", proxy.local_address.port)
+        socket = OpenSSL::SSL::Socket::Client.new(tcp, client_context, hostname: "localhost")
+        sleep 0.2.seconds # the handshake's last bytes reach the server at full speed: only the request drips
+        drip.set(true)
+        started = Time.instant
+        socket << "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n" # one record, ~80 bytes: 4 s at this pace
+        socket.flush
+        tcp.read_timeout = 8.seconds
+        text = (socket.gets_to_end rescue "")
+        text.should_not contain("hello")
+        (Time.instant - started).should be < 2.seconds
+      ensure
+        proxy.close
         server.close
       end
     end
