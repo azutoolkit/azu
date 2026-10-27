@@ -31,23 +31,39 @@ module Azu
 
   # Where the requests of a connection begin and end in the bytes the client sends, read the way `HTTP::Request.from_io`
   # reads them: the end of each request's headers, and the end of its body when it has a `Content-Length` (or none,
-  # which is a body of 0). A header name is matched as `HTTP::Headers` matches it (case-insensitively, `_` as `-`).
+  # which is a body of 0) or is `Transfer-Encoding: chunked` (its chunks read as `HTTP::ChunkedContent` reads them). A
+  # header name is matched as `HTTP::Headers` matches it (case-insensitively, `_` as `-`).
   #
-  # Where the stream cannot tell the body's length exactly as the server's parser will, it does not guess: a body with
-  # `Transfer-Encoding`, a `Content-Length` it cannot read whole (a duplicate, a value that is not plain digits, a line
-  # longer than `LINE_LIMIT`), or a header line the parser refuses (no name, a name that is not a token, which covers a
-  # folded line, a stray CR) makes the body one of unknown length, which ends where the server answers it: `restart`
-  # scans for the next request.
+  # Where the stream cannot tell where the body ends exactly as the server's parser will, it does not guess: another
+  # `Transfer-Encoding`, one along with a `Content-Length`, a `Content-Length` it cannot read whole (a duplicate, a value
+  # that is not plain digits, a line longer than `LINE_LIMIT`), a header line the parser refuses (no name, a name that is
+  # not a token, which covers a folded line, a stray CR), or a chunk it does not read as plainly (a size of more than
+  # `MAX_CHUNK_DIGITS` hex digits or with spaces, a line end that is not CRLF or LF, a size line longer than
+  # `LINE_LIMIT`, trailers) makes the body, or what is left of it, one of unknown length, which ends where the server
+  # answers it: `restart` scans for the next request.
   class RequestStream
     # The bytes of a header line kept to read it. A framing header (`Content-Length`, `Transfer-Encoding`) is read only
     # when its whole line fits; the name of any other line is told apart from those within it.
     LINE_LIMIT = 64
     # The most digits of a `Content-Length` read: more could overflow `Int64`, so the length is unknown.
     MAX_DIGITS = 18
+    # The most hex digits of a chunk size read: `HTTP::ChunkedContent` reads the size as an `Int32`.
+    MAX_CHUNK_DIGITS = 7
 
     CONTENT_LENGTH    = "content-length".to_slice
     TRANSFER_ENCODING = "transfer-encoding".to_slice
     TOKEN_SYMBOLS     = "!#$%&'*+-.^_`|~".to_slice
+    CHUNKED           = "chunked".to_slice
+
+    # Where a chunked body is: in a chunk-size line, in a chunk's data (`@body_left` bytes of it), at the line end after
+    # the data, or at the line end after the last chunk's size line (the blank line that ends a body with no trailers).
+    enum Chunk
+      None
+      Size
+      Data
+      DataEnd
+      LastEnd
+    end
 
     # The requests whose headers have ended.
     getter parsed : Int32 = 0
@@ -67,6 +83,13 @@ module Azu
       @in_body = false
       @content_length = nil.as(Int64?)
       @unknown_length = false
+      @chunked = false
+      @chunk = Chunk::None
+      @chunk_size = 0
+      @chunk_digits = 0
+      @chunk_line = 0
+      @extension = false
+      @cr = false
     end
 
     # In the body of the last request whose headers ended, its length known or not.
@@ -82,14 +105,17 @@ module Azu
     def feed(bytes : Bytes) : Nil
       index = 0
       while index < bytes.size
-        if @in_body
+        if !@in_body
+          index = scan(bytes, index)
+        elsif @chunk.none? || @chunk.data?
           left = @body_left || return
           taken = Math.min(left, (bytes.size - index).to_i64)
           index += taken
           @body_left = left - taken
-          @in_body = false if left == taken
+          end_data if left == taken
         else
-          index = scan(bytes, index)
+          frame(bytes[index])
+          index += 1
         end
       end
     end
@@ -97,6 +123,7 @@ module Azu
     # The answer to a body of unknown length was written: what comes next is a new request.
     def restart : Nil
       @in_body = false
+      @chunk = Chunk::None
       start_headers
     end
 
@@ -149,11 +176,19 @@ module Azu
       return unless colon
       name = window[0, colon]
       return unknown_length! unless token?(name)
+      value = window[colon + 1..] if length <= LINE_LIMIT
       if header?(name, TRANSFER_ENCODING)
-        unknown_length!
+        read_transfer_encoding(value)
       elsif header?(name, CONTENT_LENGTH)
-        read_length(length <= LINE_LIMIT ? window[colon + 1..] : nil)
+        read_length(value)
       end
+    end
+
+    # Only one `Transfer-Encoding`, `chunked` exactly: the parser compares the value (all of the header's values, joined)
+    # with `"chunked"` and answers any other `501`.
+    private def read_transfer_encoding(value : Bytes?) : Nil
+      chunked = !@chunked && value.try { |bytes| bytes[blank_prefix(bytes)..] == CHUNKED }
+      chunked ? (@chunked = true) : unknown_length!
     end
 
     # *value*: what follows the colon, nil when the line did not fit. Only one `Content-Length`, of plain digits.
@@ -164,13 +199,18 @@ module Azu
 
     # `[ \t]*[0-9]{1,18}`, all of *bytes*; nil otherwise.
     private def digits(bytes : Bytes) : Int64?
-      start = bytes.index { |byte| byte != ' '.ord && byte != '\t'.ord } || bytes.size
+      start = blank_prefix(bytes)
       count = bytes.size - start
       return unless 0 < count && count <= MAX_DIGITS
       bytes[start, count].reduce(0_i64) do |total, byte|
         return unless byte.unsafe_chr.ascii_number?
         total * 10 + (byte - '0'.ord.to_u8)
       end
+    end
+
+    # The spaces and tabs *bytes* starts with.
+    private def blank_prefix(bytes : Bytes) : Int32
+      bytes.index { |byte| byte != ' '.ord && byte != '\t'.ord } || bytes.size
     end
 
     # *name* is *expected* as `HTTP::Headers` compares names: ASCII letters in any case, `_` the same as `-`.
@@ -195,9 +235,72 @@ module Azu
 
     private def end_headers : Nil
       @parsed += 1
-      @body_length = @body_left = @unknown_length ? nil : (@content_length || 0_i64)
-      @in_body = @body_left != 0
+      chunked = @chunked && !@unknown_length && !@content_length
+      @body_length = @unknown_length || @chunked ? nil : (@content_length || 0_i64)
+      @body_left = chunked ? 0_i64 : @body_length
+      @chunk = chunked ? Chunk::Size : Chunk::None
+      @in_body = chunked || @body_left != 0
+      start_chunk_line
       start_headers
+    end
+
+    # The last byte of a body with a length, or of a chunk's data.
+    private def end_data : Nil
+      @chunk.data? ? (@chunk = Chunk::DataEnd) : (@in_body = false)
+    end
+
+    # A byte of a chunked body outside the data: of a chunk-size line, or of the CRLF (or LF) after a chunk's data
+    # or after the last chunk's size line, which ends the body.
+    private def frame(byte : UInt8) : Nil
+      if @chunk.size?
+        size_line(byte)
+      elsif byte == '\r'.ord && !@cr
+        @cr = true
+      elsif byte == '\n'.ord
+        @in_body = false if @chunk.last_end?
+        @chunk = @chunk.last_end? ? Chunk::None : Chunk::Size
+        @cr = false
+      else
+        unknown_chunk!
+      end
+    end
+
+    # `[0-9A-Fa-f]{1,7}`, then an extension (`;` and anything), then an optional CR, then LF.
+    private def size_line(byte : UInt8) : Nil
+      @chunk_line += 1
+      return unknown_chunk! if @chunk_line > LINE_LIMIT
+      return end_size_line if byte == '\n'.ord
+      return if @extension
+      return unknown_chunk! if @cr # a CR only just before the LF
+      digit = byte.unsafe_chr.to_i?(16)
+      if digit && @chunk_digits < MAX_CHUNK_DIGITS
+        @chunk_size = @chunk_size * 16 + digit
+        @chunk_digits += 1
+      elsif byte == ';'.ord && @chunk_digits > 0
+        @extension = true
+      elsif byte == '\r'.ord
+        @cr = true
+      else
+        unknown_chunk!
+      end
+    end
+
+    private def end_size_line : Nil
+      return unknown_chunk! if @chunk_digits == 0
+      @chunk = @chunk_size == 0 ? Chunk::LastEnd : Chunk::Data
+      @body_left = @chunk_size.to_i64
+      start_chunk_line
+    end
+
+    private def start_chunk_line : Nil
+      @chunk_size = @chunk_digits = @chunk_line = 0
+      @extension = @cr = false
+    end
+
+    # The rest of the body is of unknown length.
+    private def unknown_chunk! : Nil
+      @chunk = Chunk::None
+      @body_left = nil
     end
 
     private def start_headers : Nil
@@ -207,6 +310,7 @@ module Azu
       @seen_line = false
       @content_length = nil
       @unknown_length = false
+      @chunked = false
     end
   end
 

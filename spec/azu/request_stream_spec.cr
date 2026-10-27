@@ -82,7 +82,76 @@ EXTRA = ["X-A: b", " folded", "\tfolded", "X-Pad: #{"a" * 200}", "#{"N" * 80}: v
          ": empty name", "X-A: b\rc", "Expect: 100-continue", "Content-Length: 5", "content_length: 5",
          "Content-Length: 6", "Transfer-Encoding: chunked", "Transfer_Encoding: chunked"]
 
+# Where Crystal's own server ends the chunked body after the headers in *text*: the offset just past it, or nil when it
+# refuses the body (it raises, and the connection is closed).
+private def stdlib_chunked_end(text : String) : Int64?
+  io = IO::Memory.new(text)
+  request = HTTP::Request.from_io(io).as(HTTP::Request)
+  request.body.not_nil!.gets_to_end
+  io.pos.to_i64
+rescue IO::Error | ArgumentError | IndexError # a size that is not one, a negative one, a line end that is not one
+  nil
+end
+
+# Where the stream ends the chunked body after the headers in *text*, fed a byte at a time: the offset just past it,
+# `:unknown` when it fell back to a body of unknown length, or nil when it did not see the end.
+private def stream_chunked_end(text : String) : Int64 | Symbol | Nil
+  stream = Azu::RequestStream.new
+  text.to_slice.each_with_index do |byte, index|
+    stream.feed(Bytes[byte])
+    return :unknown if stream.unknown_body?
+    return index.to_i64 + 1 if stream.parsed == 1 && !stream.in_body?
+  end
+  nil
+end
+
+CHUNKED_HEAD = "POST /body HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"
+SIZE_LINES   = ["5", "05", "0000005", "00000005", "a", "A", "1f", "1F", "fffffff", "10000000", "5;ext", "5;a=b;c",
+                "5; ext", "5;#{"x" * 100}", "5 ", " 5", "5\t", "+5", "-5", "0x5", "5x", "", ";ext", "5\r", "5\rx",
+                "5;a\rb", "\u00005", "٥"]
+LINE_ENDS = ["\r\n", "\n", "\r\r\n", "\r", "", "x", "\r\nx"]
+
 describe Azu::RequestStream do
+  it "ends a chunked body where Crystal's parser does, or falls back to a body of unknown length" do
+    counts = Hash(Symbol, Int32).new(0)
+    random = Random.new(20261028)
+    texts = SIZE_LINES.flat_map { |line| LINE_ENDS.map { |eol| "#{line}#{eol}#{"z" * (line.to_i?(16, whitespace: false) || 5).clamp(0, 300)}\r\n0\r\n\r\n" } }
+    texts += LINE_ENDS.flat_map { |eol| ["5\r\nhello#{eol}0\r\n\r\n", "5\r\nhello\r\n0#{eol}\r\n", "5\r\nhello\r\n0\r\n#{eol}"] }
+    texts += ["0\r\n\r\n", "0\n\n", "000;x\r\n\r\n", "5\r\nhello\r\n0\r\nX-Trailer: a\r\n\r\n", "0\r\n: x\r\n\r\n"]
+    2000.times do
+      texts << String.build do |io|
+        random.rand(0..4).times do
+          size = random.rand(1..300)
+          io << (random.rand(2) == 0 ? size.to_s(16) : size.to_s(16).upcase) << (random.rand(4) == 0 ? ";e=1" : "")
+          io << {"\r\n", "\n"}.sample(random) << "z" * size << {"\r\n", "\n"}.sample(random)
+        end
+        io << "0" << {"\r\n", "\n"}.sample(random) << {"\r\n", "\n", "T: v\r\n\r\n"}.sample(random)
+      end
+    end
+    texts.each do |body|
+      text = CHUNKED_HEAD + body + "GET / HTTP/1.1\r\n\r\n"
+      expected, got = stdlib_chunked_end(text), stream_chunked_end(text)
+      next counts[:refused] += 1 unless expected # the server raises and closes: no next request to time
+      next counts[:fallback] += 1 if got == :unknown
+      fail "#{body.inspect}: the stream ended the body at #{got.inspect}, the server at #{expected}" unless got == expected
+      counts[:exact] += 1
+    end
+    counts[:exact].should be > 1000
+    counts[:fallback].should be > 100
+    counts[:refused].should be > 20
+  end
+
+  it "frames a chunked body the same however the bytes are split, and finds the request after it" do
+    text = CHUNKED_HEAD + "5;e\r\nhello\r\n1A\r\n#{"z" * 26}\n0\r\n\r\nGET /partial HTTP/1.1\r\n"
+    bytes = text.to_slice
+    random = Random.new(11)
+    whole = stream_state(bytes, [bytes.size])
+    whole.should eq({1, nil, true, false})
+    stream_state(bytes, [1]).should eq whole
+    (1...bytes.size).each { |at| stream_state(bytes, [at, bytes.size]).should eq whole }
+    20.times { stream_state(bytes, Array.new(5) { random.rand(1..40) }).should eq whole }
+  end
+
   it "reads the framing headers as HTTP::Headers matches names: any case, _ as -" do
     ["Content-Length", "content-length", "CONTENT-LENGTH", "Content_Length", "content_length", "cOnTeNt_LeNgTh"].each do |name|
       stream_framing(header_block(["#{name}: 5"])).not_nil![1].should eq 5

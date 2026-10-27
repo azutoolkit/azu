@@ -91,18 +91,27 @@ a value that is not a number (`abc`, `inf`, longer than a year) is reported in t
 An upgraded connection (a WebSocket, so Spark too, over TLS as well) is released from every limit when its handler takes it
 over, and is not counted as idle. Under TLS the rules run on the decrypted request, with the TLS handshake inside the
 `header_timeout` deadline, so a client that drips the handshake or the headers is cut the same way; a connection over
-`max_connections` is just closed (a plain-text `503` is not readable on a TLS port). The server does not announce the end
+`max_connections` is just closed (a plain-text `503` is not readable on a TLS port). In a body every byte of a TLS record
+earns time at `min_body_rate`, records that carry no request bytes too: a client can keep a body's read open with TLS 1.3
+`KeyUpdate` records sent at that pace, and one that sets `update_requested` also makes the server answer each with a
+`KeyUpdate` of its own, which costs the server CPU and a write each time. Such records do not move the `header_timeout`
+or `keep_alive_timeout` deadlines. The server does not announce the end
 of a request; it reads the socket only once it has used every byte read before, so at that read every request whose
 headers came has been answered, but one whose body it is still reading, however many responses it wrote from its buffer
 since (an informational `100 Continue` is not a final response). Where the next request starts is read from the bytes (the end of
-the headers, and `Content-Length`, whose name is matched as Crystal's parser matches it: any case, `_` as `-`), so a
-request the client pipelined behind another is timed from the end of the previous response: as headers, or as a body once
-its headers are in. Where the bytes do not give the length exactly as the parser will read it (`Transfer-Encoding`, a
-duplicate `Content-Length` or one that is not plain digits, a header line the parser refuses), the body is taken to end
-where its response is written, and a request pipelined behind it in the same packet is timed as an idle connection. A handler that starts writing its response before it has read
-the whole request body (a full-duplex echo) has the rest of that body timed as a body when it has a `Content-Length`,
-and as the headers of a new request when it is chunked (a `header_timeout` that passes while the handler still reads
-then answers the client a raw `408` under the handler's feet): read a chunked body first, or raise the limits. A request that is being handled is never cut: the limits act on the client's side of a read and write,
+the headers, `Content-Length`, whose name is matched as Crystal's parser matches it: any case, `_` as `-`, and the chunks
+of a `Transfer-Encoding: chunked` body, read as Crystal's parser reads them), so a request the client pipelined behind
+another is timed from the end of the previous response: as headers, or as a body once its headers are in. Where the bytes
+do not give the end of the body exactly as the parser will find it (another `Transfer-Encoding`, a duplicate
+`Content-Length` or one that is not plain digits, a header line the parser refuses, a chunked body with trailers, a chunk
+size with spaces or of more than 7 hex digits, a chunk line longer than 64 bytes), the body is taken to end where its
+response is written: a request pipelined behind it is timed as an idle connection (`keep_alive_timeout`) for the first
+read after that response, then as headers. When such a body was answered from the buffer along with a request sent before
+it, the server is taken to be still reading it, so what comes next is timed as a body (`read_timeout` per read, and
+`min_body_rate`) until the next response is written. A handler that starts writing its response before it has read
+the whole request body (a full-duplex echo) has the rest of that body timed as a body when its end is known,
+and as the headers of a new request when it is not (a `header_timeout` that passes while the handler still reads
+then answers the client a raw `408` under the handler's feet): read such a body first, or raise the limits. A request that is being handled is never cut: the limits act on the client's side of a read and write,
 not on your code; a body that the client stops sending raises `Azu::ServerLimits::ClientTooSlow` (an `IO::TimeoutError`)
 in the handler's read, which `Rescuer` answers `408` with one log line (a flood of them is rate-limited). Any other
 `IO::TimeoutError`, such as an upstream HTTP client, Redis or database call timing out, is the server's failure and
