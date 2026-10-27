@@ -225,30 +225,30 @@ Features marked *opt-in* need their own `require`. The [full list](docs/explanat
 
 ## Performance
 
-Azu is not the fastest thing you can write in Crystal, and it does not claim to be. The repository has a [reproducible benchmark suite](benchmark/README.md) that compares it with a hand-written `HTTP::Server` and with Kemal, Lucky and Athena, same machine, same responses, same load. The numbers below are one snapshot, not a promise.
+Azu is not the fastest thing you can write in Crystal, and it does not claim to be. The repository has a [reproducible benchmark suite](benchmark/README.md) that compares it with a hand-written `HTTP::Server`, Kemal and Lucky: same machine, same responses, same load. The numbers below are one snapshot, not a promise.
 
-Measured on 2026-10-25 (UTC): Azu 0.5.119 at commit 36869c8 with CQL 0.0.732 (an uncommitted bump in the benchmark app on a dirty working tree; `scripts/bench.sh` as committed builds the app with CQL 0.0.541), Crystal 1.19.1 (`--release`), a 4 vCPU shared virtual machine, wrk with 64 connections, median of 5 runs of 10 seconds, servers and load generator on separate CPUs. Each cell is requests per second as a percentage of the hand-written `HTTP::Server` baseline (97,825 req/s on plaintext).
+Measured on 2026-10-26 (UTC): Azu 0.5.123 at commit cc96c64 with CQL 0.0.808 (an uncommitted bump in the benchmark app on a dirty working tree; `scripts/bench.sh` as committed builds the app with CQL 0.0.541), Crystal 1.22.1 (`--release`), a 4 vCPU shared virtual machine, wrk with 64 connections, median of 5 runs of 10 seconds, servers and load generator on separate CPUs. Each cell is requests per second as a percentage of the hand-written `HTTP::Server` baseline (82,261 req/s on plaintext).
 
-| Scenario | Azu (minimal stack) | Kemal | Lucky | Athena |
+| Scenario | Azu (default stack) | Azu (minimal stack) | Kemal | Lucky |
 |---|---:|---:|---:|---:|
-| plaintext | 90 | 76* | 82 | 57 |
-| JSON | 89 | 80 | 82 | 55* |
-| 100 parameterized routes | 86 | 54 | 83 | 57 |
-| template | **23** | 63* | 50 | 69 |
-| one SQLite row | 81 | 66* | 81 | 59 |
-| 20 SQLite rows | **75** | 77* | 89 | 78 |
+| plaintext | 80 | 90 | 73 | 82 |
+| JSON | 80 | 84* | 73 | 80 |
+| 100 parameterized routes | 77 | 81 | 73 | 83* |
+| template† | **22** | **22** | 82 | 46 |
+| one SQLite row | 72 | 77 | 77 | 78 |
+| 20 SQLite rows | **73** | **75** | 90 | 91 |
 
-\* the repetitions disagreed by more than 5 %, so treat the row as indicative. The WebSocket scenario is left out: Athena and Lucky have no WebSocket support, and for the others the load generator was the limit (about 200,000 deliveries per second each), so it says nothing about who is faster.
+\* the repetitions disagreed by more than 5 %, so treat the cell as indicative. † the baseline itself was noisy in this scenario (5.5 %), so the percentages in that row are soft; Azu's own numbers were steady. The WebSocket scenario is left out: Lucky has no WebSocket support, and for the others the load generator was the limit (about 190,000 deliveries per second each), so it says nothing about who is faster. Athena, which earlier snapshots included, was not part of this run.
 
-What the table does not say:
+Good to know when you read it:
 
-- **"Minimal stack" is not what you get by default.** It is the router, the endpoint, `Rescuer` and the small `App::Scope` wrapper every `Azu::App` puts in front of the chain. The default stack also runs `RequestId`, `SecurityHeaders` and `Static` on every request and sends more headers, so it costs more. It was **not** measured on 0.5.119, so there is no default-stack number here.
+- **Two Azu columns.** The default stack runs `RequestId`, `SecurityHeaders` and `Static` on every request and sends more headers. The minimal stack is the router, the endpoint, `Rescuer` and the small `App::Scope` wrapper every `Azu::App` puts in front of the chain, so the gap between the columns is what that default middleware costs: about 10 points on plaintext, 4 to 5 on JSON, routing and one SQLite row, and not measurable on templates.
 - **Templates are Azu's weak spot.** Jinja (Crinja) is parsed and rendered per request; the others run ECR the compiler turned into plain code. This compares template systems, not routers.
-- **The ORM costs something.** Azu was the only app going through an ORM (CQL 0.0.732); the others called SQLite directly. With raw SQLite in the same Azu app the 20 row scenario measured 92 % instead of 75 %.
-- **Kemal's rows are indicative at best.** Its process grew to 1.4 to 1.9 GB in this benchmark app and its p99 latency reached hundreds of milliseconds, so the cause is likely that app under this load.
+- **The ORM costs something.** Azu is the only app going through an ORM (CQL 0.0.808); the others call SQLite directly. With raw SQLite in the same Azu app the 20 row scenario measured 92 to 93 % instead of 73 to 75 %, and the one row scenario 78 to 80 % instead of 72 to 77 %.
+- **Do not compare with older snapshots.** The previous one (Azu 0.5.119, Crystal 1.19.1) showed higher absolute numbers, but the whole machine was about 15 to 25 % slower this time (the unchanged baseline app lost that much), and the compiler changed too. We cannot tell the compiler effect from the machine's mood, so the percentages are only good within this one run, and differences of 3 to 4 points are inside its run-to-run spread. Read it as "Azu sits between 77 and 90 % of the hand-written server on plaintext, JSON and routing", not as a speed-up or a regression.
 - One shared VM is noisy. Compare these numbers with each other, never with numbers from another machine.
 
-The raw snapshot is committed: [report](benchmark/snapshots/2026-10-25-v0.5.119-cql0.0.732-minimal.md) and [JSON](benchmark/snapshots/2026-10-25-v0.5.119-cql0.0.732-minimal.json). To reproduce on your own machine, run `scripts/bench.sh`; method, fairness rules and known confounds are in [benchmark/README.md](benchmark/README.md).
+The raw snapshot is committed: [report](benchmark/snapshots/2026-10-26-v0.5.123-cql0.0.808-cr1.22.1.md) and [JSON](benchmark/snapshots/2026-10-26-v0.5.123-cql0.0.808-cr1.22.1.json). To reproduce on your own machine, run `scripts/bench.sh`; method, fairness rules and known confounds are in [benchmark/README.md](benchmark/README.md).
 
 ## Documentation
 
