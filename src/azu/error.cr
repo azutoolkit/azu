@@ -1,31 +1,9 @@
 require "ecr"
-require "exception_page"
+require "./exception_page"
 require "json"
 require "digest/sha1"
 
 module Azu
-  # Enhanced exception page with better debugging capabilities
-  class ExceptionPage < ::ExceptionPage
-    def styles : ExceptionPage::Styles
-      ::ExceptionPage::Styles.new(
-        accent: "red",
-      )
-    end
-
-    # The page for `exception` with the query parameters, response headers and response cookies the page prints
-    # passed through `Azu::Env.redact`, so a credential in them does not reach the browser.
-    def self.redacted(context : HTTP::Server::Context, exception : Exception)
-      params = URI::Params.new
-      context.request.query_params.each { |name, value| params.add(name, Azu::Env.redact(name, value)) }
-      headers = HTTP::Headers.new
-      context.response.headers.each { |name, values| values.each { |value| headers.add(name, Azu::Env.redact(name, value)) } }
-      cookies = HTTP::Cookies.new
-      context.response.cookies.each { |cookie| cookies << HTTP::Cookie.new(cookie.name, Azu::Env.redact(cookie.name, cookie.value)) }
-
-      new(exception, context.request.method, Azu::Env.redact_url(context.request.path), context.response.status, nil, params, headers, cookies, exception.message.try { |text| Azu::Env.redact_url(text) })
-    end
-  end
-
   # Cached environment data singleton for performance
   class CachedEnvironment
     private class_getter instance : CachedEnvironment = CachedEnvironment.new

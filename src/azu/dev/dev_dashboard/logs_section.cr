@@ -51,6 +51,7 @@ module Azu
             end
             div class: "azd-log-body" do
               entry.panes.each { |pane| render_pane(pane) }
+              entry.link.try { |url| a "Open the exception page", href: url, class: "azd-link azd-log-link" }
               copy_button "log entry"
             end
           end

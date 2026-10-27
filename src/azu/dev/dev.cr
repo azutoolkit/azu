@@ -1,12 +1,14 @@
 # Development and diagnostics: the dev dashboard (`Handler::DevDashboard`), request, cache and component
-# metrics (`Handler::PerformanceMonitor`, `PerformanceMetrics`, `PerformanceReporter`), and the profiler and
-# memory leak detector (`DevelopmentTools`).
+# metrics (`Handler::PerformanceMonitor`, `PerformanceMetrics`, `PerformanceReporter`), the server errors behind its
+# Errors tab (`ErrorStore`), and the profiler and memory leak detector (`DevelopmentTools`).
 #
 # Opt in with `require "azu/dev"` after `require "azu"`. Core only exposes `Azu::Instrumentation`; this
 # file plugs the metrics and the profiler into it.
 require "../../azu"
 require "./configuration"
 require "./performance_reporter"
+require "./error_store"
+require "./exception_signals"
 require "./dev_dashboard_component"
 require "./dev_dashboard"
 require "./telemetry"
@@ -36,6 +38,13 @@ module Azu
       metrics.record_component(event.id, event.type, event.event, event.duration_ms, event.memory_before, event.memory_after, event.age)
     end
   end
+
+  # Server errors are kept for the dashboard's Errors tab, in development only (the dashboard serves nowhere else).
+  Instrumentation.on_exception(-> { Azu.current_config.env.development? }) do |report|
+    ErrorStore.instance.record(report)
+  end
+
+  ExceptionPage.on_panels { |report| Dev::ExceptionSignals.panels(report) }
 
   Instrumentation.on_prepare do |config|
     config.development_tools.profiler.enabled = true if config.performance_profiling_enabled?

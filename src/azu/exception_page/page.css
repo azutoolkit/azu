@@ -1,0 +1,128 @@
+/*
+ * Azu exception page: the rules on top of the dashboard's stylesheet (`ui/dashboard.css`), whose tokens, header,
+ * cards, badges, tabs, tables and both themes it uses as they are. Every rule is scoped under `.azx` (the <body>
+ * also carries `.azd`).
+ *
+ * Wide screens show two columns: the exception (hero) on the left, kept in view, and its tabs on the right. Narrower
+ * ones stack them.
+ *
+ * Sections: 1 layout, 2 hero, 3 tabs, 4 stack, 5 signals, 6 responsive.
+ */
+
+/* ---------- 1. Layout ---------- */
+.azx .azx-main { display: flex; flex-direction: column; gap: 16px; width: 100%; max-width: 1180px; margin-inline: auto; padding: 24px; }
+.azx .azx-details { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+@media (min-width: 1200px) {
+  .azx .azx-main {
+    display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: start; gap: 24px; max-width: 1720px;
+  }
+  /* `.azx-main >` outranks the hero's own `position: relative` below. */
+  .azx .azx-main > .azx-hero {
+    position: sticky; top: calc(var(--top-h) + 16px); max-height: calc(100vh - var(--top-h) - 32px); overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .azx .azx-hints ul { grid-template-columns: minmax(0, 1fr); }
+  .azx .azx-details .azd-two { grid-template-columns: minmax(0, 1fr); }
+}
+.azx .azx-main:focus { outline: none; }
+.azx .azx-actions { margin-left: auto; }
+.azx a.azd-btn { color: var(--text); text-decoration: none; }
+.azx .azx-dim { color: var(--faint); }
+.azx code, .azx .azx-code { font-variant-ligatures: none; }
+.azx .azx-hint code { padding: 0 4px; border-radius: 4px; background: var(--hover); font-size: 0.92em; }
+.azx .azx-label { margin-bottom: 8px; color: var(--faint); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+
+.azx .azx-crumbs ol { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+.azx .azx-crumbs li + li::before { content: "/"; margin-right: 6px; color: var(--faint); }
+.azx .azx-crumbs a { color: var(--muted); text-decoration: none; }
+.azx .azx-crumbs a:hover { color: var(--text); }
+.azx .azx-crumbs [aria-current] { color: var(--text); font-weight: 600; }
+
+/* ---------- 2. Hero: what, where, why ---------- */
+.azx .azx-hero {
+  position: relative; overflow: hidden; padding: 20px 24px 22px;
+  background-image: linear-gradient(120deg, color-mix(in srgb, var(--bad) 9%, transparent), transparent 42%);
+}
+.azx .azx-hero::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: linear-gradient(90deg, var(--bad), var(--warn)); }
+.azx .azx-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.azx .azx-path { min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.azx .azx-time { margin-left: auto; font-family: var(--font-mono); font-size: 12px; }
+.azx .azx-occurrence { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.azx .azx-step {
+  display: inline-grid; place-items: center; width: 24px; height: 24px; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); text-decoration: none; font-size: 15px; line-height: 1;
+}
+.azx .azx-step:hover { background: var(--hover); }
+
+.azx .azx-class { margin-top: 18px; color: var(--bad); font: 600 13px/1.4 var(--font-mono); overflow-wrap: anywhere; }
+.azx .azx-message {
+  margin: 4px 0 0; max-height: 14em; overflow: auto; font-size: clamp(20px, 1rem + 1vw, 27px); font-weight: 700;
+  letter-spacing: -0.02em; line-height: 1.3; white-space: pre-wrap; overflow-wrap: anywhere; text-wrap: pretty;
+}
+.azx .azx-where { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 10px; color: var(--muted); }
+.azx .azx-file { font: 600 13px var(--font-mono); color: var(--accent); overflow-wrap: anywhere; }
+a.azx-file, .azx a.azx-file { text-underline-offset: 3px; }
+.azx code.azx-file { padding: 0; background: none; }
+.azx .azx-where .azd-icon-btn { width: 28px; height: 28px; }
+
+.azx .azx-hints { margin-top: 20px; }
+.azx .azx-hints ul { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.azx .azx-hint {
+  display: flex; align-items: flex-start; gap: 10px; height: 100%; padding: 12px 14px; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--c) 32%, transparent); background: color-mix(in srgb, var(--c) 8%, transparent);
+}
+.azx .azx-hint > .azd-icon { margin-top: 2px; color: var(--c); }
+.azx .azx-hint-title { font-weight: 650; }
+.azx .azx-hint-detail { margin-top: 2px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.azx .azx-more { margin-top: 10px; }
+.azx .azx-more > summary { width: max-content; color: var(--accent); font-weight: 600; cursor: pointer; }
+.azx .azx-more > ul { margin-top: 10px; }
+
+.azx .azx-source { margin: 20px 0 0; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--glass-solid); }
+.azx .azx-source figcaption { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--hover); color: var(--muted); }
+.azx .azx-code { overflow-x: auto; padding: 6px 0; font: 12.5px/1.65 var(--font-mono); }
+.azx .azx-line { display: grid; grid-template-columns: 4.5em max-content; }
+.azx .azx-line code { padding-right: 16px; white-space: pre; }
+.azx .azx-ln { padding-right: 14px; color: var(--faint); text-align: right; user-select: none; }
+.azx .azx-line.is-current { background: color-mix(in srgb, var(--bad) 14%, transparent); box-shadow: inset 3px 0 var(--bad); }
+.azx .azx-line.is-current .azx-ln { color: var(--bad); font-weight: 700; }
+
+/* ---------- 3. Tabs: a horizontal bar under the hero ---------- */
+.azx .azx-tablist { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); }
+.azx .azx-tablist .azd-tab { width: auto; flex: none; padding: 10px 12px; border-radius: 8px 8px 0 0; white-space: nowrap; }
+.azx .azx-tablist .azd-tab[aria-selected="true"] { background: transparent; }
+.azx .azx-tablist .azd-tab[aria-selected="true"]::before { left: 10px; right: 10px; top: auto; bottom: 0; width: auto; height: 3px; border-radius: 3px 3px 0 0; }
+.azx .azd-panel:focus-visible { outline-offset: 6px; }
+
+/* ---------- 4. Stack ---------- */
+.azx .azd-group > summary { font-family: var(--font-sans); }
+.azx .azd-group > summary .azd-count { margin-left: auto; }
+.azx .azx-frames > li { border-top: 1px solid var(--border); }
+.azx .azx-frame { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); align-items: center; gap: 12px; padding: 6px 12px; font-size: 12.5px; }
+.azx .azx-frames > li:hover { background: var(--hover); }
+.azx .azx-frame-method { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
+.azx .azx-frame-file { display: flex; justify-content: flex-end; align-items: center; gap: 8px; min-width: 0; text-align: right; }
+.azx .azx-frame-file code { overflow-wrap: anywhere; color: var(--muted); }
+.azx .azx-frame-file .azd-chip { text-transform: none; }
+.azx .azx-causes > li { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-top: 1px solid var(--border); }
+.azx .azx-causes > li:first-child { padding-top: 0; border-top: 0; }
+
+/* ---------- 5. Signals, request, environment ---------- */
+.azx .azx-signals { grid-template-columns: minmax(0, 1fr); }
+.azx .azx-stats { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); margin: 0; }
+.azx .azx-stat { padding: 10px 12px; border-radius: 10px; background: var(--hover); }
+.azx .azx-stat dt { color: var(--muted); font-size: 12px; }
+.azx .azx-stat dd { margin: 2px 0 0; color: var(--c); font-size: 20px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.azx .azx-stat.is-idle dd { color: var(--text); }
+.azx .azx-sql { min-width: 280px; font-size: 12px; }
+.azx .azx-env > summary { width: max-content; color: var(--accent); font-weight: 600; cursor: pointer; }
+.azx .azx-env[open] > summary { margin-bottom: 10px; }
+
+/* ---------- 6. Responsive ---------- */
+@media (max-width: 860px) {
+  .azx .azx-main { padding: 16px; }
+  .azx .azx-hero { padding: 18px 16px; }
+  .azx .azx-crumbs, .azx .azx-time { display: none; }
+  .azx .azx-frame { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .azx .azx-frame-file { justify-content: flex-start; text-align: left; }
+}

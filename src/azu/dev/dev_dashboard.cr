@@ -5,6 +5,7 @@ require "./development_tools"
 require "../cache"
 require "../handler/csrf"
 require "./dev_dashboard_component"
+require "./error_store"
 
 module Azu
   module Handler
@@ -32,14 +33,18 @@ module Azu
       getter path : String
       getter metrics : PerformanceMetrics
       getter queries : QueryStore
+      getter errors : ErrorStore
       getter log : ::Log
 
       @start_time : Time
 
-      def initialize(@path = DEFAULT_PATH, metrics : PerformanceMetrics? = nil, @log : ::Log = Azu::CONFIG.log, @queries : QueryStore = QueryStore.instance)
+      def initialize(@path = DEFAULT_PATH, metrics : PerformanceMetrics? = nil, @log : ::Log = Azu::CONFIG.log,
+                     @queries : QueryStore = QueryStore.instance, @errors : ErrorStore = ErrorStore.instance)
         monitored = metrics || Azu::CONFIG.performance_monitor.try(&.metrics)
         @metrics = monitored || PerformanceMetrics.new
         @start_time = Time.utc
+        # Exception pages link to the errors kept here.
+        ExceptionPage.dashboard_path = @path
         # Guarded by `run_playground` itself, and sent without a token by dashboard.js. Registered whatever the
         # environment: the handler is built before the app that will serve it is known, and the exemption only matters
         # if the dashboard serves, which `call` allows in development only.
@@ -54,11 +59,17 @@ module Azu
       def call(context : HTTP::Server::Context)
         return call_next(context) unless serving?
 
-        case context.request.path
-        when @path          then render_dashboard(context)
-        when "#{@path}/sql" then run_playground(context)
+        path = context.request.path
+        case path
+        when @path                  then render_dashboard(context)
+        when "#{@path}/sql"         then run_playground(context)
+        when "#{@path}/errors.json" then respond_json(context, 200, @errors.groups.map { |group| group_json(group) })
         else
-          call_next(context)
+          if id = path.lchop?("#{@path}/errors/")
+            render_error(context, id)
+          else
+            call_next(context)
+          end
         end
       rescue ex : Exception
         @log.error(exception: ex) { "Failed to render development dashboard" }
@@ -77,6 +88,7 @@ module Azu
         if context.request.query_params["clear"]? == "true"
           @metrics.clear
           @queries.clear
+          @errors.clear
           @log.info { "Development dashboard metrics cleared" }
           context.response.status_code = 302
           context.response.headers["Location"] = @path
@@ -84,11 +96,42 @@ module Azu
         end
 
         # Render dashboard using the component
-        dashboard_component = Azu::Components::DevDashboardComponent.new(@metrics, @log, @start_time)
+        dashboard_component = Azu::Components::DevDashboardComponent.new(@metrics, @log, @start_time, @path, @errors)
         html_content = dashboard_component.render
 
         context.response.content_type = "text/html; charset=utf-8"
         context.response.print(html_content)
+      end
+
+      # One kept error: its exception page (the report as it was recorded), or its report as JSON for `<id>.json` or
+      # an `Accept: application/json` client. An id no longer kept answers 404.
+      private def render_error(context : HTTP::Server::Context, id : String) : Nil
+        json = id.ends_with?(".json") || context.request.headers["Accept"]?.try(&.includes?("application/json"))
+        report = @errors.report(id.rchop(".json"))
+        unless report
+          return respond_json(context, 404, {error: "This error is no longer kept: the dashboard keeps the latest #{ErrorStore::MAX_REPORTS}"}) if json
+          context.response.status_code = 404
+          context.response.content_type = "text/html; charset=utf-8"
+          context.response.print(ExceptionPage::Missing.new(@path, ErrorStore::MAX_REPORTS).render)
+          return
+        end
+
+        if json
+          context.response.content_type = "application/json"
+          context.response.print(report.to_json)
+        else
+          context.response.content_type = "text/html; charset=utf-8"
+          context.response.print(ExceptionPage.new(report, @errors.occurrence(report)).render)
+        end
+      end
+
+      private def group_json(group : ErrorStore::Group)
+        {
+          fingerprint: group.fingerprint, class: group.exception_class, message: group.message, location: group.location,
+          route: group.route, request: group.request_line, status: group.status, count: group.count,
+          first_seen: group.first_seen.to_rfc3339, last_seen: group.last_seen.to_rfc3339, latest_id: group.latest_id,
+          url: group.latest_id.try { |id| "#{@path}/errors/#{id}" },
+        }
       end
 
       PLAYGROUND_ROW_LIMIT =        200

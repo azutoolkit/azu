@@ -67,7 +67,8 @@ module ExampleApp
       {type: "database", status: 500, title: "Database", note: "A query or connection failed."},
       {type: "external_service", status: 502, title: "External service", note: "A dependency is down."},
       {type: "timeout", status: 504, title: "Timeout", note: "Something took too long."},
-      {type: "generic", status: 500, title: "Unexpected", note: "An unhandled exception. Development shows the debug page."},
+      {type: "generic", status: 500, title: "Unexpected", note: "An unhandled exception. Development shows the exception page."},
+      {type: "missing_record", status: 500, title: "Missing record", note: "A nil where the code expected a value: the exception page names the line and the likely cause."},
     ]
 
     def call : Page

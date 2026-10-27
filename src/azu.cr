@@ -28,6 +28,8 @@ require "./azu/redis/**"
 require "./azu/pub_sub/**"
 require "./azu/spark/**"
 require "./azu/templates/**"
+require "./azu/exception_page/**"
+require "./azu/ui/**"
 
 # Not globbed on purpose: `azu/cql` is opt-in and needs the cql shard, `azu/dev` is the opt-in dashboard and
 # performance tooling. Add every new core directory above; spec/azu/opt_in_integrations_spec.cr fails when one is

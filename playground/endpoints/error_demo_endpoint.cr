@@ -31,6 +31,7 @@ module ErrorDemo
           "external_service",
           "timeout",
           "generic",
+          "missing_record",
         ],
       }.to_json
     end
@@ -61,6 +62,8 @@ module ErrorDemo
         demonstrate_timeout_error
       when "generic"
         demonstrate_generic_error
+      when "missing_record"
+        demonstrate_missing_record
       else
         ErrorDemoResponse.new("success")
       end
@@ -150,6 +153,15 @@ module ErrorDemo
       )
 
       raise Azu::Response::TimeoutError.new("Request timed out after 30 seconds", context)
+    end
+
+    USERS = {"1" => "Ada", "2" => "Grace"}
+
+    # A bug the exception page triages: a lookup that finds nothing, then `not_nil!`. In development the page names
+    # this line and explains the NilAssertionError; the dashboard's Errors tab keeps every occurrence.
+    private def demonstrate_missing_record
+      name = USERS["42"]?
+      ErrorDemoResponse.new("Hello #{name.not_nil!}")
     end
 
     private def demonstrate_generic_error
