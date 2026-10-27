@@ -13,6 +13,10 @@ module Azu
     # CQL exceptions become `Response::ValidationError` (422). Transactions are per fiber, so requests
     # served concurrently never share one. Without `transaction` CQL checks out a pooled connection per
     # statement, as usual.
+    #
+    # With `query_cache: true` the request also runs in CQL's request query cache (`::CQL.with_request_cache`) under
+    # its request id, and `Azu::CQL.request_cache_stats` reports its repeated queries. It needs CQL's cache on
+    # (`config.cache.on`), and until CQL scopes that tracker per fiber, concurrent requests share its counters.
     class Middleware
       include HTTP::Handler
 

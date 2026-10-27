@@ -198,6 +198,30 @@ counts = AcmeDB.query
   .all(as: {Int64, Int64})
 ```
 
+### Catch repeated queries
+
+The dashboard groups queries by shape. To see the exact same query running twice in a request, turn on CQL's cache
+and let the CQL middleware count repeats:
+
+<!-- skip -->
+```crystal
+Azu::CQL.configure { |config| config.cache.on = true }
+
+handlers = [
+  Azu::Handler::RequestId.new,
+  Azu::Handler::Rescuer.new,
+  Azu::CQL::Middleware.new(AcmeDB, query_cache: true),
+] of HTTP::Handler
+
+# anywhere in the request, e.g. at the end of an endpoint's `call`
+if stats = Azu::CQL.request_cache_stats
+  Log.warn { "#{stats.repeated} repeated queries" } if stats.repeated > 0
+end
+```
+
+It stores no rows and speeds nothing up, and requests served at the same time share CQL's counters for now; see
+[Repeated queries per request](../../reference/api/cql-bridge.md#repeated-queries-per-request).
+
 ## Select only needed columns
 
 `select` with symbols loads only those columns, which matters for wide rows and large text or blob columns:
