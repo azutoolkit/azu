@@ -125,12 +125,12 @@ module QueryCacheSpec
     JSON.parse(response.body)
   end
 
-  # Runs the block with CQL's request query cache on (it is off by default under CRYSTAL_ENV=test).
-  def self.with_cql_cache(&)
+  # Runs the block with CQL's request query cache on (or off), whatever the environment's default is.
+  def self.with_cql_cache(on : Bool = true, &)
     cache = ::CQL.config.cache
     was_on, was_request = cache.on?, cache.request_cache?
-    cache.on = true
-    cache.request_cache = true
+    cache.on = on
+    cache.request_cache = on
     begin
       yield
     ensure
@@ -179,10 +179,12 @@ describe "Azu::CQL::Middleware query_cache:" do
   end
 
   it "reports nothing when CQL's request cache is off" do
-    QueryCacheSpec.serve do |base|
-      body = QueryCacheSpec.get(base, "/repeat", "req-cql-off")
-      body["stats"].raw.should be_nil
-      body["tracker"]["enabled"].should be_false
+    QueryCacheSpec.with_cql_cache(on: false) do
+      QueryCacheSpec.serve do |base|
+        body = QueryCacheSpec.get(base, "/repeat", "req-cql-off")
+        body["stats"].raw.should be_nil
+        body["tracker"]["enabled"].should be_false
+      end
     end
   end
 
