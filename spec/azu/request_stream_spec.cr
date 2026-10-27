@@ -77,7 +77,7 @@ NAMES = ["Content-Length", "content-length", "CONTENT-LENGTH", "Content_Length",
 VALUES = ["5", "05", "0", "00000000000000000005", " 5", "  5", "\t5", "5 ", "5\t", " 5 ", "+5", "-5", "5x", "x5", "",
           "0x5", "5.0", "5,5", "5, 5", "\v5", "\f5", "999999999999999999", "9223372036854775807",
           "9223372036854775808", "18446744073709551615", "18446744073709551616", "chunked", "Chunked", "gzip, chunked",
-          "chunked ", " chunked", "identity", "5\r", "\r5", "#{" " * 80}5"]
+          "chunked ", " chunked", "identity", "5\r", "\r5", "#{" " * 80}5", "#{" " * 45}1234567"]
 EXTRA = ["X-A: b", " folded", "\tfolded", "X-Pad: #{"a" * 200}", "#{"N" * 80}: v", "#{"N" * 80}", "no colon",
          ": empty name", "X-A: b\rc", "Expect: 100-continue", "Content-Length: 5", "content_length: 5",
          "Content-Length: 6", "Transfer-Encoding: chunked", "Transfer_Encoding: chunked"]
@@ -107,11 +107,18 @@ describe Azu::RequestStream do
     ["Content-Length: 5\r\nContent-Length: 5", "Content-Length: 5\r\ncontent_length: 6", "Content-Length: 5 ",
      "Content-Length: +5", "Content-Length: -5", "Content-Length: 5x", "Content-Length:", "Content-Length: 0x5",
      "Content-Length: 9223372036854775808", "Content-Length: #{"0" * 18}5", "Content-Length: #{" " * 80}5",
+     "Content-Length:#{" " * 45}1234567",
      "Transfer-Encoding: chunked", "Transfer_Encoding: chunked\r\nContent-Length: 5", "Transfer-Encoding: gzip",
      "Content-Length : 5", " Content-Length: 5", "X-A: b\r\n folded", "no colon", ": no name",
      "X-A: b\rc\r\nContent-Length: 5"].each do |lines|
       stream_framing(header_block([lines])).not_nil![1].should be_nil
     end
+  end
+
+  it "does not read a length whose digits run past the LINE_LIMIT bytes it keeps of the line" do
+    block = header_block(["Content-Length:#{" " * 45}1234567"]) # the digits straddle byte 64
+    stdlib_framing(block).not_nil![1].should eq 1234567
+    stream_framing(block).not_nil![1].should be_nil
   end
 
   it "tells a long line that is not a framing header apart, and keeps the length of the request" do
