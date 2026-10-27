@@ -29,16 +29,126 @@ module Azu
     end
   end
 
+  # Where the requests of a connection begin and end in the bytes the client sends, as far as the bytes tell: the end of
+  # each request's headers, and the end of its body when it has a `Content-Length` (or none, which is a body of 0). A
+  # body of unknown length (`Transfer-Encoding`) ends where the server answers it: `restart` scans for the next request.
+  class RequestStream
+    # The bytes of a header line kept to recognise it: `Content-Length` and `Transfer-Encoding` with their values.
+    LINE_LIMIT = 64
+
+    # The requests whose headers have ended.
+    getter parsed : Int32 = 0
+    # Bytes of the next request's headers have arrived (its blank lines included).
+    getter? partial : Bool = false
+
+    @body_left : Int64? = 0_i64
+
+    def initialize
+      @line = Bytes.new(LINE_LIMIT)
+      @line_length = 0
+      @seen_line = false
+      @in_body = false
+      @content_length = nil.as(Int64?)
+      @unknown_length = false
+    end
+
+    # In the body of a request whose length the headers did not give.
+    def unknown_body? : Bool
+      @in_body && @body_left.nil?
+    end
+
+    def feed(bytes : Bytes) : Nil
+      index = 0
+      while index < bytes.size
+        if @in_body
+          left = @body_left || return
+          taken = Math.min(left, (bytes.size - index).to_i64)
+          index += taken
+          @body_left = left - taken
+          @in_body = false if left == taken
+        else
+          index = scan(bytes, index)
+        end
+      end
+    end
+
+    # The answer to a body of unknown length was written: what comes next is a new request.
+    def restart : Nil
+      @in_body = false
+      start_headers
+    end
+
+    # Scans header bytes from *index*; returns the index just past the blank line that ends them, or the end of *bytes*.
+    # Lines end in LF, with or without a CR; blank lines before the request line are not the end.
+    private def scan(bytes : Bytes, index : Int32) : Int32
+      @partial = true
+      while index < bytes.size
+        byte = bytes[index]
+        index += 1
+        if byte == '\n'.ord
+          if @line_length == 0 && @seen_line
+            end_headers
+            return index
+          end
+          end_line if @line_length > 0
+        elsif byte != '\r'.ord
+          @line[@line_length] = byte if @line_length < LINE_LIMIT
+          @line_length += 1
+        end
+      end
+      index
+    end
+
+    # A header line is a body length, or not; the first line is the request line.
+    private def end_line : Nil
+      read_length if @seen_line
+      @seen_line = true
+      @line_length = 0
+    end
+
+    private def read_length : Nil
+      line = String.new(@line[0, Math.min(@line_length, LINE_LIMIT)])
+      name, colon, value = line.partition(':')
+      return if colon.empty?
+      case name.strip.downcase
+      when "transfer-encoding" then @unknown_length = true
+      when "content-length"
+        length = @line_length <= LINE_LIMIT ? value.strip.to_i64?(whitespace: false) : nil
+        @unknown_length = true if length.nil? || length < 0 || (@content_length && @content_length != length)
+        @content_length = length
+      end
+    end
+
+    private def end_headers : Nil
+      @parsed += 1
+      @body_left = @unknown_length ? nil : (@content_length || 0_i64)
+      @in_body = @body_left != 0
+      start_headers
+    end
+
+    private def start_headers : Nil
+      @partial = false
+      @line_length = 0
+      @seen_line = false
+      @content_length = nil
+      @unknown_length = false
+    end
+  end
+
   # The time rules of `ServerLimitsConfiguration` for one connection, as a state machine over what the client sends and
   # what the server writes. It reads the request, so it works on plain text: the socket itself for HTTP, the decrypted
   # stream for HTTPS.
   #
   # `Headers`: from the first byte of a request, or from the accept (a TLS handshake included), until the blank line
   # that ends the headers, under one deadline (`header_timeout`), however the client slices its writes. `Body`: until the
-  # handler is done with it, each read within `read_timeout` and the whole arriving no slower than `min_body_rate`.
-  # `Idle`: the connection waits for the next request, `keep_alive_timeout`. The server never says when a request is
-  # over, so the first read after a final response was written is taken as the wait for the next one; an informational
-  # `1xx` (`100 Continue`) is not a response. `Released`: an upgraded connection (WebSocket) has no limit at all.
+  # handler is done with it, each read within `read_timeout`, and the time the server waits for the body paid for at
+  # `min_body_rate` (a credit of at most `read_timeout`, so a body that keeps that pace is never cut, however long it
+  # is, and time the server spends not reading is not the client's). `Idle`: the connection waits for the next request,
+  # `keep_alive_timeout`. The server never says when a request is over, so the first read after a final response was
+  # written is taken as the end of the request; an informational `1xx` (`100 Continue`) is not a response. Where the
+  # next request begins is known from the bytes (`RequestStream`), so a request the client sent along with the previous
+  # one is timed from the end of that one's response, as headers or, once they are complete, as a body.
+  # `Released`: an upgraded connection (WebSocket) has no limit at all.
   class RequestClock
     enum Phase
       Headers
@@ -47,48 +157,42 @@ module Azu
       Released
     end
 
-    # The credit a fast start buys toward the body's deadline, in multiples of `read_timeout`.
-    BODY_CREDIT_FACTOR = 10
-
     getter phase : Phase = Phase::Headers
-    getter? seen_bytes : Bool = false
 
     @deadline : Time::Instant?
+    @waiting_since : Time::Instant?
 
     def initialize(@limits : ServerLimitsConfiguration)
-      @opened = Time.instant
-      @deadline = @limits.header_timeout.try { |span| @opened + span }
-      @body_started = @opened
-      @received = 0_i64
-      @line_length = 0
-      @seen_line = false
+      @deadline = @limits.header_timeout.try { |span| Time.instant + span }
+      @stream = RequestStream.new
+      @answered = 0
       @wrote = false
+      @credit = Time::Span.zero
     end
 
-    # How long the next read may wait, nil for as long as it takes; raises `IO::TimeoutError` when a deadline has passed.
+    # How long the next read may wait, nil for as long as it takes; raises `ServerLimits::ClientTooSlow` when a deadline
+    # has passed.
     def before_read : Time::Span?
-      now = Time.instant
-      @phase = Phase::Idle if @phase.body? && @wrote
+      next_request if @wrote && @phase.body?
       case @phase
-      when .headers? then soonest(@deadline.try { |deadline| remaining(deadline, now) }, @limits.read_timeout)
-      when .body?    then soonest(@limits.read_timeout, body_deadline.try { |deadline| remaining(deadline, now) })
-      when .idle?    then @limits.keep_alive_timeout
+      when .headers? then soonest(@deadline.try { |deadline| remaining(deadline) }, @limits.read_timeout)
+      when .body?
+        @waiting_since = Time.instant
+        soonest(@limits.read_timeout, body_credit)
+      when .idle? then @limits.keep_alive_timeout
       end
     end
 
     def after_read(bytes : Bytes) : Nil
-      return if bytes.empty? || @phase.released?
-      begin_request if @phase.idle?
-      if @phase.body?
-        @received += bytes.size
-        return
+      return if @phase.released?
+      pay_for_wait(bytes.size)
+      return if bytes.empty?
+      @stream.feed(bytes)
+      if @stream.parsed > @answered
+        start_body unless @phase.body?
+      elsif @phase.idle? && @stream.partial?
+        start_headers
       end
-      @seen_bytes = true
-      return unless end_of_headers = scan_headers(bytes)
-      @phase = Phase::Body
-      @body_started = Time.instant
-      @received = (bytes.size - end_of_headers).to_i64
-      @wrote = false
     end
 
     # A response, final or not, was written. Only a final one ends the request.
@@ -100,12 +204,51 @@ module Azu
       @phase = Phase::Released
     end
 
-    private def begin_request : Nil
+    # The bytes of a request's headers have come and the headers are late: the client can be told `408` before the
+    # connection is closed, as no handler is answering it.
+    def refusable? : Bool
+      @phase.headers? && @stream.partial?
+    end
+
+    # The request the server worked on was answered: the next one may have been sent already, in part or whole.
+    private def next_request : Nil
+      @answered += 1
+      @wrote = false
+      @stream.restart if @stream.unknown_body?
+      if @stream.parsed > @answered
+        start_body
+      elsif @stream.partial?
+        start_headers
+      else
+        @phase = Phase::Idle
+      end
+    end
+
+    private def start_headers : Nil
       @phase = Phase::Headers
       @deadline = @limits.header_timeout.try { |span| Time.instant + span }
-      @line_length = 0
-      @seen_line = false
-      @wrote = false
+    end
+
+    private def start_body : Nil
+      @phase = Phase::Body
+      @credit = @limits.read_timeout || Time::Span.zero
+      @waiting_since = nil
+    end
+
+    # The time the server waited for these bytes comes off the credit, and the bytes earn time at `min_body_rate`.
+    private def pay_for_wait(size : Int32) : Nil
+      since = @waiting_since || return
+      @waiting_since = nil
+      return unless @phase.body? && @limits.min_body_rate > 0
+      cap = @limits.read_timeout || return
+      earned = (size / @limits.min_body_rate).seconds
+      @credit = {@credit - (Time.instant - since) + earned, cap}.min
+    end
+
+    private def body_credit : Time::Span?
+      return if @limits.min_body_rate <= 0 || @limits.read_timeout.nil?
+      raise ServerLimits::ClientTooSlow.new if @credit <= Time::Span.zero
+      @credit
     end
 
     # `HTTP/1.x 1xx ...`: the status line of an informational response.
@@ -114,9 +257,9 @@ module Azu
     end
 
     # What is left until *deadline*; a deadline that has passed is a timeout now.
-    private def remaining(deadline : Time::Instant, now : Time::Instant) : Time::Span
-      left = deadline - now
-      raise IO::TimeoutError.new("The client was too slow") if left <= Time::Span.zero
+    private def remaining(deadline : Time::Instant) : Time::Span
+      left = deadline - Time.instant
+      raise ServerLimits::ClientTooSlow.new if left <= Time::Span.zero
       left
     end
 
@@ -124,31 +267,6 @@ module Azu
       return second unless first
       return first unless second
       Math.min(first, second)
-    end
-
-    # When the body has to be in by: `read_timeout` of grace and the time its bytes so far earn at `min_body_rate`,
-    # with the earned part capped so a burst at the start cannot buy hours.
-    # :nodoc:
-    def body_deadline : Time::Instant?
-      return if @limits.min_body_rate <= 0
-      grace = @limits.read_timeout || return
-      earned = {(@received / @limits.min_body_rate).seconds, grace * BODY_CREDIT_FACTOR}.min
-      @body_started + grace + earned
-    end
-
-    # The index just past the blank line that ends the headers in *bytes*, if it does. Lines end in LF, with or without
-    # a CR; blank lines before the request line are not the end.
-    private def scan_headers(bytes : Bytes) : Int32?
-      bytes.each_with_index do |byte, index|
-        if byte == '\n'.ord
-          return index + 1 if @line_length == 0 && @seen_line
-          @seen_line = true if @line_length > 0
-          @line_length = 0
-        elsif byte != '\r'.ord
-          @line_length += 1
-        end
-      end
-      nil
     end
   end
 
@@ -204,17 +322,20 @@ module Azu
       @clock.after_read(slice[0, count]) unless @tls
       count
     rescue ex : IO::TimeoutError
-      refuse_slow_request if !@tls && @clock.phase.headers? && @clock.seen_bytes?
-      raise ex
+      refuse_slow_request if !@tls && @clock.refusable?
+      raise ServerLimits.client_too_slow(ex)
     end
 
     private def unbuffered_write(slice : Bytes) : Nil
       @clock.after_write(slice) unless @tls
       super
+    rescue ex : IO::TimeoutError
+      raise ServerLimits.client_too_slow(ex)
     end
 
     private def unbuffered_close : Nil
       super
+    ensure
       @gate.try(&.leave) if @admitted.swap(0) == 1
     end
 
@@ -303,6 +424,20 @@ module Azu
   end
 
   module ServerLimits
+    # The client did not send the request, or take the response, in time (see `ServerLimitsConfiguration`): what the
+    # reads and writes of a limited connection raise, and what `Handler::Rescuer` answers `408`. Any other
+    # `IO::TimeoutError` (an upstream HTTP client, Redis, a database) is the server's own failure.
+    class ClientTooSlow < IO::TimeoutError
+      def initialize(message : String = "The client was too slow", cause : Exception? = nil)
+        super(message, cause)
+      end
+    end
+
+    # *ex* as a `ClientTooSlow`: a timeout of a limited connection's own read or write is the client's.
+    def self.client_too_slow(ex : IO::TimeoutError) : ClientTooSlow
+      ex.as?(ClientTooSlow) || ClientTooSlow.new(ex.message || "The client was too slow", ex)
+    end
+
     # Takes the limits off *io* once a handler has upgraded the connection.
     def self.release(io : IO) : Nil
       case io

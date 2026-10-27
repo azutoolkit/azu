@@ -45,6 +45,27 @@ private struct Hello
   end
 end
 
+# Busy (a slow query, a lock) before it reads the body the client sent at once.
+private struct BusyThenBody
+  include Azu::Routable
+
+  def call(context : HTTP::Server::Context)
+    sleep 1.5.seconds
+    body = context.request.body.try(&.gets_to_end) || ""
+    context.response << "body #{body.bytesize}"
+    context
+  end
+end
+
+# A timeout that is not the client's: an upstream HTTP::Client, Redis or database socket.
+private struct UpstreamTimeout
+  include Azu::Routable
+
+  def call(context : HTTP::Server::Context)
+    raise IO::TimeoutError.new("Read timed out")
+  end
+end
+
 private def limited_app(**options) : Azu::App
   app = Azu::App.new
   limits = app.config.limits
@@ -58,13 +79,15 @@ private def limited_app(**options) : Azu::App
   app.routes do
     get "/", Hello
     post "/body", BodyLength
+    post "/busy", BusyThenBody
+    get "/upstream", UpstreamTimeout
     ws "/echo", Echo
   end
   app
 end
 
-private def with_limited_server(app : Azu::App, &)
-  server = app.server
+private def with_limited_server(app : Azu::App, handlers = [] of HTTP::Handler, &)
+  server = app.server(handlers)
   address = Azu::ServerLimits.bind_tcp(server, app.config.limits, "127.0.0.1", 0, false)
   spawn { server.listen }
   200.times do
@@ -226,6 +249,72 @@ describe "server limits" do
         end
         text, _, _ = read_all(socket)
         text.should contain("body 40000")
+      end
+    end
+
+    it "takes a steady body above min_body_rate however long it takes in all" do
+      # 100 KB at about 25 KB/s: four seconds, more than ten times read_timeout, and 25 times min_body_rate.
+      with_limited_server(limited_app(read: 0.3, rate: 1024)) do |address|
+        socket = TCPSocket.new(address.address, address.port)
+        socket << "POST /body HTTP/1.1\r\nHost: x\r\nContent-Length: 100000\r\nConnection: close\r\n\r\n"
+        socket.flush
+        started = Time.instant
+        begin
+          40.times do
+            socket << "z" * 2500
+            socket.flush
+            sleep 0.1.seconds
+          end
+        rescue IO::Error
+        end
+        (Time.instant - started).should be > 3.5.seconds
+        text, _, _ = read_all(socket)
+        text.should contain("body 100000")
+      end
+    end
+
+    it "does not count the time the handler spends before it reads a body that was sent at once" do
+      with_limited_server(limited_app(read: 0.5, rate: 262_144)) do |address|
+        socket = TCPSocket.new(address.address, address.port)
+        socket << "POST /busy HTTP/1.1\r\nHost: x\r\nContent-Length: 100000\r\nConnection: close\r\n\r\n" << "z" * 100_000
+        socket.flush
+        text, _, _ = read_all(socket, 8.seconds)
+        text.should contain("body 100000")
+      end
+    end
+  end
+
+  describe "pipelining" do
+    it "times a request whose headers were sent with the previous one as a body, and answers each request once" do
+      with_limited_server(limited_app(header: 0.6, read: 2.0), [Azu::Handler::Rescuer.new] of HTTP::Handler) do |address|
+        socket = TCPSocket.new(address.address, address.port)
+        socket << "GET / HTTP/1.1\r\nHost: x\r\n\r\nPOST /body HTTP/1.1\r\nHost: x\r\nConnection: close\r\nContent-Length: 20000\r\n"
+        socket.flush
+        sleep 0.2.seconds
+        socket << "\r\n"
+        socket.flush
+        begin
+          20.times do # 20 KB over about 1.6 s: longer than header_timeout, far above min_body_rate
+            socket << "z" * 1000
+            socket.flush
+            sleep 0.08.seconds
+          end
+        rescue IO::Error
+        end
+        text, _, _ = read_all(socket)
+        text.scan(/HTTP\/1.1 \d+/).map(&.[0]).should eq ["HTTP/1.1 200", "HTTP/1.1 200"]
+        text.should contain("hello")
+        text.should contain("body 20000")
+      end
+    end
+
+    it "serves requests sent together in one write" do
+      with_limited_server(limited_app) do |address|
+        socket = TCPSocket.new(address.address, address.port)
+        socket << "GET / HTTP/1.1\r\nHost: x\r\n\r\nPOST /body HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\n\r\nabcGET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+        socket.flush
+        text, _, _ = read_all(socket)
+        text.scan(/hello|body \d+/).map(&.[0]).should eq ["hello", "body 3", "hello"]
       end
     end
   end
@@ -406,15 +495,44 @@ describe "server limits" do
       clock.before_read.should be_nil
     end
 
-    it "caps what a fast start buys toward the body's deadline" do
+    it "lets a fast start buy at most read_timeout of waiting for a drip after it" do
       limits = Azu::ServerLimitsConfiguration.new
       limits.read_timeout = 2.seconds
       limits.min_body_rate = 1024
       clock = Azu::RequestClock.new(limits)
       clock.after_read("POST / HTTP/1.1\r\nContent-Length: 999999999\r\n\r\n".to_slice)
+      clock.before_read
       clock.after_read(Bytes.new(50_000_000)) # at 1 KB/s that would earn 13 hours
-      deadline = clock.body_deadline.not_nil!
-      (deadline - Time.instant).should be < 23.seconds # 2 s of grace and at most 10 x 2 s of credit
+      3.times do                              # then a byte per 0.5 s of waiting
+        clock.before_read
+        sleep 0.5.seconds
+        clock.after_read(Bytes.new(1))
+      end
+      clock.before_read.not_nil!.should be < 0.6.seconds
+    end
+
+    it "spends the body's credit only on the time the server waits for the client" do
+      limits = Azu::ServerLimitsConfiguration.new
+      limits.read_timeout = 1.second
+      limits.min_body_rate = 1024
+      clock = Azu::RequestClock.new(limits)
+      clock.after_read("POST / HTTP/1.1\r\nContent-Length: 999999999\r\n\r\n".to_slice)
+      sleep 1.2.seconds # the handler is busy: not the client's time
+      clock.before_read.not_nil!.should be > 0.9.seconds
+      sleep 0.4.seconds # waits for the client, which sends one byte
+      clock.after_read(Bytes.new(1))
+      left = clock.before_read.not_nil!
+      left.should be < 0.7.seconds
+      left.should be > 0.3.seconds
+    end
+
+    it "raises ClientTooSlow, an IO::TimeoutError, when a deadline has passed" do
+      limits = Azu::ServerLimitsConfiguration.new
+      limits.header_timeout = 0.1.seconds
+      clock = Azu::RequestClock.new(limits)
+      sleep 0.2.seconds
+      expect_raises(Azu::ServerLimits::ClientTooSlow) { clock.before_read }
+      Azu::ServerLimits::ClientTooSlow.new.should be_a(IO::TimeoutError)
     end
 
     it "does not take 100 Continue for the response" do
@@ -451,6 +569,34 @@ describe "server limits" do
       ensure
         server.close
       end
+    end
+  end
+
+  describe "a timeout that is not the client's" do
+    it "is the server's error, answered 500 by Rescuer" do
+      backend = ::Log::MemoryBackend.new
+      log = ::Log.new("upstream_spec", backend, :debug)
+      with_limited_server(limited_app, [Azu::Handler::Rescuer.new(log)] of HTTP::Handler) do |address|
+        HTTP::Client.new(address.address, address.port).get("/upstream").status_code.should eq 500
+        backend.entries.map(&.message).none?(&.includes?("-> 408")).should be_true
+      end
+    end
+  end
+
+  describe "the connection gate" do
+    it "gives the place back even when closing the socket fails" do
+      limits = Azu::ServerLimitsConfiguration.new
+      limits.max_connections = 2
+      listener = Azu::LimitedTCPServer.new("127.0.0.1", 0, limits)
+      client = TCPSocket.new("127.0.0.1", listener.local_address.port)
+      accepted = listener.accept?.not_nil!
+      listener.gate.open.should eq 1
+      LibC.close(accepted.fd) # closed under it: its own close fails with EBADF
+      expect_raises(IO::Error) { accepted.close }
+      listener.gate.open.should eq 0
+    ensure
+      client.try &.close
+      listener.try &.close
     end
   end
 

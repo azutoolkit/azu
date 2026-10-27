@@ -78,9 +78,9 @@ accepts; a server you bind yourself with `server.bind_tcp` has none of it (use `
 
 | Option | Type | Default | Environment | Meaning |
 |---|---|---|---|---|
-| `limits.header_timeout` | `Time::Span?` | 10 s | `SERVER_HEADER_TIMEOUT` (seconds) | From the first byte of a request (or the connection) to the end of its headers, one deadline however the client slices its writes; the answer is `408` |
+| `limits.header_timeout` | `Time::Span?` | 10 s | `SERVER_HEADER_TIMEOUT` (seconds) | From the first byte of a request (or the connection) to the end of its headers, one deadline however the client slices its writes; over plain HTTP the client is answered `408` and the connection closed, under TLS the connection is just closed |
 | `limits.read_timeout` | `Time::Span?` | 30 s | `SERVER_READ_TIMEOUT` | The server waits for the client (a request body, a TLS handshake) at most this long per read |
-| `limits.min_body_rate` | `Int32` | 1024 | `SERVER_MIN_BODY_RATE` (bytes per second) | A request body must arrive at least this fast after `read_timeout` of grace; `0` turns the rule off |
+| `limits.min_body_rate` | `Int32` | 1024 | `SERVER_MIN_BODY_RATE` (bytes per second) | A request body must keep up this pace: the time the server waits for it is paid for by its bytes at this rate, with at most `read_timeout` of credit, so a body at this pace or faster is taken however long it is in all, and a drip is cut within about `read_timeout`; time the handler spends not reading is not counted. `0` turns the rule off |
 | `limits.write_timeout` | `Time::Span?` | 60 s | `SERVER_WRITE_TIMEOUT` | A write the client does not take; each piece of a streamed response gets this long |
 | `limits.keep_alive_timeout` | `Time::Span?` | 60 s | `SERVER_KEEP_ALIVE_TIMEOUT` | A kept-alive connection waiting for its next request |
 | `limits.max_connections` | `Int32` | 10 000 | `SERVER_MAX_CONNECTIONS` | Connections served at once; the next is answered `503` with `Retry-After: 1` and closed. `0` means no limit |
@@ -92,12 +92,17 @@ An upgraded connection (a WebSocket, so Spark too, over TLS as well) is released
 over, and is not counted as idle. Under TLS the rules run on the decrypted request, with the TLS handshake inside the
 `header_timeout` deadline, so a client that drips the handshake or the headers is cut the same way; a connection over
 `max_connections` is just closed (a plain-text `503` is not readable on a TLS port). The server does not announce the end
-of a request, so the first read after a final response was written is taken as the wait for the next request (an
-informational `100 Continue` is not a final response). A handler that starts writing its response before it has read the
-whole request body (a full-duplex echo) therefore has the rest of that body timed as a new request: read the body first, or
+of a request, so the first read after a final response was written is taken as the end of that request (an
+informational `100 Continue` is not a final response). Where the next request starts is read from the bytes (the end of
+the headers, and `Content-Length`), so a request the client pipelined behind another is timed from the end of the previous
+response: as headers, or as a body once its headers are in. A handler that starts writing its response before it has read
+the whole request body (a full-duplex echo) has the rest of that body timed as an idle connection (`keep_alive_timeout`)
+when the body has a `Content-Length`, and as the headers of a new request when it is chunked: read the body first, or
 raise the limits. A request that is being handled is never cut: the limits act on the client's side of a read and write,
-not on your code; a body that the client stops sending raises `IO::TimeoutError` in the handler's read, which `Rescuer`
-answers `408` with one log line (a flood of them is rate-limited). During shutdown the keep-alive timeout is what bounds an
+not on your code; a body that the client stops sending raises `Azu::ServerLimits::ClientTooSlow` (an `IO::TimeoutError`)
+in the handler's read, which `Rescuer` answers `408` with one log line (a flood of them is rate-limited). Any other
+`IO::TimeoutError`, such as an upstream HTTP client, Redis or database call timing out, is the server's failure and
+answered `500` with its backtrace. During shutdown the keep-alive timeout is what bounds an
 idle connection that stays open. Requests are timed with the monotonic clock, not `Azu::Clock`.
 
 `max_connections` has no per-address share: one host can hold every place with silent connections for `header_timeout`
