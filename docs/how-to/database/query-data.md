@@ -260,6 +260,36 @@ Post.preload(:user).all.each { |post| puts post.user.try(&.name) }
 In development the dev dashboard's Database tab reports a `SELECT` that one request repeats, as the first loop does
 (see [N+1 detection](../../reference/database-dashboard.md#n1-detection)).
 
+## Count repeated queries per request
+
+Curious how often one request runs the very same statement? Switch on CQL's request cache and pass `query_cache: true`
+to `Azu::CQL::Middleware`. Mount it after `RequestId`, so the counts are filed under the request's `X-Request-ID`:
+
+```crystal
+Azu::CQL.configure do |c|
+  c.cache.on = true            # CQL's cache is off by default, and the request cache is part of it
+  c.cache.request_cache = true # already the default once the cache is on
+end
+
+handlers = [
+  Azu::Handler::RequestId.new,
+  Azu::Handler::Rescuer.new,
+  Azu::CQL::Middleware.new(AcmeDB, query_cache: true),
+] of HTTP::Handler
+```
+
+Anywhere inside the request, `Azu::CQL.request_cache_stats` tells you what it has run so far:
+
+```crystal
+if stats = Azu::CQL.request_cache_stats
+  Log.info { "#{stats.request_id}: #{stats.queries} queries, #{stats.repeated} repeated" }
+end
+```
+
+`repeated` counts the statements that already ran in this request with the same SQL and the same parameters, such as a
+`User.find(id)` that three helpers each call. It is a diagnostic, not a speed-up: CQL stores no rows, and every statement
+still reaches the database. The stats are `nil` outside such a request and while CQL's cache is off.
+
 ## Raw SQL
 
 `schema.exec_query` yields a `DB::Connection` that takes `?` parameters (`$1` on PostgreSQL). `schema.exec` runs one SQL

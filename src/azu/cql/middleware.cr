@@ -12,7 +12,8 @@ module Azu
     # renders it) or a status of `rollback_from` and above. Failed model validations that escape as
     # CQL exceptions become `Response::ValidationError` (422). Transactions are per fiber, so requests
     # served concurrently never share one. Without `transaction` CQL checks out a pooled connection per
-    # statement, as usual.
+    # statement, as usual. With `query_cache: true` the request also runs in CQL's request query cache, a
+    # repeated-statement counter read through `Azu::CQL.request_cache_stats` (it stores no rows).
     class Middleware
       include HTTP::Handler
 

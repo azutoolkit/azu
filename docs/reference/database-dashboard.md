@@ -66,6 +66,7 @@ out like this is [`playground/azu_cql_postgres`](https://github.com/azutoolkit/a
 | `health_check(schema, timeout = 2.seconds)` | `Proc(Bool)` | A check for `Azu::Handler::HealthCheck` |
 | `engine(schema)` | `::CQL::Postgres::AsyncEngine?` | The native PostgreSQL engine behind a schema, `nil` on crystal-db's pool |
 | `transaction(schema) { ... }` | | Runs the block in `schema.transaction`; its statements show as one transaction in the tab |
+| `request_cache_stats` | `Azu::CQL::RequestCacheStats?` | The current request's counts from CQL's request cache (`queries`, `repeated`), with `Middleware.new(query_cache: true)`; see [CQL bridge](api/cql-bridge.md#azucqlmiddleware) |
 | `track(schema)`, `untrack(schema)`, `shutdown` | `Nil` | The schemas whose pools `Azu.shutdown` closes (`schema` and `attach` track for you) |
 | `Instrumentor.install`, `Instrumentor.uninstall`, `Instrumentor.installed?` | | The `CQL::Telemetry` subscribers (named `azu.dashboard`); installing twice replaces them |
 

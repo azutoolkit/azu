@@ -173,6 +173,16 @@ server = app.server(handlers)
 * Transactions are tied to the serving fiber, so concurrent requests never share one.
 * Without `transaction`, CQL keeps checking out a pooled connection per statement; only the tagging applies.
 * Escaping `CQL::RecordInvalid`, `CQL::ValidationError` and the model validation error become 422s.
+* With `query_cache: true` (off by default) the rest of the chain runs in `::CQL.with_request_cache(request_id)`, the id
+  being the request's `Azu::RequestContext` id (the `X-Request-ID` that `RequestId` checked, or one it generated).
+  The scope wraps the transaction, so it also covers the commit, and it ends on an exception too.
+  `Azu::CQL.request_cache_stats` then answers an `Azu::CQL::RequestCacheStats` (`request_id`, `queries`, `repeated`:
+  the statements run again with the same SQL and parameters) for the request being served, and `nil` elsewhere. CQL
+  only tracks with `c.cache.on = true` and `c.cache.request_cache` (true by default) set in `Azu::CQL.configure`;
+  otherwise the stats are `nil`. It counts, it caches nothing: no rows are stored and every statement runs. CQL's
+  tracker is one per process up to cql 0.0.921, so the counts of requests that overlap include each other's.
+  [Count repeated queries per request](../../how-to/database/query-data.md#count-repeated-queries-per-request) walks
+  through it.
 
 {% hint style="warning" %}
 If the commit itself fails, the middleware discards the body the handler buffered (while headers have not been sent)
