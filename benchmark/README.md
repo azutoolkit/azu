@@ -2,7 +2,7 @@
 
 A reproducible suite that measures Azu next to other Crystal web frameworks on the same machine, with the
 same responses, the same compiler and the same load. It exists so that any statement about Azu's speed has a
-source: a command, a result file and a stated machine. **This page contains no numbers on purpose.** (One run is committed as a snapshot under `benchmark/snapshots/`, and the repository README quotes it. That run (Azu 0.5.123, Crystal 1.22.1) used an uncommitted bump of the `azu` app to CQL 0.0.808 on a dirty working tree; the committed app pins CQL 0.0.541, so the snapshot is not reproducible from a commit. It did not include Athena.) Numbers
+source: a command, a result file and a stated machine. **This page contains no numbers on purpose.** (One run is committed as a snapshot under `benchmark/snapshots/`, and the repository README quotes it. That run (Azu 0.5.123, Crystal 1.22.1) used an uncommitted bump of the `azu` app to CQL 0.0.808 on a dirty working tree; the committed app pins CQL 0.0.541, so the snapshot is not reproducible from a commit. It did not include Athena. That is older than the current release (0.9.x). It predates the near-zero default middleware (#229), the segment-tree router (#234) and the server limits (#256, #258), so the default-stack column and the middleware gap may not describe the current release; a re-run on 0.9.x is pending.) Numbers
 belong to a result file (`benchmark/results/`, git-ignored) and to the machine that produced it. The suite
 does not declare winners: it reports medians with their spread, and says when a run was too noisy to quote.
 
@@ -64,11 +64,11 @@ One program per framework in `benchmark/apps/<name>/src/app.cr`, built with `cry
 - The default `azu` stack runs `RequestId`, `SecurityHeaders` and `Static` on every request. The other
   frameworks' default stacks do not do that work, so a headline comparison should show `azu` next to `azu-min`
   (and, for the DB scenarios, `azu-rawdb` and `azu-min-rawdb`), not `azu` alone.
-- The app is written against the lower-level `Azu::App` API (routes declared with `app.routes`, the server
-  built with `app.server(handlers)`), the 0.6 style of this repository at the commit in the result's `git`
-  field. That API is not in a release yet; results from another commit are not comparable.
-- **The `template` scenario is Crinja against compiled ECR.** Azu parses and renders a Jinja template on each
-  request (and builds a `Crinja::Value` hash per call); the baseline, Kemal and Athena run ECR that the compiler
+- The app is written against the `Azu::App` API (routes declared with `app.routes`, the server built with
+  `app.server(handlers)`), as at the commit in the result's `git` field. Results from another commit are not
+  comparable.
+- **The `template` scenario is Crinja against compiled ECR.** Azu renders a Jinja template through the Crinja
+  interpreter on each request (parsed once at boot in production, and a `Crinja::Value` hash built per call); the baseline, Kemal and Athena run ECR that the compiler
   turned into straight code. The scenario measures the template systems, not the routers. A compile-time Azu
   variant (`Azu::Component`) is not included yet.
 - The `routing` scenario requests 99,700 distinct paths (100 routes x 997 ids). Azu has no path cache since its
