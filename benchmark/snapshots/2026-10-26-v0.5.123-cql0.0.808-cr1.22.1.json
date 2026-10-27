@@ -1,0 +1,3962 @@
+{
+  "environment": {
+    "date": "2026-10-26T03:19:17.682Z",
+    "shard_lock_sha256": {
+      "baseline": "aff4bee9a239",
+      "azu": "a1aed33dd83a",
+      "kemal": "87d4674f9f37",
+      "athena": "2e7432486a5a",
+      "lucky": "10be05587b6d"
+    },
+    "shard_lock_modified": [
+      " M benchmark/apps/azu/shard.lock"
+    ],
+    "kernel": "Linux 6.18.44-fc-v153",
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "cpus": 4,
+    "memory_mb": 16091,
+    "swap_mb": 0,
+    "governor": "unknown (not exposed)",
+    "hypervisor": "yes (virtualised: expect noise)",
+    "loadavg": [
+      1.06,
+      2.05,
+      3.2
+    ],
+    "container": "no",
+    "crystal": "Crystal 1.22.1 [23828b0a4] (2026-10-22) | ",
+    "wrk": "wrk debian/4.1.0-4build2 [epoll] Copyright (C) 2012 Will Glozer",
+    "node": "v22.22.0",
+    "git": "cc96c64 (dirty)",
+    "shards": {
+      "baseline": [
+        "db 0.13.1",
+        "sqlite3 0.21.0"
+      ],
+      "azu": [
+        "azu 0.5.99",
+        "backtracer 1.2.4",
+        "cql 0.0.808",
+        "crinja 0.9.0",
+        "db 0.13.1",
+        "exception_page 0.5.0",
+        "pool 0.2.4",
+        "radix 0.4.1",
+        "redis 2.9.1",
+        "schema 0.2.7",
+        "sqlite3 0.21.0",
+        "ulid 0.1.0"
+      ],
+      "kemal": [
+        "backtracer 1.2.4",
+        "db 0.13.1",
+        "exception_page 0.5.0",
+        "kemal 1.9.0",
+        "radix 0.4.1",
+        "sqlite3 0.21.0"
+      ],
+      "athena": [
+        "athena 0.23.0",
+        "athena-contracts 0.1.1",
+        "athena-dependency_injection 0.4.6",
+        "athena-event_dispatcher 0.4.2",
+        "athena-http 0.1.1",
+        "athena-http_kernel 0.2.0",
+        "athena-mime 0.2.2",
+        "athena-routing 0.2.1",
+        "db 0.13.1",
+        "sqlite3 0.21.0"
+      ],
+      "lucky": [
+        "backtracer 1.2.4",
+        "cry 0.4.3",
+        "db 0.13.1",
+        "dexter 0.3.4",
+        "exception_page 0.5.0",
+        "habitat 0.4.9",
+        "lucky 1.5.0",
+        "lucky_cache 0.2.0",
+        "lucky_router 0.6.2",
+        "lucky_task 0.3.0",
+        "lucky_template 0.2.0",
+        "pulsar 0.2.3",
+        "shell-table 0.9.3",
+        "splay_tree_map 0.4.0",
+        "sqlite3 0.21.0",
+        "wordsmith 0.5.0"
+      ]
+    },
+    "force": false,
+    "quiet_wait_s": 939,
+    "noisy": [],
+    "foreign_cpu_pct": 0
+  },
+  "config": {
+    "runs": 5,
+    "duration": 10,
+    "warmup": 3,
+    "connections": 64,
+    "threads": 2,
+    "ws_clients": 50,
+    "ws_senders": 4,
+    "pinning": "server on CPUs 0,1, load generators on CPUs 2,3",
+    "label": "cql808-v0.5.123-cr1221"
+  },
+  "apps": [
+    {
+      "name": "baseline",
+      "stack": "HTTP::Server, hand-written dispatch, ECR, crystal-sqlite3, HTTP::WebSocketHandler",
+      "websocket": true,
+      "status": "ok",
+      "startup_ms": 56.96048900007736,
+      "headers": [
+        "connection",
+        "content-length",
+        "content-type"
+      ],
+      "content_types": {
+        "plaintext": "text/plain",
+        "json": "application/json",
+        "template": "text/html",
+        "db_single": "application/json",
+        "db_multi": "application/json",
+        "routing": "application/json"
+      },
+      "response_bytes": {
+        "plaintext": 102,
+        "json": 122,
+        "template": 1254,
+        "db_single": 138,
+        "db_multi": 836,
+        "routing": 128
+      },
+      "logs_on_404": {
+        "logs": false,
+        "bytes": 0
+      },
+      "idle_rss_kb": 11812
+    },
+    {
+      "name": "azu",
+      "stack": "Azu::App, default handlers without the request logger, Crinja, CQL (SQLite), Azu::Channel",
+      "websocket": true,
+      "status": "ok",
+      "startup_ms": 19.921719999983907,
+      "headers": [
+        "connection",
+        "content-length",
+        "content-type",
+        "referrer-policy",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-request-id"
+      ],
+      "content_types": {
+        "plaintext": "text/plain",
+        "json": "application/json",
+        "template": "text/html",
+        "db_single": "application/json",
+        "db_multi": "application/json",
+        "routing": "application/json"
+      },
+      "response_bytes": {
+        "plaintext": 264,
+        "json": 284,
+        "template": 1416,
+        "db_single": 300,
+        "db_multi": 998,
+        "routing": 290
+      },
+      "logs_on_404": {
+        "logs": false,
+        "bytes": 0
+      },
+      "idle_rss_kb": 19932
+    },
+    {
+      "name": "kemal",
+      "stack": "Kemal 1.9.0 default handlers, logging off, ECR, crystal-sqlite3, Kemal ws",
+      "websocket": true,
+      "status": "ok",
+      "startup_ms": 12.961456999997608,
+      "headers": [
+        "connection",
+        "content-length",
+        "content-type",
+        "date"
+      ],
+      "content_types": {
+        "plaintext": "text/plain",
+        "json": "application/json",
+        "template": "text/html",
+        "db_single": "application/json",
+        "db_multi": "application/json",
+        "routing": "application/json"
+      },
+      "response_bytes": {
+        "plaintext": 139,
+        "json": 159,
+        "template": 1291,
+        "db_single": 175,
+        "db_multi": 873,
+        "routing": 165
+      },
+      "logs_on_404": {
+        "logs": false,
+        "bytes": 0
+      },
+      "idle_rss_kb": 13060
+    },
+    {
+      "name": "lucky",
+      "stack": "Lucky 1.5.0 ErrorHandler/RouteHandler, HTMLPage, crystal-sqlite3; no WebSocket support",
+      "websocket": false,
+      "status": "ok",
+      "startup_ms": 17.26400699990336,
+      "headers": [
+        "connection",
+        "content-length",
+        "content-type",
+        "date"
+      ],
+      "content_types": {
+        "plaintext": "text/plain",
+        "json": "application/json",
+        "template": "text/html",
+        "db_single": "application/json",
+        "db_multi": "application/json",
+        "routing": "application/json"
+      },
+      "response_bytes": {
+        "plaintext": 139,
+        "json": 159,
+        "template": 1291,
+        "db_single": 175,
+        "db_multi": 873,
+        "routing": 165
+      },
+      "logs_on_404": {
+        "logs": true,
+        "bytes": 1097
+      },
+      "idle_rss_kb": 12040
+    },
+    {
+      "name": "azu-min",
+      "stack": "azu with Handler::Rescuer only, plus the App::Scope wrapper every Azu::App adds (in-flight counter, current app/config): router + endpoint + Scope + Rescuer, without RequestId, SecurityHeaders and Static",
+      "websocket": true,
+      "status": "ok",
+      "startup_ms": 18.73423299996648,
+      "headers": [
+        "connection",
+        "content-length",
+        "content-type"
+      ],
+      "content_types": {
+        "plaintext": "text/plain",
+        "json": "application/json",
+        "template": "text/html",
+        "db_single": "application/json",
+        "db_multi": "application/json",
+        "routing": "application/json"
+      },
+      "response_bytes": {
+        "plaintext": 102,
+        "json": 122,
+        "template": 1254,
+        "db_single": 138,
+        "db_multi": 836,
+        "routing": 128
+      },
+      "logs_on_404": {
+        "logs": false,
+        "bytes": 0
+      },
+      "idle_rss_kb": 20256
+    },
+    {
+      "name": "azu-min-rawdb",
+      "stack": "azu-min with crystal-sqlite3 instead of CQL: the closest Azu gets to the baseline, for the DB scenarios",
+      "websocket": true,
+      "status": "ok",
+      "startup_ms": 17.83593100006692,
+      "headers": [
+        "connection",
+        "content-length",
+        "content-type"
+      ],
+      "content_types": {
+        "plaintext": "text/plain",
+        "json": "application/json",
+        "template": "text/html",
+        "db_single": "application/json",
+        "db_multi": "application/json",
+        "routing": "application/json"
+      },
+      "response_bytes": {
+        "plaintext": 102,
+        "json": 122,
+        "template": 1254,
+        "db_single": 138,
+        "db_multi": 836,
+        "routing": 128
+      },
+      "logs_on_404": {
+        "logs": false,
+        "bytes": 0
+      },
+      "idle_rss_kb": 19576
+    },
+    {
+      "name": "azu-rawdb",
+      "stack": "azu with crystal-sqlite3 instead of CQL: isolates the ORM cost in the DB scenarios",
+      "websocket": true,
+      "status": "ok",
+      "startup_ms": 18.266914000036195,
+      "headers": [
+        "connection",
+        "content-length",
+        "content-type",
+        "referrer-policy",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-request-id"
+      ],
+      "content_types": {
+        "plaintext": "text/plain",
+        "json": "application/json",
+        "template": "text/html",
+        "db_single": "application/json",
+        "db_multi": "application/json",
+        "routing": "application/json"
+      },
+      "response_bytes": {
+        "plaintext": 264,
+        "json": 284,
+        "template": 1416,
+        "db_single": 300,
+        "db_multi": 998,
+        "routing": 290
+      },
+      "logs_on_404": {
+        "logs": false,
+        "bytes": 0
+      },
+      "idle_rss_kb": 19876
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "plaintext",
+      "kind": "http",
+      "path": "/plaintext",
+      "results": [
+        {
+          "app": "baseline",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 82261,
+            "min": 77928.53,
+            "max": 84799.89,
+            "mean": 82149.68000000001,
+            "stddev": 2664.8382218251077,
+            "rsd_pct": 3.243881439130508
+          },
+          "p50_ms": 0.705,
+          "p99_ms": 2.18,
+          "p99_ms_worst": 2.54,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 83994.41,
+              "p50_ms": 0.6940000000000001,
+              "p90_ms": 1.16,
+              "p99_ms": 2.54,
+              "requests": 848356,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 82261,
+              "p50_ms": 0.705,
+              "p90_ms": 1.14,
+              "p99_ms": 2.17,
+              "requests": 823988,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 77928.53,
+              "p50_ms": 0.721,
+              "p90_ms": 1.21,
+              "p99_ms": 2.18,
+              "requests": 780242,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 81764.57,
+              "p50_ms": 0.711,
+              "p90_ms": 1.11,
+              "p99_ms": 2.42,
+              "requests": 819172,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 84799.89,
+              "p50_ms": 0.6970000000000001,
+              "p90_ms": 1.04,
+              "p99_ms": 2.14,
+              "requests": 849906,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 18304,
+          "peak_rss_kb": 24984
+        },
+        {
+          "app": "azu",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 65830.31,
+            "min": 60545.66,
+            "max": 66559.71,
+            "mean": 64397.002,
+            "stddev": 2556.6870116167906,
+            "rsd_pct": 3.970195711310894
+          },
+          "p50_ms": 0.86,
+          "p99_ms": 2.72,
+          "p99_ms_worst": 3.02,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 66032.89,
+              "p50_ms": 0.86,
+              "p90_ms": 1.49,
+              "p99_ms": 3.02,
+              "requests": 661360,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 63016.44,
+              "p50_ms": 0.88,
+              "p90_ms": 1.53,
+              "p99_ms": 2.74,
+              "requests": 636473,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 65830.31,
+              "p50_ms": 0.86,
+              "p90_ms": 1.51,
+              "p99_ms": 2.44,
+              "requests": 659269,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 66559.71,
+              "p50_ms": 0.837,
+              "p90_ms": 1.48,
+              "p99_ms": 2.72,
+              "requests": 666642,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 60545.66,
+              "p50_ms": 0.89,
+              "p90_ms": 1.63,
+              "p99_ms": 2.71,
+              "requests": 606237,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 25208,
+          "peak_rss_kb": 34028
+        },
+        {
+          "app": "kemal",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 60335.96,
+            "min": 59799.35,
+            "max": 61048.37,
+            "mean": 60457.534,
+            "stddev": 494.1069341043513,
+            "rsd_pct": 0.8172793387576002
+          },
+          "p50_ms": 0.93,
+          "p99_ms": 2.77,
+          "p99_ms_worst": 2.89,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 61048.37,
+              "p50_ms": 0.93,
+              "p90_ms": 1.59,
+              "p99_ms": 2.72,
+              "requests": 612190,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 60335.96,
+              "p50_ms": 0.92,
+              "p90_ms": 1.63,
+              "p99_ms": 2.58,
+              "requests": 603987,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 60267.7,
+              "p50_ms": 0.93,
+              "p90_ms": 1.62,
+              "p99_ms": 2.89,
+              "requests": 603481,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 59799.35,
+              "p50_ms": 0.94,
+              "p90_ms": 1.65,
+              "p99_ms": 2.83,
+              "requests": 600143,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 60836.29,
+              "p50_ms": 0.91,
+              "p90_ms": 1.63,
+              "p99_ms": 2.77,
+              "requests": 609862,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 19944,
+          "peak_rss_kb": 25088
+        },
+        {
+          "app": "lucky",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 67149.55,
+            "min": 65147.82,
+            "max": 67348.7,
+            "mean": 66483.484,
+            "stddev": 1035.397277005306,
+            "rsd_pct": 1.5573751775783984
+          },
+          "p50_ms": 0.85,
+          "p99_ms": 2.62,
+          "p99_ms_worst": 2.78,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 65581.68,
+              "p50_ms": 0.86,
+              "p90_ms": 1.53,
+              "p99_ms": 2.78,
+              "requests": 656625,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 67189.67,
+              "p50_ms": 0.839,
+              "p90_ms": 1.47,
+              "p99_ms": 2.44,
+              "requests": 673489,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 67348.7,
+              "p50_ms": 0.85,
+              "p90_ms": 1.48,
+              "p99_ms": 2.4,
+              "requests": 674172,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 67149.55,
+              "p50_ms": 0.834,
+              "p90_ms": 1.51,
+              "p99_ms": 2.62,
+              "requests": 672466,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 65147.82,
+              "p50_ms": 0.85,
+              "p90_ms": 1.56,
+              "p99_ms": 2.76,
+              "requests": 652678,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 19496,
+          "peak_rss_kb": 26008
+        },
+        {
+          "app": "azu-min",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 74356.8,
+            "min": 68739.6,
+            "max": 76650.36,
+            "mean": 72939.15599999999,
+            "stddev": 3204.6607699536603,
+            "rsd_pct": 4.393608242400914
+          },
+          "p50_ms": 0.767,
+          "p99_ms": 2.37,
+          "p99_ms_worst": 2.8,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 68739.6,
+              "p50_ms": 0.788,
+              "p90_ms": 1.49,
+              "p99_ms": 2.8,
+              "requests": 688941,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 74375.64,
+              "p50_ms": 0.761,
+              "p90_ms": 1.38,
+              "p99_ms": 2.37,
+              "requests": 745404,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 76650.36,
+              "p50_ms": 0.759,
+              "p90_ms": 1.22,
+              "p99_ms": 2.27,
+              "requests": 768324,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 74356.8,
+              "p50_ms": 0.767,
+              "p90_ms": 1.32,
+              "p99_ms": 2.06,
+              "requests": 745217,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 70573.38,
+              "p50_ms": 0.795,
+              "p90_ms": 1.38,
+              "p99_ms": 2.55,
+              "requests": 707199,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 27000,
+          "peak_rss_kb": 32664
+        },
+        {
+          "app": "azu-min-rawdb",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 72237.99,
+            "min": 68496.6,
+            "max": 76203.28,
+            "mean": 72013.394,
+            "stddev": 3118.036964602888,
+            "rsd_pct": 4.329801431943185
+          },
+          "p50_ms": 0.769,
+          "p99_ms": 2.49,
+          "p99_ms_worst": 2.56,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 68496.6,
+              "p50_ms": 0.809,
+              "p90_ms": 1.44,
+              "p99_ms": 2.49,
+              "requests": 687808,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 73627.59,
+              "p50_ms": 0.759,
+              "p90_ms": 1.4,
+              "p99_ms": 2.56,
+              "requests": 737407,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 72237.99,
+              "p50_ms": 0.769,
+              "p90_ms": 1.41,
+              "p99_ms": 2.39,
+              "requests": 723638,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 69501.51,
+              "p50_ms": 0.786,
+              "p90_ms": 1.46,
+              "p99_ms": 2.52,
+              "requests": 697348,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 76203.28,
+              "p50_ms": 0.755,
+              "p90_ms": 1.27,
+              "p99_ms": 2.07,
+              "requests": 763298,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 26592,
+          "peak_rss_kb": 31828
+        },
+        {
+          "app": "azu-rawdb",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 65126.88,
+            "min": 63734.49,
+            "max": 66011.16,
+            "mean": 64912.588,
+            "stddev": 841.1283190869291,
+            "rsd_pct": 1.2957861410284999
+          },
+          "p50_ms": 0.85,
+          "p99_ms": 2.78,
+          "p99_ms_worst": 3.09,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 63734.49,
+              "p50_ms": 0.85,
+              "p90_ms": 1.58,
+              "p99_ms": 3.09,
+              "requests": 638168,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 65145.38,
+              "p50_ms": 0.833,
+              "p90_ms": 1.58,
+              "p99_ms": 2.78,
+              "requests": 652349,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 66011.16,
+              "p50_ms": 0.86,
+              "p90_ms": 1.48,
+              "p99_ms": 2.32,
+              "requests": 660817,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 65126.88,
+              "p50_ms": 0.86,
+              "p90_ms": 1.48,
+              "p99_ms": 2.96,
+              "requests": 652219,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 64545.03,
+              "p50_ms": 0.85,
+              "p90_ms": 1.52,
+              "p99_ms": 2.55,
+              "requests": 646401,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 26304,
+          "peak_rss_kb": 31600
+        }
+      ]
+    },
+    {
+      "name": "json",
+      "kind": "http",
+      "path": "/json",
+      "results": [
+        {
+          "app": "baseline",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 75862.5,
+            "min": 74401.22,
+            "max": 78580.16,
+            "mean": 76461.946,
+            "stddev": 1673.3315238708678,
+            "rsd_pct": 2.188450087146445
+          },
+          "p50_ms": 0.754,
+          "p99_ms": 2.27,
+          "p99_ms_worst": 2.66,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 77723.01,
+              "p50_ms": 0.735,
+              "p90_ms": 1.26,
+              "p99_ms": 2.43,
+              "requests": 778401,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 75862.5,
+              "p50_ms": 0.756,
+              "p90_ms": 1.25,
+              "p99_ms": 2.66,
+              "requests": 760036,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 78580.16,
+              "p50_ms": 0.737,
+              "p90_ms": 1.21,
+              "p99_ms": 2.25,
+              "requests": 787760,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 75742.84,
+              "p50_ms": 0.754,
+              "p90_ms": 1.31,
+              "p99_ms": 2.12,
+              "requests": 758843,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 74401.22,
+              "p50_ms": 0.77,
+              "p90_ms": 1.26,
+              "p99_ms": 2.27,
+              "requests": 745065,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 18312,
+          "peak_rss_kb": 24984
+        },
+        {
+          "app": "azu",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 60663.43,
+            "min": 58489.37,
+            "max": 62250.98,
+            "mean": 60413.2,
+            "stddev": 1486.544090516659,
+            "rsd_pct": 2.460627959645672
+          },
+          "p50_ms": 0.89,
+          "p99_ms": 2.81,
+          "p99_ms_worst": 2.91,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 59413.34,
+              "p50_ms": 0.91,
+              "p90_ms": 1.7,
+              "p99_ms": 2.76,
+              "requests": 595033,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 58489.37,
+              "p50_ms": 0.93,
+              "p90_ms": 1.71,
+              "p99_ms": 2.89,
+              "requests": 585745,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 62250.98,
+              "p50_ms": 0.89,
+              "p90_ms": 1.63,
+              "p99_ms": 2.62,
+              "requests": 623416,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 61248.88,
+              "p50_ms": 0.89,
+              "p90_ms": 1.67,
+              "p99_ms": 2.81,
+              "requests": 613393,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 60663.43,
+              "p50_ms": 0.89,
+              "p90_ms": 1.69,
+              "p99_ms": 2.91,
+              "requests": 607214,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 24620,
+          "peak_rss_kb": 34028
+        },
+        {
+          "app": "kemal",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 55551.05,
+            "min": 53205.9,
+            "max": 58154.26,
+            "mean": 55716.552,
+            "stddev": 2098.0836394362354,
+            "rsd_pct": 3.7656379731398943
+          },
+          "p50_ms": 1.01,
+          "p99_ms": 2.71,
+          "p99_ms_worst": 2.88,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 54206.94,
+              "p50_ms": 1.02,
+              "p90_ms": 1.77,
+              "p99_ms": 2.79,
+              "requests": 543170,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 57464.61,
+              "p50_ms": 0.98,
+              "p90_ms": 1.66,
+              "p99_ms": 2.63,
+              "requests": 575692,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 53205.9,
+              "p50_ms": 1.03,
+              "p90_ms": 1.78,
+              "p99_ms": 2.88,
+              "requests": 532920,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 55551.05,
+              "p50_ms": 1.01,
+              "p90_ms": 1.72,
+              "p99_ms": 2.71,
+              "requests": 556638,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 58154.26,
+              "p50_ms": 0.98,
+              "p90_ms": 1.65,
+              "p99_ms": 2.54,
+              "requests": 582497,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 17860,
+          "peak_rss_kb": 25088
+        },
+        {
+          "app": "lucky",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 61059.69,
+            "min": 58763.42,
+            "max": 63601.91,
+            "mean": 60989.77,
+            "stddev": 1814.169584065946,
+            "rsd_pct": 2.9745473446873896
+          },
+          "p50_ms": 0.91,
+          "p99_ms": 2.59,
+          "p99_ms_worst": 2.76,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 61059.69,
+              "p50_ms": 0.9,
+              "p90_ms": 1.61,
+              "p99_ms": 2.59,
+              "requests": 611376,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 58763.42,
+              "p50_ms": 0.94,
+              "p90_ms": 1.64,
+              "p99_ms": 2.58,
+              "requests": 593504,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 61560.73,
+              "p50_ms": 0.91,
+              "p90_ms": 1.6,
+              "p99_ms": 2.59,
+              "requests": 617080,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 63601.91,
+              "p50_ms": 0.89,
+              "p90_ms": 1.55,
+              "p99_ms": 2.56,
+              "requests": 636976,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 59963.1,
+              "p50_ms": 0.91,
+              "p90_ms": 1.66,
+              "p99_ms": 2.76,
+              "requests": 600553,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 17720,
+          "peak_rss_kb": 26008
+        },
+        {
+          "app": "azu-min",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 63842.23,
+            "min": 59361.22,
+            "max": 69812.15,
+            "mean": 63727.998,
+            "stddev": 3882.9213381254553,
+            "rsd_pct": 6.092959860633713
+          },
+          "p50_ms": 0.85,
+          "p99_ms": 2.92,
+          "p99_ms_worst": 3.77,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": true,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 63937.41,
+              "p50_ms": 0.85,
+              "p90_ms": 1.61,
+              "p99_ms": 2.92,
+              "requests": 640728,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 61686.98,
+              "p50_ms": 0.88,
+              "p90_ms": 1.61,
+              "p99_ms": 3.77,
+              "requests": 618915,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 63842.23,
+              "p50_ms": 0.85,
+              "p90_ms": 1.6,
+              "p99_ms": 2.73,
+              "requests": 639355,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 69812.15,
+              "p50_ms": 0.801,
+              "p90_ms": 1.47,
+              "p99_ms": 2.53,
+              "requests": 699523,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 59361.22,
+              "p50_ms": 0.88,
+              "p90_ms": 1.71,
+              "p99_ms": 3.15,
+              "requests": 594728,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 24764,
+          "peak_rss_kb": 32664
+        },
+        {
+          "app": "azu-min-rawdb",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 65587.57,
+            "min": 62161.35,
+            "max": 67217.24,
+            "mean": 65213.388,
+            "stddev": 2102.639912150915,
+            "rsd_pct": 3.2242457824011765
+          },
+          "p50_ms": 0.839,
+          "p99_ms": 2.61,
+          "p99_ms_worst": 125.69,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 62161.35,
+              "p50_ms": 0.86,
+              "p90_ms": 1.64,
+              "p99_ms": 2.76,
+              "requests": 627842,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 66962.28,
+              "p50_ms": 0.8160000000000001,
+              "p90_ms": 1.54,
+              "p99_ms": 2.48,
+              "requests": 671048,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 67217.24,
+              "p50_ms": 0.8250000000000001,
+              "p90_ms": 1.53,
+              "p99_ms": 2.55,
+              "requests": 673152,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 65587.57,
+              "p50_ms": 0.839,
+              "p90_ms": 1.56,
+              "p99_ms": 125.69,
+              "requests": 656532,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 64138.5,
+              "p50_ms": 0.86,
+              "p90_ms": 1.52,
+              "p99_ms": 2.61,
+              "requests": 642759,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 24264,
+          "peak_rss_kb": 31828
+        },
+        {
+          "app": "azu-rawdb",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 62382.94,
+            "min": 57718.19,
+            "max": 63639.6,
+            "mean": 61245.797999999995,
+            "stddev": 2598.9635318372584,
+            "rsd_pct": 4.243496887471788
+          },
+          "p50_ms": 0.89,
+          "p99_ms": 2.78,
+          "p99_ms_worst": 2.91,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 57718.19,
+              "p50_ms": 0.95,
+              "p90_ms": 1.67,
+              "p99_ms": 2.88,
+              "requests": 577904,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 59301.06,
+              "p50_ms": 0.9,
+              "p90_ms": 1.69,
+              "p99_ms": 2.91,
+              "requests": 593921,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 63187.2,
+              "p50_ms": 0.88,
+              "p90_ms": 1.61,
+              "p99_ms": 2.78,
+              "requests": 632694,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 63639.6,
+              "p50_ms": 0.89,
+              "p90_ms": 1.58,
+              "p99_ms": 2.5,
+              "requests": 642774,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 62382.94,
+              "p50_ms": 0.88,
+              "p90_ms": 1.6,
+              "p99_ms": 2.54,
+              "requests": 624802,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 24124,
+          "peak_rss_kb": 31600
+        }
+      ]
+    },
+    {
+      "name": "routing",
+      "kind": "http",
+      "path": "/api/v1/resource0/1",
+      "results": [
+        {
+          "app": "baseline",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 68233.41,
+            "min": 66159.13,
+            "max": 70723.28,
+            "mean": 68570.58,
+            "stddev": 1899.007939214577,
+            "rsd_pct": 2.769420849604272
+          },
+          "p50_ms": 0.839,
+          "p99_ms": 2.48,
+          "p99_ms_worst": 2.64,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 70225.83,
+              "p50_ms": 0.8270000000000001,
+              "p90_ms": 1.33,
+              "p99_ms": 2.63,
+              "requests": 703459,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 70723.28,
+              "p50_ms": 0.8200000000000001,
+              "p90_ms": 1.29,
+              "p99_ms": 2.33,
+              "requests": 708756,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 68233.41,
+              "p50_ms": 0.839,
+              "p90_ms": 1.36,
+              "p99_ms": 2.48,
+              "requests": 683498,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 66159.13,
+              "p50_ms": 0.86,
+              "p90_ms": 1.38,
+              "p99_ms": 2.64,
+              "requests": 663039,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 67511.25,
+              "p50_ms": 0.843,
+              "p90_ms": 1.38,
+              "p99_ms": 2.35,
+              "requests": 676092,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 18036,
+          "peak_rss_kb": 24984
+        },
+        {
+          "app": "azu",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 52686.23,
+            "min": 48987.31,
+            "max": 53241.28,
+            "mean": 51974.736000000004,
+            "stddev": 1708.300320678423,
+            "rsd_pct": 3.2867897985637153
+          },
+          "p50_ms": 1.05,
+          "p99_ms": 2.97,
+          "p99_ms_worst": 3.22,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 53241.28,
+              "p50_ms": 1.03,
+              "p90_ms": 1.85,
+              "p99_ms": 2.97,
+              "requests": 533308,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 52225.8,
+              "p50_ms": 1.05,
+              "p90_ms": 1.87,
+              "p99_ms": 2.97,
+              "requests": 523582,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 48987.31,
+              "p50_ms": 1.1,
+              "p90_ms": 1.95,
+              "p99_ms": 3.22,
+              "requests": 494787,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 52686.23,
+              "p50_ms": 1.04,
+              "p90_ms": 1.81,
+              "p99_ms": 2.92,
+              "requests": 527576,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 52733.06,
+              "p50_ms": 1.05,
+              "p90_ms": 1.83,
+              "p99_ms": 2.84,
+              "requests": 532624,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 25496,
+          "peak_rss_kb": 34028
+        },
+        {
+          "app": "kemal",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 49489.54,
+            "min": 47779.66,
+            "max": 52330.18,
+            "mean": 49640.394,
+            "stddev": 1827.4354762836351,
+            "rsd_pct": 3.681347646603359
+          },
+          "p50_ms": 1.13,
+          "p99_ms": 2.98,
+          "p99_ms_worst": 3.12,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 52330.18,
+              "p50_ms": 1.07,
+              "p90_ms": 1.87,
+              "p99_ms": 2.88,
+              "requests": 525028,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 49489.54,
+              "p50_ms": 1.13,
+              "p90_ms": 1.93,
+              "p99_ms": 2.98,
+              "requests": 496240,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 50398.58,
+              "p50_ms": 1.1,
+              "p90_ms": 1.88,
+              "p99_ms": 2.87,
+              "requests": 505108,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 47779.66,
+              "p50_ms": 1.18,
+              "p90_ms": 1.96,
+              "p99_ms": 3.12,
+              "requests": 479499,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 48204.01,
+              "p50_ms": 1.16,
+              "p90_ms": 1.92,
+              "p99_ms": 3.03,
+              "requests": 486867,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 17224,
+          "peak_rss_kb": 25088
+        },
+        {
+          "app": "lucky",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 56539.91,
+            "min": 49447.45,
+            "max": 58332.98,
+            "mean": 55050.666000000005,
+            "stddev": 3575.2023212442145,
+            "rsd_pct": 6.494385229134584
+          },
+          "p50_ms": 0.98,
+          "p99_ms": 2.77,
+          "p99_ms_worst": 3.68,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": true,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 53678.34,
+              "p50_ms": 1.04,
+              "p90_ms": 1.74,
+              "p99_ms": 2.77,
+              "requests": 538559,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 58332.98,
+              "p50_ms": 0.95,
+              "p90_ms": 1.66,
+              "p99_ms": 2.68,
+              "requests": 584168,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 49447.45,
+              "p50_ms": 1.08,
+              "p90_ms": 2.08,
+              "p99_ms": 3.68,
+              "requests": 499411,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 56539.91,
+              "p50_ms": 0.98,
+              "p90_ms": 1.69,
+              "p99_ms": 3.09,
+              "requests": 565964,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 57254.65,
+              "p50_ms": 0.97,
+              "p90_ms": 1.66,
+              "p99_ms": 2.53,
+              "requests": 578270,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 17936,
+          "peak_rss_kb": 26008
+        },
+        {
+          "app": "azu-min",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 55384.05,
+            "min": 54407.45,
+            "max": 60193.58,
+            "mean": 56657.876000000004,
+            "stddev": 2544.8413760350577,
+            "rsd_pct": 4.4915933241744845
+          },
+          "p50_ms": 0.99,
+          "p99_ms": 2.75,
+          "p99_ms_worst": 2.82,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 58484.71,
+              "p50_ms": 0.96,
+              "p90_ms": 1.71,
+              "p99_ms": 2.72,
+              "requests": 585722,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 60193.58,
+              "p50_ms": 0.93,
+              "p90_ms": 1.66,
+              "p99_ms": 2.6,
+              "requests": 607963,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 55384.05,
+              "p50_ms": 0.99,
+              "p90_ms": 1.75,
+              "p99_ms": 2.75,
+              "requests": 555003,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 54819.59,
+              "p50_ms": 1.01,
+              "p90_ms": 1.74,
+              "p99_ms": 2.82,
+              "requests": 549418,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 54407.45,
+              "p50_ms": 1.01,
+              "p90_ms": 1.76,
+              "p99_ms": 2.81,
+              "requests": 545274,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 25396,
+          "peak_rss_kb": 32664
+        },
+        {
+          "app": "azu-min-rawdb",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 56907.5,
+            "min": 52705.12,
+            "max": 61294.74,
+            "mean": 57304.352,
+            "stddev": 3283.8650632022,
+            "rsd_pct": 5.73056835753452
+          },
+          "p50_ms": 0.96,
+          "p99_ms": 2.85,
+          "p99_ms_worst": 3.11,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": true,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 59449.72,
+              "p50_ms": 0.94,
+              "p90_ms": 1.67,
+              "p99_ms": 2.87,
+              "requests": 595602,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 56164.68,
+              "p50_ms": 0.97,
+              "p90_ms": 1.75,
+              "p99_ms": 2.85,
+              "requests": 562395,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 61294.74,
+              "p50_ms": 0.92,
+              "p90_ms": 1.62,
+              "p99_ms": 2.47,
+              "requests": 614301,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 52705.12,
+              "p50_ms": 1.02,
+              "p90_ms": 1.82,
+              "p99_ms": 3.11,
+              "requests": 527630,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 56907.5,
+              "p50_ms": 0.96,
+              "p90_ms": 1.72,
+              "p99_ms": 2.75,
+              "requests": 570114,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 25368,
+          "peak_rss_kb": 32084
+        },
+        {
+          "app": "azu-rawdb",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 52190.4,
+            "min": 49985.92,
+            "max": 54441.04,
+            "mean": 52431.494000000006,
+            "stddev": 1688.572044799985,
+            "rsd_pct": 3.220530097425766
+          },
+          "p50_ms": 1.05,
+          "p99_ms": 2.96,
+          "p99_ms_worst": 3.02,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 53511.21,
+              "p50_ms": 1.03,
+              "p90_ms": 1.81,
+              "p99_ms": 2.91,
+              "requests": 536122,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 54441.04,
+              "p50_ms": 1.03,
+              "p90_ms": 1.76,
+              "p99_ms": 2.87,
+              "requests": 545029,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 52190.4,
+              "p50_ms": 1.05,
+              "p90_ms": 1.83,
+              "p99_ms": 2.96,
+              "requests": 522636,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 49985.92,
+              "p50_ms": 1.09,
+              "p90_ms": 1.87,
+              "p99_ms": 3.02,
+              "requests": 501012,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 52028.9,
+              "p50_ms": 1.06,
+              "p90_ms": 1.86,
+              "p99_ms": 3.02,
+              "requests": 521657,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 25544,
+          "peak_rss_kb": 31952
+        }
+      ]
+    },
+    {
+      "name": "template",
+      "kind": "http",
+      "path": "/template",
+      "results": [
+        {
+          "app": "baseline",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 35215.92,
+            "min": 31424.95,
+            "max": 35360.23,
+            "mean": 33935.002,
+            "stddev": 1871.9114443450578,
+            "rsd_pct": 5.516167184386958
+          },
+          "p50_ms": 1.63,
+          "p99_ms": 3.87,
+          "p99_ms_worst": 39.39,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": true,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 35255.51,
+              "p50_ms": 1.6,
+              "p90_ms": 2.47,
+              "p99_ms": 39.39,
+              "requests": 354547,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 32418.4,
+              "p50_ms": 1.8,
+              "p90_ms": 2.67,
+              "p99_ms": 3.82,
+              "requests": 324942,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 31424.95,
+              "p50_ms": 1.95,
+              "p90_ms": 2.69,
+              "p99_ms": 3.87,
+              "requests": 314824,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 35360.23,
+              "p50_ms": 1.6,
+              "p90_ms": 2.56,
+              "p99_ms": 4.09,
+              "requests": 354124,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 35215.92,
+              "p50_ms": 1.63,
+              "p90_ms": 2.45,
+              "p99_ms": 3.65,
+              "requests": 352886,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 17260,
+          "peak_rss_kb": 24984
+        },
+        {
+          "app": "azu",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 7702.82,
+            "min": 7354.26,
+            "max": 7877.58,
+            "mean": 7620.034,
+            "stddev": 217.71340790130483,
+            "rsd_pct": 2.857118588989299
+          },
+          "p50_ms": 7.86,
+          "p99_ms": 13.18,
+          "p99_ms_worst": 14.67,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 7354.26,
+              "p50_ms": 8.29,
+              "p90_ms": 11.19,
+              "p99_ms": 14.67,
+              "requests": 73643,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 7436.13,
+              "p50_ms": 8.52,
+              "p90_ms": 10.59,
+              "p99_ms": 13.18,
+              "requests": 74501,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 7877.58,
+              "p50_ms": 7.69,
+              "p90_ms": 10.35,
+              "p99_ms": 12.63,
+              "requests": 78898,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 7729.38,
+              "p50_ms": 7.84,
+              "p90_ms": 10.61,
+              "p99_ms": 12.61,
+              "requests": 77518,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 7702.82,
+              "p50_ms": 7.86,
+              "p90_ms": 10.57,
+              "p99_ms": 13.26,
+              "requests": 77280,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 25916,
+          "peak_rss_kb": 34028
+        },
+        {
+          "app": "kemal",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 29030.23,
+            "min": 27422.37,
+            "max": 29917.12,
+            "mean": 28780.468,
+            "stddev": 1017.2110531104148,
+            "rsd_pct": 3.5343798200585717
+          },
+          "p50_ms": 1.96,
+          "p99_ms": 4.49,
+          "p99_ms_worst": 6.12,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 28080.86,
+              "p50_ms": 1.99,
+              "p90_ms": 3,
+              "p99_ms": 4.26,
+              "requests": 281181,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 27422.37,
+              "p50_ms": 2.1,
+              "p90_ms": 3.08,
+              "p99_ms": 6.12,
+              "requests": 274800,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 29917.12,
+              "p50_ms": 1.89,
+              "p90_ms": 2.85,
+              "p99_ms": 4.07,
+              "requests": 299688,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 29030.23,
+              "p50_ms": 1.96,
+              "p90_ms": 2.98,
+              "p99_ms": 4.58,
+              "requests": 290752,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 29451.76,
+              "p50_ms": 1.91,
+              "p90_ms": 3,
+              "p99_ms": 4.49,
+              "requests": 295298,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 24120,
+          "peak_rss_kb": 29528
+        },
+        {
+          "app": "lucky",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 16208.3,
+            "min": 14930.69,
+            "max": 16575.16,
+            "mean": 15947.37,
+            "stddev": 665.4533608751251,
+            "rsd_pct": 4.172809440522951
+          },
+          "p50_ms": 3.6,
+          "p99_ms": 6.45,
+          "p99_ms_worst": 7.18,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 15645.78,
+              "p50_ms": 3.78,
+              "p90_ms": 5.27,
+              "p99_ms": 7.18,
+              "requests": 156681,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 14930.69,
+              "p50_ms": 4.17,
+              "p90_ms": 5.4,
+              "p99_ms": 6.81,
+              "requests": 149579,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 16575.16,
+              "p50_ms": 3.53,
+              "p90_ms": 5.05,
+              "p99_ms": 6.21,
+              "requests": 166141,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 16376.92,
+              "p50_ms": 3.55,
+              "p90_ms": 5.07,
+              "p99_ms": 6.29,
+              "requests": 164065,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 16208.3,
+              "p50_ms": 3.6,
+              "p90_ms": 5.13,
+              "p99_ms": 6.45,
+              "requests": 162336,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 18140,
+          "peak_rss_kb": 26008
+        },
+        {
+          "app": "azu-min",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 7855.46,
+            "min": 7418.16,
+            "max": 8268.77,
+            "mean": 7814.7660000000005,
+            "stddev": 334.20422757649277,
+            "rsd_pct": 4.276573701330184
+          },
+          "p50_ms": 7.76,
+          "p99_ms": 12.4,
+          "p99_ms_worst": 13.62,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 7569.65,
+              "p50_ms": 8.35,
+              "p90_ms": 10.61,
+              "p99_ms": 12.4,
+              "requests": 75805,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 7961.79,
+              "p50_ms": 7.61,
+              "p90_ms": 10.27,
+              "p99_ms": 12,
+              "requests": 79737,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 8268.77,
+              "p50_ms": 7.28,
+              "p90_ms": 9.94,
+              "p99_ms": 12.66,
+              "requests": 82824,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 7418.16,
+              "p50_ms": 8.23,
+              "p90_ms": 11.2,
+              "p99_ms": 13.62,
+              "requests": 74318,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 7855.46,
+              "p50_ms": 7.76,
+              "p90_ms": 10.27,
+              "p99_ms": 12.05,
+              "requests": 78862,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 27384,
+          "peak_rss_kb": 32664
+        },
+        {
+          "app": "azu-min-rawdb",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 7986.5,
+            "min": 7766.65,
+            "max": 8341.02,
+            "mean": 8020.31,
+            "stddev": 209.65337810300147,
+            "rsd_pct": 2.6140308554532363
+          },
+          "p50_ms": 7.49,
+          "p99_ms": 12.31,
+          "p99_ms_worst": 14.21,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 8341.02,
+              "p50_ms": 7.3,
+              "p90_ms": 9.54,
+              "p99_ms": 11.76,
+              "requests": 83794,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 8062.53,
+              "p50_ms": 7.4,
+              "p90_ms": 10.12,
+              "p99_ms": 14.21,
+              "requests": 80914,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 7986.5,
+              "p50_ms": 7.49,
+              "p90_ms": 10.35,
+              "p99_ms": 12.29,
+              "requests": 80109,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 7944.85,
+              "p50_ms": 7.55,
+              "p90_ms": 10.58,
+              "p99_ms": 12.31,
+              "requests": 79569,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 7766.65,
+              "p50_ms": 7.86,
+              "p90_ms": 10.41,
+              "p99_ms": 13.58,
+              "requests": 77766,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 26276,
+          "peak_rss_kb": 32084
+        },
+        {
+          "app": "azu-rawdb",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 8065.97,
+            "min": 7704.62,
+            "max": 8154.77,
+            "mean": 7964.988,
+            "stddev": 198.90099967069054,
+            "rsd_pct": 2.4971914542833025
+          },
+          "p50_ms": 7.48,
+          "p99_ms": 12.41,
+          "p99_ms_worst": 13.47,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 8065.97,
+              "p50_ms": 7.48,
+              "p90_ms": 10.16,
+              "p99_ms": 12.24,
+              "requests": 80833,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 8154.77,
+              "p50_ms": 7.43,
+              "p90_ms": 9.96,
+              "p99_ms": 12.4,
+              "requests": 81697,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 8097.74,
+              "p50_ms": 7.4,
+              "p90_ms": 10.14,
+              "p99_ms": 13.47,
+              "requests": 81183,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 7704.62,
+              "p50_ms": 7.96,
+              "p90_ms": 10.53,
+              "p99_ms": 13.1,
+              "requests": 77176,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 7801.84,
+              "p50_ms": 7.76,
+              "p90_ms": 10.56,
+              "p99_ms": 12.41,
+              "requests": 78209,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 26360,
+          "peak_rss_kb": 31952
+        }
+      ]
+    },
+    {
+      "name": "db_single",
+      "kind": "http",
+      "path": "/db/item/1",
+      "results": [
+        {
+          "app": "baseline",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 53908,
+            "min": 51857.02,
+            "max": 54623.97,
+            "mean": 53330.036,
+            "stddev": 1273.5417730997285,
+            "rsd_pct": 2.388038465040092
+          },
+          "p50_ms": 1.07,
+          "p99_ms": 2.77,
+          "p99_ms_worst": 3.16,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 52074.66,
+              "p50_ms": 1.09,
+              "p90_ms": 1.79,
+              "p99_ms": 2.77,
+              "requests": 521486,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 51857.02,
+              "p50_ms": 1.07,
+              "p90_ms": 1.86,
+              "p99_ms": 2.96,
+              "requests": 523762,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 54623.97,
+              "p50_ms": 1.06,
+              "p90_ms": 1.69,
+              "p99_ms": 3.16,
+              "requests": 547779,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 53908,
+              "p50_ms": 1.06,
+              "p90_ms": 1.78,
+              "p99_ms": 2.61,
+              "requests": 539952,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 54186.53,
+              "p50_ms": 1.08,
+              "p90_ms": 1.72,
+              "p99_ms": 2.77,
+              "requests": 542820,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 17600,
+          "peak_rss_kb": 24984
+        },
+        {
+          "app": "azu",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 38559.05,
+            "min": 37529.3,
+            "max": 40867.12,
+            "mean": 39136.95,
+            "stddev": 1455.6573397781494,
+            "rsd_pct": 3.7193939225671637
+          },
+          "p50_ms": 1.45,
+          "p99_ms": 3.61,
+          "p99_ms_worst": 3.71,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 38255.57,
+              "p50_ms": 1.47,
+              "p90_ms": 2.37,
+              "p99_ms": 3.66,
+              "requests": 383234,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 37529.3,
+              "p50_ms": 1.51,
+              "p90_ms": 2.39,
+              "p99_ms": 3.71,
+              "requests": 376160,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 40473.71,
+              "p50_ms": 1.4,
+              "p90_ms": 2.28,
+              "p99_ms": 3.61,
+              "requests": 405734,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 38559.05,
+              "p50_ms": 1.45,
+              "p90_ms": 2.38,
+              "p99_ms": 3.58,
+              "requests": 386060,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 40867.12,
+              "p50_ms": 1.4,
+              "p90_ms": 2.25,
+              "p99_ms": 3.4,
+              "requests": 409391,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 25992,
+          "peak_rss_kb": 34028
+        },
+        {
+          "app": "kemal",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 41246.92,
+            "min": 39611.78,
+            "max": 42758.91,
+            "mean": 40976.102,
+            "stddev": 1320.1885661601546,
+            "rsd_pct": 3.2218500582611656
+          },
+          "p50_ms": 1.41,
+          "p99_ms": 3.54,
+          "p99_ms_worst": 4.05,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 42758.91,
+              "p50_ms": 1.37,
+              "p90_ms": 2.13,
+              "p99_ms": 3.16,
+              "requests": 428790,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 39731.2,
+              "p50_ms": 1.43,
+              "p90_ms": 2.29,
+              "p99_ms": 3.54,
+              "requests": 397845,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 41246.92,
+              "p50_ms": 1.41,
+              "p90_ms": 2.24,
+              "p99_ms": 4.05,
+              "requests": 414398,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 39611.78,
+              "p50_ms": 1.45,
+              "p90_ms": 2.26,
+              "p99_ms": 3.45,
+              "requests": 397020,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 41531.7,
+              "p50_ms": 1.41,
+              "p90_ms": 2.17,
+              "p99_ms": 3.55,
+              "requests": 415964,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 21276,
+          "peak_rss_kb": 29528
+        },
+        {
+          "app": "lucky",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 41957.81,
+            "min": 39883.44,
+            "max": 43283.89,
+            "mean": 41824.43199999999,
+            "stddev": 1336.0206643873425,
+            "rsd_pct": 3.1943545925198524
+          },
+          "p50_ms": 1.36,
+          "p99_ms": 3.3,
+          "p99_ms_worst": 3.76,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 43283.89,
+              "p50_ms": 1.31,
+              "p90_ms": 2.12,
+              "p99_ms": 3.18,
+              "requests": 433535,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 41957.81,
+              "p50_ms": 1.36,
+              "p90_ms": 2.17,
+              "p99_ms": 3.29,
+              "requests": 420344,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 42761.38,
+              "p50_ms": 1.34,
+              "p90_ms": 2.16,
+              "p99_ms": 3.36,
+              "requests": 431895,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 41235.64,
+              "p50_ms": 1.36,
+              "p90_ms": 2.21,
+              "p99_ms": 3.3,
+              "requests": 412960,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 39883.44,
+              "p50_ms": 1.39,
+              "p90_ms": 2.34,
+              "p99_ms": 3.76,
+              "requests": 400059,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 18216,
+          "peak_rss_kb": 26008
+        },
+        {
+          "app": "azu-min",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 41458.59,
+            "min": 40151.94,
+            "max": 41884.96,
+            "mean": 41126.314,
+            "stddev": 727.0193454647532,
+            "rsd_pct": 1.7677717129348212
+          },
+          "p50_ms": 1.38,
+          "p99_ms": 3.59,
+          "p99_ms_worst": 3.62,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 41884.96,
+              "p50_ms": 1.36,
+              "p90_ms": 2.2,
+              "p99_ms": 3.36,
+              "requests": 419594,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 41553.88,
+              "p50_ms": 1.38,
+              "p90_ms": 2.18,
+              "p99_ms": 3.3,
+              "requests": 415972,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 40151.94,
+              "p50_ms": 1.42,
+              "p90_ms": 2.28,
+              "p99_ms": 3.61,
+              "requests": 402363,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 41458.59,
+              "p50_ms": 1.37,
+              "p90_ms": 2.21,
+              "p99_ms": 3.59,
+              "requests": 415346,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 40582.2,
+              "p50_ms": 1.4,
+              "p90_ms": 2.26,
+              "p99_ms": 3.62,
+              "requests": 406584,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 25668,
+          "peak_rss_kb": 32664
+        },
+        {
+          "app": "azu-min-rawdb",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 43123.94,
+            "min": 41943.74,
+            "max": 46496.7,
+            "mean": 43740.502,
+            "stddev": 1854.0454017957584,
+            "rsd_pct": 4.238738279217185
+          },
+          "p50_ms": 1.3,
+          "p99_ms": 3.44,
+          "p99_ms_worst": 3.76,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 44683.97,
+              "p50_ms": 1.27,
+              "p90_ms": 2.12,
+              "p99_ms": 3.27,
+              "requests": 447677,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 42454.16,
+              "p50_ms": 1.3,
+              "p90_ms": 2.23,
+              "p99_ms": 3.49,
+              "requests": 425291,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 41943.74,
+              "p50_ms": 1.33,
+              "p90_ms": 2.21,
+              "p99_ms": 3.76,
+              "requests": 420276,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 46496.7,
+              "p50_ms": 1.24,
+              "p90_ms": 2.01,
+              "p99_ms": 2.96,
+              "requests": 465982,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 43123.94,
+              "p50_ms": 1.3,
+              "p90_ms": 2.15,
+              "p99_ms": 3.44,
+              "requests": 432679,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 25444,
+          "peak_rss_kb": 32084
+        },
+        {
+          "app": "azu-rawdb",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 42082.31,
+            "min": 39612.51,
+            "max": 43420.66,
+            "mean": 41824.028000000006,
+            "stddev": 1385.292244048165,
+            "rsd_pct": 3.3121923217155578
+          },
+          "p50_ms": 1.34,
+          "p99_ms": 3.52,
+          "p99_ms_worst": 3.92,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 42082.31,
+              "p50_ms": 1.34,
+              "p90_ms": 2.23,
+              "p99_ms": 3.52,
+              "requests": 421421,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 39612.51,
+              "p50_ms": 1.41,
+              "p90_ms": 2.31,
+              "p99_ms": 3.52,
+              "requests": 396651,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 43420.66,
+              "p50_ms": 1.31,
+              "p90_ms": 2.14,
+              "p99_ms": 3.34,
+              "requests": 435011,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 41772.33,
+              "p50_ms": 1.35,
+              "p90_ms": 2.25,
+              "p99_ms": 3.92,
+              "requests": 421914,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 42232.33,
+              "p50_ms": 1.33,
+              "p90_ms": 2.22,
+              "p99_ms": 3.89,
+              "requests": 422842,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 25324,
+          "peak_rss_kb": 31952
+        }
+      ]
+    },
+    {
+      "name": "db_multi",
+      "kind": "http",
+      "path": "/db/items",
+      "results": [
+        {
+          "app": "baseline",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 23899.97,
+            "min": 22959.48,
+            "max": 25032.24,
+            "mean": 23996.578,
+            "stddev": 859.9489874812343,
+            "rsd_pct": 3.5836317473317827
+          },
+          "p50_ms": 2.44,
+          "p99_ms": 4.49,
+          "p99_ms_worst": 5.34,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 25032.24,
+              "p50_ms": 2.38,
+              "p90_ms": 3.23,
+              "p99_ms": 4.16,
+              "requests": 250886,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 24676.37,
+              "p50_ms": 2.4,
+              "p90_ms": 3.31,
+              "p99_ms": 4.39,
+              "requests": 247547,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 22959.48,
+              "p50_ms": 2.53,
+              "p90_ms": 3.55,
+              "p99_ms": 5.34,
+              "requests": 230084,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 23899.97,
+              "p50_ms": 2.44,
+              "p90_ms": 3.42,
+              "p99_ms": 4.49,
+              "requests": 239378,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 23414.83,
+              "p50_ms": 2.47,
+              "p90_ms": 3.53,
+              "p99_ms": 4.88,
+              "requests": 234477,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 16896,
+          "peak_rss_kb": 24984
+        },
+        {
+          "app": "azu",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 17374.21,
+            "min": 16587.43,
+            "max": 18021.18,
+            "mean": 17223.688000000002,
+            "stddev": 585.8664618921279,
+            "rsd_pct": 3.4015157606903226
+          },
+          "p50_ms": 3.6,
+          "p99_ms": 6.55,
+          "p99_ms_worst": 9.27,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 18021.18,
+              "p50_ms": 3.49,
+              "p90_ms": 4.47,
+              "p99_ms": 5.74,
+              "requests": 180534,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 17428.98,
+              "p50_ms": 3.59,
+              "p90_ms": 4.69,
+              "p99_ms": 7.21,
+              "requests": 174808,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 17374.21,
+              "p50_ms": 3.6,
+              "p90_ms": 4.73,
+              "p99_ms": 6.44,
+              "requests": 174198,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 16587.43,
+              "p50_ms": 3.72,
+              "p90_ms": 5.07,
+              "p99_ms": 9.27,
+              "requests": 166765,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 16706.64,
+              "p50_ms": 3.71,
+              "p90_ms": 5.2,
+              "p99_ms": 6.55,
+              "requests": 167270,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 25500,
+          "peak_rss_kb": 34028
+        },
+        {
+          "app": "kemal",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 21521.24,
+            "min": 20916.97,
+            "max": 22203.44,
+            "mean": 21587.77,
+            "stddev": 471.2792761197962,
+            "rsd_pct": 2.183084571124281
+          },
+          "p50_ms": 2.69,
+          "p99_ms": 5.31,
+          "p99_ms_worst": 10.24,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 22203.44,
+              "p50_ms": 2.65,
+              "p90_ms": 3.69,
+              "p99_ms": 4.99,
+              "requests": 222352,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 21521.24,
+              "p50_ms": 2.69,
+              "p90_ms": 3.82,
+              "p99_ms": 10.24,
+              "requests": 216417,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 21802.82,
+              "p50_ms": 2.69,
+              "p90_ms": 3.77,
+              "p99_ms": 5.2,
+              "requests": 218420,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 21494.38,
+              "p50_ms": 2.72,
+              "p90_ms": 3.83,
+              "p99_ms": 5.31,
+              "requests": 215209,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 20916.97,
+              "p50_ms": 2.77,
+              "p90_ms": 3.87,
+              "p99_ms": 5.44,
+              "requests": 209535,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 22008,
+          "peak_rss_kb": 29528
+        },
+        {
+          "app": "lucky",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 21647.47,
+            "min": 20413.92,
+            "max": 22243.18,
+            "mean": 21506.938,
+            "stddev": 760.5364975594541,
+            "rsd_pct": 3.536237922662232
+          },
+          "p50_ms": 2.73,
+          "p99_ms": 4.91,
+          "p99_ms_worst": 5.35,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 21098.44,
+              "p50_ms": 2.86,
+              "p90_ms": 3.86,
+              "p99_ms": 5.35,
+              "requests": 211308,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 22243.18,
+              "p50_ms": 2.65,
+              "p90_ms": 3.63,
+              "p99_ms": 4.91,
+              "requests": 222921,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 22131.68,
+              "p50_ms": 2.68,
+              "p90_ms": 3.64,
+              "p99_ms": 4.84,
+              "requests": 221671,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 21647.47,
+              "p50_ms": 2.73,
+              "p90_ms": 3.75,
+              "p99_ms": 4.85,
+              "requests": 216955,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 20413.92,
+              "p50_ms": 3.06,
+              "p90_ms": 4.07,
+              "p99_ms": 5.09,
+              "requests": 204478,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 18000,
+          "peak_rss_kb": 26008
+        },
+        {
+          "app": "azu-min",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 17983.73,
+            "min": 17417.22,
+            "max": 18362.54,
+            "mean": 17849.7,
+            "stddev": 404.4903767087668,
+            "rsd_pct": 2.2660906161379
+          },
+          "p50_ms": 3.51,
+          "p99_ms": 5.98,
+          "p99_ms_worst": 7.24,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 18362.54,
+              "p50_ms": 3.4,
+              "p90_ms": 4.43,
+              "p99_ms": 5.85,
+              "requests": 183891,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 18028.39,
+              "p50_ms": 3.48,
+              "p90_ms": 4.44,
+              "p99_ms": 5.98,
+              "requests": 180552,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 17983.73,
+              "p50_ms": 3.51,
+              "p90_ms": 4.49,
+              "p99_ms": 5.81,
+              "requests": 180189,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 17417.22,
+              "p50_ms": 3.59,
+              "p90_ms": 4.85,
+              "p99_ms": 7.24,
+              "requests": 174478,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 17456.62,
+              "p50_ms": 3.58,
+              "p90_ms": 4.87,
+              "p99_ms": 7.21,
+              "requests": 174877,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 26300,
+          "peak_rss_kb": 32664
+        },
+        {
+          "app": "azu-min-rawdb",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 22028.59,
+            "min": 21397.5,
+            "max": 23058.87,
+            "mean": 22175.426,
+            "stddev": 754.9893270967475,
+            "rsd_pct": 3.4046215260836363
+          },
+          "p50_ms": 2.65,
+          "p99_ms": 4.8,
+          "p99_ms_worst": 5.09,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 23058.87,
+              "p50_ms": 2.54,
+              "p90_ms": 3.55,
+              "p99_ms": 4.68,
+              "requests": 231447,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 22856.38,
+              "p50_ms": 2.57,
+              "p90_ms": 3.55,
+              "p99_ms": 4.72,
+              "requests": 228876,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 22028.59,
+              "p50_ms": 2.65,
+              "p90_ms": 3.69,
+              "p99_ms": 4.8,
+              "requests": 220558,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 21397.5,
+              "p50_ms": 2.73,
+              "p90_ms": 3.79,
+              "p99_ms": 5,
+              "requests": 214294,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 21535.79,
+              "p50_ms": 2.69,
+              "p90_ms": 3.76,
+              "p99_ms": 5.09,
+              "requests": 216019,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 25352,
+          "peak_rss_kb": 32084
+        },
+        {
+          "app": "azu-rawdb",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 22249.99,
+            "min": 21053.67,
+            "max": 22982.7,
+            "mean": 22224.466,
+            "stddev": 732.5807440344043,
+            "rsd_pct": 3.2962805227104415
+          },
+          "p50_ms": 2.61,
+          "p99_ms": 5.14,
+          "p99_ms_worst": 5.88,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "samples": [
+            {
+              "rps": 22668.45,
+              "p50_ms": 2.6,
+              "p90_ms": 3.58,
+              "p99_ms": 4.89,
+              "requests": 227109,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 22982.7,
+              "p50_ms": 2.57,
+              "p90_ms": 3.49,
+              "p99_ms": 4.92,
+              "requests": 230417,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 22249.99,
+              "p50_ms": 2.64,
+              "p90_ms": 3.65,
+              "p99_ms": 5.43,
+              "requests": 222973,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 21053.67,
+              "p50_ms": 2.74,
+              "p90_ms": 3.85,
+              "p99_ms": 5.14,
+              "requests": 210857,
+              "non2xx": 0,
+              "socket_errors": 0
+            },
+            {
+              "rps": 22167.52,
+              "p50_ms": 2.61,
+              "p90_ms": 3.72,
+              "p99_ms": 5.88,
+              "requests": 222129,
+              "non2xx": 0,
+              "socket_errors": 0
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 26328,
+          "peak_rss_kb": 31952
+        }
+      ]
+    },
+    {
+      "name": "websocket",
+      "kind": "websocket",
+      "path": "/ws",
+      "results": [
+        {
+          "app": "baseline",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 187225.66665086488,
+            "min": 177461.16098103038,
+            "max": 189620.3273304755,
+            "mean": 185613.6704070038,
+            "stddev": 4754.036053483095,
+            "rsd_pct": 2.5612531895192294
+          },
+          "p50_ms": 0.5931599996984005,
+          "p99_ms": 2.083595000207424,
+          "p99_ms_worst": 2.2791250003501773,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "extra": {
+            "driver_cpu_pct_median": 99.58968416541651,
+            "round_p50_ms": 0.9802190000191331,
+            "round_p99_ms": 2.727231999859214
+          },
+          "samples": [
+            {
+              "rps": 177461.16098103038,
+              "rounds_per_s": 3549.2232196206073,
+              "p50_ms": 0.6188640003092587,
+              "p90_ms": 1.096675000153482,
+              "p99_ms": 2.0037560001946986,
+              "round_p50_ms": 1.043689999729395,
+              "round_p99_ms": 2.630456999875605,
+              "requests": 1776350,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 100.02649513565433
+            },
+            {
+              "rps": 187225.66665086488,
+              "rounds_per_s": 3744.5133330172976,
+              "p50_ms": 0.6042769998311996,
+              "p90_ms": 1.050218999851495,
+              "p99_ms": 2.0221219998784363,
+              "round_p50_ms": 0.982536000199616,
+              "round_p99_ms": 2.6010389998555183,
+              "requests": 1872600,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 100.3078455974296
+            },
+            {
+              "rps": 187899.90709812738,
+              "rounds_per_s": 3757.998141962548,
+              "p50_ms": 0.5749729997478426,
+              "p90_ms": 1.009963999968022,
+              "p99_ms": 2.2791250003501773,
+              "round_p50_ms": 0.9484660001471639,
+              "round_p99_ms": 2.9194589997641742,
+              "requests": 1881400,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 98.74256968698263
+            },
+            {
+              "rps": 189620.3273304755,
+              "rounds_per_s": 3792.4065466095103,
+              "p50_ms": 0.5652839997783303,
+              "p90_ms": 1.001129999756813,
+              "p99_ms": 2.083595000207424,
+              "round_p50_ms": 0.9365949998609722,
+              "round_p99_ms": 2.727231999859214,
+              "requests": 1899250,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.58968416541651
+            },
+            {
+              "rps": 185861.28997452094,
+              "rounds_per_s": 3717.2257994904194,
+              "p50_ms": 0.5931599996984005,
+              "p90_ms": 1.0404710001312196,
+              "p99_ms": 2.2068790001794696,
+              "round_p50_ms": 0.9802190000191331,
+              "round_p99_ms": 2.8574819997884333,
+              "requests": 1860250,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.21140278085775
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 22068,
+          "peak_rss_kb": 24984
+        },
+        {
+          "app": "azu",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 195515.26092463438,
+            "min": 184713.07292673163,
+            "max": 203037.27742798376,
+            "mean": 194326.67585672621,
+            "stddev": 8309.366042789381,
+            "rsd_pct": 4.275978069483233
+          },
+          "p50_ms": 0.5629569999873638,
+          "p99_ms": 1.947306000161916,
+          "p99_ms_worst": 2.0670369998551905,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "extra": {
+            "driver_cpu_pct_median": 100.12352048860632,
+            "round_p50_ms": 0.9241980002261698,
+            "round_p99_ms": 2.47987399995327
+          },
+          "samples": [
+            {
+              "rps": 184713.07292673163,
+              "rounds_per_s": 3694.2614585346328,
+              "p50_ms": 0.6524719996377826,
+              "p90_ms": 1.0828599999658763,
+              "p99_ms": 2.0613410002551973,
+              "round_p50_ms": 1.0145560000091791,
+              "round_p99_ms": 2.6597290001809597,
+              "requests": 1848700,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 100.18642440902087
+            },
+            {
+              "rps": 203037.27742798376,
+              "rounds_per_s": 4060.745548559675,
+              "p50_ms": 0.5629569999873638,
+              "p90_ms": 0.9515709998086095,
+              "p99_ms": 1.9030630001798272,
+              "round_p50_ms": 0.901146000251174,
+              "round_p99_ms": 2.395299000199884,
+              "requests": 2030850,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 100.3898540273825
+            },
+            {
+              "rps": 201478.84121970966,
+              "rounds_per_s": 4029.5768243941934,
+              "p50_ms": 0.5575160002335906,
+              "p90_ms": 0.9560580002143979,
+              "p99_ms": 1.9252110002562404,
+              "round_p50_ms": 0.8961080000735819,
+              "round_p99_ms": 2.4067379999905825,
+              "requests": 2018550,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 100.12352048860632
+            },
+            {
+              "rps": 186888.92678457167,
+              "rounds_per_s": 3737.7785356914333,
+              "p50_ms": 0.5903599997982383,
+              "p90_ms": 1.0325549999251962,
+              "p99_ms": 2.0670369998551905,
+              "round_p50_ms": 0.964616000186652,
+              "round_p99_ms": 2.7106870003044605,
+              "requests": 1871500,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.21796813409655
+            },
+            {
+              "rps": 195515.26092463438,
+              "rounds_per_s": 3910.3052184926873,
+              "p50_ms": 0.5577489999122918,
+              "p90_ms": 0.983946000225842,
+              "p99_ms": 1.947306000161916,
+              "round_p50_ms": 0.9241980002261698,
+              "round_p99_ms": 2.47987399995327,
+              "requests": 1957050,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.5668347081161
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 24028,
+          "peak_rss_kb": 34028
+        },
+        {
+          "app": "kemal",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 190817.25009591776,
+            "min": 183625.81484496433,
+            "max": 194456.46993904916,
+            "mean": 189704.45895588043,
+            "stddev": 4161.796002456213,
+            "rsd_pct": 2.1938314077394048
+          },
+          "p50_ms": 0.5708190002478659,
+          "p99_ms": 2.1017289999872446,
+          "p99_ms_worst": 2.1777209998108447,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "extra": {
+            "driver_cpu_pct_median": 99.71291844593183,
+            "round_p50_ms": 0.9493160001002252,
+            "round_p99_ms": 2.6589720002375543
+          },
+          "samples": [
+            {
+              "rps": 187751.10169987308,
+              "rounds_per_s": 3755.0220339974617,
+              "p50_ms": 0.5996940000914037,
+              "p90_ms": 1.0326049998402596,
+              "p99_ms": 2.00422600004822,
+              "round_p50_ms": 0.9911099998280406,
+              "round_p99_ms": 2.54193799989298,
+              "requests": 1879200,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.80067069389148
+            },
+            {
+              "rps": 191871.6581995977,
+              "rounds_per_s": 3837.433163991954,
+              "p50_ms": 0.5708190002478659,
+              "p90_ms": 1.000367000233382,
+              "p99_ms": 1.9506850000470877,
+              "round_p50_ms": 0.9493160001002252,
+              "round_p99_ms": 2.4926089998334646,
+              "requests": 1922100,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.53216740458282
+            },
+            {
+              "rps": 183625.81484496433,
+              "rounds_per_s": 3672.5162968992863,
+              "p50_ms": 0.6036120001226664,
+              "p90_ms": 1.0564520000480115,
+              "p99_ms": 2.1219440000131726,
+              "round_p50_ms": 0.9966880003921688,
+              "round_p99_ms": 2.7698880000971258,
+              "requests": 1838050,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 98.98404970137138
+            },
+            {
+              "rps": 194456.46993904916,
+              "rounds_per_s": 3889.129398780983,
+              "p50_ms": 0.5690629999153316,
+              "p90_ms": 0.9981420002877712,
+              "p99_ms": 2.1017289999872446,
+              "round_p50_ms": 0.9254159997217357,
+              "round_p99_ms": 2.6589720002375543,
+              "requests": 1945450,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.91427209928072
+            },
+            {
+              "rps": 190817.25009591776,
+              "rounds_per_s": 3816.345001918355,
+              "p50_ms": 0.5585980000905693,
+              "p90_ms": 0.9945649998262525,
+              "p99_ms": 2.1777209998108447,
+              "round_p50_ms": 0.944104999769479,
+              "round_p99_ms": 2.819092999678105,
+              "requests": 1909000,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.71291844593183
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 23852,
+          "peak_rss_kb": 29528
+        },
+        {
+          "app": "lucky",
+          "skipped": "no WebSocket support"
+        },
+        {
+          "app": "azu-min",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 191550.07605029197,
+            "min": 175145.88046042234,
+            "max": 195266.81828274892,
+            "mean": 187902.44913917824,
+            "stddev": 8018.1467116500335,
+            "rsd_pct": 4.267185844773657
+          },
+          "p50_ms": 0.5971079999580979,
+          "p99_ms": 2.003164999652654,
+          "p99_ms_worst": 2.252489000093192,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "extra": {
+            "driver_cpu_pct_median": 99.83625086619661,
+            "round_p50_ms": 0.9500229996629059,
+            "round_p99_ms": 2.534015000332147
+          },
+          "samples": [
+            {
+              "rps": 191550.07605029197,
+              "rounds_per_s": 3831.0015210058395,
+              "p50_ms": 0.5742830000817776,
+              "p90_ms": 1.0175949996337295,
+              "p99_ms": 2.0043519996106625,
+              "round_p50_ms": 0.9500229996629059,
+              "round_p99_ms": 2.53718200000003,
+              "requests": 1918550,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.63212801654453
+            },
+            {
+              "rps": 185213.0097096265,
+              "rounds_per_s": 3704.26019419253,
+              "p50_ms": 0.6036669998429716,
+              "p90_ms": 1.0587740000337362,
+              "p99_ms": 1.9546269997954369,
+              "round_p50_ms": 0.9885359997861087,
+              "round_p99_ms": 2.471370999701321,
+              "requests": 1855400,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.83625086619661
+            },
+            {
+              "rps": 195266.81828274892,
+              "rounds_per_s": 3905.3363656549786,
+              "p50_ms": 0.5971079999580979,
+              "p90_ms": 0.9964660000987351,
+              "p99_ms": 2.003164999652654,
+              "round_p50_ms": 0.9426810001023114,
+              "round_p99_ms": 2.534015000332147,
+              "requests": 1956350,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.97250869571702
+            },
+            {
+              "rps": 175145.88046042234,
+              "rounds_per_s": 3502.9176092084467,
+              "p50_ms": 0.6404840000905097,
+              "p90_ms": 1.1394500001333654,
+              "p99_ms": 2.252489000093192,
+              "round_p50_ms": 1.054836000315845,
+              "round_p99_ms": 2.9030059999786317,
+              "requests": 1751950,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 100.19225115329597
+            },
+            {
+              "rps": 192336.46119280148,
+              "rounds_per_s": 3846.72922385603,
+              "p50_ms": 0.5774849997833371,
+              "p90_ms": 1.0121610001660883,
+              "p99_ms": 1.9395689996890724,
+              "round_p50_ms": 0.9304180000908673,
+              "round_p99_ms": 2.4700469998642802,
+              "requests": 1930450,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.05286403747961
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 25228,
+          "peak_rss_kb": 32664
+        },
+        {
+          "app": "azu-min-rawdb",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 183349.10108357196,
+            "min": 181123.95428877324,
+            "max": 194238.90312118395,
+            "mean": 186843.7609131926,
+            "stddev": 6176.292088531375,
+            "rsd_pct": 3.3055918262108164
+          },
+          "p50_ms": 0.6040540002286434,
+          "p99_ms": 2.069981999695301,
+          "p99_ms_worst": 2.1638870001770556,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "extra": {
+            "driver_cpu_pct_median": 99.3940062688903,
+            "round_p50_ms": 0.989652999676764,
+            "round_p99_ms": 2.673452999908477
+          },
+          "samples": [
+            {
+              "rps": 192818.71681216708,
+              "rounds_per_s": 3856.374336243342,
+              "p50_ms": 0.5769099998287857,
+              "p90_ms": 1.009093999862671,
+              "p99_ms": 2.012724000029266,
+              "round_p50_ms": 0.9485869999043643,
+              "round_p99_ms": 2.5695210001431406,
+              "requests": 1929500,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.3940062688903
+            },
+            {
+              "rps": 182688.12926026664,
+              "rounds_per_s": 3653.762585205333,
+              "p50_ms": 0.6040540002286434,
+              "p90_ms": 1.076353999786079,
+              "p99_ms": 2.1638870001770556,
+              "round_p50_ms": 0.9988170000724494,
+              "round_p99_ms": 2.779494999907911,
+              "requests": 1829800,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.3982868438955
+            },
+            {
+              "rps": 181123.95428877324,
+              "rounds_per_s": 3622.4790857754647,
+              "p50_ms": 0.6121020000427961,
+              "p90_ms": 1.0839130003005266,
+              "p99_ms": 2.058726000133902,
+              "round_p50_ms": 1.0136249996721745,
+              "round_p99_ms": 2.673452999908477,
+              "requests": 1811750,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.81686886139128
+            },
+            {
+              "rps": 183349.10108357196,
+              "rounds_per_s": 3666.982021671439,
+              "p50_ms": 0.6121430001221597,
+              "p90_ms": 1.0612059999257326,
+              "p99_ms": 2.127902999985963,
+              "round_p50_ms": 0.989652999676764,
+              "round_p99_ms": 2.7267339997924864,
+              "requests": 1839450,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 98.33072744633293
+            },
+            {
+              "rps": 194238.90312118395,
+              "rounds_per_s": 3884.778062423679,
+              "p50_ms": 0.5763860000297427,
+              "p90_ms": 1.0031980001367629,
+              "p99_ms": 2.069981999695301,
+              "round_p50_ms": 0.9352759998291731,
+              "round_p99_ms": 2.5801760000176728,
+              "requests": 1944550,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.18194696968708
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 23900,
+          "peak_rss_kb": 32084
+        },
+        {
+          "app": "azu-rawdb",
+          "runs": 5,
+          "rps": {
+            "n": 5,
+            "median": 187212.81233887485,
+            "min": 180612.29211966667,
+            "max": 195736.82179213234,
+            "mean": 188968.3632968181,
+            "stddev": 6389.098179770719,
+            "rsd_pct": 3.381041179753024
+          },
+          "p50_ms": 0.6007799999788404,
+          "p99_ms": 2.055893999990076,
+          "p99_ms_worst": 2.1694419998675585,
+          "non2xx": 0,
+          "socket_errors": 0,
+          "invalid": false,
+          "noisy": false,
+          "few_runs": false,
+          "extra": {
+            "driver_cpu_pct_median": 100.04665084624787,
+            "round_p50_ms": 0.9679470001719892,
+            "round_p99_ms": 2.6080009997822344
+          },
+          "samples": [
+            {
+              "rps": 187212.81233887485,
+              "rounds_per_s": 3744.256246777497,
+              "p50_ms": 0.6007799999788404,
+              "p90_ms": 1.050574999768287,
+              "p99_ms": 2.085165999829769,
+              "round_p50_ms": 0.9679470001719892,
+              "round_p99_ms": 2.6971710002981126,
+              "requests": 1873150,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 100.04665084624787
+            },
+            {
+              "rps": 180612.29211966667,
+              "rounds_per_s": 3612.2458423933335,
+              "p50_ms": 0.6381359999068081,
+              "p90_ms": 1.1018570000305772,
+              "p99_ms": 2.1694419998675585,
+              "round_p50_ms": 1.0281849997118115,
+              "round_p99_ms": 2.7427989998832345,
+              "requests": 1806850,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 100.11810612481027
+            },
+            {
+              "rps": 186225.4227441591,
+              "rounds_per_s": 3724.508454883182,
+              "p50_ms": 0.6324729998596013,
+              "p90_ms": 1.0584939997643232,
+              "p99_ms": 2.055893999990076,
+              "round_p50_ms": 0.9941739998757839,
+              "round_p99_ms": 2.6080009997822344,
+              "requests": 1864650,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 100.5394868951808
+            },
+            {
+              "rps": 195736.82179213234,
+              "rounds_per_s": 3914.7364358426466,
+              "p50_ms": 0.5617659999988973,
+              "p90_ms": 0.9764689998701215,
+              "p99_ms": 1.9646299998275936,
+              "round_p50_ms": 0.9202649998478591,
+              "round_p99_ms": 2.4860890000127256,
+              "requests": 1961950,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.66880655331684
+            },
+            {
+              "rps": 195054.46748925754,
+              "rounds_per_s": 3901.0893497851507,
+              "p50_ms": 0.5760129997506738,
+              "p90_ms": 1.0076089999638498,
+              "p99_ms": 2.0517899999395013,
+              "round_p50_ms": 0.9304999997839332,
+              "round_p99_ms": 2.583405999932438,
+              "requests": 1956450,
+              "non2xx": 0,
+              "socket_errors": 0,
+              "driver_cpu_pct": 99.82037121086962
+            }
+          ],
+          "warmup_errors": 0,
+          "rss_kb": 23656,
+          "peak_rss_kb": 31952
+        }
+      ]
+    }
+  ],
+  "invalid_rows": []
+}
