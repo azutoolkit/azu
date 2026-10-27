@@ -257,8 +257,9 @@ private class DripSwitch
   end
 end
 
-# Forwards what a client sends to *target*; once switched on, *per* bytes every *period*. {proxy, switch}
-private def drip_proxy(target : Socket::IPAddress, per : Int32, period : Time::Span) : {TCPServer, DripSwitch}
+# Forwards what a client sends to *target*; once switched on, *burst* bytes at once, then *per* bytes every *period*.
+# {proxy, switch}
+private def drip_proxy(target : Socket::IPAddress, per : Int32, period : Time::Span, burst : Int32 = 0) : {TCPServer, DripSwitch}
   drip = DripSwitch.new
   proxy = TCPServer.new("127.0.0.1", 0)
   spawn do
@@ -275,7 +276,8 @@ private def drip_proxy(target : Socket::IPAddress, per : Int32, period : Time::S
       break if count == 0
       offset = 0
       while offset < count
-        size = drip.on? ? Math.min(per, count - offset) : count - offset
+        size = drip.on? ? Math.min(burst > 0 ? burst : per, count - offset) : count - offset
+        burst -= size if drip.on? && burst > 0
         upstream.write(buffer[offset, size])
         upstream.flush
         offset += size
@@ -306,6 +308,23 @@ FRAMINGS = [
   {"Transfer-Encoding: gzip, chunked", CHUNKED}, {"Transfer-Encoding: chunked\r\nContent-Length: 5", CHUNKED},
   {"Transfer_Encoding: chunked\r\nContent_Length: 5", CHUNKED}, {"Content_Length: 5\r\nTransfer_Encoding: chunked", CHUNKED},
 ]
+
+# A chunked body with a trailer: the stream does not read trailers, so its end is unknown (see RequestStream).
+UNKNOWN_CHUNKED = "5\r\nhello\r\n0\r\nX-Trailer: a\r\n\r\n"
+# The headers of a request that come a byte at a time, as they are dripped after the previous request's answer.
+SLOW_HEADERS = "GET / HTTP/1.1\r\nHost: x\r\nX-Slow: #{"a" * 40}"
+
+# Writes *text* to *io* in pieces of *per* bytes every *period*, in a fiber of its own, until the server closes.
+private def drip(io : IO, text : String, period : Time::Span, per : Int32 = 1) : Nil
+  spawn do
+    text.each_char.each_slice(per) do |chars|
+      io << chars.join
+      io.flush
+      sleep period
+    end
+  rescue IO::Error | OpenSSL::Error
+  end
+end
 
 describe "server limits" do
   it "answers requests as before" do
@@ -557,6 +576,35 @@ describe "server limits" do
             seconds.should be < 1.5 # as a body: not keep_alive_timeout (3 s)
           end
         end
+
+        it "cuts a body of unknown length of the last one at read_timeout when it stops coming" do
+          with_server(limited_app(header: 0.6, read: 0.4, keep_alive: 3.0), tls, quiet_rescuer) do |address|
+            io, tcp = connect(address, tls)
+            # "5 " is a size the stream does not read (Crystal's parser does): the body's end is unknown.
+            io << "GET / HTTP/1.1\r\nHost: x\r\n\r\nPOST /body HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n5 \r\nhel"
+            io.flush
+            text, seconds = read_until_close(io, tcp)
+            statuses(text).should eq ["HTTP/1.1 200", "HTTP/1.1 408"]
+            seconds.should be < 1.5 # as a body: not keep_alive_timeout (3 s)
+          end
+        end
+
+        {0, 10}.each do |rate|
+          it "times the headers of a request after a chunked one answered with the one before it, with header_timeout (min_body_rate #{rate})" do
+            with_server(limited_app(header: 0.6, read: 0.6, keep_alive: 5.0, rate: rate), tls) do |address|
+              io, tcp = connect(address, tls)
+              io << "GET / HTTP/1.1\r\nHost: x\r\n\r\nPOST /body HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n#{CHUNKED}"
+              io.flush
+              sleep 0.2.seconds
+              # Every byte within read_timeout, and at or above min_body_rate: only header_timeout cuts it.
+              drip(io, SLOW_HEADERS, 0.3.seconds, rate == 0 ? 1 : 3)
+              text, seconds = read_until_close(io, tcp, 12.seconds)
+              seconds.should be < 1.6
+              statuses(text).should eq(tls ? ["HTTP/1.1 200"] * 2 : ["HTTP/1.1 200", "HTTP/1.1 200", "HTTP/1.1 408"])
+              text.should contain("body 5")
+            end
+          end
+        end
       end
     end
 
@@ -648,25 +696,34 @@ describe "server limits" do
     end
   end
 
-  describe "a body of unknown length" do
-    it "ends where it is answered: the next request's headers are timed with header_timeout" do
-      with_limited_server(limited_app(header: 0.6, read: 3.0, keep_alive: 5.0)) do |address|
-        socket = TCPSocket.new(address.address, address.port)
-        socket << "POST /body HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n#{CHUNKED}"
-        socket.flush
-        sleep 0.3.seconds
-        spawn do
-          "GET / HTTP/1.1\r\nHost: x\r\nX-Slow: #{"a" * 40}".each_char do |char|
-            socket << char
-            socket.flush
-            sleep 0.15.seconds
+  {false, true}.each do |tls|
+    transport = tls ? "TLS" : "plain HTTP"
+
+    describe "a chunked body (#{transport})" do
+      {"framed" => CHUNKED, "of unknown length" => UNKNOWN_CHUNKED}.each do |kind, body|
+        it "#{kind}: ends where it ends or is answered, and the next request's headers are timed with header_timeout" do
+          with_server(limited_app(header: 0.6, read: 3.0, keep_alive: 5.0), tls) do |address|
+            io, tcp = connect(address, tls)
+            io << "POST /body HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n#{body}"
+            io.flush
+            sleep 0.3.seconds
+            drip(io, SLOW_HEADERS, 0.15.seconds)
+            text, seconds = read_until_close(io, tcp)
+            statuses(text).should eq(tls ? ["HTTP/1.1 200"] : ["HTTP/1.1 200", "HTTP/1.1 408"])
+            seconds.should be < 1.5 # not read_timeout (3 s)
           end
-        rescue IO::Error
         end
-        text, closed, seconds = read_all(socket, 6.seconds)
-        closed.should be_true
-        statuses(text).should eq ["HTTP/1.1 200", "HTTP/1.1 408"]
-        seconds.should be < 1.5
+      end
+
+      it "of unknown length: is timed as a body while the handler reads it" do
+        with_server(limited_app(header: 0.6, read: 0.4, keep_alive: 3.0), tls, quiet_rescuer) do |address|
+          io, tcp = connect(address, tls)
+          io << "POST /body HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n5 \r\nhel"
+          io.flush
+          text, seconds = read_until_close(io, tcp)
+          statuses(text).should eq ["HTTP/1.1 408"]
+          seconds.should be < 1.5 # read_timeout, not keep_alive_timeout (3 s)
+        end
       end
     end
   end
@@ -964,6 +1021,44 @@ describe "server limits" do
       clock.before_read
       clock.phase.idle?.should be_true
     end
+
+    it "keeps timing a body of unknown length as a body until its response is written" do
+      clock = Azu::RequestClock.new(Azu::ServerLimitsConfiguration.new)
+      clock.after_read("POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5 \r\nhel".to_slice)
+      clock.before_read
+      clock.phase.body?.should be_true
+      clock.after_read("lo\r\n0\r\n\r\n".to_slice)
+      clock.after_write("HTTP/1.1 200 OK\r\n\r\n".to_slice)
+      clock.before_read
+      clock.phase.idle?.should be_true
+    end
+
+    it "times a body of unknown length after a request answered from the buffer as a body" do
+      clock = Azu::RequestClock.new(Azu::ServerLimitsConfiguration.new)
+      clock.after_read("GET / HTTP/1.1\r\n\r\nPOST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5 \r\nhel".to_slice)
+      clock.after_write("HTTP/1.1 200 OK\r\n\r\n".to_slice)
+      clock.before_read
+      clock.phase.body?.should be_true
+    end
+
+    it "times what follows a body read in full as the next request, though nothing was written after it" do
+      clock = Azu::RequestClock.new(Azu::ServerLimitsConfiguration.new)
+      clock.after_read("POST / HTTP/1.1\r\nContent-Length: 2\r\n\r\n".to_slice)
+      clock.after_write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok".to_slice) # all of it, before the body
+      clock.before_read
+      clock.phase.body?.should be_true
+      clock.after_read("ab".to_slice)
+      clock.before_read
+      clock.phase.idle?.should be_true
+    end
+
+    it "frames a chunked body, so the request after it is timed as headers once the body is answered" do
+      clock = Azu::RequestClock.new(Azu::ServerLimitsConfiguration.new)
+      clock.after_read("GET / HTTP/1.1\r\n\r\nPOST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\nGE".to_slice)
+      2.times { clock.after_write("HTTP/1.1 200 OK\r\n\r\n".to_slice) }
+      clock.before_read
+      clock.phase.headers?.should be_true
+    end
   end
 
   describe "a slow request body" do
@@ -1164,6 +1259,69 @@ describe "server limits" do
         text, _ = read_until_close(socket, tcp, 8.seconds)
         text.should_not contain("body 2000")
         (Time.instant - started).should be < 1.5.seconds
+      ensure
+        proxy.close
+        server.close
+      end
+    end
+
+    it "takes a body record dripped within read_timeout per read when min_body_rate is 0" do
+      # One 4000-byte record over 2 s, four times read_timeout: each read of it comes within read_timeout.
+      server, address = tls_server.call(limited_app(header: 1.0, read: 0.5, keep_alive: 5.0, rate: 0))
+      proxy, drip = drip_proxy(address, 200, 0.1.seconds)
+      begin
+        tcp = TCPSocket.new("127.0.0.1", proxy.local_address.port)
+        socket = OpenSSL::SSL::Socket::Client.new(tcp, client_context, hostname: "localhost")
+        socket.sync = true
+        socket << "POST /body HTTP/1.1\r\nHost: x\r\nContent-Length: 4000\r\nConnection: close\r\n\r\n"
+        sleep 0.2.seconds
+        drip.turn_on
+        socket << "z" * 4000
+        text, _ = read_until_close(socket, tcp, 8.seconds)
+        text.should contain("body 4000")
+      ensure
+        proxy.close
+        server.close
+      end
+    end
+
+    it "gives a body record that starts fast at most read_timeout of credit for the drip after it" do
+      # 15 000 bytes at once earn 15 s at 1000 B/s; the rest of the record then comes at 10 B/s.
+      server, address = tls_server.call(limited_app(header: 1.0, read: 0.5, keep_alive: 5.0, rate: 1000))
+      proxy, drip = drip_proxy(address, 1, 0.1.seconds, burst: 15_000)
+      begin
+        tcp = TCPSocket.new("127.0.0.1", proxy.local_address.port)
+        socket = OpenSSL::SSL::Socket::Client.new(tcp, client_context, hostname: "localhost")
+        socket.sync = true
+        socket << "POST /body HTTP/1.1\r\nHost: x\r\nContent-Length: 16000\r\nConnection: close\r\n\r\n"
+        sleep 0.2.seconds
+        drip.turn_on
+        started = Time.instant
+        spawn { socket << "z" * 16000 rescue nil } # one record
+        text, _ = read_until_close(socket, tcp, 20.seconds)
+        text.should_not contain("body 16000")
+        (Time.instant - started).should be < 2.seconds
+      ensure
+        proxy.close
+        server.close
+      end
+    end
+
+    it "does not let the bytes of a header record earn time, however fast they come" do
+      # One record of ~1000 header bytes at 200 B/s, twice min_body_rate: 5 s to arrive, header_timeout is 1 s.
+      server, address = tls_server.call(limited_app(header: 1.0, read: 5.0, keep_alive: 5.0, rate: 100))
+      proxy, drip = drip_proxy(address, 20, 0.1.seconds)
+      begin
+        tcp = TCPSocket.new("127.0.0.1", proxy.local_address.port)
+        socket = OpenSSL::SSL::Socket::Client.new(tcp, client_context, hostname: "localhost")
+        socket.sync = true
+        sleep 0.2.seconds # the handshake's last bytes reach the server at full speed: only the request drips
+        drip.turn_on
+        started = Time.instant
+        spawn { socket << "GET / HTTP/1.1\r\nHost: x\r\nX-Pad: #{"a" * 950}\r\nConnection: close\r\n\r\n" rescue nil }
+        text, _ = read_until_close(socket, tcp, 10.seconds)
+        text.should_not contain("hello")
+        (Time.instant - started).should be < 2.seconds
       ensure
         proxy.close
         server.close

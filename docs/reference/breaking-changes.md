@@ -29,6 +29,14 @@ whose own `error.html` overrides Azu's is not affected.
 `icons.svg` moved from `src/azu/dev/dev_dashboard/` to `src/azu/ui/`, shared with the exception page; their module names
 are unchanged.
 
+## 0.9.1
+
+**An `IO::TimeoutError` that is not the client's is now a `500`, not a `408`** (#261, released as a patch). `Rescuer`
+answers `408` only for `Azu::ServerLimits::ClientTooSlow`, which the reads and writes of a limited connection raise when the
+client is too slow; any other `IO::TimeoutError` (an upstream HTTP client, Redis or a database timing out) is the server's
+failure, answered `500` and logged with its backtrace. Code that raised `IO::TimeoutError` to answer `408` raises
+`Azu::ServerLimits::ClientTooSlow` instead.
+
 ## 0.9.0
 
 **The server limits of 0.8.1 also run on HTTPS, and their configuration is stricter** (#258, the release that carries the
@@ -39,8 +47,8 @@ or less switches that wait off, and a `SERVER_*` value that is not a number is l
 the handler's read and `Rescuer` answers `408` with one log line. An upload sent with `Expect: 100-continue` is no longer cut by
 `header_timeout`.
 
-**Typed `Azu::Testing::Client` calls answer `TypedResponse(T)` instead of `Response`** (#259, released as a patch). A call
-such as `client.post(CreateUserEndpoint, NewUserRequest.new("Ada"))` returns an `Azu::Testing::TypedResponse(T)`, `T` being the
+**Typed `Azu::Testing::Client` calls answer `TypedResponse(T)` instead of `Response`** (#259, first released in 0.9.0,
+though its own commit carries no `(MINOR)` marker). A call such as `client.post(CreateUserEndpoint, NewUserRequest.new("Ada"))` returns an `Azu::Testing::TypedResponse(T)`, `T` being the
 endpoint's response type: every method of `Response` still works on it and `value` decodes the body as `T`. Code that stores
 the result in a variable or argument typed `Azu::Testing::Response` takes `.response`. Calls on a plain `Routable` still
 answer a `Response`.
