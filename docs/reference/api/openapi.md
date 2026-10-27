@@ -7,8 +7,8 @@ description: Generate an OpenAPI 3.1 document from your endpoint contracts, serv
 `Azu::OpenAPI` builds an [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0) document from the
 `Endpoint(Request, Response)` contracts of an app, and `Azu::OpenAPI::Handler` serves it. The request and response
 types are the source of truth, so the document cannot drift from the code. It is part of `require "azu"`; nothing is
-built until you ask for the document. It writes JSON and serves no documentation page, and it is not the
-`azu openapi:export` command of the Azu CLI (see [Limits](#limits)).
+built until you ask for the document. It writes JSON, and with `docs:` the handler also serves a reference page of
+it. It is not the `azu openapi:export` command of the Azu CLI (see [Limits](#limits)).
 
 ```crystal
 require "azu"
@@ -61,8 +61,8 @@ info = Azu::OpenAPI::Info.new("Shop API", "1.0.0")
 document = Azu::OpenAPI.document(app, info)
 puts document.to_json(pretty: true)
 
-# Serve it at GET /openapi.json
-handler = Azu::OpenAPI::Handler.new(app, info: info)
+# Serve it at GET /openapi.json, and a reference page at GET /docs
+handler = Azu::OpenAPI::Handler.new(app, info: info, docs: "/docs")
 server = app.server([*app.default_handlers, handler] of HTTP::Handler)
 ```
 
@@ -81,7 +81,7 @@ server = app.server([*app.default_handlers, handler] of HTTP::Handler)
 `Azu::OpenAPI::Map` is `Hash(String, Value)`, and `Azu::OpenAPI::Value` is
 `String | Int64 | Float64 | Bool | Nil | Array(Value) | Hash(String, Value)`.
 
-`Azu::OpenAPI::Handler.new(app, *, info, path = "/openapi.json", servers = [] of Server)`:
+`Azu::OpenAPI::Handler.new(app, *, info, path = "/openapi.json", servers = [] of Server, docs = nil)`:
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -89,6 +89,7 @@ server = app.server([*app.default_handlers, handler] of HTTP::Handler)
 | `info` | `Info` | | The `info` object |
 | `path` | `String` | `"/openapi.json"` | Where the document is served; a trailing slash is dropped, and `"/"` serves it at the root |
 | `servers` | `Array(Server)` | `[] of Server` | The `servers` entries |
+| `docs` | `String?` | `nil` | Where the HTML reference page is served (off when nil); a trailing slash is dropped. The same path as `path` raises `ArgumentError` |
 
 ## Behavior
 
@@ -179,6 +180,14 @@ path with `application/json` and a `Content-Length` (no body for `HEAD`), and pa
 document is built by the first request and kept, so routes added after that do not show up: build a new handler to
 pick them up. It describes the `App` it is given, nothing else.
 
+With `docs: "/docs"` it also answers `GET` and `HEAD` at `/docs` with an HTML page of the same document: every
+operation with its parameters, request bodies and responses, then the shared schemas, linked from where they are used
+(the shared error responses, `BadRequest`, `NotFound` and `ValidationFailed`, are named, not expanded).
+The page is rendered on the server, so it works offline and has no script and nothing loaded from elsewhere; every
+value is HTML-escaped. It carries its own `Content-Security-Policy` (`default-src 'none'` and the hash of its inline
+style), which replaces the app's policy for that path only. It is a reference to read, not a console: to send requests
+from the browser, use Swagger UI (see [Publish your OpenAPI document](../../how-to/api/publish-openapi.md#add-a-swagger-ui-page)).
+
 {% hint style="warning" %}
 Pass the handler after the default ones, as above: a server built from `[handler]` alone has no request id, error
 pages or security headers.
@@ -200,8 +209,9 @@ and the mounted apps. Treat it like source code you would show to a client.
   examples, and a success status other than `200` (an endpoint's status is set while it runs, so the document cannot
   know about a `201` or `204`). Azu cannot read them from the code; add them by editing `to_h` (see
   [Publish your OpenAPI document](../../how-to/api/publish-openapi.md#add-what-azu-does-not-generate)).
-- **JSON only, no page.** There is no YAML writer (`JSON.parse(document.to_json).to_yaml`, with `require "yaml"`,
-  converts it and keeps the key order) and no documentation UI; point Swagger UI, Redoc or any other tool at the URL.
+- **JSON only.** There is no YAML writer (`JSON.parse(document.to_json).to_yaml`, with `require "yaml"`,
+  converts it and keeps the key order). The `docs:` page is read-only; for "try it out", point Swagger UI, Redoc or
+  any other tool at the URL.
 - A response that is not `JSON::Serializable` has no schema, and neither has a request that is the bare
   `Azu::Request`: nothing says what they carry. Wrong or missing is better than invented.
 - A `render` that does not write the type's own `to_json` makes the document wrong; Azu cannot check it.

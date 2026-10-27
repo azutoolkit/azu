@@ -76,9 +76,22 @@ To publish the document in every environment, drop the `if`. When the API is not
 your authentication handler: the document lists every route, its parameters and its validation rules (see
 [Securing the document](../../reference/api/openapi.md#securing-the-document)).
 
+## Show a reference page
+
+Pass `docs:` and the same handler serves a readable page of the document:
+
+```crystal
+handlers = Azu::App.default.default_handlers
+handlers << Azu::OpenAPI::Handler.new(Azu::App.default, info: OPENAPI_INFO, docs: "/docs") if MyApp.env.development?
+```
+
+Open `/docs` in a browser: every operation, its parameters with their types and validation rules, the request bodies,
+the responses and the shared schemas. The page is built on the server with no JavaScript and no CDN, so it works
+offline and under a strict `Content-Security-Policy` (it sends its own for that path).
+
 ## Add a Swagger UI page
 
-Serve an HTML page that loads Swagger UI from a CDN and points it at the document:
+For a console that sends requests from the browser, serve an HTML page that loads Swagger UI from a CDN and points it at the document:
 
 ```crystal
 SWAGGER_UI = <<-HTML
