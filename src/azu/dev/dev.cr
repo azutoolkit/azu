@@ -9,6 +9,7 @@ require "./configuration"
 require "./performance_reporter"
 require "./dev_dashboard_component"
 require "./dev_dashboard"
+require "./telemetry"
 
 module Azu
   module Dev
