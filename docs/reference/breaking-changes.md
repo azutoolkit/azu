@@ -13,6 +13,18 @@ from an early 0.5 release to the current API, with old and new code side by side
 
 ## Next release
 
+**The default stack sends more security headers, and HSTS follows the request.** `Azu::Handler::SecurityHeaders` now
+also sends `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Cross-Origin-Opener-Policy:
+same-origin-allow-popups` and `Cross-Origin-Resource-Policy: same-site` by default (pass `nil` for the ones you
+do not want; a page on another site that embeds your images or scripts needs `cross_origin_resource_policy: nil` or
+a CORS request, and a page that is the popup of another site needs `cross_origin_opener_policy: nil`). `hsts:`
+accepts `:auto`, which sends `Strict-Transport-Security` (a year, subdomains included) to the requests a proxy
+forwards as `X-Forwarded-Proto: https`; the default stack passes `true` when this app terminates TLS itself and
+`:auto` otherwise, instead of `config.tls?`, so a deployment behind a TLS proxy that forwards the header gets HSTS
+without a handler array of its own. `Azu.start(handlers, defaults: true)` and `Azu::App#start(handlers, defaults: true)` place `handlers` inside the
+default stack (after `SecurityHeaders`, before `Static`: `Azu::App#default_handlers(handlers)`); a bare array is
+still used as given.
+
 **`Handler::CSRF` checks the request's origin and ignores a token in the query string.** A `POST`, `PUT`, `PATCH` or
 `DELETE` that carries an `Origin` header (or, without one, a `Referer`) is refused with `403 CSRF origin check failed`
 unless that origin is the app's own (`CSRF.validate_origin`: `X-Forwarded-Proto` and `X-Forwarded-Host`, else the TLS

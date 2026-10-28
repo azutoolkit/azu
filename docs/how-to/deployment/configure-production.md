@@ -97,9 +97,13 @@ Set `SSL_CERT` and `SSL_KEY` to the paths of a certificate and key and `start` l
 
 ## Security headers
 
-The default handler stack already includes `Azu::Handler::SecurityHeaders`
-(`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`). HSTS and a content security policy are only
-sent when asked for. When you pass your own handler array, list the handler yourself:
+The default handler stack already includes `Azu::Handler::SecurityHeaders` (`X-Content-Type-Options`,
+`X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`,
+`Cross-Origin-Resource-Policy`, and `Strict-Transport-Security` for a year, subdomains included, when this app
+terminates TLS or on the requests a proxy forwards as `X-Forwarded-Proto: https`). A content security policy is only
+sent when asked for. To add
+handlers to that stack, pass them with `defaults: true`; when you pass your own handler array instead, list the
+handler yourself:
 
 ```crystal
 module MyApp
@@ -115,8 +119,16 @@ MyApp.start [
 ] of HTTP::Handler
 ```
 
-Behind a proxy that terminates TLS, `hsts: true` is right; the headers are sent by the application on every
-response.
+Behind a proxy that terminates TLS, `hsts: true` is right when the proxy does not forward `X-Forwarded-Proto`
+(with it, `:auto` sends the header too); the headers are sent by the application on every response.
+
+```crystal
+module MyApp
+  include Azu
+end
+
+MyApp.start [Azu::Handler::CSRF.new] of HTTP::Handler, defaults: true # inside the default stack, before Static
+```
 
 ## Logging configuration
 
@@ -225,7 +237,7 @@ Before deploying:
 - [ ] Secrets (`SPARK_SECRET`, `SESSION_SECRET`, `CSRF_SECRET`, database credentials) come from the environment
 - [ ] Database migrations run
 - [ ] TLS terminated by a proxy, or `SSL_CERT` and `SSL_KEY` set
-- [ ] `SecurityHeaders` in the handler stack, with `hsts: true` behind TLS
+- [ ] `SecurityHeaders` in the handler stack (the default stack has it); `hsts: true` behind a TLS proxy that does not forward `X-Forwarded-Proto`
 - [ ] Logging configured
 - [ ] `/health` answers and is wired to the load balancer
 - [ ] Rate limiting where the API is public

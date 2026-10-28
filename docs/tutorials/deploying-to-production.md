@@ -50,7 +50,7 @@ UserAPI.start [
   Azu::Handler::RequestId.new,
   Azu::Handler::Logger.new,
   Azu::Handler::Rescuer.new,
-  Azu::Handler::SecurityHeaders.new(hsts: Azu::CONFIG.env.production?),
+  Azu::Handler::SecurityHeaders.new(hsts: :auto),
   Azu::Handler::Static.new,
 ] of HTTP::Handler
 ```
@@ -58,7 +58,9 @@ UserAPI.start [
 Azu reads `PORT`, `HOST` and `SHUTDOWN_TIMEOUT` from the environment itself (Step 3 sets them), so the app does not
 configure them. `Static` passes a request for something that is not a file on to the router (`fallthrough` is `true`
 by default; `fallthrough: false` answers `404` itself). `HealthCheck` answers `GET /health` with `{"status":"ok"}`
-before the request reaches the router. `hsts: true` sends `Strict-Transport-Security`; enable it once the site is served over HTTPS. Requiring `azu` does not set up `Log`:
+before the request reaches the router. `hsts: :auto` sends `Strict-Transport-Security` to the requests a proxy
+forwards as `X-Forwarded-Proto: https`; `hsts: true` sends it always, for an app that terminates TLS itself or a
+proxy that does not forward the header. Requiring `azu` does not set up `Log`:
 you choose the level and backend, as above. See [Configure Production](../how-to/deployment/configure-production.md)
 for every setting.
 
@@ -205,7 +207,7 @@ Before going live:
 - [ ] `CRYSTAL_ENV=production`
 - [ ] Secrets in the environment, not in the image or the repository
 - [ ] Database migrations run
-- [ ] TLS in front of the app, and `hsts: true` once it works
+- [ ] TLS in front of the app, forwarding `X-Forwarded-Proto` (or `hsts: true` once it works)
 - [ ] `/health` answers and is used by the load balancer or `HEALTHCHECK`
 - [ ] Logging configured (`Log.setup`)
 - [ ] Rate limiting where the API is public

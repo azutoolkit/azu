@@ -47,6 +47,27 @@ describe Azu::App do
       app.default_handlers.each_with_index { |handler, index| handler.should_not be handlers[index] }
     end
 
+    it "puts the handlers it is given after the security headers and before the static files" do
+      app = Azu::App.new
+      csrf = Azu::Handler::CSRF.new(secret_key: "x" * 32)
+      throttle = Azu::Handler::Throttle.new(5, 900, 100, [] of String, [] of String)
+
+      app.default_handlers([throttle, csrf] of HTTP::Handler).map(&.class).should eq [
+        Azu::Handler::RequestId, Azu::Handler::Logger, Azu::Handler::Rescuer, Azu::Handler::SecurityHeaders,
+        Azu::Handler::Throttle, Azu::Handler::CSRF, Azu::Handler::Static,
+      ]
+    end
+
+    it "sends HSTS from the default stack to a request that came over TLS, and not to one that did not" do
+      app = Azu::App.new
+      serve(app.default_handlers, app) do |client|
+        client.get("/hello").headers["Strict-Transport-Security"]?.should be_nil
+        forwarded = client.get("/hello", HTTP::Headers{"X-Forwarded-Proto" => "https"})
+        forwarded.headers["Strict-Transport-Security"].should eq Azu::Handler::SecurityHeaders::HSTS_VALUE
+        forwarded.headers["Permissions-Policy"].should eq Azu::Handler::SecurityHeaders::PERMISSIONS_POLICY
+      end
+    end
+
     it "serves routes with a request id and security headers, also on error pages" do
       app = Azu::App.new
       serve(app.default_handlers, app) do |client|
@@ -106,7 +127,51 @@ describe Azu::Handler::SecurityHeaders do
       {"X-Content-Type-Options", ["nosniff"]},
       {"X-Frame-Options", ["SAMEORIGIN"]},
       {"Referrer-Policy", ["strict-origin-when-cross-origin"]},
+      {"Permissions-Policy", ["camera=(), microphone=(), geolocation=()"]},
+      {"Cross-Origin-Opener-Policy", ["same-origin-allow-popups"]},
+      {"Cross-Origin-Resource-Policy", ["same-site"]},
     ]
+  end
+
+  it "leaves out a policy given as nil" do
+    handler = Azu::Handler::SecurityHeaders.new(permissions_policy: nil, cross_origin_opener_policy: nil, cross_origin_resource_policy: nil)
+
+    headers_after(handler, HTTP::Headers.new).map(&.first).should eq ["X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy"]
+  end
+
+  it "with hsts: :auto sends HSTS to a request a proxy forwarded as https, and keeps one already set" do
+    handler = Azu::Handler::SecurityHeaders.new(hsts: :auto)
+    handler.next = Answered.new
+    hsts_after = ->(forwarded : String?) do
+      headers = HTTP::Headers.new
+      headers["X-Forwarded-Proto"] = forwarded if forwarded
+      context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/", headers), HTTP::Server::Response.new(IO::Memory.new))
+      handler.call(context)
+      context.response.headers["Strict-Transport-Security"]?
+    end
+
+    hsts_after.call(nil).should be_nil
+    hsts_after.call("http").should be_nil
+    hsts_after.call("http, https").should be_nil # the first value is the client-facing hop's
+    hsts_after.call("https").should eq Azu::Handler::SecurityHeaders::HSTS_VALUE
+    hsts_after.call("HTTPS").should eq Azu::Handler::SecurityHeaders::HSTS_VALUE
+    hsts_after.call("https, http").should eq Azu::Handler::SecurityHeaders::HSTS_VALUE
+
+    kept = HTTP::Server::Context.new(HTTP::Request.new("GET", "/", HTTP::Headers{"X-Forwarded-Proto" => "https"}), HTTP::Server::Response.new(IO::Memory.new))
+    kept.response.headers["strict-transport-security"] = "max-age=1"
+    handler.call(kept)
+    kept.response.headers.to_a.select { |name, _| name.downcase == "strict-transport-security" }.should eq [{"strict-transport-security", ["max-age=1"]}]
+
+    expect_raises(ArgumentError) { Azu::Handler::SecurityHeaders.new(hsts: :sometimes) }
+  end
+
+  it "is built with hsts: true by the default stack of an app that terminates TLS itself" do
+    app = Azu::App.new
+    app.config.ssl_cert = "/etc/azu/cert.pem"
+    app.config.ssl_key = "/etc/azu/key.pem"
+    handler = app.default_handlers[3].as(Azu::Handler::SecurityHeaders)
+
+    headers_after(handler, HTTP::Headers.new).to_h["Strict-Transport-Security"].should eq [Azu::Handler::SecurityHeaders::HSTS_VALUE]
   end
 
   it "adds the configured values, the policy and HSTS" do
@@ -117,6 +182,9 @@ describe Azu::Handler::SecurityHeaders do
       {"X-Content-Type-Options", ["nosniff"]},
       {"X-Frame-Options", ["DENY"]},
       {"Referrer-Policy", ["no-referrer"]},
+      {"Permissions-Policy", ["camera=(), microphone=(), geolocation=()"]},
+      {"Cross-Origin-Opener-Policy", ["same-origin-allow-popups"]},
+      {"Cross-Origin-Resource-Policy", ["same-site"]},
       {"Content-Security-Policy", ["default-src 'self'"]},
       {"Strict-Transport-Security", [Azu::Handler::SecurityHeaders::HSTS_VALUE]},
     ]
@@ -132,6 +200,9 @@ describe Azu::Handler::SecurityHeaders do
       {"STRICT-TRANSPORT-SECURITY", ["max-age=1"]},
       {"X-Content-Type-Options", ["nosniff"]},
       {"Referrer-Policy", ["strict-origin-when-cross-origin"]},
+      {"Permissions-Policy", ["camera=(), microphone=(), geolocation=()"]},
+      {"Cross-Origin-Opener-Policy", ["same-origin-allow-popups"]},
+      {"Cross-Origin-Resource-Policy", ["same-site"]},
     ]
   end
 
