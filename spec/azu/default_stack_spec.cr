@@ -63,6 +63,21 @@ describe Azu::App do
         client.get("/hello/").status_code.should eq 200
       end
     end
+
+    it "answers an error to a client whose Accept header does not parse, instead of crashing the rescuer" do
+      app = Azu::App.new
+      serve(app.default_handlers, app) do |client|
+        bad_quality = client.get("/missing", HTTP::Headers{"Accept" => "text/html;q=abc, */*"})
+        bad_quality.status_code.should eq 404
+        bad_quality.headers["Content-Type"].should start_with "text/html"
+
+        unparseable = client.get("/missing", HTTP::Headers{"Accept" => ";;"})
+        unparseable.status_code.should eq 404
+        unparseable.headers["Content-Type"].should start_with "text/plain"
+
+        client.get("/boom", HTTP::Headers{"Accept" => "garbage"}).status_code.should eq 500
+      end
+    end
   end
 end
 
