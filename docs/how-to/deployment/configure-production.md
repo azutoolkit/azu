@@ -18,8 +18,10 @@ PORT=4000
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `CRYSTAL_ENV` | `development` | `development`, `test`, `pipeline`, `staging`, `production`, ... |
+| `CRYSTAL_ENV` | `development` | `development`, `test`, `pipeline`, `staging`, `production`, ... Unset with a non-loopback `HOST`, `start` refuses to boot (`AZU_ALLOW_DEV_ON_ANY_HOST=true` serves the development pages anyway) |
+| `AZU_STRICT_ENVS` | `production,staging` | the environments in which a missing secret or boot variable is an error, not a random fallback or a warning |
 | `HOST`, `PORT` | `127.0.0.1` in `development`, `0.0.0.0` otherwise; `4000` | where the server listens |
+| `TRUSTED_PROXIES` | empty | comma separated addresses and CIDR blocks of the reverse proxies whose `X-Forwarded-*` headers are believed (template variables, `Throttle`) |
 | `PORT_REUSE` | `true` | `SO_REUSEPORT` on the listening socket |
 | `TEMPLATE_HOT_RELOAD` | on in `development`, `test`, `pipeline` | re-read changed template files |
 | `TEMPLATES_PATH` | see [templates](../templates/render-html-templates.md) | comma separated template directories |
@@ -30,10 +32,11 @@ PORT=4000
 | `UPLOAD_MAX_REQUEST_SIZE`, `UPLOAD_MAX_PARTS`, `UPLOAD_MAX_FILES` | `67108864`, `100`, `20` | bytes, parts and files allowed in one multipart request |
 | `UPLOAD_MAX_PARAMS` | `1000` | `name=value` pairs allowed in one query string or urlencoded body |
 | `THROTTLE_STORE`, `THROTTLE_REDIS_URL` | `memory`, `REDIS_URL` | where `Azu::Handler::Throttle` counts (`redis` shares the counters between instances) |
-| `SSL_CERT`, `SSL_KEY` | empty | PEM files; TLS is on when both are set |
+| `SSL_CERT`, `SSL_KEY` | empty | PEM files; TLS is on when both are set (one without the other refuses to boot) |
 | `CACHE_STORE`, `CACHE_REDIS_URL` | `memory`, | see [Redis cache](../caching/setup-redis-cache.md) |
 | `SPARK_SECRET` | | signing secret for Spark live views, required in staging and production |
 | `WEBSOCKET_ALLOWED_ORIGINS` | empty | comma separated origins allowed to open a channel |
+| `WEBSOCKET_IDLE_TIMEOUT`, `WEBSOCKET_MAX_SUBSCRIPTIONS` | `90`, `64` | seconds a silent connection is kept (at least twice the ping interval), topics one connection may subscribe to |
 
 Settings you need in code are plain properties of the configuration:
 

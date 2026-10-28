@@ -36,3 +36,19 @@ and the code Azu generates through the [Azu CLI](https://github.com/azutoolkit/a
 Out of scope: vulnerabilities in dependencies (report them to the dependency, and tell us so we can pin a fixed version),
 the playground and benchmark applications, and findings that need a misconfiguration the documentation warns against
 (for example running with `CRYSTAL_ENV` unset on a public interface, or `TEMPLATE_AUTOESCAPE=false`).
+
+## What the framework does by default
+
+- `start` refuses to boot a misconfigured server before it binds a port: `CRYSTAL_ENV` unset on a non-loopback host,
+  `SSL_CERT` without `SSL_KEY`, or a missing variable named with `Azu::Env.require_at_boot` in production or staging.
+  `Azu::Env.secret` (`CSRF_SECRET`, `SPARK_SECRET`) raises there too instead of falling back to a random key.
+- The default handler stack sends `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`,
+  `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, and `Strict-Transport-Security` on the requests served
+  over TLS; it logs with a request id and never shows a backtrace outside development.
+- `Handler::CSRF` signs its tokens with HMAC-SHA256, compares them in constant time, refuses state-changing requests from
+  another origin, and never reads a token from the query string. `Handler::Throttle` rate-limits by the connection's
+  address, with shared counters in Redis when asked. `X-Forwarded-*` headers are believed only from `TRUSTED_PROXIES`.
+- Templates are autoescaped, `inline_svg` reads only the asset directory, bodies, uploads, parameter counts and slow
+  clients are limited, and WebSocket channels check the `Origin`, cap message size and subscriptions, and drop idle peers.
+  See [Configure production](docs/how-to/deployment/configure-production.md) and
+  [Built-in handlers](docs/reference/handlers/built-in.md).
