@@ -50,6 +50,7 @@ so set environment variables before that (or assign in code).
 |---|---|---|---|
 | `port` | `Int32` | `4000` | `PORT` |
 | `host` | `String` | `"127.0.0.1"` in development, `"0.0.0.0"` in every other environment | `HOST` |
+| `trusted_proxies` | `Array(String)` | `[]` | `TRUSTED_PROXIES` (comma separated IP addresses and CIDR blocks): the reverse proxies whose `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` are believed, by the template variables `client_ip`, `secure` and `current_url` and by `Handler::Throttle` built without `trusted_proxies:`. Nothing a client sends is believed otherwise. A catch-all block raises |
 | `port_reuse?` | `Bool` | `true` | `PORT_REUSE` (`"true"` enables) |
 | `shutdown_timeout` | `Time::Span` | `30.seconds` | `SHUTDOWN_TIMEOUT` (seconds, never below 0) |
 | `container?` | `Bool` | detected: `/.dockerenv` or `/run/.containerenv` exists, or `KUBERNETES_SERVICE_HOST` is set | `KUBERNETES_SERVICE_HOST` (any non-blank value) |
@@ -292,6 +293,8 @@ How templates and the CSRF session token store reach your session library; see
 | `websocket.allowed_origins` | `Array(String)` | `[]` (own origin only) | `WEBSOCKET_ALLOWED_ORIGINS` (comma separated, `"*"` allows all) |
 | `websocket.max_message_size` | `Int32` | 1 MB | `WEBSOCKET_MAX_MESSAGE_SIZE` |
 | `websocket.ping_interval` | `Time::Span?` | 30 seconds | `WEBSOCKET_PING_INTERVAL` (seconds, `0` disables) |
+| `websocket.idle_timeout` | `Time::Span?` | 90 seconds, or twice `ping_interval` when that is longer | `WEBSOCKET_IDLE_TIMEOUT` (seconds, `0` disables): a connection that sent no frame (message, ping or pong) for this long is closed with `1001` at the next server ping, and its connection dropped a second later if the peer did not answer. At least twice `ping_interval` (`start` refuses less), and nothing without pings (`ping_interval` nil) |
+| `websocket.max_subscriptions` | `Int32` | 64 | `WEBSOCKET_MAX_SUBSCRIPTIONS`: topics one connection may subscribe to; `subscribe` raises `Channel::TooManySubscriptions` past it |
 | `websocket.tcp_nodelay` | `Bool` | `true` | `WEBSOCKET_TCP_NODELAY` (`false`, `0`, `off` or `no` in any case keeps the operating system's default; `true`, `1`, `on`, `yes` turn it on; anything else keeps the default and logs a warning) |
 
 `websocket.tcp_nodelay` turns Nagle's algorithm off on the socket of an upgraded connection. A WebSocket reply

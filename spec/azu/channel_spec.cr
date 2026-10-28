@@ -22,6 +22,40 @@ class TestChannel < Azu::Channel
   end
 end
 
+describe "Azu::Channel limits" do
+  it "refuses the topic past websocket.max_subscriptions" do
+    previous = Azu::CONFIG.websocket.max_subscriptions
+    Azu::CONFIG.websocket.max_subscriptions = 2
+    begin
+      channel = TestChannel.new(HTTP::WebSocket.new(IO::Memory.new))
+      channel.subscribe("a")
+      channel.subscribe("b")
+      channel.subscribe("b") # already subscribed: not another
+      expect_raises(Azu::Channel::TooManySubscriptions, /at most 2/) { channel.subscribe("c") }
+      channel.unsubscribe("a")
+      channel.subscribe("c")
+    ensure
+      Azu::CONFIG.websocket.max_subscriptions = previous
+    end
+  end
+
+  it "closes a connection that sends nothing for websocket.idle_timeout" do
+    previous = {Azu::CONFIG.websocket.ping_interval, Azu::CONFIG.websocket.idle_timeout}
+    Azu::CONFIG.websocket.ping_interval = 20.milliseconds
+    Azu::CONFIG.websocket.idle_timeout = 60.milliseconds
+    begin
+      io = IO::Memory.new
+      channel = TestChannel.new(HTTP::WebSocket.new(io))
+      channel.call(HTTP::Server::Context.new(HTTP::Request.new("GET", "/ws"), HTTP::Server::Response.new(IO::Memory.new)))
+      channel.subscribe("room")
+      wait_until(2.seconds) { channel.torn_down? }.should be_true
+      io.to_s.bytes.should contain 0x88_u8 # a close frame was sent
+    ensure
+      Azu::CONFIG.websocket.ping_interval, Azu::CONFIG.websocket.idle_timeout = previous
+    end
+  end
+end
+
 class LifecycleTestChannel < Azu::Channel
   property connect_called = false
   property message_called = false

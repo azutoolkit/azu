@@ -220,6 +220,35 @@ describe "the TLS files check" do
   end
 end
 
+describe "the WebSocket limits check" do
+  it "refuses a subscription cap below one and an idle timeout the heartbeat cannot judge" do
+    config = Azu::Configuration.new
+    config.websocket.max_subscriptions = 0
+    expect_raises(Azu::Configuration::BootError, /max_subscriptions/) { config.check_websocket_limits }
+    config.websocket.max_subscriptions = 64
+    config.websocket.ping_interval = 60.seconds
+    config.websocket.idle_timeout = 90.seconds
+    expect_raises(Azu::Configuration::BootError, /twice websocket.ping_interval/) { config.check_websocket_limits }
+    config.websocket.idle_timeout = 120.seconds
+    config.check_websocket_limits
+    config.websocket.ping_interval = nil
+    config.check_websocket_limits
+  end
+end
+
+describe "the trusted proxies" do
+  it "are parsed when set, answer a copy, and refuse an entry that is not an address or a catch-all block" do
+    config = Azu::Configuration.new
+    config.trusted_proxies = ["10.0.0.0/8", "::1"]
+    config.trusted_proxy_networks.includes?(Azu::Handler::ClientAddress.parse("10.1.2.3").not_nil!).should be_true
+    config.trusted_proxies << "192.0.2.1" # a copy: the setting is unchanged
+    config.trusted_proxies.should eq ["10.0.0.0/8", "::1"]
+    expect_raises(ArgumentError, /trusted_proxies/) { config.trusted_proxies = ["not-an-address"] }
+    expect_raises(ArgumentError) { config.trusted_proxies = ["0.0.0.0/0"] }
+    config.trusted_proxies.should eq ["10.0.0.0/8", "::1"] # a refused list changes nothing
+  end
+end
+
 describe "the boot checks" do
   it "fail on a missing variable registered for boot in a strict environment, with nothing bound" do
     Azu::Env.reset_required_at_boot!

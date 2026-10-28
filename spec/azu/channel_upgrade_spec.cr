@@ -71,6 +71,16 @@ describe Azu::Channel do
       EchoChannel.origin_allowed?(request.call("null", "example.com")).should be_false
     end
 
+    it "compares the scheme when it can be told, and accepts either when it cannot" do
+      EchoChannel.origin_allowed?(request.call("http://example.com", "example.com")).should be_true
+      EchoChannel.origin_allowed?(request.call("https://example.com", "example.com")).should be_true
+
+      headers = HTTP::Headers{"Origin" => "http://example.com", "Host" => "example.com", "X-Forwarded-Proto" => "https"}
+      EchoChannel.origin_allowed?(HTTP::Request.new("GET", "/", headers)).should be_false
+      headers["Origin"] = "https://example.com"
+      EchoChannel.origin_allowed?(HTTP::Request.new("GET", "/", headers)).should be_true
+    end
+
     it "accepts requests without an Origin header (non-browser clients)" do
       EchoChannel.origin_allowed?(request.call(nil, "example.com")).should be_true
     end

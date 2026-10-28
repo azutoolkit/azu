@@ -36,7 +36,14 @@ module Azu
           true
         end
         watch.cancel unless kept
-        subscribe_topic(Presence.channel_for(topic)) unless @presence_mutex.synchronize { @presence_closed }
+        return if @presence_mutex.synchronize { @presence_closed }
+        begin
+          subscribe_topic(Presence.channel_for(topic))
+        rescue error
+          # The watch this call registered would otherwise stay, with no subscription delivering its diffs
+          @presence_mutex.synchronize { @presence_watches.delete(topic) }.try(&.cancel) if kept
+          raise error
+        end
       end
 
       # Untracks last: a slow store must not hold up closing the socket.
