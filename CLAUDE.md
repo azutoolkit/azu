@@ -39,9 +39,9 @@ crystal run playground/example_app.cr  # Run example app
 ```
 src/azu/
 ├── azu.cr              # Core module & startup
-├── env.cr              # Azu::Env: `.env` loading, typed ENV accessors, `secret` (random outside production, error in production); standalone (`require "azu/env"`), no work at require time (`.env` files skip the CLI's denylist, i.e. LD_*/PATH/HOME/CRYSTAL_*/GIT_*/compiler and *FLAGS/proxy/cert/locale/TZ names, ... unless `unsafe: true`; `secret` warns once on the random fallback and raises in `strict_environments`)
+├── env.cr              # Azu::Env: `.env` loading, typed ENV accessors, `secret` (random outside the strict environments, error inside: production and staging by default, `AZU_STRICT_ENVS`), `require_at_boot` (names `App#start` checks before binding); standalone (`require "azu/env"`), no work at require time (`.env` files skip the CLI's denylist, i.e. LD_*/PATH/HOME/CRYSTAL_*/GIT_*/compiler and *FLAGS/proxy/cert/locale/TZ names, ... unless `unsafe: true`; `secret` warns once on the random fallback). Inside the app the rule is `Azu.strict_environment?` (CRYSTAL_ENV or `config.env`)
 ├── clock.cr            # Azu::Clock: the time source for TTLs, windows and token lifetimes; Clock::Fake + `with_fake_clock` in specs
-├── app.cr              # Azu::App: an app as a value (config + router + #start/#stop lifecycle), App.default wraps the global CONFIG; `include Azu` is the supported single-app facade over it
+├── app.cr              # Azu::App: an app as a value (config + router + #start/#stop lifecycle), App.default wraps the global CONFIG; `include Azu` is the supported single-app facade over it. `start` runs `Configuration#check_boot` first (CRYSTAL_ENV unset on a public host, SSL_CERT xor SSL_KEY, WebSocket limits, `Env.required_at_boot`: BootError / MissingError before anything binds)
 ├── routable.cr         # Azu::Routable: what the router dispatches to (endpoints, upgraders, plain handlers)
 ├── router.cr + router/ # Routing on an in-house segment tree (router/tree.cr); `App#start` freezes the routers
 ├── openapi/            # Azu::OpenAPI: OpenAPI 3.1 document from Endpoint contracts + Handler (docs/reference/api/openapi.md)
@@ -58,7 +58,7 @@ src/azu/
 ├── cache.cr            # Multi-store caching (Memory/Redis)
 ├── redis.cr + redis/   # Azu::Redis: the one Redis pool/config/retry that cache, pubsub and presence share
 ├── params.cr           # Parameter extraction & uploads
-├── handler/            # Middleware handlers (12 files)
+├── handler/            # Middleware handlers; throttle/ holds Throttle::Store (Memory, Redis). Default stack: RequestId, Logger, Rescuer, SecurityHeaders (hsts :auto), Static; `start(handlers, defaults: true)` composes. CSRF checks Origin/Referer (CORS marks allowed origins on the request: `cors_allowed?`); `config.trusted_proxies` decides whose X-Forwarded-* are believed (TemplateContext, Throttle)
 ├── templates.cr        # Crinja template engine
 ├── instrumentation.cr  # The seam optional subsystems plug into: cache/component/exception hooks, prepare/finalize hooks
 ├── exception_page.cr + exception_page/  # Development exception page: Report (frames, redacted request), triage hints (`ExceptionPage.hint`), panels (`ExceptionPage.on_panels`, core Database panel), page.cr/css/js; production uses templates/error.html
