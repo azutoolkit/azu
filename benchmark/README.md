@@ -56,6 +56,8 @@ One program per framework in `benchmark/apps/<name>/src/app.cr`, built with `cry
 | `athena` 0.23.0 | default listeners, annotation routing, ECR, crystal-sqlite3 | has no WebSocket support, so `websocket` is skipped |
 | `lucky` 1.5.0 | `ErrorHandler`, `RouteHandler`, `RouteNotFoundHandler`, `HTMLPage`, crystal-sqlite3 | Avram is PostgreSQL-only, so raw SQLite; no WebSocket support |
 | `azu-min` (opt-in) | `azu` with `Handler::Rescuer` only, plus the `App::Scope` wrapper that every `Azu::App` puts in front of the chain (in-flight counter under a mutex, current app and config) | router + endpoint + Scope + Rescuer: separates the default middleware from the rest. It is not "nothing" |
+| `azu-ecr` (opt-in) | `azu` with the shared compiled ECR template instead of Crinja | same endpoint/response path and default middleware; isolates the template engine |
+| `azu-min-ecr` (opt-in) | `azu-min` with the shared compiled ECR template | separates middleware overhead while using the same template as baseline, Kemal and Athena |
 | `azu-rawdb` (opt-in) | `azu` with crystal-sqlite3 instead of CQL | separates the ORM cost in the DB scenarios |
 | `azu-min-rawdb` (opt-in) | both of the above | the closest Azu gets to the baseline in the DB scenarios |
 
@@ -67,10 +69,16 @@ One program per framework in `benchmark/apps/<name>/src/app.cr`, built with `cry
 - The app is written against the `Azu::App` API (routes declared with `app.routes`, the server built with
   `app.server(handlers)`), as at the commit in the result's `git` field. Results from another commit are not
   comparable.
-- **The `template` scenario is Crinja against compiled ECR.** Azu renders a Jinja template through the Crinja
+- **The default `azu` template scenario is Crinja against compiled ECR.** Azu renders a Jinja template through the Crinja
   interpreter on each request (parsed once at boot in production, and a `Crinja::Value` hash built per call); the baseline, Kemal and Athena run ECR that the compiler
-  turned into straight code. The scenario measures the template systems, not the routers. A compile-time Azu
-  variant (`Azu::Component`) is not included yet.
+  turned into straight code. The scenario measures the template systems, not the routers. Select `azu-ecr`
+  and `azu-min-ecr` to compile the exact shared `apps/common/template.ecr` used by the other ECR fixtures.
+  They render it on every request through the existing Azu endpoint/response path; they do not cache the rendered HTML.
+  A compile-time Azu component (`Azu::Component`) variant is not included yet.
+
+  ```sh
+  scripts/bench.sh run --apps baseline,azu,azu-ecr,azu-min-ecr,kemal,athena,lucky --scenarios template --runs 5 --duration 10
+  ```
 - The `routing` scenario requests 99,700 distinct paths (100 routes x 997 ids). Azu has no path cache since its
   segment tree replaced radix, so every request is a lookup either way.
 
@@ -109,8 +117,8 @@ skipped and said so in the result (`--require-all` turns that into a failure).
 
 ### Known confounds (read before comparing)
 
-- **Templates**: Azu renders a Crinja (Jinja) template looked up at request time; the baseline, Kemal and
-  Athena render ECR, which the compiler turns into straight code; Lucky builds the page with its HTML DSL.
+- **Templates**: default Azu renders a Crinja (Jinja) template looked up at request time; the baseline, Kemal,
+  Athena, `azu-ecr` and `azu-min-ecr` render ECR, which the compiler turns into straight code; Lucky builds the page with its HTML DSL.
   The `template` scenario compares template *systems*, not routers.
 - **Database**: Azu goes through CQL (query builder, model instances); the others call crystal-sqlite3
   directly. `azu-rawdb` removes the ORM from the picture.

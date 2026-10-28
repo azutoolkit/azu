@@ -82,6 +82,11 @@ session_secret = Azu::Env.secret("SESSION_SECRET")
 
 Generate a value with `openssl rand -base64 48`.
 
+For Redis sessions, use a connection pool and render endpoint errors inside the session handler so a
+500 does not replace the authenticated session cookie. See [Use sessions](../middleware/use-sessions.md)
+for the handler order and the tested Redis example. Changing the session encryption key in a coordinated
+restart forces reauthentication; seamless rolling key rotation requires an explicit overlapping-key policy.
+
 ## Build for production
 
 Create an optimized release build:

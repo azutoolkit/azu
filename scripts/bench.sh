@@ -11,7 +11,7 @@
 #   run           (default) seed the database, build, check conformance, measure, write JSON and Markdown results
 #
 # Options (all commands; the rest is passed to benchmark/driver/run.mjs)
-#   --apps a,b        apps to use (default: baseline,azu,kemal,athena,lucky; also azu-min, azu-rawdb)
+#   --apps a,b        apps to use (default: baseline,azu,kemal,athena,lucky; also azu-min, azu-rawdb, azu-ecr, azu-min-ecr)
 #   --scenarios a,b   plaintext,json,routing,template,db_single,db_multi,websocket (default: all)
 #   --runs N          measured runs per app and scenario (default 5; fewer than 5 prints a warning)
 #   --duration S      seconds per run (default 10)         --warmup S   seconds of the unrecorded warmup run (default 3)

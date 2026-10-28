@@ -7,6 +7,8 @@
     { "name": "athena", "dir": "athena", "flags": [], "websocket": false, "default": true, "stack": "Athena 0.23.0 default listeners, ECR, crystal-sqlite3; no WebSocket support" },
     { "name": "lucky", "dir": "lucky", "flags": [], "websocket": false, "default": true, "stack": "Lucky 1.5.0 ErrorHandler/RouteHandler, HTMLPage, crystal-sqlite3; no WebSocket support" },
     { "name": "azu-min", "dir": "azu", "flags": ["-Dbench_minimal_handlers"], "websocket": true, "default": false, "stack": "azu with Handler::Rescuer only, plus the App::Scope wrapper every Azu::App adds (in-flight counter, current app/config): router + endpoint + Scope + Rescuer, without RequestId, SecurityHeaders and Static" },
+    { "name": "azu-ecr", "dir": "azu", "flags": ["-Dbench_ecr"], "websocket": true, "default": false, "stack": "azu default handlers without the request logger, using the shared compiled ECR template instead of Crinja" },
+    { "name": "azu-min-ecr", "dir": "azu", "flags": ["-Dbench_minimal_handlers", "-Dbench_ecr"], "websocket": true, "default": false, "stack": "azu-min using the shared compiled ECR template instead of Crinja: App::Scope, router, endpoint and Rescuer" },
     { "name": "azu-min-rawdb", "dir": "azu", "flags": ["-Dbench_minimal_handlers", "-Dbench_raw_db"], "websocket": true, "default": false, "stack": "azu-min with crystal-sqlite3 instead of CQL: the closest Azu gets to the baseline, for the DB scenarios" },
     { "name": "azu-rawdb", "dir": "azu", "flags": ["-Dbench_raw_db"], "websocket": true, "default": false, "stack": "azu with crystal-sqlite3 instead of CQL: isolates the ORM cost in the DB scenarios" }
   ],

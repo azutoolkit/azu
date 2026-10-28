@@ -63,6 +63,9 @@ once, before serving.
 
 - The procs run in the fiber serving the request, when a template or the CSRF handler asks. Put your session
   handler before `Handler::CSRF` and before the endpoints that render templates.
+- With the `session` shard, put an inner `Handler::Rescuer` after the session handler so endpoint errors are
+  rendered before session cleanup. Use a Redis connection pool for concurrent requests; see
+  [Use sessions](../../how-to/middleware/use-sessions.md#render-errors-before-releasing-the-session).
 - `Handler::CSRF::SessionTokenStore` needs an adapter with `csrf?`. Issuing a token without one raises
   `Azu::SessionAdapter::NotConfigured`; a read that fails is logged and counts as no token, so the request is refused
   with `403`. Set the store on `Azu::Handler::CSRF.default`, the instance templates take their token from (see

@@ -17,6 +17,12 @@ edit `shard.yml` or tag a release from this workspace.
 - Releases depend on Spark client tests and reproducible generated artifacts, in addition to the
   existing Crystal and documentation gates. Non-release CI jobs have read-only repository access;
   only the release job receives write permission.
+- Session guidance now requires pooled Redis connections and an inner rescuer after the session
+  handler. The runnable `playground/redis_sessions` example pins the tested session revision and
+  exercises real Redis persistence, CSRF, error-response cookie preservation and concurrent visitors.
+  Both Crystal CI jobs run this isolated integration suite before release.
+- Opt-in `azu-ecr` and `azu-min-ecr` benchmark fixtures render the exact shared ECR template through
+  Azu's existing endpoint/response path. The default benchmark continues to use Crinja.
 
 ## Deployment migration
 
@@ -47,12 +53,61 @@ still run before release. Logs are retained under `/workspace/setup/logs` in the
 - Final full suite, with PostgreSQL, Redis and cross-process scaling enabled: 3,375 examples,
   zero failures, zero errors and zero pending. The focused configuration/query-cache selection
   also passes all 27 examples.
+- Redis session example: frozen dependency install and executable build pass; all 3 real Redis
+  integration examples pass. Removing the inner rescuer produces the expected cookie-preservation
+  failure; restoring it passes. The updated guides compile (9 checked snippets), all 108 documentation
+  files pass link checks, and all 401 repository Crystal files pass formatting.
 
-## Release requirements outside this patch
+## Local deployment and performance evidence
+
+The disposable local deployment used Nginx TLS, two production-mode Azu processes, encrypted Redis
+sessions and PostgreSQL. All 45 readiness checks passed, covering proxy trust, authentication/session
+behavior, coordinated key replacement, dependency outages, logical backup/restore, SQL migration
+locking/rollback, local telemetry and graceful shutdown. This validated the tested topology, not an
+external application or identity provider. Two configuration findings are now documented and exercised
+by the Redis example: a shared unpooled connection failed concurrent session reads, and rendering an
+endpoint error outside session middleware replaced the authenticated cookie.
+
+The extended mixed workload completed 305,818 measured requests and retained all 15,289 acknowledged
+writes, with zero request errors. The 64-client, 128-client and 64-client soak stages **failed** the
+provisional p95 <=250ms target (255.91ms, 370.62ms and 272.03ms). The 16-client recovery stage returned
+to p95 35.51ms. CPU quota throttling and a sequential scan in the sample application's count query were
+observed. These results do not establish maximum framework capacity or a production SLO.
+
+The framework comparison completed 120 repetitions and 43,321,560 requests without errors; 18 of 24
+rows exceeded 5% relative standard deviation. The separate same-session template comparison completed
+35 repetitions and 13,276,721 requests without errors. Default-stack Azu ECR had median throughput
+50,178 requests/s versus Crinja's 11,034 (4.55x), and median-run p99 2.35ms versus 9.74ms. These are
+indicative shared-machine observations with the driver's noise flag retained, not framework rankings
+or publishable dedicated-machine benchmark claims. ECR and Crinja were measured with the same default
+middleware; the other ECR fixtures used the same template. Competitor versions were repository pins.
+
+The committed [evidence summary](release/v1-evidence.json) records run IDs, source identities, counts,
+checks and limitations. The larger raw logs/JSON, source patches and charts are retained in the prepared
+environment under `/workspace/setup/azu-live-readiness`, `/workspace/setup/framework-compare` and
+`/workspace/setup/framework-ecr`. The original full-suite result above is for the hardened framework
+commit; hosted checks must still run on the final reviewed commit including these documentation,
+example and benchmark additions.
+
+## Release gates
+
+- [x] Resolve configuration/CQL and static-file pending cases; full framework suite has zero pending.
+- [x] Document the observed Redis/session error-handling requirements and add a runnable integration example.
+- [x] Add and validate the compiled ECR benchmark variants; preserve noisy/failed performance outcomes.
+- [x] Commit and push the finalized release-review changes on `codex/azu-v1-hardening`.
+- [ ] Open/update the release PR and obtain review of the proxy/static-file migrations and session guidance.
+- [ ] Require successful hosted `test`, `test-latest`, `test-mt`, `spark-client` and `docs` checks on the reviewed commit.
+- [ ] Merge while preserving `(MAJOR)` in the release-triggering commit message.
+- [ ] Verify the automated version commit, `v1.0.0` tag and published GitHub release.
+
+The workflow owns the version bump. Do not push directly to master, manually tag, or treat local results
+as a substitute for unavailable hosted check/review status.
+
+## Deployment requirements outside this release
 
 A green local run is evidence for framework behavior, not an enterprise certification. Before
-publishing, require hosted CI on the reviewed commit and review the migrations above. Validate the
-actual deployment's TLS/proxy topology, secret rotation, authentication/session integration,
+publishing, require hosted CI on the reviewed commit and review the migrations above. Applications using
+the release must validate their own TLS/proxy topology, secret rotation, authentication/session integration,
 backups and recovery, database migration procedure, observability and load/latency objectives.
 Any contractual support window, compliance standard or SLA must be agreed by the maintainer;
 this patch introduces no such commitments. Browser acceptance testing and an independent security
