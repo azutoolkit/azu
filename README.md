@@ -1,4 +1,4 @@
-<div align="center"><img src="https://raw.githubusercontent.com/azutoolkit/azu/master/azu.png" alt="Azu" /></div>
+<div align="center"><img width="2560" height="1040" alt="azu-readme-cover" src="https://github.com/user-attachments/assets/68494bb9-c90f-4afb-83bd-6f3a3c872e5c" /></div>
 
 # Azu
 
