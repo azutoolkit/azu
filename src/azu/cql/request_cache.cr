@@ -22,7 +22,15 @@ module Azu
       @@mutex = Mutex.new
       @@baselines = {} of Fiber => Baseline
 
+      # Older CQL releases keep one tracker for the process. Refuse that implementation before serving requests.
+      def self.ensure_supported! : Nil
+        {% unless ::CQL::Cache::RequestQueryCache.has_method?("active_requests") && ::CQL::Cache::RequestQueryCache.has_method?("current_request_id") %}
+          raise ArgumentError.new("Azu query_cache requires CQL's per-fiber request tracker; upgrade CQL to 0.0.925 or newer, or disable query_cache")
+        {% end %}
+      end
+
       def self.scope(request_id : String, &)
+        ensure_supported!
         ::CQL.with_request_cache(request_id) do
           fiber = Fiber.current
           previous = @@mutex.synchronize { @@baselines[fiber]? }

@@ -16,7 +16,8 @@ module Azu
     #
     # With `query_cache: true` the request also runs in CQL's request query cache (`::CQL.with_request_cache`) under
     # its request id, and `Azu::CQL.request_cache_stats` reports its repeated queries. It needs CQL's cache on
-    # (`config.cache.on`), and until CQL scopes that tracker per fiber, concurrent requests share its counters.
+    # (`config.cache.on`) and CQL's per-fiber request tracker (tested with CQL 0.0.925 or newer).
+    # Older process-wide trackers are refused at construction when this option is enabled.
     class Middleware
       include HTTP::Handler
 
@@ -27,10 +28,12 @@ module Azu
       # `schema` is resolved on first use when given as a block (`Middleware.new(transaction: true) { AppDB }`),
       # since initializers run before `db/schema.cr`.
       def initialize(@schema : ::CQL::Schema, @transaction : Bool = false, @rollback_from : Int32 = 400, @query_cache : Bool = false)
+        RequestCache.ensure_supported! if @query_cache
         @provider = nil
       end
 
       def initialize(@transaction : Bool = false, @rollback_from : Int32 = 400, @query_cache : Bool = false, &@provider : -> ::CQL::Schema)
+        RequestCache.ensure_supported! if @query_cache
         @schema = nil
       end
 

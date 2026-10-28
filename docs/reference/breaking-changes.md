@@ -13,6 +13,11 @@ from an early 0.5 release to the current API, with old and new code side by side
 
 ## Next release
 
+**Request-cache diagnostics require CQL's per-fiber tracker.** `Middleware.new(query_cache: true)`
+now refuses older process-wide trackers at construction. Upgrade CQL to 0.0.925 or newer, or disable
+this optional diagnostic. Concurrent requests retain independent IDs and query counts. Azu's development
+dependency now requires CQL 0.0.925; ordinary middleware without query tracking retains its telemetry compatibility.
+
 **Static files stay within the public root, including symlinks.** Symlinks outside the resolved public
 directory, or into an `except:` path, are refused. Directory indexes follow the same rule, and listings
 omit excluded names and aliases. Deploy assets inside the public root instead of linking to external
