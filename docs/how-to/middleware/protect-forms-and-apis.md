@@ -183,7 +183,9 @@ header of its own fails. An API client that sends `Authorization` with every cal
 An API that authenticates with a token in `Authorization` needs no CSRF check: a browser never adds that header by
 itself, so another site cannot forge the request. Leave the API out of the check with
 `skip_routes: ["/webhooks/", "/api/"]`. An API that relies on the session cookie instead (`credentials: true`) keeps
-the check: add `X-CSRF-TOKEN` to `headers` and send the token as in the previous section.
+the check: send the token as in the previous section (`X-CSRF-TOKEN` is in the default `headers`). `CSRF` also
+refuses a request from an origin other than the app's own, unless a `CORS` earlier in the chain allowed that origin,
+so put `CORS` before `CSRF`.
 
 ## Rate-limit the login
 
@@ -250,8 +252,9 @@ When a proxy or load balancer terminates TLS and forwards to the app:
   `trusted_proxies:`; without it every visitor shares the proxy's address and five attempts lock everybody out. With
   it, the client is the right-most `X-Forwarded-For` address that is not a trusted proxy
   ([Behind a reverse proxy](../../reference/handlers/built-in.md#behind-a-reverse-proxy)).
-- The `csrf_token` cookie gets `Secure` only when the request has `X-Forwarded-Proto: https`. Make the proxy set that
-  header and replace the one a client sends.
+- The `csrf_token` cookie gets `Secure` when the request has `X-Forwarded-Proto: https` (or when Azu terminates TLS
+  itself). Make the proxy set that header, and `X-Forwarded-Host` if it rewrites `Host`, and replace the ones a client
+  sends: `CSRF` compares the request's `Origin` with them.
 - `Azu::Handler::SecurityHeaders` sends `Strict-Transport-Security` only with `hsts: true`, and the default stack
   passes `config.tls?`, which is `false` when TLS ends at the proxy. Pass `hsts: true` yourself, with a
   `content_security_policy:` if you have one.

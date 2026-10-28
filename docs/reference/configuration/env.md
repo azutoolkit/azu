@@ -91,7 +91,7 @@ end
 ### Logging
 
 `Azu::Env.redact(name, value)` returns `[FILTERED]` for names that look like secrets (`SECRET`, `PASSWORD`,
-`TOKEN`, `PRIVATE`, `CREDENTIAL`, `*KEY`, `COOKIE`, `AUTH`, `DSN`, `SALT`, `SIGNING`) and hides the password inside a URL;
+`PASSPHRASE`, `PASSCODE`, `TOKEN`, `CSRF`, `PRIVATE`, `CREDENTIAL`, `*KEY`, `COOKIE`, `AUTH`, `DSN`, `SALT`, `SIGNING`) and hides the password inside a URL;
 `Azu::Env.redacted(hash)` does it for a hash. Use them whenever you print variables.
 
 ## Behavior

@@ -13,6 +13,19 @@ from an early 0.5 release to the current API, with old and new code side by side
 
 ## Next release
 
+**`Handler::CSRF` checks the request's origin and ignores a token in the query string.** A `POST`, `PUT`, `PATCH` or
+`DELETE` that carries an `Origin` header (or, without one, a `Referer`) is refused with `403 CSRF origin check failed`
+unless that origin is the app's own (`CSRF.validate_origin`: `X-Forwarded-Proto` and `X-Forwarded-Host`, else the TLS
+setting and `Host`; without either scheme hint the host passes under `http` or `https`) or one an `Azu::Handler::CORS`
+earlier in the chain lists and allowed (`HTTP::Request#cors_allowed?`, never through a `*` wildcard). A request that
+names no origin is checked by its token alone, as before. Behind a proxy that rewrites `Host` without forwarding
+`X-Forwarded-Host`, and for pages served with `Referrer-Policy: no-referrer` (their forms send `Origin: null`), pass
+`check_origin: false` or fix the proxy. A token sent as `?_csrf=` is no longer accepted: send it in the
+`X-CSRF-TOKEN` header or the `_csrf` form field. The `Secure` flag of the token cookie is now also set when Azu
+terminates TLS itself, `Azu::Handler::CORS` allows `X-CSRF-TOKEN` by default, `Azu::Env.redact` filters
+`PASSPHRASE`, `PASSCODE` and `CSRF` names, and a `CSRF_SECRET` shorter than 32 bytes is logged as a warning. The
+unused `CSRF.or_generate_shared_secret_key` is removed.
+
 **The development exception page is Azu's own, and the `exception_page` shard is gone** (released as a minor version).
 `Azu::ExceptionPage` no longer inherits from the shard's `::ExceptionPage`, so its `styles` override and the shard's
 other methods are gone; `ExceptionPage.redacted(context, exception).to_s` still renders the page. The page triages the
