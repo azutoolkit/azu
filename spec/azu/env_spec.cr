@@ -567,6 +567,9 @@ describe Azu::Env do
       Azu::Env.redact("DB_PASSWORD", "abc").should eq "[FILTERED]"
       Azu::Env.redact("API_TOKEN", "abc").should eq "[FILTERED]"
       Azu::Env.redact("SIGNING_KEY", "abc").should eq "[FILTERED]"
+      Azu::Env.redact("GPG_PASSPHRASE", "abc").should eq "[FILTERED]"
+      Azu::Env.redact("PASSCODE", "abc").should eq "[FILTERED]"
+      Azu::Env.redact("_csrf", "abc").should eq "[FILTERED]"
       Azu::Env.redact("PORT", "4000").should eq "4000"
     end
 

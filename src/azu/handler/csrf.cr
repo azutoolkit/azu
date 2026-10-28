@@ -200,14 +200,24 @@ module Azu
         @token_store : TokenStore? = nil,
         defer_secret : Bool = false,
         max_form_size : UInt64? = nil,
+        @check_origin : Bool = true,
+        @log : Log = Log.for("Azu::Handler::CSRF"),
       )
         @max_form_size = max_form_size || ENV["CSRF_MAX_FORM_SIZE"]?.try(&.to_u64?) || FORM_SIZE_LIMIT
         key = secret_key
         key = @@shared_secret_key if key.nil? && @@shared_secret_key && !@@shared_secret_key.try(&.empty?)
-        @secret_key = key.presence
+        @secret_key = key.presence.try { |given| checked_secret(given) }
         self.secret_key unless defer_secret
         @@in_use.set(true)
       end
+
+      # Whether a state-changing request that names its origin (an `Origin` header, else a `Referer`) must come
+      # from the origin this app is served under (`validate_origin`), as well as carry a token. Browsers send
+      # `Origin` with every cross-site `POST`, so a forged request is refused even when its token is somehow valid
+      # (a cookie planted from a sibling subdomain, say). A request that names no origin, from an API client or
+      # `curl`, is checked by its token alone, and so is one whose origin `Azu::Handler::CORS` listed and allowed
+      # earlier in the chain (`HTTP::Request#cors_allowed?`). Off with `check_origin: false`.
+      property? check_origin : Bool
 
       @@in_use = Atomic(Bool).new(false)
 
@@ -218,15 +228,25 @@ module Azu
         @@in_use.get
       end
 
+      # The shortest secret that is not warned about: 32 bytes, the size of the HMAC-SHA256 key.
+      MIN_SECRET_BYTES = 32
+
       # The key tokens are signed with: the one given, else `CSRF_SECRET`. A key only this process knows breaks
       # every token after a restart and across instances, so without either it is a random per-process key (with
       # one warning) outside production, and `Azu::Env::MissingError` in production (see `Azu::Env.secret`).
       def secret_key : String
-        @secret_key ||= Azu::Env.secret("CSRF_SECRET")
+        @secret_key ||= checked_secret(Azu::Env.secret("CSRF_SECRET"))
       end
 
       def secret_key=(value : String) : String
-        @secret_key = value
+        @secret_key = checked_secret(value)
+      end
+
+      # `key`, after a warning when it is shorter than the HMAC key it becomes (a random fallback never is). One
+      # warning per handler whose key it becomes, when the handler is built or the key set.
+      private def checked_secret(key : String) : String
+        @log.warn { "the CSRF secret is #{key.bytesize} bytes long: use at least #{MIN_SECRET_BYTES} bytes (openssl rand -hex 32)" } if key.bytesize < MIN_SECRET_BYTES
+        key
       end
 
       # Get default instance (backward compatibility)
@@ -246,13 +266,6 @@ module Azu
           @@default_instance = nil
           @@shared_secret_key = nil
           @@in_use.set(false)
-        end
-      end
-
-      # Get or generate shared secret key
-      protected def self.or_generate_shared_secret_key : String
-        @@instance_mutex.synchronize do
-          @@shared_secret_key ||= Random::Secure.urlsafe_base64(HMAC_SECRET_LENGTH)
         end
       end
 
@@ -363,6 +376,13 @@ module Azu
         # Skip CSRF protection for configured routes
         if skip_route?(context.request.path)
           call_next(context)
+          return
+        end
+
+        # A request that names an origin must come from this app's own, or from one a CORS handler earlier in the
+        # chain allowed (no body is read for one that does not)
+        if @check_origin && names_origin?(context) && !context.request.cors_allowed? && !validate_origin(context)
+          refuse(context, Response::AuthorizationError.new("CSRF origin check failed"))
           return
         end
 
@@ -522,7 +542,8 @@ module Azu
 
       # HELPER METHODS
 
-      # Extract CSRF token from request (header, form data, or query params)
+      # The request's token: the header, else the form field. Never the query string: a URL is logged, kept in
+      # the browser's history and sent as a `Referer`, so a token in it leaks.
       private def extract_token_from_request(context : HTTP::Server::Context) : String?
         # Try header first (for AJAX requests)
         if token = context.request.headers[@header_name]?
@@ -531,17 +552,8 @@ module Azu
 
         # Try form data for POST requests
         if context.request.method.upcase.in?(UNSAFE_METHODS)
-          if token = extract_token_from_form(context)
-            return token
-          end
+          extract_token_from_form(context)
         end
-
-        # Try query parameters (less secure, but sometimes needed)
-        if token = context.request.query_params[@param_name]?
-          return token
-        end
-
-        nil
       end
 
       # Extract token from form data. Only a body that carries the token in a form is read, and never past
@@ -758,14 +770,15 @@ module Azu
       end
 
       # Set CSRF token cookie. `Path=/`: without a path the browser keeps it for the directory of the page that
-      # issued it (RFC 6265 default-path), and a form posting outside that directory is refused.
+      # issued it (RFC 6265 default-path), and a form posting outside that directory is refused. `Secure` when the
+      # request came over TLS: terminated here (`config.tls?`) or at a proxy that says so (`X-Forwarded-Proto`).
       protected def set_token_cookie(context : HTTP::Server::Context, token : String)
         cookie = HTTP::Cookie.new(
           name: @cookie_name,
           value: token,
           path: "/",
           max_age: Time::Span.new(seconds: @cookie_max_age),
-          secure: @secure_cookies && (context.request.headers["X-Forwarded-Proto"]? == "https"),
+          secure: @secure_cookies && (forwarded_scheme(context) == "https" || Azu.current_config.tls?),
           http_only: true,
           samesite: @cookie_same_site
         )
@@ -799,17 +812,35 @@ module Azu
         Crypto::Subtle.constant_time_compare(signature, expected_signature)
       end
 
-      # Origin validation (additional security layer): the `Origin` header, else the `Referer`, names the origin the
-      # request is served under (`X-Forwarded-Proto`, else https when this app terminates TLS, and `Host`). Origins
+      # Origin validation: the `Origin` header, else the `Referer`, names the origin the request is served under
+      # (`X-Forwarded-Proto`, else https when this app terminates TLS; `X-Forwarded-Host`, else `Host`). Origins
       # compare by scheme, host and effective port, so `http://example.com` and `http://example.com:80` are the same.
+      # A server that cannot tell its scheme (plain HTTP, no `X-Forwarded-Proto`: a TLS proxy that forwards only
+      # `Host`) accepts the host under either scheme. An `Origin: null` (a sandboxed frame, a cross-site redirect, a
+      # page sent with `Referrer-Policy: no-referrer`) names no origin and never matches.
+      # `call` applies it to every state-changing request that names an origin (`check_origin`).
       def validate_origin(context : HTTP::Server::Context) : Bool
         headers = context.request.headers
-        return false unless host = headers["Host"]?
+        return false unless host = headers["X-Forwarded-Host"]?.try(&.split(',').first.strip.presence) || headers["Host"]?
         return false unless source = headers["Origin"]? || headers["Referer"]?
+        return false unless origin = origin_of(source)
 
-        scheme = headers["X-Forwarded-Proto"]?.try(&.split(',').first.strip.downcase) || (Azu.current_config.tls? ? "https" : "http")
-        expected = origin_of("#{scheme}://#{host}")
-        !expected.nil? && origin_of(source) == expected
+        if scheme = forwarded_scheme(context) || (Azu.current_config.tls? ? "https" : nil)
+          origin == origin_of("#{scheme}://#{host}")
+        else
+          origin == origin_of("http://#{host}") || origin == origin_of("https://#{host}")
+        end
+      end
+
+      # True when the request says where it comes from (`validate_origin` can judge it).
+      private def names_origin?(context : HTTP::Server::Context) : Bool
+        headers = context.request.headers
+        headers.has_key?("Origin") || headers.has_key?("Referer")
+      end
+
+      # The scheme a proxy forwarded the request from (`X-Forwarded-Proto`, the first value), lowercased; nil without one.
+      private def forwarded_scheme(context : HTTP::Server::Context) : String?
+        context.request.headers["X-Forwarded-Proto"]?.try(&.split(',').first.strip.downcase.presence)
       end
 
       # `scheme://host[:port]` of a URL, the port only when it is not the scheme's default; nil when it has no

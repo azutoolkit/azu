@@ -325,7 +325,8 @@ Azu::Handler::CORS.new(
 - `origins` - allowed origins: exact strings, regexes, or `"*"`. **Empty by default**, which refuses every
   cross-origin request.
 - `methods` - methods a preflight may ask for (default `POST PUT PATCH DELETE`).
-- `headers` - request headers a preflight may ask for (default `Accept Content-Type`).
+- `headers` - request headers a preflight may ask for (default `Accept Content-Type X-CSRF-TOKEN`, so a
+  session-cookie API behind `Handler::CSRF` works without more).
 - `credentials : Bool` - send `Access-Control-Allow-Credentials: true`. It cannot be combined with `"*"` in `origins`:
   `CORS.new` (and the `origins=` / `credentials=` setters) raise `ArgumentError`, because a handler that echoed every origin
   with credentials would let any site read a signed-in user's responses. List the origins instead.
@@ -388,6 +389,7 @@ Azu::Handler::CSRF.new(
   cookie_same_site: HTTP::Cookie::SameSite::Strict,
   secure_cookies: true,
   token_store: nil, # SynchronizerToken only; default: CSRF::CookieTokenStore
+  check_origin: true,
 )
 ```
 
@@ -395,12 +397,28 @@ Azu::Handler::CSRF.new(
   The cookie is also `HttpOnly` and has `Path=/`.
 - `token_store : CSRF::TokenStore?` - where `SynchronizerToken` keeps the token (see below).
 - `defer_secret : Bool` - with `true` the secret is not read until the first token is signed or checked; the
-  default reads it when the handler is built.
+  default reads it when the handler is built. A secret shorter than 32 bytes is logged as a warning when it is read.
+- `check_origin : Bool` - whether a request that names its origin must come from this app's own (see below; default
+  `true`).
+- `log : Log` - where the handler's warnings go (default `Log.for("Azu::Handler::CSRF")`).
 
 Requests with a method in `POST PUT PATCH DELETE` must send a token that matches the `csrf_token` cookie, in the
-`X-CSRF-TOKEN` header, an `_csrf` form field or an `_csrf` query parameter. Other methods pass. A failing request
+`X-CSRF-TOKEN` header or an `_csrf` form field; a token in the query string is ignored (a URL is logged, kept in the
+browser history and sent as a `Referer`). Other methods pass. A failing request
 gets `403 CSRF token validation failed`. Paths that start with an entry of `skip_routes` are not checked, and
 `Azu::Handler::CSRF.exempt("/exact/path")` exempts one path for every instance.
+
+Before the token, a request that carries an `Origin` header (or, without one, a `Referer`) must come from the origin
+the app is served under, as `CSRF.validate_origin` judges it, or the answer is `403 CSRF origin check failed` and the
+body is not read. Browsers send `Origin` with every cross-site `POST`, so this refuses a forged request even when its
+token is valid (a token cookie planted from a sibling subdomain, say). A request that names no origin, from an API
+client or `curl`, is checked by its token alone, and so is one from an origin that an `Azu::Handler::CORS` earlier in
+the chain lists and allowed (it marks the request: `HTTP::Request#cors_allowed?`; a `*` wildcard vouches for nobody).
+Behind a proxy that rewrites `Host`, make it forward `X-Forwarded-Host`, and `X-Forwarded-Proto` if it terminates
+TLS; the proxy must overwrite both, since the check trusts them. Without `X-Forwarded-Proto` and without TLS of its
+own the app cannot tell its scheme and accepts its host under `http` or `https`. An `Origin: null` names no origin and
+is refused: a page served with `Referrer-Policy: no-referrer` sends it with its own forms, so such an app passes
+`check_origin: false`.
 
 Where the form token is looked for, and how much of the body is read for it:
 
@@ -423,8 +441,7 @@ Where the form token is looked for, and how much of the body is read for it:
   `boundary` is not found, and the request is refused with `403`. `CSRF` does not check the size
   of a multipart body: the endpoint does, while it streams it in (`upload.max_request_size`, `max_parts`, `max_files` and
   `max_file_size` per file; see [Handle file uploads](../../how-to/file-handling/handle-file-uploads.md)).
-- In every case the endpoint still reads the whole body afterwards, as it was sent. The query parameter is the last
-  place tried.
+- In every case the endpoint still reads the whole body afterwards, as it was sent.
 
 Strategies: `SignedDoubleSubmit` (default: an HMAC-signed token that expires with the cookie), `SynchronizerToken`
 and `DoubleSubmit` (plain cookie comparison, not recommended).
@@ -515,8 +532,8 @@ cookie is replaced. A second instance
 validates those tokens only if it has the same secret, strategy and token store: configure `CSRF.default` (with
 `CSRF.configure`) and put it in the chain, or at least set `CSRF_SECRET` (or `Azu::Handler::CSRF.secret_key = ...`
 before building the other instance). An instance with a different key, or a `SynchronizerToken` instance next to a
-default that signs, answers `403` to a token the page carries. The `Secure` flag of the cookie is only set when
-`X-Forwarded-Proto` is `https`.
+default that signs, answers `403` to a token the page carries. The `Secure` flag of the cookie is set when the request
+came over TLS: `X-Forwarded-Proto: https` from a proxy, or this server terminating TLS itself (`config.tls?`).
 
 `token(context)` returns the token already set on this response's cookie when there is one, so every field, tag and
 meta tag of a page carries the same token. The class methods act on `CSRF.default`:
@@ -526,7 +543,7 @@ meta tag of a page carries the same token. The class methods act on `CSRF.defaul
 | `CSRF.default` | `CSRF` | The shared instance, built on first use |
 | `CSRF.configure(&)` | the block's value | Yields `default` (built with `defer_secret: true`), then reads its secret, so a production app without one fails here, at boot |
 | `CSRF.token(context)`, `CSRF.tag(context)`, `CSRF.metatag(context)` | `String` | The token; `<input type="hidden" name="_csrf" value="..." />`; `<meta name="_csrf" content="..." />` (the name is `param_name`) |
-| `CSRF.validate_origin(context)` | `Bool` | Whether `Origin` (without it, the origin of `Referer`) is `<scheme>://<Host>`, where the scheme is the first `X-Forwarded-Proto`, else `https` when the app serves TLS, else `http`. Scheme and host compare ignoring case, and a default port matches whether it is written or not. `false` without `Host`, or without both `Origin` and `Referer`. `call` does not run it: call it where you want the check |
+| `CSRF.validate_origin(context)` | `Bool` | Whether `Origin` (without it, the origin of `Referer`) is `<scheme>://<host>`, where the scheme is the first `X-Forwarded-Proto`, else `https` when the app serves TLS, else `http`, and the host is the first `X-Forwarded-Host`, else `Host`. Scheme and host compare ignoring case, and a default port matches whether it is written or not. `false` without a host, or without both `Origin` and `Referer`. `call` runs it for every state-changing request that names an origin (`check_origin`) |
 | `CSRF.use_signed_double_submit!`, `use_synchronizer_token!`, `use_double_submit!` | `Strategy` | Set the strategy of `default` |
 | `CSRF.strategy`, `secret_key`, `cookie_name`, `header_name`, `param_name`, `cookie_max_age`, `secure_cookies` | | Read and write (`=`) the settings of `default`; `secret_key=` also applies to instances built afterwards without a key |
 | `CSRF.exempt(path : String)` | `Nil` | Exempts one exact path for every instance |

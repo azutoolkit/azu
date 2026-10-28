@@ -20,7 +20,8 @@ module Azu
       alias OriginType = Array(String | Regex)
       FORBIDDEN     = "Forbidden for invalid origins, methods or headers"
       ALLOW_METHODS = %w(POST PUT PATCH DELETE)
-      ALLOW_HEADERS = %w(Accept Content-Type)
+      # `X-CSRF-TOKEN` is included so a session-cookie API behind `Handler::CSRF` works without configuration
+      ALLOW_HEADERS = %w(Accept Content-Type X-CSRF-TOKEN)
       # SECURITY: Empty by default - origins must be explicitly configured
       # Previously was ["*", /./] which allowed all origins
       DEFAULT_ORIGINS = [] of (String | Regex)
@@ -88,6 +89,9 @@ module Azu
         end
 
         if @origin.match?(request_origin)
+          # An origin listed by name (or pattern) is one CSRF may trust; a wildcard vouches for nobody, and `X-Origin`
+          # is not what a browser sends
+          context.request.cors_allowed = true if !@origin.wildcard? && context.request.headers.has_key?(Headers::ORIGIN)
           is_preflight_request = preflight?(context)
           # Set before a preflight is answered: its response is flushed, and what is set after that depends on how the
           # server writes headers. A refusal below removes all of it again.

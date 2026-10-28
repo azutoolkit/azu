@@ -5,6 +5,11 @@ class HTTP::Request
   @path_params : Hash(String, String)? = nil
   @accept : Array(MIME::MediaType)? = nil
 
+  # True once `Azu::Handler::CORS`, earlier in the chain, matched the request's `Origin` header against the
+  # origins it lists (not a `*` wildcard, which vouches for nobody): `Azu::Handler::CSRF` then skips its own
+  # same-origin check for the request. A field, not a header, so a client cannot set it.
+  property? cors_allowed : Bool = false
+
   def content_type : MIME::MediaType
     if content = headers["Content-Type"]?
       MIME::MediaType.parse(content)

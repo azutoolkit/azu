@@ -68,7 +68,7 @@ module Azu
 
     REDACTED = "[FILTERED]"
     # Names (environment variables, header names, query parameter names; `-` counts like `_`) that hold a credential.
-    SENSITIVE = /SECRET|PASSWORD|PASSWD|TOKEN|PRIVATE|CREDENTIAL|KEY\z|[_-]KEY[_-]|\AKEY[_-]|COOKIE|AUTH|DSN|SALT|SIGNING|SIGNATURE|JWT|(\A|[_-])SESSION([_-](ID|DATA|URL|STORE|COOKIE|STRING)|\z)|CONNECTION[_-]?STRING|[_-]PWD([_-]|\z)|\APWD[_-]|(\A|[_-])(PASS|SID|OTP|PIN|CVV|CVC|SSN|CARD)([_-]|\z)/i
+    SENSITIVE = /SECRET|PASSWORD|PASSWD|PASSPHRASE|PASSCODE|TOKEN|CSRF|PRIVATE|CREDENTIAL|KEY\z|[_-]KEY[_-]|\AKEY[_-]|COOKIE|AUTH|DSN|SALT|SIGNING|SIGNATURE|JWT|(\A|[_-])SESSION([_-](ID|DATA|URL|STORE|COOKIE|STRING)|\z)|CONNECTION[_-]?STRING|[_-]PWD([_-]|\z)|\APWD[_-]|(\A|[_-])(PASS|SID|OTP|PIN|CVV|CVC|SSN|CARD)([_-]|\z)/i
     # `scheme://user:password@host` anywhere in a value.
     URL_SECRET = %r{([a-z][a-z0-9+.\-]*://[^:/@\s]*):(?!\d+(?:[/?#]|\z))[^\s?#]*@}i
     # `?name=value` / `&name=value` anywhere in a value.
