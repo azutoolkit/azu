@@ -28,20 +28,34 @@ class HTTP::Request
     @path_params = params
   end
 
+  # The media ranges of the `Accept` header, best quality first; nil without a header or when no range parses.
+  # A client's header is never a reason to fail: a range that does not parse is skipped and a `q` that is not a
+  # number (or is outside 0..1) counts as 1.0, the rules `Negotiation` applies. The error pages rely on this: they
+  # are rendered from inside `Rescuer`, where a raise would turn any error into an unhandled 500.
   def accept : Array(MIME::MediaType) | Nil
     @accept ||= (
       if header = headers["Accept"]?
-        # Handle empty or whitespace-only accept headers
-        return nil if header.strip.empty?
+        ranges = header.split(',').compact_map { |range| accept_range(range) }
+        return nil if ranges.empty?
 
-        header.split(",").compact_map do |accept_type|
-          trimmed = accept_type.strip
-          next if trimmed.empty?
-          MIME::MediaType.parse(trimmed)
-        end.sort! do |media_type_a, media_type_b|
-          (media_type_b["q"]?.try &.to_f || 1.0) <=> (media_type_a["q"]?.try &.to_f || 1.0)
-        end
+        # The highest quality first; a stable sort keeps the header's order among equals
+        ranges.sort_by! { |range| -accept_quality(range) }
       end
     )
+  end
+
+  private def accept_range(entry : String) : MIME::MediaType?
+    trimmed = entry.strip
+    return if trimmed.empty?
+
+    media = MIME::MediaType.parse(trimmed)
+    media if media.sub_type.presence
+  rescue MIME::Error
+    nil
+  end
+
+  private def accept_quality(media : MIME::MediaType) : Float64
+    quality = media["q"]?.try(&.to_f?)
+    quality && quality.finite? ? quality.clamp(0.0, 1.0) : 1.0
   end
 end

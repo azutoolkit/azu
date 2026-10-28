@@ -156,6 +156,22 @@ describe "HTTP::Request Extensions" do
       accept.should be_nil
     end
 
+    it "keeps the ranges that parse and reads a quality that is not a number as 1.0" do
+      request = HTTP::Request.new("GET", "/")
+      request.headers["Accept"] = "application/json;q=abc, text/html;q=0.5, ;;, garbage, */*;q=nan"
+
+      accept = request.accept.not_nil!
+
+      accept.map(&.media_type).should eq ["application/json", "*/*", "text/html"]
+    end
+
+    it "is nil when no range parses" do
+      request = HTTP::Request.new("GET", "/")
+      request.headers["Accept"] = ";;, garbage"
+
+      request.accept.should be_nil
+    end
+
     it "handles empty accept header" do
       request = HTTP::Request.new("GET", "/")
       request.headers["Accept"] = ""
