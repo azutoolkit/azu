@@ -6,7 +6,7 @@ description: "Build CQL models from request contracts, responses from models, an
 
 `require "azu/cql"` (opt-in, see [Database dashboard](../database-dashboard.md)) also connects Azu's request and
 response contracts to CQL models. It is plain compile-time code: no runtime reflection, no CQL patches beyond one
-method on `CQL::ActiveRecord::Validations`. It needs the same CQL release as the dashboard (`azu/cql` needs 0.0.609 or newer, the version `shard.yml` requires; the code itself only checks for the telemetry hooks, which first shipped in 0.0.541, and says so at compile time on an older release). The dashboard keeps bound values and database error details out of what it shows unless `database.show_params` is on in development; hand-written SQL appears as written. See [what the tab shows of your data](../database-dashboard.md#what-the-tab-shows-of-your-data).
+method on `CQL::ActiveRecord::Validations`. Development and CI use CQL 0.0.925 or newer. The basic bridge still checks for the telemetry hooks introduced in 0.0.541; enabling request-cache diagnostics additionally requires the per-fiber tracker available in the tested 0.0.925 release. The dashboard keeps bound values and database error details out of what it shows unless `database.show_params` is on in development; hand-written SQL appears as written. See [what the tab shows of your data](../database-dashboard.md#what-the-tab-shows-of-your-data).
 
 ```crystal
 require "sqlite3"
@@ -247,18 +247,16 @@ server = app.server(handlers)
 otherwise: outside a request, with the option off, or when CQL's cache or its request cache is off. Nothing is added
 to the response.
 
-* It is a diagnostic, not a cache: CQL records which statements ran and stores no rows, so nothing gets faster.
-  Turn it on in development or a spec, not in production: while a request has it open, every `SELECT` in the
-  process goes through CQL's one tracker and its lock.
-* It counts the queries run on the fiber serving the request; work the endpoint hands to fibers it spawns is not
-  part of the request's counts once CQL tracks per fiber.
-* The tracker sits inside the request scope and outside the transaction, so it ends however the request ends: a
-  commit, a rollback, an exception.
-* **Concurrent requests share the counters for now.** CQL keeps one request query cache for the whole process, so
-  requests served at the same time add to each other's counts, and a request that starts forgets the statements of
-  the ones in flight, so a repeat after another request starts counts as distinct. The numbers are exact when
-  one request runs at a time (development, a spec); Azu keeps them per request as soon as CQL scopes that state per
-  fiber, with no change on your side.
+* It is a diagnostic, not a result cache: CQL records statements and stores no rows. Enable it when
+  diagnosing repeated queries; account for its tracking overhead in your workload.
+* Concurrent requests have separate request IDs, statements and counters. The tracker follows the serving
+  fiber; work handed to child fibers is not part of that request's counts.
+* The tracker sits inside the request scope and outside the transaction, so it ends on a commit, rollback
+  or exception.
+* `query_cache: true` refuses older process-wide trackers with `ArgumentError` when the middleware is
+  constructed, before the server serves requests or a lazy schema provider runs. Upgrade CQL to 0.0.925
+  or newer, or leave `query_cache: false`. The ordinary middleware remains compatible with older supported
+  telemetry implementations.
 
 ## Behavior
 

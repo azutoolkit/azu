@@ -30,11 +30,11 @@ require "./request_cache"
 require "./middleware"
 
 # The dashboard is fed through CQL's event framework. `Telemetry.subscribe_transactions` and `Schema#pool_stats`
-# first shipped in CQL 0.0.541 (0.0.539 and older lack them), so that is the hard floor; `shard.yml` asks for 0.0.609,
-# the first release with `CQL::ConnectionSource` and `Postgres::EngineSource` that Azu's specs run against. Newer
+# first shipped in CQL 0.0.541 (0.0.539 and older lack them), so that is the hard floor; `shard.yml` asks for 0.0.925,
+# which also provides the per-fiber request tracker required by query_cache: true. Newer
 # fields are used when present: `QueryEvent#pool_wait` (0.0.798) and nested transactions as savepoints (0.0.626).
 {% unless ::CQL.has_constant?("Telemetry") && ::CQL::Telemetry.class.has_method?("subscribe_transactions") && ::CQL::Schema.has_method?("pool_stats") %}
-  {% raise "azu/cql needs CQL 0.0.541 or newer (CQL::Telemetry.subscribe_transactions and CQL::Schema#pool_stats); Azu's shard.yml asks for 0.0.609. Update the cql shard." %}
+  {% raise "azu/cql needs CQL 0.0.541 or newer (CQL::Telemetry.subscribe_transactions and CQL::Schema#pool_stats); Azu's shard.yml asks for 0.0.925. Update the cql shard." %}
 {% end %}
 
 module Azu

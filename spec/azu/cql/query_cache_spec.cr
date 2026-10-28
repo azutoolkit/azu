@@ -6,6 +6,9 @@ require "../../../src/azu/cql"
 # `Azu::CQL::Middleware.new(query_cache: true)` against a real `Azu::App` served over a socket, with CQL's
 # request query cache on: the repeated SELECTs of a request are counted for that request.
 module QueryCacheSpec
+  class_property slow_started : Channel(Nil)?
+  class_property resume_slow : Channel(Nil)?
+
   DB_FILE = File.tempname("azu_cql_query_cache", ".db")
 
   def self.build_schema : CQL::Schema
@@ -80,7 +83,8 @@ module QueryCacheSpec
 
     def call : Json
       QueryCacheSpec.name_of(1)
-      sleep 100.milliseconds
+      QueryCacheSpec.slow_started.try(&.send(nil))
+      QueryCacheSpec.resume_slow.try(&.receive)
       2.times { QueryCacheSpec.name_of(1) }
       content_type "application/json"
       Json.new(QueryCacheSpec.stats_json)
@@ -210,21 +214,39 @@ describe "Azu::CQL::Middleware query_cache:" do
     end
   end
 
-  # CQL's request query cache is one process-wide tracker today: overlapping requests share its counters, and a
-  # request that starts clears the statements of the ones in flight. Un-pend once CQL scopes it per fiber.
-  pending "keeps the counts of concurrent requests apart (needs CQL's request cache scoped per fiber)" do
+  it "keeps the counts of concurrent requests apart" do
     QueryCacheSpec.with_cql_cache do
       QueryCacheSpec.serve do |base|
-        slow = Channel(JSON::Any).new
+        started = Channel(Nil).new(1)
+        resume = Channel(Nil).new(1)
+        QueryCacheSpec.slow_started = started
+        QueryCacheSpec.resume_slow = resume
+        slow = Channel(JSON::Any).new(1)
         spawn { slow.send QueryCacheSpec.get(base, "/slow", "req-slow") }
-        sleep 30.milliseconds # the slow request has run its first SELECT and waits
+        select
+        when started.receive
+        when timeout(5.seconds)
+          fail "slow request did not reach its first query"
+        end
         quick = QueryCacheSpec.get(base, "/quick", "req-quick")
+        quick["stats"]["request_id"].should eq "req-quick"
+        quick["stats"]["queries"].should eq 2
         quick["stats"]["repeated"].should eq 1
 
-        slow_stats = slow.receive["stats"]
+        resume.send(nil)
+        slow_stats = select
+        when response = slow.receive
+          response["stats"]
+        when timeout(5.seconds)
+          fail "slow request did not finish"
+        end
         slow_stats["request_id"].should eq "req-slow"
         slow_stats["queries"].should eq 3
         slow_stats["repeated"].should eq 2
+      ensure
+        resume.try(&.close)
+        QueryCacheSpec.slow_started = nil
+        QueryCacheSpec.resume_slow = nil
       end
     end
   end

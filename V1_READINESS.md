@@ -33,7 +33,6 @@ Local validation uses Crystal 1.22.1, Node 24, PostgreSQL 17 and Redis 8. Hosted
 Redis 7, Node 22 and both the pinned and latest Crystal compiler; those exact CI environments must
 still run before release. Logs are retained under `/workspace/setup/logs` in the prepared environment.
 
-- Baseline full suite: 3,369 examples, no failures/errors, five pending.
 - Proxy/security compatibility suite after the fix: 109 examples, no failures/errors/pending.
 - Static-file suite after the fix: 339 examples, no failures/errors/pending.
 - Combined CSRF/body/throttle regression check: 181 examples, no failures/errors/pending.
@@ -46,7 +45,8 @@ still run before release. Logs are retained under `/workspace/setup/logs` in the
 - Optimized production build and smoke checks pass: health JSON, request IDs, security headers,
   ignored untrusted forwarded scheme, sanitized error response, and clean SIGTERM exit.
 - Final full suite, with PostgreSQL, Redis and cross-process scaling enabled: 3,375 examples,
-  zero failures/errors, two pre-existing pending cases (listed below).
+  zero failures, zero errors and zero pending. The focused configuration/query-cache selection
+  also passes all 27 examples.
 
 ## Release requirements outside this patch
 
@@ -58,8 +58,13 @@ Any contractual support window, compliance standard or SLA must be agreed by the
 this patch introduces no such commitments. Browser acceptance testing and an independent security
 review have not been performed in this task.
 
-Two pre-existing pending tests need explicit disposition: the environment-variable configuration
-case and the optional CQL concurrent request-cache integration case. The latter is documented by
-the test as depending on CQL's cache scoping; do not claim isolation across the supported CQL
-version range until that integration test is enabled and passes. The static-file pending cases
-were replaced by active tests in this patch.
+The former configuration and CQL pending cases are now executable regressions. Configuration checks
+verify independent production/staging instances and restore the process environment. The CQL test uses
+channels to hold one request open while another completes, checking both request IDs and counters.
+Development/CI require CQL 0.0.925 or newer. Request-cache diagnostics reject older process-wide tracker
+implementations at construction; a compatibility probe against CQL 0.0.578 confirmed rejection without
+resolving a lazy provider, while ordinary middleware still initialized. The static-file pending cases
+were also replaced by active tests.
+
+Live deployment validation is deferred at the user's request. No live application's infrastructure or
+operational guarantees are claimed by this review.

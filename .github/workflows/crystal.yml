@@ -48,7 +48,7 @@ jobs:
     env:
       # The Azu::CQL engine path needs a real PostgreSQL: specs fail (not pend) in CI without it.
       AZU_TEST_PG_URL: postgres://postgres:postgres@postgres:5432/azu_test
-      # Specs that may be skipped in CI: none. The engine specs need cql >= 0.0.609 (shard.yml) and the service above.
+      # Specs that may be skipped in CI: none. The engine specs need cql >= 0.0.925 (shard.yml) and the service above.
       CRYSTAL_ENV: pipeline
       PORT: 4000
       PORT_REUSE: false
@@ -202,7 +202,7 @@ jobs:
     env:
       # The Azu::CQL engine path needs a real PostgreSQL: specs fail (not pend) in CI without it.
       AZU_TEST_PG_URL: postgres://postgres:postgres@postgres:5432/azu_test
-      # Specs that may be skipped in CI: none. The engine specs need cql >= 0.0.609 (shard.yml) and the service above.
+      # Specs that may be skipped in CI: none. The engine specs need cql >= 0.0.925 (shard.yml) and the service above.
       CRYSTAL_ENV: pipeline
       PORT: 4000
       PORT_REUSE: false

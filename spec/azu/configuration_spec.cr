@@ -39,13 +39,22 @@ describe Azu::Configuration do
       ENV.delete("HOST")
     end
 
-    pending "reads environment from CRYSTAL_ENV" do
-      ENV["CRYSTAL_ENV"] = "production"
-      config = Azu::Configuration.new
-
-      config.env.should eq(Azu::Environment::Production)
-
-      ENV["CRYSTAL_ENV"] = "test"
+    it "reads environment from CRYSTAL_ENV for each configuration" do
+      original = ENV["CRYSTAL_ENV"]?
+      begin
+        ENV["CRYSTAL_ENV"] = "production"
+        production = Azu::Configuration.new
+        production.env.should eq(Azu::Environment::Production)
+        ENV["CRYSTAL_ENV"] = "staging"
+        Azu::Configuration.new.env.should eq(Azu::Environment::Staging)
+        production.env.should eq(Azu::Environment::Production)
+      ensure
+        if original
+          ENV["CRYSTAL_ENV"] = original
+        else
+          ENV.delete("CRYSTAL_ENV")
+        end
+      end
     end
 
     it "reads port_reuse from environment" do
