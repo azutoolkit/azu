@@ -57,10 +57,10 @@ jobs:
       AZU_TEST_REDIS_URL: redis://redis:6379/0
       AZU_TEST_SCALE: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Cache shards dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         with:
           path: lib
           key: ${{ runner.os }}-shards-${{ hashFiles('shard.yml', 'playground/shard.yml') }}
@@ -68,7 +68,7 @@ jobs:
             ${{ runner.os }}-shards-
 
       - name: Cache Crystal build artifacts
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         with:
           path: |
             bin/
@@ -78,7 +78,7 @@ jobs:
             ${{ runner.os }}-crystal-build-
 
       - name: Cache test results
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         with:
           path: .crystal/
           key: ${{ runner.os }}-test-cache-${{ hashFiles('**/*.cr', '**/shard.yml') }}
@@ -127,7 +127,7 @@ jobs:
     container:
       image: crystallang/crystal:1.22.1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: shards install
@@ -148,9 +148,9 @@ jobs:
   docs-diagrams:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -211,7 +211,7 @@ jobs:
       AZU_TEST_REDIS_URL: redis://redis:6379/0
       AZU_TEST_SCALE: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: apt-get update && apt-get install -y libsqlite3-dev
@@ -243,7 +243,7 @@ jobs:
       CRYSTAL_ENV: pipeline
       CRYSTAL_WORKERS: "4"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: apt-get update && apt-get install -y libsqlite3-dev
@@ -276,14 +276,14 @@ jobs:
       !contains(github.event.head_commit.message, 'chore: bump version')
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN || github.token }}
 
       - name: Compute Release Version
         id: semver
-        uses: paulhatch/semantic-version@v5.4.0
+        uses: paulhatch/semantic-version@v6.0.5
         with:
           tag_prefix: "v"
           major_pattern: "(MAJOR)"
@@ -331,7 +331,7 @@ jobs:
 
       - name: Create Release
         if: steps.bump.outputs.tag != ''
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.bump.outputs.tag }}
           name: Release ${{ steps.bump.outputs.tag }}

@@ -49,11 +49,11 @@ jobs:
       # An app that cannot be built or is not conformant fails the job instead of being skipped quietly
       BENCH_REQUIRED: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -92,7 +92,7 @@ jobs:
             { echo "### Framework benchmarks - shared runner, same-run comparisons only"; echo; cat "$md"; } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: bench-${{ github.run_id }}
