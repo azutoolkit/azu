@@ -116,7 +116,12 @@ describe Azu::Redis::Config do
     Azu::Redis::Config.new(url: "redis://h/0").tls?.should be_false
     Azu::Redis::Config.new(url: "redis://h/0", tls_verify: false, tls_ca_file: "/x.pem").tls?.should be_false
     Azu::Redis::Config.new(url: "redis://h/0", tls_verify: false).ssl_context.should be_nil
-    context = Azu::Redis::Config.new(url: "rediss://h/0", tls_verify: false).ssl_context
+    context = nil
+    Log.capture("Azu::Redis") do |logs|
+      context = Azu::Redis::Config.new(url: "rediss://user:hunter2@h/0", tls_verify: false).ssl_context
+      logs.check(:warn, /REDIS_TLS_VERIFY is off: the certificate of rediss:\/\/user:\*\*\*@h\/0 is not checked/)
+      logs.empty
+    end
     context.try(&.verify_mode).should eq OpenSSL::SSL::VerifyMode::NONE
   end
 end

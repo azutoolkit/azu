@@ -51,7 +51,7 @@ A feature marked **opt-in** needs its own `require`; `require "azu"` alone does 
 - **CORS.** No origin is allowed until you list it. [Handler::CORS](../reference/handlers/built-in.md#handlercors).
 - **Throttling.** `Handler::Throttle` limits requests per address; `Handler::IpSpoofing` answers `403` when `X-Client-IP` or `X-Real-IP` disagree with `X-Forwarded-For`. [Handler::Throttle](../reference/handlers/built-in.md#handlerthrottle), [Handler::IpSpoofing](../reference/handlers/built-in.md#handleripspoofing).
 - **Sessions.** Azu reads sessions through `Azu::SessionAdapter`; the [session shard](https://github.com/azutoolkit/session) fills it. [Use sessions](../how-to/middleware/use-sessions.md).
-- **Secrets.** `Azu::Env.secret` reads a secret from the environment, makes up a random one outside the strict environments (`production` by default, widened with `AZU_STRICT_ENVS`) and refuses to boot without it inside them. [Azu::Env](../reference/configuration/env.md).
+- **Secrets.** `Azu::Env.secret` reads a secret from the environment, makes up a random one outside the strict environments (`production` and `staging` by default, `AZU_STRICT_ENVS` replaces the list) and refuses to boot without it inside them; `Azu::Env.require_at_boot` names the application's own, checked before the server binds. [Azu::Env](../reference/configuration/env.md).
 
 ## Performance and operations
 

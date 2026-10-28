@@ -533,25 +533,55 @@ describe Azu::Env do
       end
     end
 
-    it "raises in the environments listed as strict" do
+    it "raises in the environments listed as strict: production and staging by default" do
       with_env({"AZU_ENV_SPEC_SECRET" => nil, "CRYSTAL_ENV" => "staging"}) do
-        Azu::Env.secret("AZU_ENV_SPEC_SECRET").should_not be_empty
-        Azu::Env.strict_environments = ["production", "Staging"]
+        expect_raises(Azu::Env::MissingError, /AZU_ENV_SPEC_SECRET is not set/) { Azu::Env.secret("AZU_ENV_SPEC_SECRET") }
+        Azu::Env.strict_environments = ["production"]
         begin
-          expect_raises(Azu::Env::MissingError, /AZU_ENV_SPEC_SECRET is not set/) { Azu::Env.secret("AZU_ENV_SPEC_SECRET") }
+          Azu::Env.secret("AZU_ENV_SPEC_SECRET").should_not be_empty
         ensure
           Azu::Env.strict_environments = nil
         end
       end
     end
 
-    it "reads strict environments from AZU_STRICT_ENVS" do
+    it "reads strict environments from AZU_STRICT_ENVS, and judges the environment it is given" do
       Azu::Env.strict_environments = nil
-      with_env({"CRYSTAL_ENV" => "staging", "AZU_STRICT_ENVS" => "production, staging"}) do
-        Azu::Env.strict_environments.should eq ["production", "staging"]
-        Azu::Env.strict?.should be_true
+      with_env({"CRYSTAL_ENV" => "staging", "AZU_STRICT_ENVS" => "production, preview"}) do
+        Azu::Env.strict_environments.should eq ["production", "preview"]
+        Azu::Env.strict?.should be_false
+        Azu::Env.strict?("Preview").should be_true
       end
-      with_env({"CRYSTAL_ENV" => "staging", "AZU_STRICT_ENVS" => nil}) { Azu::Env.strict?.should be_false }
+      with_env({"CRYSTAL_ENV" => "staging", "AZU_STRICT_ENVS" => nil}) do
+        Azu::Env.strict?.should be_true
+        Azu::Env.strict?("development").should be_false
+      end
+    end
+
+    it "checks the names registered for boot: an error in a strict environment, a warning elsewhere" do
+      Azu::Env.reset_required_at_boot!
+      Azu::Env.require_at_boot("AZU_ENV_SPEC_BOOT_A", "AZU_ENV_SPEC_BOOT_B")
+      Azu::Env.require_at_boot("AZU_ENV_SPEC_BOOT_A")
+      Azu::Env.required_at_boot.should eq ["AZU_ENV_SPEC_BOOT_A", "AZU_ENV_SPEC_BOOT_B"]
+      begin
+        with_env({"AZU_ENV_SPEC_BOOT_A" => "a", "AZU_ENV_SPEC_BOOT_B" => " ", "CRYSTAL_ENV" => "production"}) do
+          error = expect_raises(Azu::Env::MissingError) { Azu::Env.check_required_at_boot! }
+          error.names.should eq ["AZU_ENV_SPEC_BOOT_B"]
+        end
+        with_env({"AZU_ENV_SPEC_BOOT_A" => nil, "AZU_ENV_SPEC_BOOT_B" => nil, "CRYSTAL_ENV" => "development"}) do
+          Log.capture("azu.env") do |logs|
+            Azu::Env.check_required_at_boot!
+            logs.check(:warn, /AZU_ENV_SPEC_BOOT_A, AZU_ENV_SPEC_BOOT_B are not set/)
+            logs.empty
+          end
+          expect_raises(Azu::Env::MissingError) { Azu::Env.check_required_at_boot!(true) }
+        end
+        with_env({"AZU_ENV_SPEC_BOOT_A" => "a", "AZU_ENV_SPEC_BOOT_B" => "b", "CRYSTAL_ENV" => "production"}) do
+          Azu::Env.check_required_at_boot!
+        end
+      ensure
+        Azu::Env.reset_required_at_boot!
+      end
     end
 
     it "takes the production flag explicitly" do

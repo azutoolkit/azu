@@ -11,7 +11,10 @@ module Azu
     # `rediss://` URLs use TLS; `tls_ca_file` and `tls_verify` tune it and are ignored for `redis://`. Neither `inspect` nor `to_s` show the URL's
     # password.
     struct Config
-      DEFAULT_URL = "redis://localhost:6379/0"
+      # The URLs whose unverified TLS was warned about (`ssl_context`), one line each.
+      WARNED_UNVERIFIED = Set(String).new
+      private WARNED_MUTEX      = Mutex.new
+      DEFAULT_URL       = "redis://localhost:6379/0"
 
       # Where settings are read from: the process environment, or a hash in a spec.
       alias Source = Hash(String, String) | ENV.class
@@ -104,7 +107,12 @@ module Azu
         return if @tls_ca_file.nil? && @tls_verify
         context = OpenSSL::SSL::Context::Client.new
         @tls_ca_file.try { |path| context.ca_certificates = path }
-        context.verify_mode = OpenSSL::SSL::VerifyMode::NONE unless @tls_verify
+        unless @tls_verify
+          # Once per URL, not per connection: a pool opens many
+          first = WARNED_MUTEX.synchronize { WARNED_UNVERIFIED.add?(@url) }
+          Log.for("Azu::Redis").warn { "REDIS_TLS_VERIFY is off: the certificate of #{redacted_url} is not checked, so the connection can be intercepted" } if first
+          context.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+        end
         context
       end
 

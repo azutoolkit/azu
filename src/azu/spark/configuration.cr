@@ -57,8 +57,9 @@ module Azu
 
       # Key used to sign join tokens and state snapshots.
       #
-      # Production and staging refuse to run without an explicitly configured secret. Other
-      # environments get a random per process secret (tokens do not survive a restart there).
+      # A strict environment (`Azu.strict_environment?`: production and staging by default) refuses to run without
+      # an explicitly configured secret. Other environments get a random per process secret (tokens do not survive
+      # a restart there).
       def secret : String
         if configured = @secret
           return configured
@@ -75,7 +76,7 @@ module Azu
       end
 
       private def secret_required? : Bool
-        Azu.current_config.env.in?(Environment::Production, Environment::Staging)
+        Azu.strict_environment?
       end
     end
   end

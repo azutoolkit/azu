@@ -433,7 +433,8 @@ These are read outside `Azu::Configuration`:
 
 | Variable | Type | Default | Meaning |
 |---|---|---|---|
-| `AZU_STRICT_ENVS` | comma separated environment names | `production` | Environments in which [`Azu::Env.secret`](env.md) raises `Azu::Env::MissingError` for an unset secret instead of using a random per-process value (`Azu::Env.strict_environments=` overrides it) |
+| `AZU_STRICT_ENVS` | comma separated environment names | `production,staging` | The strict environments: [`Azu::Env.secret`](env.md) raises `Azu::Env::MissingError` for an unset secret instead of using a random per-process value, `Spark` refuses to install without `SPARK_SECRET`, and `start` refuses to boot without the variables of `Azu::Env.require_at_boot`. Judged on `CRYSTAL_ENV` and on `config.env` (`Azu.strict_environment?`); `Azu::Env.strict_environments=` overrides the list |
+| `AZU_ALLOW_DEV_ON_ANY_HOST` | `Bool` | `false` | `true` lets `start` serve the development pages on a non-loopback host with `CRYSTAL_ENV` unset, with a warning instead of a `Configuration::BootError` ([Environments](environments.md#the-default-environment)) |
 | `CSRF_MAX_FORM_SIZE` | `UInt64` | `1048576` | The most of a urlencoded body `Handler::CSRF` reads to find the token (`max_form_size`); a larger one answers `413` |
 | `CSRF_SECRET` | `String` | `Azu::Env.secret("CSRF_SECRET")`: random per process, `Azu::Env::MissingError` in the strict environments | Key `Handler::CSRF` signs its tokens with when it is given none |
 | `PERFORMANCE_SLOW_REQUEST_THRESHOLD` | `Float64` (milliseconds) | `1000` | `Handler::PerformanceMonitor` (`azu/dev`) logs a warning for a request that takes longer |

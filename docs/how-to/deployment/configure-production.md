@@ -52,16 +52,19 @@ puts MyApp.env
 ## Secrets
 
 Keep secrets out of the image and out of source control: pass them as environment variables (`docker run -e`,
-`systemd` `EnvironmentFile=`, your platform's secret store) and read them with `ENV[...]`, which raises at boot
-when one is missing. Azu itself reads `SPARK_SECRET` and `CSRF_SECRET`; the application reads the rest.
+`systemd` `EnvironmentFile=`, your platform's secret store). Azu itself reads `SPARK_SECRET` and `CSRF_SECRET`;
+register the ones the application reads with `Azu::Env.require_at_boot("SESSION_SECRET", "DATABASE_URL")`, and
+`start` refuses to boot in production or staging naming every one that is missing, before it binds a port (a
+warning in the other environments). `start` also refuses `SSL_CERT` without `SSL_KEY` (or the reverse), and a
+server with `CRYSTAL_ENV` unset on a non-loopback host (see [Environments](../../reference/configuration/environments.md)).
 
 `Azu::Handler::CSRF` reads `CSRF_SECRET` through [`Azu::Env.secret`](../../reference/configuration/env.md) when it is
 built without a `secret_key:`.
 
 {% hint style="warning" %}
-In production, building the handler without `CSRF_SECRET` raises `Azu::Env::MissingError`; in other environments the
-handler uses a random key for the process and logs a warning, so its tokens are rejected after a restart and by other
-instances. Set the same `CSRF_SECRET` on every instance.
+In production and staging (`AZU_STRICT_ENVS`), building the handler without `CSRF_SECRET` raises
+`Azu::Env::MissingError`; in other environments the handler uses a random key for the process and logs a warning, so
+its tokens are rejected after a restart and by other instances. Set the same `CSRF_SECRET` on every instance.
 {% endhint %}
 
 An application generated with `azu new` reads `SESSION_SECRET` the same way (in development both come from its
@@ -234,7 +237,7 @@ with a `Retry-After` header.
 Before deploying:
 
 - [ ] `CRYSTAL_ENV=production`
-- [ ] Secrets (`SPARK_SECRET`, `SESSION_SECRET`, `CSRF_SECRET`, database credentials) come from the environment
+- [ ] Secrets (`SPARK_SECRET`, `SESSION_SECRET`, `CSRF_SECRET`, database credentials) come from the environment, and the application's own are registered with `Azu::Env.require_at_boot`
 - [ ] Database migrations run
 - [ ] TLS terminated by a proxy, or `SSL_CERT` and `SSL_KEY` set
 - [ ] `SecurityHeaders` in the handler stack (the default stack has it); `hsts: true` behind a TLS proxy that does not forward `X-Forwarded-Proto`
