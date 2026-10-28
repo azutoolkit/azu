@@ -1,0 +1,22 @@
+# Dependabot has no ecosystem for Crystal shards: shard.yml is reviewed by hand (every dependency is pinned
+# to a minor, see shard.yml). The workflows' actions and the two node trees are kept current here.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /js
+    schedule:
+      interval: monthly
+    groups:
+      spark-client-tooling:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /scripts/mermaid
+    schedule:
+      interval: monthly

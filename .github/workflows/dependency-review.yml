@@ -1,0 +1,21 @@
+name: Dependency review
+
+# Fails a pull request that adds a dependency with a known vulnerability or an incompatible license, from the
+# manifests GitHub understands (the workflows' actions and the node trees). Crystal shards are not covered:
+# shard.yml pins every dependency to a minor and a change to it is reviewed by hand.
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
