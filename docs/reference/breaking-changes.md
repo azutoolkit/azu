@@ -13,6 +13,21 @@ from an early 0.5 release to the current API, with old and new code side by side
 
 ## Next release
 
+**Static files stay within the public root, including symlinks.** Symlinks outside the resolved public
+directory, or into an `except:` path, are refused. Directory indexes follow the same rule, and listings
+omit excluded names and aliases. Deploy assets inside the public root instead of linking to external
+files. A symlink for the public root itself still works.
+
+**Proxy trust also applies to CSRF, WebSockets and automatic HSTS.** These checks now ignore
+`X-Forwarded-Host` and `X-Forwarded-Proto` unless the connection's IP peer is listed in
+`config.trusted_proxies` (`TRUSTED_PROXIES`). Previously, a direct client could supply those headers
+and influence the CSRF origin check, CSRF cookie flags, WebSocket scheme checks and automatic HSTS.
+For a TLS-terminating proxy, list its exact address or CIDR and make it overwrite the forwarded host
+and scheme. Requests without an IP peer do not trust forwarded headers. `SecurityHeaders.new` also
+accepts `trusted_proxies:`; the default stack captures its own application's list. Explicit `hsts: true`
+and locally terminated TLS keep their behavior.
+
+
 **Forwarded headers are believed only from `config.trusted_proxies`, and a few helpers are stricter.** The template
 variables `client_ip`, `secure` and `current_url` (`Azu::Helpers::TemplateContext`) read `X-Forwarded-For`,
 `X-Forwarded-Proto` and `X-Forwarded-Host` only when the connection's peer is in the new `config.trusted_proxies`

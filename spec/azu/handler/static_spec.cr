@@ -1245,12 +1245,46 @@ describe Azu::Handler::Static do
       end
     end
 
-    # Known limit: the listing of the parent still names the excluded entry (the names, never the content).
-    pending "hides the excluded name from the listing of its parent"
+    it "hides the excluded name and its symlink from the listing of its parent" do
+      with_temp_dir(files) do |dir|
+        File.delete(File.join(dir, "index.html"))
+        File.symlink(File.join(dir, "templates"), File.join(dir, "alias"))
+        handler = Azu::Handler::Static.new(dir, directory_listing: true, except: ["/templates"])
+        body = serve.call(handler, "GET", "/")[1]
+        body.should_not contain(">templates</a>")
+        body.should_not contain(">alias</a>")
+        body.should contain("app.css")
+      end
+    end
 
-    # Known limit: the check is lexical. A symlink inside public/ that points into an excluded directory is a
-    # different path, so it is served; do not symlink into an excluded directory.
-    pending "refuses a symlink that points into an excluded directory"
+    it "refuses symlinks into an excluded directory, including index files" do
+      with_temp_dir(files) do |dir|
+        File.symlink(File.join(dir, "templates"), File.join(dir, "alias"))
+        Dir.mkdir(File.join(dir, "visible"))
+        File.symlink(File.join(dir, "templates/sub/index.html"), File.join(dir, "visible/index.html"))
+        handler = Azu::Handler::Static.new(dir, except: ["/templates"])
+        ["/alias/note.txt", "/alias/sub/", "/visible/"].each do |path|
+          _, body, reached, location = serve.call(handler, "GET", path)
+          body.should eq("NEXT")
+          reached.should be_true
+          location.should be_nil
+        end
+      end
+    end
+
+    it "refuses a symlink outside the public directory while serving in-root symlinks" do
+      with_temp_dir(files) do |dir|
+        with_temp_dir({"private.txt" => "PRIVATE"}) do |outside|
+          File.symlink(File.join(outside, "private.txt"), File.join(dir, "leak.txt"))
+          File.symlink(File.join(dir, "app.css"), File.join(dir, "linked.css"))
+          handler = Azu::Handler::Static.new(dir, fallthrough: false)
+          status, body, _, _ = serve.call(handler, "GET", "/leak.txt")
+          status.should eq 404
+          body.should_not contain("PRIVATE")
+          serve.call(handler, "GET", "/linked.css")[0].should eq 200
+        end
+      end
+    end
 
     it "answers 404 itself with fallthrough: false, for GET, HEAD and a directory" do
       with_temp_dir(files) do |dir|

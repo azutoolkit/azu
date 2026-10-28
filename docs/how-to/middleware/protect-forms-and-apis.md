@@ -252,11 +252,11 @@ When a proxy or load balancer terminates TLS and forwards to the app:
   `trusted_proxies:`; without it every visitor shares the proxy's address and five attempts lock everybody out. With
   it, the client is the right-most `X-Forwarded-For` address that is not a trusted proxy
   ([Behind a reverse proxy](../../reference/handlers/built-in.md#behind-a-reverse-proxy)).
-- The `csrf_token` cookie gets `Secure` when the request has `X-Forwarded-Proto: https` (or when Azu terminates TLS
-  itself). Make the proxy set that header, and `X-Forwarded-Host` if it rewrites `Host`, and replace the ones a client
+- The `csrf_token` cookie gets `Secure` when a trusted proxy supplies `X-Forwarded-Proto: https` (or when Azu terminates TLS
+  itself). List its IP or CIDR in `TRUSTED_PROXIES`. Make the proxy set that header, and `X-Forwarded-Host` if it rewrites `Host`, and replace the ones a client
   sends: `CSRF` compares the request's `Origin` with them.
 - `Azu::Handler::SecurityHeaders` sends `Strict-Transport-Security` with `hsts: true`, or with the default stack's
-  `hsts: :auto` to the requests the proxy marks with `X-Forwarded-Proto: https`. A proxy that does not forward the
+  `hsts: :auto` to the requests a trusted proxy marks with `X-Forwarded-Proto: https`. A proxy that does not forward the
   header needs `hsts: true` in your own handler, with a `content_security_policy:` if you have one.
 - `Azu::Handler::IpSpoofing` answers `403` to a request whose `X-Real-IP` or `X-Client-IP` is not one of the
   addresses of its `X-Forwarded-For`, a sign that a client wrote the headers itself.

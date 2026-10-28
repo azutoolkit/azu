@@ -3,6 +3,9 @@ require "../spec_helper"
 # Helper method to create HTTP context
 def create_context(method = "GET", path = "/", headers = HTTP::Headers.new, body = nil)
   request = HTTP::Request.new(method, path, headers, body)
+  if headers.has_key?("X-Forwarded-Proto") || headers.has_key?("X-Forwarded-Host")
+    request.remote_address = Socket::IPAddress.new("127.0.0.1", 12345)
+  end
   io = IO::Memory.new
   response = HTTP::Server::Response.new(io)
   context = HTTP::Server::Context.new(request, response)
@@ -45,6 +48,13 @@ def get_response_body(context, io)
 end
 
 describe Azu::Handler::CSRF do
+  # These fixtures model an app behind its configured loopback proxy. Untrusted peers are covered in proxy_trust_spec.
+  around_each do |example|
+    config = Azu::Configuration.new
+    config.trusted_proxies = ["127.0.0.1"]
+    Azu.with_scope(nil, config) { example.run }
+  end
+
   # Reset CSRF configuration before each test
   before_each do
     Azu::Handler::CSRF.strategy = Azu::Handler::CSRF::Strategy::SignedDoubleSubmit

@@ -776,7 +776,7 @@ module Azu
 
       # Set CSRF token cookie. `Path=/`: without a path the browser keeps it for the directory of the page that
       # issued it (RFC 6265 default-path), and a form posting outside that directory is refused. `Secure` when the
-      # request came over TLS: terminated here (`config.tls?`) or at a proxy that says so (`X-Forwarded-Proto`).
+      # request came over TLS: terminated here (`config.tls?`) or at a trusted proxy that says so (`X-Forwarded-Proto`).
       protected def set_token_cookie(context : HTTP::Server::Context, token : String)
         cookie = HTTP::Cookie.new(
           name: @cookie_name,
@@ -826,7 +826,7 @@ module Azu
       # `call` applies it to every state-changing request that names an origin (`check_origin`).
       def validate_origin(context : HTTP::Server::Context) : Bool
         headers = context.request.headers
-        return false unless host = headers["X-Forwarded-Host"]?.try(&.split(',').first.strip.presence) || headers["Host"]?
+        return false unless host = ClientAddress.forwarded(context.request, "X-Forwarded-Host") || headers["Host"]?
         return false unless source = headers["Origin"]? || headers["Referer"]?
         return false unless origin = origin_of(source)
 
@@ -843,9 +843,9 @@ module Azu
         headers.has_key?("Origin") || headers.has_key?("Referer")
       end
 
-      # The scheme a proxy forwarded the request from (`X-Forwarded-Proto`, the first value), lowercased; nil without one.
+      # The scheme a trusted proxy forwarded the request from, lowercased; nil without a trusted IP peer.
       private def forwarded_scheme(context : HTTP::Server::Context) : String?
-        context.request.headers["X-Forwarded-Proto"]?.try(&.split(',').first.strip.downcase.presence)
+        ClientAddress.forwarded(context.request, "X-Forwarded-Proto").try(&.downcase)
       end
 
       # `scheme://host[:port]` of a URL, the port only when it is not the scheme's default; nil when it has no

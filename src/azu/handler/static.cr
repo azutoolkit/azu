@@ -165,11 +165,19 @@ module Azu
 
         return handle_invalid_path(context) unless valid_path?(original_path, request_path)
 
+        serve_path(context, original_path, request_path)
+      end
+
+      private def serve_path(context : HTTP::Server::Context, original_path : String, request_path : String)
         path_info = resolve_path_info(original_path, request_path)
         return refuse(context) if excluded?(path_info.normalized_path)
-        return handle_directory_request(context, path_info) if path_info.is_dir_path? && info(path_info.root_file)
+        if path_info.is_dir_path? && info(path_info.root_file)
+          return refuse(context) unless permitted_target?(path_info.root_file)
+          return handle_directory_request(context, path_info)
+        end
 
         file_info = info(path_info.file_path)
+        return refuse(context) if file_info && !permitted_target?(path_info.file_path)
         if location = redirect_location(request_path, path_info, file_info)
           return redirect_to context, location
         end
@@ -310,6 +318,30 @@ module Azu
         return false if @excluded.empty?
         segments = path_segments(normalized_path)
         @excluded.any? { |entry| segments.size >= entry.size && segments.first(entry.size) == entry }
+      end
+
+      # Resolve aliases before serving or listing them. A symlink cannot escape the public root or expose an
+      # excluded target, including a directory's index file. Resolve the root too so a deployed public/ symlink works.
+      private def permitted_target?(file_path : String) : Bool
+        root = File.realpath(@public_dir.to_s).rstrip(File::SEPARATOR)
+        target = File.realpath(file_path)
+        return false unless target == root || target.starts_with?(root + File::SEPARATOR)
+        !excluded?(target.byte_slice(root.bytesize, target.bytesize - root.bytesize))
+      rescue IO::Error
+        false
+      end
+
+      # Listings apply the same exclusion boundary as file requests, and escape both names and links.
+      private def directory_listing(io : IO, request_path : Path, path : Path)
+        title = HTML.escape(request_path.to_s)
+        io << "<!DOCTYPE html><html lang=\"en\"><head><title>Directory listing for " << title
+        io << "</title></head><body><h2>Directory listing for " << title << "</h2><hr/><ul>"
+        Dir.each_child(path) do |entry|
+          url = request_path.join(entry).to_s
+          next if excluded?(url) || !permitted_target?(path.join(entry).to_s)
+          io << "<li><a href=\"" << HTML.escape(URI.encode_path(url)) << "\">" << HTML.escape(entry) << "</a></li>"
+        end
+        io << "</ul></body></html>"
       end
 
       # An excluded path is answered as if there were no such file.

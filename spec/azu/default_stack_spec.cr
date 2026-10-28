@@ -60,6 +60,7 @@ describe Azu::App do
 
     it "sends HSTS from the default stack to a request that came over TLS, and not to one that did not" do
       app = Azu::App.new
+      app.config.trusted_proxies = ["127.0.0.1"]
       serve(app.default_handlers, app) do |client|
         client.get("/hello").headers["Strict-Transport-Security"]?.should be_nil
         forwarded = client.get("/hello", HTTP::Headers{"X-Forwarded-Proto" => "https"})
@@ -140,12 +141,13 @@ describe Azu::Handler::SecurityHeaders do
   end
 
   it "with hsts: :auto sends HSTS to a request a proxy forwarded as https, and keeps one already set" do
-    handler = Azu::Handler::SecurityHeaders.new(hsts: :auto)
+    handler = Azu::Handler::SecurityHeaders.new(hsts: :auto, trusted_proxies: ["127.0.0.1"])
     handler.next = Answered.new
     hsts_after = ->(forwarded : String?) do
       headers = HTTP::Headers.new
       headers["X-Forwarded-Proto"] = forwarded if forwarded
       context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/", headers), HTTP::Server::Response.new(IO::Memory.new))
+      context.request.remote_address = Socket::IPAddress.new("127.0.0.1", 12345)
       handler.call(context)
       context.response.headers["Strict-Transport-Security"]?
     end

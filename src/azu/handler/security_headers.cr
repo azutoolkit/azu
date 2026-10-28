@@ -6,7 +6,7 @@ module Azu
     # already set on the response is left alone, so one endpoint can loosen a policy.
     #
     # `Strict-Transport-Security` is sent with `hsts: true`, or with `hsts: :auto` to the requests a proxy
-    # forwarded as `X-Forwarded-Proto: https` (the default stack passes `true` when this app terminates TLS itself,
+    # forwarded as `X-Forwarded-Proto: https` by a configured trusted proxy (the default stack passes `true` when this app terminates TLS itself,
     # `:auto` otherwise). Never on plain HTTP, because browsers remember it and a plain-HTTP deployment would lock
     # itself out. `Content-Security-Policy` is off unless given, since a policy that fits every application does
     # not exist. `Permissions-Policy`, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy` have
@@ -29,6 +29,7 @@ module Azu
       @headers : Array({HTTP::Headers::Key, String})
       @hsts_auto = false
       @hsts_key = TrustedHeader.key("Strict-Transport-Security")
+      @trusted : ClientAddress::Networks
 
       # Raises `ArgumentError` for a value a header cannot carry (a line break, for one), or an `hsts` that is
       # neither a Bool nor `:auto`.
@@ -40,7 +41,9 @@ module Azu
         permissions_policy : String? = PERMISSIONS_POLICY,
         cross_origin_opener_policy : String? = OPENER_POLICY,
         cross_origin_resource_policy : String? = RESOURCE_POLICY,
+        trusted_proxies : Array(String)? = nil,
       )
+        @trusted = trusted_proxies ? ClientAddress::Networks.parse(trusted_proxies, "trusted_proxies", catch_all: false) : Azu.current_config.trusted_proxy_networks
         raise ArgumentError.new("hsts: #{hsts.inspect} is neither true, false nor :auto") unless hsts.is_a?(Bool) || hsts == :auto
         headers = HTTP::Headers{"X-Content-Type-Options" => "nosniff", "X-Frame-Options" => frame_options, "Referrer-Policy" => referrer_policy}
         permissions_policy.try { |policy| headers["Permissions-Policy"] = policy }
@@ -70,10 +73,9 @@ module Azu
         call_next(context)
       end
 
-      # True when a proxy forwarded the request as https (the first `X-Forwarded-Proto` value, whatever its case).
-      # Only the header is read: the config is not consulted on the request path, the stack decides that when it is built.
+      # Only a trusted IP peer can identify the original scheme; the trust list is captured at construction.
       private def secure?(request : HTTP::Request) : Bool
-        request.headers["X-Forwarded-Proto"]?.try { |proto| proto.split(',').first.strip.compare("https", case_insensitive: true) == 0 } || false
+        ClientAddress.forwarded(request, "X-Forwarded-Proto", @trusted).try(&.compare("https", case_insensitive: true).zero?) || false
       end
     end
   end
