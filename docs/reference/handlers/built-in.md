@@ -21,7 +21,16 @@ MyApp.start [
 ```
 
 `MyApp.start` without an array serves `Azu::App#default_handlers`: `RequestId`, `Logger`, `Rescuer`,
-`SecurityHeaders` and `Static` (see [Default stack](#default-stack)). An array you pass is used as given.
+`SecurityHeaders` and `Static` (see [Default stack](#default-stack)). An array you pass is used as given; with
+`defaults: true` it is placed inside the default stack instead, after `SecurityHeaders` and before `Static`:
+
+```crystal
+module MyApp
+  include Azu
+end
+
+MyApp.start [Azu::Handler::CSRF.new] of HTTP::Handler, defaults: true
+```
 
 ## API
 
@@ -53,8 +62,12 @@ there. A handler instance can be part of one chain only.
 | `RequestId` | header `X-Request-ID` |
 | `Logger` | `config.log` |
 | `Rescuer` | |
-| `SecurityHeaders` | `hsts: config.tls?` |
+| `SecurityHeaders` | `hsts: true` when `config.tls?`, else `:auto` |
 | `Static` | `./public`, `fallthrough: true` |
+
+`Azu::App#default_handlers(handlers)` is the same stack with `handlers` inside it, after `SecurityHeaders` (so the
+rescuer catches what they raise and their refusals carry the headers) and before `Static` (so a file is served only
+to a request they let through); `start(handlers, defaults: true)` serves it.
 
 ### Handler::RequestId
 
@@ -170,16 +183,28 @@ Azu::Handler::SecurityHeaders.new(
   referrer_policy: "strict-origin-when-cross-origin",
   content_security_policy: nil,
   hsts: false,
+  permissions_policy: "camera=(), microphone=(), geolocation=()",
+  cross_origin_opener_policy: "same-origin-allow-popups",
+  cross_origin_resource_policy: "same-site",
 )
 ```
 
-Sets `X-Content-Type-Options: nosniff`, `X-Frame-Options`, `Referrer-Policy`, and, only when asked,
-`Content-Security-Policy` (the string you pass) and `Strict-Transport-Security: max-age=31536000; includeSubDomains`
-(`hsts: true`). A header the application already set is left alone, so one endpoint can loosen a policy. A value a
-header cannot carry (a line break, for one) raises `ArgumentError` when the handler is built, not on each request.
+Sets `X-Content-Type-Options: nosniff`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` (the browser
+features a page may not use; a video-call or maps app passes its own), `Cross-Origin-Opener-Policy` (the page is
+isolated from cross-origin openers, but the popups it opens itself keep `window.opener`; a page that is itself the
+popup of another site needs `nil`) and `Cross-Origin-Resource-Policy` (other sites cannot embed the responses as
+images, scripts or frames; the same site's subdomains and ports can, and a CORS request is not affected); pass `nil`
+to leave one out. `Content-Security-Policy` is sent only when given (the string you pass).
+`Strict-Transport-Security: max-age=31536000; includeSubDomains` (a year, subdomains included) is sent with
+`hsts: true`, or with `hsts: :auto` to the requests a proxy forwards as `X-Forwarded-Proto: https` (the first value,
+whatever its case); the default stack passes `true` when this app terminates TLS itself (`config.tls?`) and `:auto`
+otherwise. A header the application already
+set is left alone, so one endpoint can loosen a policy. A value a header cannot carry (a line break, for one), or an
+`hsts` other than `true`, `false` and `:auto`, raises `ArgumentError` when the handler is built, not on each request.
 
 {% hint style="warning" %}
-Enable HSTS only for sites served over HTTPS; browsers remember it.
+`hsts: true` sends the header on plain HTTP too; browsers remember it. Use it only for a site served over HTTPS, or
+use `:auto`, which sends it to the requests the proxy marks as HTTPS.
 {% endhint %}
 
 ### Handler::Static

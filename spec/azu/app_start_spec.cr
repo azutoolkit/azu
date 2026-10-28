@@ -107,6 +107,39 @@ describe "Azu::App#start" do
     finished.receive
   end
 
+  it "adds the handlers it is given to the default stack with defaults: true" do
+    app = AppStartSpec.app("/hello", AppStartSpec::Hello.new)
+    csrf = Azu::Handler::CSRF.new(secret_key: "x" * 32)
+    finished = AppStartSpec.boot(app, [csrf] of HTTP::Handler, defaults: true, teardown: false, signals: false)
+
+    response = AppStartSpec.client(app).get("/hello")
+    response.headers["X-Request-ID"]?.should_not be_nil
+    response.headers["X-Content-Type-Options"].should eq "nosniff"
+    app.config.handlers.map(&.class).should eq [
+      Azu::Handler::RequestId, Azu::Handler::Logger, Azu::Handler::Rescuer, Azu::Handler::SecurityHeaders,
+      Azu::Handler::CSRF, Azu::Handler::Static,
+    ]
+    app.stop(2.seconds)
+    finished.receive
+  end
+
+  it "serves the plain default stack with defaults: true and no handlers" do
+    app = AppStartSpec.app("/hello", AppStartSpec::Hello.new)
+    finished = ::Channel(Nil).new
+    spawn(name: "app-start-spec-defaults") do
+      app.start(defaults: true, teardown: false, signals: false)
+    ensure
+      finished.send(nil)
+    end
+    wait_until { app.address }.should be_true
+
+    app.config.handlers.map(&.class).should eq [
+      Azu::Handler::RequestId, Azu::Handler::Logger, Azu::Handler::Rescuer, Azu::Handler::SecurityHeaders, Azu::Handler::Static,
+    ]
+    app.stop(2.seconds)
+    finished.receive
+  end
+
   it "runs two apps in one process, each with its own routes" do
     first = AppStartSpec.app("/first", AppStartSpec::Hello.new)
     second = AppStartSpec.app("/second", AppStartSpec::Ping.new)

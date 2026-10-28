@@ -280,8 +280,10 @@ module Azu
     end
 
     # Pass an array to choose the handlers yourself: it is used exactly as given and nothing is added to it.
-    def self.start(handlers : Array(HTTP::Handler))
-      Azu::App.default.start(handlers)
+    # With `defaults: true` it is placed inside the default stack instead, after the security headers and before
+    # the static files (`Azu::App#default_handlers(handlers)`).
+    def self.start(handlers : Array(HTTP::Handler), *, defaults : Bool = false)
+      Azu::App.default.start(handlers, defaults: defaults)
     end
   end
 end

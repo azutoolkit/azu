@@ -193,8 +193,9 @@ end
 ```
 
 Set `CRYSTAL_ENV=production` in the process environment, `SPARK_SECRET` if you use Spark, and `SSL_CERT` / `SSL_KEY`
-if Azu terminates TLS itself (a TLS-terminating proxy instead needs `SecurityHeaders.new(hsts: true)` in your own
-handler array).
+if Azu terminates TLS itself (behind a TLS-terminating proxy the default stack sends HSTS to the requests the proxy
+marks with `X-Forwarded-Proto: https`; one that does not forward it needs `SecurityHeaders.new(hsts: true)` in your
+own handler array).
 
 {% hint style="warning" %}
 Behind a proxy, `Throttle` sees the proxy's address for every request unless the proxy is listed in its

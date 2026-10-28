@@ -214,7 +214,8 @@ module Azu
 
     # Serves the app until `stop`, SIGINT or SIGTERM, then returns. The lifecycle behind `include Azu`'s `start`:
     #
-    # 1. the server for *handlers* (`default_handlers` when none are given: an array is used exactly as given),
+    # 1. the server for *handlers* (`default_handlers` when none are given: an array is used exactly as given, or,
+    #    with `defaults: true`, placed inside the default stack by `default_handlers(handlers)`),
     #    bound to `config.host` and `config.port`, over TLS when `config.tls?`. A bind error is raised to the caller
     #    with nothing left behind: the handlers are unchained (the same array can be used again), nothing was prepared;
     # 2. `prepare`, then the log lines about the environment and the address (`Configuration#announce_default_environment`
@@ -232,7 +233,8 @@ module Azu
     # An app starts **once**: `start` on a running app raises `AlreadyRunning`, and on an app that has stopped (or
     # begun shutting down) raises `AlreadyStopped`; build a new `Azu::App` to serve again. A `start` that failed to bind
     # does not count: it can be called again.
-    def start(handlers : Array(HTTP::Handler) = default_handlers, *, signals : Bool = true, teardown : Bool = true) : Nil
+    def start(handlers : Array(HTTP::Handler)? = nil, *, defaults : Bool = false, signals : Bool = true, teardown : Bool = true) : Nil
+      handlers = defaults ? default_handlers(handlers || [] of HTTP::Handler) : (handlers || default_handlers)
       register
       begin
         serve(handlers, signals)
@@ -409,16 +411,25 @@ module Azu
     end
 
     # The handlers `App#start` uses when none are given: a request id, request logging, error pages,
-    # security headers and static files from `public/` (falling through to the router). Fresh
-    # instances on every call, since a handler can be in one chain only.
+    # security headers (HSTS for the requests that came over TLS) and static files from `public/` (falling
+    # through to the router). Fresh instances on every call, since a handler can be in one chain only.
     def default_handlers : Array(HTTP::Handler)
       [
         Handler::RequestId.new,
         Handler::Logger.new(@config.log),
         Handler::Rescuer.new,
-        Handler::SecurityHeaders.new(hsts: @config.tls?),
+        Handler::SecurityHeaders.new(hsts: @config.tls? ? true : :auto),
         Handler::Static.new(fallthrough: true, cache_max_age: @config.assets.cache_max_age),
       ] of HTTP::Handler
+    end
+
+    # The default stack with *handlers* inside it: after `SecurityHeaders`, so the rescuer catches what they
+    # raise and their refusals carry the security headers, and before `Static`, so a static file is still served
+    # only to a request they let through. What `start(handlers, defaults: true)` serves.
+    def default_handlers(handlers : Array(HTTP::Handler)) : Array(HTTP::Handler)
+      stack = default_handlers
+      stack[-1, 0] = handlers
+      stack
     end
 
     # An `HTTP::Server` for this app. It is not bound or started: call `bind_tcp`/`listen` on it, or

@@ -270,7 +270,7 @@ module UserApi
       Azu::Handler::RequestId.new,
       Azu::Handler::Logger.new,
       Azu::Handler::Rescuer.new,
-      Azu::Handler::SecurityHeaders.new(hsts: Azu::CONFIG.tls?),
+      Azu::Handler::SecurityHeaders.new(hsts: :auto),
       Azu::CQL::Middleware.new(UserApiDB, transaction: true),
     ] of HTTP::Handler
   end
