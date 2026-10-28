@@ -76,9 +76,15 @@ describe Azu::Channel do
       EchoChannel.origin_allowed?(request.call("https://example.com", "example.com")).should be_true
 
       headers = HTTP::Headers{"Origin" => "http://example.com", "Host" => "example.com", "X-Forwarded-Proto" => "https"}
-      EchoChannel.origin_allowed?(HTTP::Request.new("GET", "/", headers)).should be_false
-      headers["Origin"] = "https://example.com"
-      EchoChannel.origin_allowed?(HTTP::Request.new("GET", "/", headers)).should be_true
+      config = Azu::Configuration.new
+      config.trusted_proxies = ["127.0.0.1"]
+      proxied = HTTP::Request.new("GET", "/", headers)
+      proxied.remote_address = Socket::IPAddress.new("127.0.0.1", 12345)
+      Azu.with_scope(nil, config) do
+        EchoChannel.origin_allowed?(proxied).should be_false
+        proxied.headers["Origin"] = "https://example.com"
+        EchoChannel.origin_allowed?(proxied).should be_true
+      end
     end
 
     it "accepts requests without an Origin header (non-browser clients)" do

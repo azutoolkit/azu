@@ -9,6 +9,16 @@ module Azu
       # The longest `X-Forwarded-For` chain looked at (hops from the right); a longer one is not believed.
       MAX_HOPS = 32
 
+      # A forwarded host or scheme is authoritative only when the connection's peer is a configured proxy.
+      # Share this boundary between templates, CSRF, WebSockets and response security headers.
+      def self.forwarded(request : HTTP::Request, header : String, trusted : Networks = Azu.current_config.trusted_proxy_networks) : String?
+        return if trusted.empty?
+        peer = request.remote_address.as?(Socket::IPAddress) || return
+        address = parse(peer.address) || return
+        return unless trusted.includes?(address)
+        request.headers[header]?.try(&.split(',').first.strip.presence)
+      end
+
       # Parses an address the way a proxy writes it in `X-Forwarded-For`: `1.2.3.4`, `1.2.3.4:5678`, `::1`, `[::1]`,
       # `[::1]:5678`, `::ffff:1.2.3.4`. Anything else (a name, `unknown`, `_hidden`, a zone id, a port out of range,
       # an octet with a leading zero, whitespace inside) is nil.

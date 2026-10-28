@@ -419,7 +419,7 @@ module Azu
         Handler::RequestId.new,
         Handler::Logger.new(@config.log),
         Handler::Rescuer.new,
-        Handler::SecurityHeaders.new(hsts: @config.tls? ? true : :auto),
+        Handler::SecurityHeaders.new(hsts: @config.tls? ? true : :auto, trusted_proxies: @config.trusted_proxies),
         Handler::Static.new(fallthrough: true, cache_max_age: @config.assets.cache_max_age),
       ] of HTTP::Handler
     end

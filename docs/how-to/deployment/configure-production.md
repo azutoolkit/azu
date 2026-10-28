@@ -21,7 +21,7 @@ PORT=4000
 | `CRYSTAL_ENV` | `development` | `development`, `test`, `pipeline`, `staging`, `production`, ... Unset with a non-loopback `HOST`, `start` refuses to boot (`AZU_ALLOW_DEV_ON_ANY_HOST=true` serves the development pages anyway) |
 | `AZU_STRICT_ENVS` | `production,staging` | the environments in which a missing secret or boot variable is an error, not a random fallback or a warning |
 | `HOST`, `PORT` | `127.0.0.1` in `development`, `0.0.0.0` otherwise; `4000` | where the server listens |
-| `TRUSTED_PROXIES` | empty | comma separated addresses and CIDR blocks of the reverse proxies whose `X-Forwarded-*` headers are believed (template variables, `Throttle`) |
+| `TRUSTED_PROXIES` | empty | comma separated addresses and CIDR blocks of the reverse proxies whose `X-Forwarded-*` headers are believed (template variables, `Throttle`, CSRF, WebSocket origin checks and automatic HSTS) |
 | `PORT_REUSE` | `true` | `SO_REUSEPORT` on the listening socket |
 | `TEMPLATE_HOT_RELOAD` | on in `development`, `test`, `pipeline` | re-read changed template files |
 | `TEMPLATES_PATH` | see [templates](../templates/render-html-templates.md) | comma separated template directories |
@@ -108,7 +108,7 @@ Set `SSL_CERT` and `SSL_KEY` to the paths of a certificate and key and `start` l
 The default handler stack already includes `Azu::Handler::SecurityHeaders` (`X-Content-Type-Options`,
 `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`,
 `Cross-Origin-Resource-Policy`, and `Strict-Transport-Security` for a year, subdomains included, when this app
-terminates TLS or on the requests a proxy forwards as `X-Forwarded-Proto: https`). A content security policy is only
+terminates TLS or on the requests a trusted proxy forwards as `X-Forwarded-Proto: https`). A content security policy is only
 sent when asked for. To add
 handlers to that stack, pass them with `defaults: true`; when you pass your own handler array instead, list the
 handler yourself:
@@ -126,6 +126,10 @@ MyApp.start [
   Azu::Handler::Static.new(fallthrough: true),
 ] of HTTP::Handler
 ```
+
+List the proxy in `TRUSTED_PROXIES` (exact IP addresses or CIDRs), and configure it to overwrite
+`X-Forwarded-Proto` and `X-Forwarded-Host`. A request from an unlisted or non-IP peer cannot supply
+these values for CSRF, WebSocket scheme checks or automatic HSTS.
 
 Behind a proxy that terminates TLS, `hsts: true` is right when the proxy does not forward `X-Forwarded-Proto`
 (with it, `:auto` sends the header too); the headers are sent by the application on every response.

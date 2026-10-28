@@ -257,7 +257,7 @@ module Azu
     # The reverse proxies in front of the app, as IP addresses and CIDR blocks (`TRUSTED_PROXIES`, comma separated).
     # Only a request whose connection comes from one of them has its `X-Forwarded-For`, `X-Forwarded-Proto` and
     # `X-Forwarded-Host` believed, by the template variables (`client_ip`, `secure`, `current_url`) and by
-    # `Handler::Throttle` built without `trusted_proxies:`. Empty by default: nothing a client sends is believed.
+    # `Handler::Throttle`, CSRF, WebSocket origin checks and automatic HSTS. Empty by default: nothing a client sends is believed.
     # The list is parsed when it is set (here, from the environment, or by `trusted_proxies=`): an entry that is not
     # an address or block, or a block that is every address, raises `ArgumentError` then, not on a request. The
     # reader answers a copy: assign a new list to change it (`config.trusted_proxies = config.trusted_proxies + [...]`),

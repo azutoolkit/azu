@@ -196,7 +196,7 @@ popup of another site needs `nil`) and `Cross-Origin-Resource-Policy` (other sit
 images, scripts or frames; the same site's subdomains and ports can, and a CORS request is not affected); pass `nil`
 to leave one out. `Content-Security-Policy` is sent only when given (the string you pass).
 `Strict-Transport-Security: max-age=31536000; includeSubDomains` (a year, subdomains included) is sent with
-`hsts: true`, or with `hsts: :auto` to the requests a proxy forwards as `X-Forwarded-Proto: https` (the first value,
+`hsts: true`, or with `hsts: :auto` to the requests a trusted proxy forwards as `X-Forwarded-Proto: https` (the first value,
 whatever its case); the default stack passes `true` when this app terminates TLS itself (`config.tls?`) and `:auto`
 otherwise. A header the application already
 set is left alone, so one endpoint can loosen a policy. A value a header cannot carry (a line break, for one), or an
@@ -244,9 +244,9 @@ Azu::Handler::Static.new("public", except: ["/templates"])
   - An entry is a literal path, not a URL: it is not percent-decoded.
   - Matching ignores letter case, and trailing dots and spaces, so on a case-sensitive file system `/Templates` is
     refused too (it can over-block).
-  - The check is lexical and does not resolve symlinks: a symlink in `public/` that points into an excluded directory is
-    served. Do not symlink into an excluded directory.
-  - With `directory_listing: true` the listing of the parent still names the excluded entry (never its content).
+  - Symlink targets must stay inside the resolved public directory and outside excluded paths. This also applies
+    to `index.html` and directory listings; excluded entries and aliases to them are omitted from listings.
+    Keep the public directory deployment-controlled: these checks do not make concurrent untrusted filesystem writes safe.
   - An entry that resolves to the root (`""`, `"/"`, `"."`, `"/x/.."`) would exclude every path, so `new` raises `ArgumentError`.
 - `mime_types : Hash(String, String)` - extra extensions to serve, for the application's own file types (see below).
 
@@ -448,7 +448,8 @@ token is valid (a token cookie planted from a sibling subdomain, say). A request
 client or `curl`, is checked by its token alone, and so is one from an origin that an `Azu::Handler::CORS` earlier in
 the chain lists and allowed (it marks the request: `HTTP::Request#cors_allowed?`; a `*` wildcard vouches for nobody).
 Behind a proxy that rewrites `Host`, make it forward `X-Forwarded-Host`, and `X-Forwarded-Proto` if it terminates
-TLS; the proxy must overwrite both, since the check trusts them. Without `X-Forwarded-Proto` and without TLS of its
+TLS; list its IP or CIDR in `TRUSTED_PROXIES` and make it overwrite both headers. The check ignores
+them from unlisted peers and connections without an IP peer. Without `X-Forwarded-Proto` and without TLS of its
 own the app cannot tell its scheme and accepts its host under `http` or `https`. An `Origin: null` names no origin and
 is refused: a page served with `Referrer-Policy: no-referrer` sends it with its own forms, so such an app passes
 `check_origin: false`.
@@ -566,7 +567,7 @@ validates those tokens only if it has the same secret, strategy and token store:
 `CSRF.configure`) and put it in the chain, or at least set `CSRF_SECRET` (or `Azu::Handler::CSRF.secret_key = ...`
 before building the other instance). An instance with a different key, or a `SynchronizerToken` instance next to a
 default that signs, answers `403` to a token the page carries. The `Secure` flag of the cookie is set when the request
-came over TLS: `X-Forwarded-Proto: https` from a proxy, or this server terminating TLS itself (`config.tls?`).
+came over TLS: `X-Forwarded-Proto: https` from a trusted proxy, or this server terminating TLS itself (`config.tls?`).
 
 `token(context)` returns the token already set on this response's cookie when there is one, so every field, tag and
 meta tag of a page carries the same token. The class methods act on `CSRF.default`:
@@ -576,7 +577,7 @@ meta tag of a page carries the same token. The class methods act on `CSRF.defaul
 | `CSRF.default` | `CSRF` | The shared instance, built on first use |
 | `CSRF.configure(&)` | the block's value | Yields `default` (built with `defer_secret: true`), then reads its secret, so a production app without one fails here, at boot |
 | `CSRF.token(context)`, `CSRF.tag(context)`, `CSRF.metatag(context)` | `String` | The token; `<input type="hidden" name="_csrf" value="..." />`; `<meta name="_csrf" content="..." />` (the name is `param_name`) |
-| `CSRF.validate_origin(context)` | `Bool` | Whether `Origin` (without it, the origin of `Referer`) is `<scheme>://<host>`, where the scheme is the first `X-Forwarded-Proto`, else `https` when the app serves TLS, else `http`, and the host is the first `X-Forwarded-Host`, else `Host`. Scheme and host compare ignoring case, and a default port matches whether it is written or not. `false` without a host, or without both `Origin` and `Referer`. `call` runs it for every state-changing request that names an origin (`check_origin`) |
+| `CSRF.validate_origin(context)` | `Bool` | Whether `Origin` (without it, the origin of `Referer`) is `<scheme>://<host>`, where the scheme is the first trusted `X-Forwarded-Proto`, else `https` when the app serves TLS, else `http`, and the host is the first trusted `X-Forwarded-Host`, else `Host`. Scheme and host compare ignoring case, and a default port matches whether it is written or not. `false` without a host, or without both `Origin` and `Referer`. `call` runs it for every state-changing request that names an origin (`check_origin`) |
 | `CSRF.use_signed_double_submit!`, `use_synchronizer_token!`, `use_double_submit!` | `Strategy` | Set the strategy of `default` |
 | `CSRF.strategy`, `secret_key`, `cookie_name`, `header_name`, `param_name`, `cookie_max_age`, `secure_cookies` | | Read and write (`=`) the settings of `default`; `secret_key=` also applies to instances built afterwards without a key |
 | `CSRF.exempt(path : String)` | `Nil` | Exempts one exact path for every instance |

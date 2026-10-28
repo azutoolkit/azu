@@ -98,7 +98,7 @@ module Azu
 
     # Browsers always send `Origin` on WebSocket handshakes, so a missing header can only come
     # from a non-browser client and is accepted. The request's own origin is its `Host` under the scheme it was
-    # served with when that is known (this app's TLS, else a proxy's `X-Forwarded-Proto`): a page on
+    # served with when that is known (this app's TLS, else a trusted proxy's `X-Forwarded-Proto`): a page on
     # `http://example.com` may not open a socket to `https://example.com`. Without either hint, either scheme passes.
     def self.origin_allowed?(request : HTTP::Request) : Bool
       return true unless origin = request.headers["Origin"]?
@@ -114,7 +114,7 @@ module Azu
     # The scheme the upgrade request was served with, when it can be told.
     private def self.expected_scheme(request : HTTP::Request) : String?
       return "https" if Azu.current_config.tls?
-      request.headers["X-Forwarded-Proto"]?.try(&.split(',').first.strip.downcase.presence)
+      Handler::ClientAddress.forwarded(request, "X-Forwarded-Proto").try(&.downcase)
     end
 
     # Raised by `subscribe` for the topic past `max_subscriptions`: a client that names its own topics cannot grow the

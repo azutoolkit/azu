@@ -207,16 +207,7 @@ module Azu
 
       # The first value of *header*, when the connection's peer is a trusted proxy; nil otherwise.
       private def forwarded(header : String) : String?
-        return unless peer_trusted?
-        @request.headers[header]?.try(&.split(',').first.strip.presence)
-      end
-
-      private def peer_trusted? : Bool
-        trusted = Azu.current_config.trusted_proxy_networks
-        return false if trusted.empty?
-        peer = @request.remote_address.as?(Socket::IPAddress) || return false
-        address = Handler::ClientAddress.parse(peer.address) || return false
-        trusted.includes?(address)
+        Handler::ClientAddress.forwarded(@request, header)
       end
 
       # Returns request headers.

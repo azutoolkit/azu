@@ -7,9 +7,7 @@ on:
     branches: [master]
 
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: read
 
 # One queue per branch: runs on master never wait behind, or get cancelled by, pull request runs, and
 # the newest push to master always runs (the release job leaves a push it is behind to that run).
@@ -18,6 +16,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  spark-client:
+    uses: ./.github/workflows/spark-client.yml
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -265,7 +266,10 @@ jobs:
   # protection lets GitHub Actions push. The bump commit carries [skip ci], so it starts no new run.
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     needs:
+      - spark-client
       - test
       - test-latest
       - test-mt
