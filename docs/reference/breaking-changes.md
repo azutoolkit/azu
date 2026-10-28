@@ -13,6 +13,20 @@ from an early 0.5 release to the current API, with old and new code side by side
 
 ## Next release
 
+**`start` refuses to boot a misconfigured server, and staging is strict.** `Azu::App#start` runs
+`Configuration#check_boot` before it binds: a server whose `CRYSTAL_ENV` was never set and whose host is not loopback
+(it would serve the exception page and the dev dashboard on every interface) raises `Azu::Configuration::BootError`
+instead of logging a warning (`AZU_ALLOW_DEV_ON_ANY_HOST=true` keeps the warning); `SSL_CERT` without `SSL_KEY`, or the
+reverse, raises instead of serving plain HTTP; and the variables registered with the new `Azu::Env.require_at_boot`
+raise one `Azu::Env::MissingError` in a strict environment (a warning elsewhere). `Configuration#warn_about_bind_host`
+is now `check_bind_host` (the old name still works). The strict environments are `production` **and `staging`** by
+default (`Azu::Env::DEFAULT_STRICT_ENVIRONMENTS`; `AZU_STRICT_ENVS` replaces the list), judged on `CRYSTAL_ENV` or on
+the configuration's `env` (`Azu.strict_environment?`): `Handler::CSRF` without `CSRF_SECRET` and `Spark` without
+`SPARK_SECRET` now fail in staging, and in an app that sets `config.env = Production` in code; before, CSRF followed
+`CRYSTAL_ENV=production` alone and Spark `config.env` alone. `Azu::Env.strict?` takes an optional environment name.
+The legacy JSON error body (`Context`) carries the request context in development only, and `Azu::Redis` logs a
+warning when `REDIS_TLS_VERIFY` is off.
+
 **The default stack sends more security headers, and HSTS follows the request.** `Azu::Handler::SecurityHeaders` now
 also sends `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Cross-Origin-Opener-Policy:
 same-origin-allow-popups` and `Cross-Origin-Resource-Policy: same-site` by default (pass `nil` for the ones you

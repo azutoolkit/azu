@@ -82,6 +82,14 @@ module Azu
     end
   end
 
+  # Whether this process runs in a strict environment (`Azu::Env.strict_environments`: production and staging by
+  # default): the one taken from `CRYSTAL_ENV`, or the one the current configuration holds (an app that sets
+  # `config.env = Production` in code is strict too). What `Handler::CSRF` and `Spark` ask before they accept a
+  # random fallback for a missing secret, and what `App#start` asks before it checks `Env.required_at_boot`.
+  def self.strict_environment? : Bool
+    current_config.strict_environment?
+  end
+
   # Execute a block with a custom configuration
   #
   # This is primarily useful for testing, allowing tests to run with

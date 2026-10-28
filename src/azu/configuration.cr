@@ -120,16 +120,62 @@ module Azu
       log.info { "CRYSTAL_ENV not set, running in #{env.to_s.downcase}, listening on #{host}" }
     end
 
-    # Warns about the two ways the bind address surprises: a loopback address inside a container (nothing outside it
-    # can connect: the usual cause is the development default, fixed by `HOST=0.0.0.0`), and the development pages
-    # served on every interface because `CRYSTAL_ENV` was never set. `App#start` calls it.
-    def warn_about_bind_host : Nil
+    # The server cannot start as configured; the message says what to set.
+    class BootError < Exception
+    end
+
+    # Set to `true` to serve the development pages on every interface with `CRYSTAL_ENV` unset (`check_bind_host`).
+    ALLOW_DEV_ON_ANY_HOST = "AZU_ALLOW_DEV_ON_ANY_HOST"
+
+    # The two ways the bind address surprises. A loopback address inside a container (nothing outside it can
+    # connect: the usual cause is the development default, fixed by `HOST=0.0.0.0`) is a warning. The development
+    # pages (the exception page with its backtraces and request data, the dev dashboard) served on every interface
+    # because `CRYSTAL_ENV` was never set is a `BootError`: a container or a server that forgot to set the environment
+    # must not publish them. `AZU_ALLOW_DEV_ON_ANY_HOST=true` turns that into a warning, for a development machine
+    # that serves its network on purpose. `App#start` calls it before it binds.
+    def check_bind_host : Nil
       if loopback_host? && container?
         origin = host_from_default? ? "the development default" : "the configured host"
         log.warn { "listening on #{host} (#{origin}) inside a container: connections from outside the container are refused. Set HOST=0.0.0.0 to accept them" }
       elsif env_from_default? && !loopback_host?
-        log.warn { "CRYSTAL_ENV is not set, so this is a development server, and it listens on #{host}: the development dashboard and debug pages are served on every interface. Set CRYSTAL_ENV (production, staging, ...) or bind 127.0.0.1" }
+        message = "CRYSTAL_ENV is not set, so this is a development server, and it listens on #{host}: the development dashboard and debug pages would be served on every interface. Set CRYSTAL_ENV (production, staging, ...) or bind 127.0.0.1"
+        raise BootError.new("#{message}; #{ALLOW_DEV_ON_ANY_HOST}=true serves them anyway") unless allow_dev_on_any_host?
+        log.warn { "#{message} (#{ALLOW_DEV_ON_ANY_HOST} is set, serving them)" }
       end
+    end
+
+    # The old name of `check_bind_host`.
+    @[Deprecated("Use `check_bind_host` (or `check_boot`), which raises for the development pages on a public host")]
+    def warn_about_bind_host : Nil
+      check_bind_host
+    end
+
+    private def allow_dev_on_any_host? : Bool
+      Env.bool(ALLOW_DEV_ON_ANY_HOST, false)
+    rescue error : Env::InvalidError
+      raise BootError.new(error.message.to_s)
+    end
+
+    # TLS needs both files: one without the other used to mean plain HTTP, silently. `App#start` calls it before it binds.
+    def check_tls_files : Nil
+      return if ssl_cert.empty? == ssl_key.empty?
+
+      set, unset = ssl_cert.empty? ? {"SSL_KEY", "SSL_CERT"} : {"SSL_CERT", "SSL_KEY"}
+      raise BootError.new("#{set} is set but #{unset} is not: set both to serve TLS, or neither to serve plain HTTP")
+    end
+
+    # Whether this configuration's environment, or `CRYSTAL_ENV`, is strict (`Azu::Env.strict_environments`).
+    def strict_environment? : Bool
+      Env.strict? || Env.strict?(env.to_s)
+    end
+
+    # Everything that must hold before the server binds, in the order a deployment meets it: the bind address, the
+    # TLS files, then the variables the app registered with `Azu::Env.require_at_boot` (an error in a strict
+    # environment, a warning elsewhere). `App#start` calls it; an app embedding its own server can too.
+    def check_boot : Nil
+      check_bind_host
+      check_tls_files
+      Env.check_required_at_boot!(strict_environment?)
     end
 
     def self.hot_reload_default

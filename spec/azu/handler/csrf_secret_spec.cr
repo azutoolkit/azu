@@ -76,13 +76,18 @@ describe "CSRF signing secret" do
     end
   end
 
-  it "raises in any strict environment" do
+  it "raises in any strict environment, staging by default" do
     with_csrf_env({"CRYSTAL_ENV" => "staging", "CSRF_SECRET" => nil}) do
-      Azu::Env.strict_environments = ["production", "staging"]
-      begin
+      expect_raises(Azu::Env::MissingError) { Azu::Handler::CSRF.new }
+    end
+  end
+
+  it "raises when the configuration's environment is strict, whatever CRYSTAL_ENV says" do
+    with_csrf_env({"CRYSTAL_ENV" => "development", "CSRF_SECRET" => nil}) do
+      config = Azu::Configuration.new
+      config.env = Azu::Environment::Production
+      Azu.with_config(config) do
         expect_raises(Azu::Env::MissingError) { Azu::Handler::CSRF.new }
-      ensure
-        Azu::Env.strict_environments = nil
       end
     end
   end

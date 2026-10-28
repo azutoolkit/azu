@@ -233,9 +233,10 @@ module Azu
 
       # The key tokens are signed with: the one given, else `CSRF_SECRET`. A key only this process knows breaks
       # every token after a restart and across instances, so without either it is a random per-process key (with
-      # one warning) outside production, and `Azu::Env::MissingError` in production (see `Azu::Env.secret`).
+      # one warning) outside the strict environments, and `Azu::Env::MissingError` in one (`Azu.strict_environment?`,
+      # see `Azu::Env.secret`).
       def secret_key : String
-        @secret_key ||= checked_secret(Azu::Env.secret("CSRF_SECRET"))
+        @secret_key ||= checked_secret(Azu::Env.secret("CSRF_SECRET", production: Azu.strict_environment?))
       end
 
       def secret_key=(value : String) : String

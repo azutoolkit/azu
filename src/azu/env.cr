@@ -96,25 +96,60 @@ module Azu
 
     @@generated_secrets = {} of String => String
     @@strict_environments : Array(String)? = nil
+    @@required_at_boot = [] of String
+    @@required_mutex = Mutex.new
+
+    # The environments that are strict unless `AZU_STRICT_ENVS` or `strict_environments=` say otherwise.
+    DEFAULT_STRICT_ENVIRONMENTS = ["production", "staging"]
 
     # True for a variable name a `.env` file may not set unless loaded with `unsafe: true`.
     def self.unsafe_name?(name : String) : Bool
       name.matches?(UNSAFE_NAME)
     end
 
-    # Environments in which `secret` raises instead of falling back to a random value. `production` by default;
-    # `AZU_STRICT_ENVS=production,staging` or `Env.strict_environments = [...]` widens it.
+    # Environments in which `secret` raises instead of falling back to a random value, and `check_required_at_boot!`
+    # refuses to boot: `production` and `staging` by default; `AZU_STRICT_ENVS=production,staging,preview` or
+    # `Env.strict_environments = [...]` replaces the list.
     def self.strict_environments : Array(String)
-      @@strict_environments || (ENV["AZU_STRICT_ENVS"]?.presence.try(&.split(',').map(&.strip.downcase).reject(&.empty?)) || ["production"])
+      @@strict_environments || (ENV["AZU_STRICT_ENVS"]?.presence.try(&.split(',').map(&.strip.downcase).reject(&.empty?)) || DEFAULT_STRICT_ENVIRONMENTS)
     end
 
-    # `nil` goes back to the default (`AZU_STRICT_ENVS`, then `production`).
+    # `nil` goes back to the default (`AZU_STRICT_ENVS`, then `production` and `staging`).
     def self.strict_environments=(names : Array(String)?) : Array(String)?
       @@strict_environments = names.try(&.map(&.downcase))
     end
 
-    def self.strict? : Bool
-      strict_environments.includes?(environment)
+    # Whether *environment* (`CRYSTAL_ENV` by default; an app passes the one its configuration holds) is strict.
+    def self.strict?(environment : String = self.environment) : Bool
+      strict_environments.includes?(environment.downcase)
+    end
+
+    # Names the application needs at boot (`SESSION_SECRET`, `DATABASE_URL`, ...): `Azu::App#start` checks them
+    # with `check_required_at_boot!` before it binds, so a strict environment fails at once, naming every missing
+    # one, instead of on the first request that needs one. Call it from the app's setup code.
+    def self.require_at_boot(*names : String) : Nil
+      @@required_mutex.synchronize do
+        names.each { |name| @@required_at_boot << name unless @@required_at_boot.includes?(name) }
+      end
+    end
+
+    def self.required_at_boot : Array(String)
+      @@required_mutex.synchronize { @@required_at_boot.dup }
+    end
+
+    # Forgets the names given to `require_at_boot`; for specs.
+    def self.reset_required_at_boot! : Nil
+      @@required_mutex.synchronize { @@required_at_boot.clear }
+    end
+
+    # Raises one `MissingError` listing every name from `require_at_boot` that is unset or blank, when *strict*
+    # (the environment is strict, by default); logs them as a warning otherwise, since the app will fall back or fail later.
+    def self.check_required_at_boot!(strict : Bool = strict?) : Nil
+      missing = required_at_boot.reject { |name| fetch?(name) }
+      return if missing.empty?
+      raise MissingError.new(missing) if strict
+
+      Log.for("azu.env").warn { "#{MissingError.new(missing).message}: the app runs with fallbacks or fails when it needs them (an error in #{strict_environments.join(", ")})" }
     end
 
     # The environment the process runs in: `CRYSTAL_ENV` lowercased, `development` when unset or blank.

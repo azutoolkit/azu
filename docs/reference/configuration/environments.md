@@ -47,9 +47,12 @@ development is `127.0.0.1`, not `0.0.0.0`: a process that forgot its `CRYSTAL_EN
   is set.
 - `start` warns (WARN) when the server listens on a loopback address inside a container (`/.dockerenv` or Podman's `/run/.containerenv` exists, or
   `KUBERNETES_SERVICE_HOST` is set; `Configuration#container=` overrides): connections from outside the container are
-  refused, and the line names the fix, `HOST=0.0.0.0`. It does so also with `CRYSTAL_ENV=development` set explicitly. It warns
-  as well when `CRYSTAL_ENV` was never set and the host is not loopback, because the development pages are then served on every
-  interface.
+  refused, and the line names the fix, `HOST=0.0.0.0`. It does so also with `CRYSTAL_ENV=development` set explicitly.
+- `start` refuses to start (`Azu::Configuration::BootError`, before anything is bound) when `CRYSTAL_ENV` was never set and
+  the host is not loopback, because the development pages would be served on every interface: set `CRYSTAL_ENV`, or bind
+  `127.0.0.1`. `AZU_ALLOW_DEV_ON_ANY_HOST=true` serves them anyway, with a warning, for a development machine that serves its
+  network on purpose. `Configuration#check_boot` runs this, the TLS files check (`SSL_CERT` without `SSL_KEY`, or the
+  reverse, is an error rather than silent plain HTTP) and the [boot variables](env.md#boot-checks-and-secrets).
 - A container that must be reached from outside sets `CRYSTAL_ENV` and `HOST` itself, as the Dockerfile in
   [Deploying to production](../../tutorials/deploying-to-production.md) does.
 

@@ -218,8 +218,9 @@ module Azu
     #    with `defaults: true`, placed inside the default stack by `default_handlers(handlers)`),
     #    bound to `config.host` and `config.port`, over TLS when `config.tls?`. A bind error is raised to the caller
     #    with nothing left behind: the handlers are unchained (the same array can be used again), nothing was prepared;
-    # 2. `prepare`, then the log lines about the environment and the address (`Configuration#announce_default_environment`
-    #    and `#warn_about_bind_host`);
+    # 2. `prepare`, then the log line about the environment (`Configuration#announce_default_environment`); before
+    #    any of it, `Configuration#check_boot` (the bind address, the TLS files, `Azu::Env.required_at_boot`), which
+    #    raises `Configuration::BootError` or `Env::MissingError` with nothing bound;
     # 3. with *signals*, SIGINT and SIGTERM stop every app started this way (`begin_shutdown`, then the server
     #    closes); a second signal finds the default handler again. The traps are process-wide and replace any trap
     #    the program installed (there is no chaining): pass `signals: false` to leave them alone and stop the app
@@ -246,12 +247,12 @@ module Azu
 
     private def serve(handlers : Array(HTTP::Handler), signals : Bool) : Nil
       started = Time.instant
+      @config.check_boot # before anything is bound: a misconfigured server never answers a request
       http = server(handlers)
       bring_up(http, handlers)
       router.freeze # after the declared endpoints were taken, before any request reads the routes
       @started_once = true
       @config.announce_default_environment
-      @config.warn_about_bind_host
       @config.warn_about_template_autoescape
       @config.handlers = handlers.map(&.as(HTTP::Handler))
       App.trap_signals if signals

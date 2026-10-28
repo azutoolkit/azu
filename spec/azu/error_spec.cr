@@ -299,6 +299,22 @@ describe "Azu Error Handling" do
       parsed["Fingerprint"].should eq(error.fingerprint)
     end
 
+    it "puts the request context in the legacy body in development only" do
+      context = Azu::ErrorContext.new(request_id: "req-123", ip_address: "10.0.0.9", user_agent: "spec")
+      error = Azu::Response::ValidationError.new({"name" => ["must be present"]}, context)
+      original = Azu::CONFIG.error_format
+      Azu::CONFIG.error_format = Azu::ErrorFormat::Legacy
+      begin
+        development = with_azu_env(Azu::Environment::Development) { JSON.parse(error.json) }
+        development["Context"]["ip_address"].should eq "10.0.0.9"
+        production = with_azu_env(Azu::Environment::Production) { JSON.parse(error.json) }
+        production["Context"].raw.should be_nil
+        production["FieldErrors"]["name"].should eq ["must be present"]
+      ensure
+        Azu::CONFIG.error_format = original
+      end
+    end
+
     it "generates XML error response" do
       error = Azu::Response::Error.new("Test error", HTTP::Status::BAD_REQUEST, [] of String)
       xml = error.xml

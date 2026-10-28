@@ -108,13 +108,13 @@ describe "an environment taken from the default" do
   end
 end
 
-# Yields what `warn_about_bind_host` logged for a configuration built under the given process environment.
-private def logged(env : String?, host : String?, container : Bool, &)
-  with_process_env({"HOST" => host, "CRYSTAL_ENV" => env}) do
+# Yields what `check_bind_host` logged for a configuration built under the given process environment.
+private def logged(env : String?, host : String?, container : Bool, allow_dev : String? = nil, &)
+  with_process_env({"HOST" => host, "CRYSTAL_ENV" => env, "AZU_ALLOW_DEV_ON_ANY_HOST" => allow_dev}) do
     config = Azu::Configuration.new
     config.container = container
     config.log = ::Log.for("spec.bind_host")
-    logs = ::Log.capture("spec.bind_host") { config.warn_about_bind_host }
+    logs = ::Log.capture("spec.bind_host") { config.check_bind_host }
     yield logs
   end
 end
@@ -182,12 +182,78 @@ describe "the bind host warnings" do
     logged("production", nil, true, &.empty)
   end
 
-  it "warns that debug pages are on every interface when CRYSTAL_ENV was never set and the host is not loopback" do
-    logged(nil, "0.0.0.0", false) do |logs|
-      logs.check(:warn, /CRYSTAL_ENV is not set.*every interface/)
-      logs.empty
+  it "refuses to serve the debug pages on every interface when CRYSTAL_ENV was never set and the host is not loopback" do
+    with_process_env({"HOST" => "0.0.0.0", "CRYSTAL_ENV" => nil, "AZU_ALLOW_DEV_ON_ANY_HOST" => nil}) do
+      config = Azu::Configuration.new
+      config.container = false
+      error = expect_raises(Azu::Configuration::BootError, /CRYSTAL_ENV is not set.*every interface/) { config.check_bind_host }
+      error.message.to_s.should contain "AZU_ALLOW_DEV_ON_ANY_HOST=true"
+      expect_raises(Azu::Configuration::BootError) { config.check_boot }
     end
     logged("development", "0.0.0.0", false, &.empty)
+  end
+
+  it "serves them with a warning when AZU_ALLOW_DEV_ON_ANY_HOST is set" do
+    logged(nil, "0.0.0.0", false, "true") do |logs|
+      logs.check(:warn, /CRYSTAL_ENV is not set.*every interface.*AZU_ALLOW_DEV_ON_ANY_HOST is set/)
+      logs.empty
+    end
+  end
+end
+
+describe "the TLS files check" do
+  it "refuses one of SSL_CERT and SSL_KEY without the other, and accepts both or neither" do
+    with_process_env({"CRYSTAL_ENV" => "test"}) do
+      config = Azu::Configuration.new
+      config.ssl_cert = "/etc/azu/cert.pem"
+      config.ssl_key = ""
+      expect_raises(Azu::Configuration::BootError, /SSL_CERT is set but SSL_KEY is not/) { config.check_tls_files }
+      config.ssl_cert = ""
+      config.ssl_key = "/etc/azu/key.pem"
+      expect_raises(Azu::Configuration::BootError, /SSL_KEY is set but SSL_CERT is not/) { config.check_tls_files }
+      config.ssl_cert = "/etc/azu/cert.pem"
+      config.check_tls_files
+      config.ssl_cert = ""
+      config.ssl_key = ""
+      config.check_tls_files
+    end
+  end
+end
+
+describe "the boot checks" do
+  it "fail on a missing variable registered for boot in a strict environment, with nothing bound" do
+    Azu::Env.reset_required_at_boot!
+    Azu::Env.require_at_boot("AZU_BOOT_SPEC_SECRET")
+    begin
+      with_process_env({"AZU_BOOT_SPEC_SECRET" => nil, "CRYSTAL_ENV" => "test"}) do
+        config = Azu::Configuration.new
+        config.env = Azu::Environment::Production
+        config.strict_environment?.should be_true
+        expect_raises(Azu::Env::MissingError, /AZU_BOOT_SPEC_SECRET is not set/) { config.check_boot }
+
+        app = Azu::App.new(config)
+        app.config.host = "127.0.0.1"
+        app.config.port = 0
+        handlers = [Azu::Handler::RequestId.new] of HTTP::Handler
+        expect_raises(Azu::Env::MissingError) { app.start(handlers, teardown: false, signals: false) }
+        app.address.should be_nil
+        handlers.first.next.should be_nil # nothing was chained or bound: the same handlers can start the app once the variable is set
+
+        with_process_env({"AZU_BOOT_SPEC_SECRET" => "set now"}) do
+          finished = ::Channel(Nil).new
+          spawn(name: "boot-spec-retry") do
+            app.start(handlers, teardown: false, signals: false)
+          ensure
+            finished.send(nil)
+          end
+          wait_until { app.address }.should be_true
+          app.stop(2.seconds)
+          finished.receive
+        end
+      end
+    ensure
+      Azu::Env.reset_required_at_boot!
+    end
   end
 end
 

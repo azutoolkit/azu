@@ -399,7 +399,7 @@ module Azu
           FieldErrors: field_errors,
           ErrorId:     error_id,
           Fingerprint: fingerprint,
-          Context:     context.try(&.to_h),
+          Context:     debug_context.try(&.to_h), # the request's headers and address: development only
           Timestamp:   Time.utc.to_rfc3339,
         }.to_json
       end

@@ -65,8 +65,20 @@ Errors name the variable and never its value: `PORT is not an integer`, `DATABAS
 (`DATABASE_URL, CSRF_SECRET are not set`); `error.names` has them as an array.
 
 `Azu::Env.secret(name)` is the guard the generated applications use: the variable when set; a random value
-outside production (the same value for the life of the process, so two readers of one name agree); an
-`Azu::Env::MissingError` (`CSRF_SECRET is not set`) in production.
+outside the strict environments (the same value for the life of the process, so two readers of one name agree); an
+`Azu::Env::MissingError` (`CSRF_SECRET is not set`) in one of them.
+
+`Azu::Env.require_at_boot(*names)` registers the variables the application cannot run without
+(`SESSION_SECRET`, `DATABASE_URL`, ...): `Azu::App#start` checks them before it binds (`Configuration#check_boot`,
+also callable on its own) and raises one `MissingError` naming every missing one in a strict environment, or logs
+them as a warning elsewhere, so a deployment that forgot a variable fails at boot and not on the first request that
+needs it. `Azu::Env.required_at_boot` lists them; `check_required_at_boot!(strict)` is the check itself.
+
+```crystal
+require "azu"
+
+Azu::Env.require_at_boot("SESSION_SECRET", "DATABASE_URL")
+```
 
 {% hint style="warning" %}
 **The random fallback is per process.** Two processes, or one process after a restart, get different values, so signed
@@ -75,9 +87,12 @@ variable in `.env` in development.
 {% endhint %}
 
 {% hint style="warning" %}
-**Only `production` is strict by default.** Staging gets random secrets unless you list it: set
-`AZU_STRICT_ENVS=production,staging` or `Azu::Env.strict_environments = ["production", "staging"]` (`nil` restores
-the default), and `secret` raises there too.
+**`production` and `staging` are strict by default.** `AZU_STRICT_ENVS=production,staging,preview` or
+`Azu::Env.strict_environments = [...]` replaces the list (`nil` restores the default); `Azu::Env.strict?(name)` tells
+whether a name is in it. Inside an application the rule is `Azu.strict_environment?`: strict when `CRYSTAL_ENV` is,
+or when the configuration's `env` is (an app that sets `config.env = Production` in code is strict too), and it is
+what `Handler::CSRF`, `Spark` and the boot checks ask. Standing alone (`require "azu/env"`), `Env.secret` judges
+`CRYSTAL_ENV`.
 {% endhint %}
 
 ```crystal
