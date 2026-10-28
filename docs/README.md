@@ -4,6 +4,7 @@ icon: house
 ---
 
 # Azu Web Framework Overview
+<img width="2560" height="1040" alt="azu-readme-cover" src="https://github.com/user-attachments/assets/15b65c4e-6754-4b58-a9b5-3373a69d0244" />
 
 {% hint style="info" %}
 Azu is a strongly typed web framework for Crystal. Every endpoint declares the request contract it accepts and the response it returns: the compiler checks the types, and Azu validates each request against its contract before your code runs. Routing is a tree of path segments, and WebSocket channels, pub/sub, presence and Spark live views are built in.
