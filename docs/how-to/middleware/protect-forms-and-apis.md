@@ -260,8 +260,9 @@ When a proxy or load balancer terminates TLS and forwards to the app:
   header needs `hsts: true` in your own handler, with a `content_security_policy:` if you have one.
 - `Azu::Handler::IpSpoofing` answers `403` to a request whose `X-Real-IP` or `X-Client-IP` is not one of the
   addresses of its `X-Forwarded-For`, a sign that a client wrote the headers itself.
-- The [template variables](../../reference/templates/helpers.md#request-variables) `secure` and `client_ip` are read
-  from the `X-Forwarded-*` headers as they arrive: rely on them only when the proxy overwrites what the client sent.
+- The [template variables](../../reference/templates/helpers.md#request-variables) `secure`, `client_ip` and
+  `current_url` read the `X-Forwarded-*` headers only from a proxy listed in `config.trusted_proxies`
+  (`TRUSTED_PROXIES`); from anyone else they describe the connection itself.
 
 ## Put the chain together
 

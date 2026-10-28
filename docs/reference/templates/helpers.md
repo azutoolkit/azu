@@ -59,13 +59,13 @@ variable of the same name. Outside a request there are none, and `flash` is empt
 | Variable | Value |
 |---|---|
 | `current_path` | The request path: `/users/123` |
-| `current_url` | Scheme, `Host` header and path with query: `https://example.com/users/123?page=1` |
+| `current_url` | Scheme, host and path with query: `https://example.com/users/123?page=1`. The scheme is `https` when this app terminates TLS, else a trusted proxy's `X-Forwarded-Proto`, else `http`; the host is a trusted proxy's `X-Forwarded-Host`, else the `Host` header (see `config.trusted_proxies` in [Configuration options](../configuration/options.md#server)) |
 | `method` | The request method: `GET` |
 | `flash` | The flash messages of the session adapter; empty without one |
 | `referer` | The `Referer` header, `""` without one |
-| `secure` | `true` when `X-Forwarded-Proto` is `https` |
+| `secure` | `true` when the scheme above is `https` |
 | `ajax` | `true` when `X-Requested-With` is `XMLHttpRequest` |
-| `client_ip` | The first address of `X-Forwarded-For`, else `X-Real-IP`, else `""` |
+| `client_ip` | The address of the connection, or, when that is a proxy listed in `config.trusted_proxies`, the client its `X-Forwarded-For` names (the right-most address that is not a trusted proxy); `""` without an IP peer. Headers a client wrote are never believed |
 | `accept_locale` | The first language of `Accept-Language`, `en` without one |
 | `csrf_token`, `csrf_tag`, `csrf_metatag` | The request's CSRF token, as a value, a hidden `<input>` and a `<meta>` tag. Only once the app uses `Azu::Handler::CSRF`; every one of them, and every form helper below, carries the token of the response's cookie |
 
@@ -748,7 +748,7 @@ Function that generates a `<link rel="preload">`:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `href` | string | `""` | Asset path; an `http(s)://` or `/` URL is kept as it is, anything else gets the asset prefix |
+| `href` | string | `""` | Asset path; an `http(s)://` URL or a site-absolute `/` path is kept as it is, anything else (a protocol-relative `//host` too) gets the asset prefix |
 | `as` | string | `""` | The `as` attribute (`font`, `style`, `script`, `image`, ...) |
 | `type` | string | `nil` | MIME type |
 | `crossorigin` | string or bool | `nil` | A string is the attribute value (`"use-credentials"`), `true` gives `"anonymous"`, `false` leaves the attribute out; without it, `as="font"` gets `"anonymous"` and anything else none |
@@ -764,13 +764,14 @@ Function that prints the content of an SVG file, so CSS can style it:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `path` | string | `""` | File below `public/assets/` of the working directory; a path that starts with `/` is read as it is, from the file system |
+| `path` | string | `""` | File below `public/assets/` of the working directory (the asset prefix). A path that leaves that directory (`..`, or an absolute one) is not read and prints the placeholder |
 | `class`, `id`, `width`, `height` | string | `nil` | Added to the `<svg>` tag |
 | `title` | string | `nil` | A `<title>` inserted after the first tag, for screen readers |
 
 The file is read on every render. A file that cannot be read prints
 `<svg class="svg-placeholder"><text>SVG not found: icons/missing.svg</text></svg>`. The file's content is not
-escaped: inline only SVG files you ship, never a path that comes from a request.
+escaped: inline only SVG files you ship. A path from a request cannot reach outside the asset directory, but it can
+pick any SVG in it.
 
 ---
 
@@ -1061,8 +1062,9 @@ relative path, a query or a fragment (the scheme is compared case-insensitively,
 characters inside it are ignored, as browsers do). Any other scheme (`javascript:`, `data:`, `vbscript:`, `file:`, ...)
 is replaced: `link_to` prints `#`, `button_to` and `form_tag` print `about:invalid`. The value is escaped as well, so
 `&#106;avascript:` stays text. Use `Azu::Helpers::Util.safe_url(url)` in your own helpers. Asset helpers
-(`image_tag`, `javascript_tag`, `stylesheet_tag`, ...) only keep an `http(s)://` or `/` URL as it is and prefix the
-asset path to anything else. To link to another scheme, write the `<a>` yourself.
+(`image_tag`, `javascript_tag`, `stylesheet_tag`, ...) only keep an `http(s)://` URL or a site-absolute `/` path as it
+is and prefix the asset path to anything else, a protocol-relative `//host/x` included (it would load from another
+host). To link to another scheme, write the `<a>` yourself.
 
 ---
 

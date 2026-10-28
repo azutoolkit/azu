@@ -616,9 +616,10 @@ and blocks for 15 minutes.
 - `blacklist` / `whitelist` - addresses and CIDR blocks that are always refused / never counted.
 - `log : ::Log?` - where blocks, releases and refusals are logged (at most 10 refusals a second, then one line
   counting the rest). Without one, the log of the app serving the request.
-- `trusted_proxies : Array(String)` - the reverse proxies in front of the app, as exact IPv4 or IPv6 addresses and CIDR
+- `trusted_proxies : Array(String)?` - the reverse proxies in front of the app, as exact IPv4 or IPv6 addresses and CIDR
   blocks (`"10.0.0.0/8"`, `"fd00::/8"`, `"203.0.113.7"`, `"::1"`); an entry that is neither, or a catch-all block, raises
-  `ArgumentError`. Empty by default: the client is the address of the connection, as before.
+  `ArgumentError`. Without the argument, `config.trusted_proxies` (`TRUSTED_PROXIES`), empty by default: the client is
+  the address of the connection.
 - `ipv6_prefix : Int32` - IPv6 clients are counted by their first N bits, 64 by default: a subscriber owns a whole /64
   and could otherwise dodge the limit, and fill the table, by rotating the rest.
 - `max_clients : Int32` - the most clients the memory store tracks at once, 100 000 by default.

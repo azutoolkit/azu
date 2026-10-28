@@ -13,6 +13,21 @@ from an early 0.5 release to the current API, with old and new code side by side
 
 ## Next release
 
+**Forwarded headers are believed only from `config.trusted_proxies`, and a few helpers are stricter.** The template
+variables `client_ip`, `secure` and `current_url` (`Azu::Helpers::TemplateContext`) read `X-Forwarded-For`,
+`X-Forwarded-Proto` and `X-Forwarded-Host` only when the connection's peer is in the new `config.trusted_proxies`
+(`TRUSTED_PROXIES`, empty by default); otherwise `client_ip` is the peer's address (`""` without an IP peer, and
+`X-Real-IP` is no longer read), `secure` follows this app's TLS, and `current_url` uses the `Host` header.
+`Handler::Throttle` built without `trusted_proxies:` takes the same list. `inline_svg` reads only files below
+`public/<asset prefix>` (an absolute path, or one that climbs out, prints the placeholder), and the asset helpers prefix
+a protocol-relative `//host/x` (or `/\host/x`) like a relative path instead of printing it as given. A WebSocket
+upgrade whose `Origin` is the request's host under another scheme is refused when the scheme is known (this app's TLS,
+or `X-Forwarded-Proto`), and so is an `Origin` without a scheme; a connection that sends no frame for
+`websocket.idle_timeout` (90 seconds, never less than two server pings; `start` refuses a timeout under twice
+`websocket.ping_interval`) is closed with `1001` and its connection dropped a second later, and `subscribe` raises
+`Channel::TooManySubscriptions` past `websocket.max_subscriptions` (64). `config.trusted_proxies` is parsed when set
+and read as a copy: assign a new list to change it.
+
 **`Handler::Throttle` has defaults, a store seam and refuses blacklisted clients for `duration`.** Every constructor
 argument has a default (`interval: 5, duration: 900, threshold: 100`, empty lists), so `Throttle.new` works. The
 counters live in a `Throttle::Store`: `Store::Memory` (the default, the table it kept before) or `Store::Redis`, which

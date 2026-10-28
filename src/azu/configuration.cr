@@ -169,12 +169,22 @@ module Azu
       Env.strict? || Env.strict?(env.to_s)
     end
 
+    # The WebSocket limits must be able to work: a subscription cap of at least one, and an idle timeout the heartbeat
+    # can judge (at least two server pings, so a silent but healthy peer has answered one before it is closed).
+    def check_websocket_limits : Nil
+      raise BootError.new("websocket.max_subscriptions must be at least 1, not #{websocket.max_subscriptions}") if websocket.max_subscriptions < 1
+      if (idle = websocket.idle_timeout) && (ping = websocket.ping_interval) && idle < ping * 2
+        raise BootError.new("websocket.idle_timeout (#{idle.total_seconds.to_i}s) must be at least twice websocket.ping_interval (#{ping.total_seconds.to_i}s): a peer is pinged before it is given up")
+      end
+    end
+
     # Everything that must hold before the server binds, in the order a deployment meets it: the bind address, the
-    # TLS files, then the variables the app registered with `Azu::Env.require_at_boot` (an error in a strict
-    # environment, a warning elsewhere). `App#start` calls it; an app embedding its own server can too.
+    # TLS files, the WebSocket limits, then the variables the app registered with `Azu::Env.require_at_boot` (an
+    # error in a strict environment, a warning elsewhere). `App#start` calls it; an app embedding its own server can too.
     def check_boot : Nil
       check_bind_host
       check_tls_files
+      check_websocket_limits
       Env.check_required_at_boot!(strict_environment?)
     end
 
@@ -242,6 +252,38 @@ module Azu
     @[Deprecated("Use `template_preload_ignore=`.")]
     def template_compile_ignore=(patterns : Array(String))
       self.template_preload_ignore = patterns
+    end
+
+    # The reverse proxies in front of the app, as IP addresses and CIDR blocks (`TRUSTED_PROXIES`, comma separated).
+    # Only a request whose connection comes from one of them has its `X-Forwarded-For`, `X-Forwarded-Proto` and
+    # `X-Forwarded-Host` believed, by the template variables (`client_ip`, `secure`, `current_url`) and by
+    # `Handler::Throttle` built without `trusted_proxies:`. Empty by default: nothing a client sends is believed.
+    # The list is parsed when it is set (here, from the environment, or by `trusted_proxies=`): an entry that is not
+    # an address or block, or a block that is every address, raises `ArgumentError` then, not on a request. The
+    # reader answers a copy: assign a new list to change it (`config.trusted_proxies = config.trusted_proxies + [...]`),
+    # a handler built before the change keeps the list it was built with.
+    @trusted_proxies : Array(String) = Configuration.trusted_proxies_from_env
+    @trusted_proxy_networks : Handler::ClientAddress::Networks = Handler::ClientAddress::Networks.parse(Configuration.trusted_proxies_from_env, "TRUSTED_PROXIES", catch_all: false)
+
+    # :nodoc:
+    def self.trusted_proxies_from_env : Array(String)
+      ENV.fetch("TRUSTED_PROXIES", "").split(',').map(&.strip).reject(&.empty?)
+    end
+
+    def trusted_proxies : Array(String)
+      @trusted_proxies.dup
+    end
+
+    def trusted_proxies=(entries : Array(String)) : Array(String)
+      networks = Handler::ClientAddress::Networks.parse(entries, "trusted_proxies", catch_all: false)
+      @trusted_proxies = entries.dup
+      @trusted_proxy_networks = networks # one reference, replaced whole: a reader sees the old list or the new, never half
+      entries
+    end
+
+    # `trusted_proxies`, parsed.
+    def trusted_proxy_networks : Handler::ClientAddress::Networks
+      @trusted_proxy_networks
     end
 
     property ssl_cert : String = ENV.fetch("SSL_CERT", "")
@@ -572,6 +614,22 @@ module Azu
       seconds = ENV.fetch("WEBSOCKET_PING_INTERVAL", "30").to_i
       seconds > 0 ? seconds.seconds : nil
     end
+
+    # A connection from which no frame (a message, a ping, a pong) arrives for this long is closed, checked at each
+    # server ping; nil disables it. By default 90 seconds (three missed pongs), or twice `ping_interval` when that
+    # is longer, so a long ping interval alone never makes the boot check fail.
+    property idle_timeout : Time::Span? = WebSocketConfiguration.default_idle_timeout
+
+    # :nodoc:
+    def self.default_idle_timeout : Time::Span?
+      seconds = ENV.fetch("WEBSOCKET_IDLE_TIMEOUT", "90").to_i
+      return if seconds <= 0
+      ping = ENV.fetch("WEBSOCKET_PING_INTERVAL", "30").to_i
+      ENV["WEBSOCKET_IDLE_TIMEOUT"]? ? seconds.seconds : {seconds, ping * 2}.max.seconds
+    end
+
+    # The most topics one connection may subscribe to; `Channel#subscribe` raises `Channel::TooManySubscriptions` past it
+    property max_subscriptions : Int32 = ENV.fetch("WEBSOCKET_MAX_SUBSCRIPTIONS", "64").to_i
 
     # Turns Nagle's algorithm off on upgraded sockets (`TCP_NODELAY`). On by default: a Spark event is
     # answered by two small writes, and with Nagle on the second waits for the peer's delayed ACK

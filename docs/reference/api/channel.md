@@ -131,7 +131,9 @@ These class methods read the `websocket` options of the current configuration (s
 | `allowed_origins : Array(String)` | `websocket.allowed_origins` | Origins accepted besides the request's own origin; `"*"` accepts any. |
 | `max_message_size : Int32` | `websocket.max_message_size` (1 MiB) | Larger frames close the connection with `CloseCode::MessageTooBig`. |
 | `ping_interval : Time::Span?` | `websocket.ping_interval` (30 s) | Interval between server pings; `nil` disables them. |
-| `origin_allowed?(request) : Bool` | | The check the upgrader runs. A request without `Origin` (a non-browser client) is accepted. |
+| `idle_timeout : Time::Span?` | `websocket.idle_timeout` (90 s) | A connection that sent no frame for this long (never less than two pings) is closed with `1001` at the next ping and torn down; the connection itself is dropped a second later unless the peer answered, and `on_close` runs when the socket's loop ends. `nil`, or no pings, never closes it. |
+| `max_subscriptions : Int32` | `websocket.max_subscriptions` (64) | Topics one connection may hold; `subscribe` raises `Channel::TooManySubscriptions` past it. |
+| `origin_allowed?(request) : Bool` | | The check the upgrader runs: the `Origin` must be listed, or be the request's `Host` under the scheme the request was served with (this app's TLS, else a proxy's `X-Forwarded-Proto`; either scheme when neither is known). A request without `Origin` (a non-browser client) is accepted. |
 
 ```crystal
 Azu::CONFIG.websocket.allowed_origins = ["https://app.example.com"]

@@ -47,7 +47,15 @@ module Azu
       @subscribing = {} of String => PubSub::Reservation
       @closed = ::Channel(Nil).new
       @torn_down = false
+      @last_frame_at = Atomic(Int64).new(Clock.coarse_nanoseconds)
     end
+
+    # True once the connection was torn down (closed by the peer, by `close`, or by the idle timeout).
+    getter? torn_down : Bool
+
+    # The connection's IO, set by the upgrader: what the idle timeout closes when the peer does not answer the close
+    # frame, so a hung peer does not keep a socket and a fiber until TCP gives up.
+    setter transport : IO?
 
     # Query string of the upgrade request.
     def params : HTTP::Params
@@ -78,13 +86,43 @@ module Azu
       Azu.current_config.websocket.ping_interval
     end
 
+    # The most topics one connection may subscribe to (`websocket.max_subscriptions`).
+    def self.max_subscriptions : Int32
+      Azu.current_config.websocket.max_subscriptions
+    end
+
+    # How long a connection may send nothing before it is closed (`websocket.idle_timeout`); nil never closes it.
+    def self.idle_timeout : Time::Span?
+      Azu.current_config.websocket.idle_timeout
+    end
+
     # Browsers always send `Origin` on WebSocket handshakes, so a missing header can only come
-    # from a non-browser client and is accepted.
+    # from a non-browser client and is accepted. The request's own origin is its `Host` under the scheme it was
+    # served with when that is known (this app's TLS, else a proxy's `X-Forwarded-Proto`): a page on
+    # `http://example.com` may not open a socket to `https://example.com`. Without either hint, either scheme passes.
     def self.origin_allowed?(request : HTTP::Request) : Bool
       return true unless origin = request.headers["Origin"]?
       return true if allowed_origins.includes?("*") || allowed_origins.includes?(origin)
-      host = request.headers["Host"]?
-      !host.nil? && origin.sub(%r{\A[a-z][a-z0-9+.\-]*://}i, "").compare(host, case_insensitive: true) == 0
+      return false unless host = request.headers["Host"]?
+
+      scheme, separator, origin_host = origin.partition("://")
+      return false if separator.empty? || origin_host.compare(host, case_insensitive: true) != 0
+      expected = expected_scheme(request)
+      expected.nil? || scheme.compare(expected, case_insensitive: true) == 0
+    end
+
+    # The scheme the upgrade request was served with, when it can be told.
+    private def self.expected_scheme(request : HTTP::Request) : String?
+      return "https" if Azu.current_config.tls?
+      request.headers["X-Forwarded-Proto"]?.try(&.split(',').first.strip.downcase.presence)
+    end
+
+    # Raised by `subscribe` for the topic past `max_subscriptions`: a client that names its own topics cannot grow the
+    # process's tables without bound.
+    class TooManySubscriptions < Exception
+      def initialize(limit : Int32)
+        super("a connection may subscribe to at most #{limit} topics")
+      end
     end
 
     # Invoked when a connection is established
@@ -115,10 +153,10 @@ module Azu
       @context = context
       on_connect
 
-      socket.on_message { |message| on_message(message) }
-      socket.on_binary { |binary| on_binary(binary) }
-      socket.on_ping { |message| on_ping(message) }
-      socket.on_pong { |message| on_pong(message) }
+      socket.on_message { |message| seen; on_message(message) }
+      socket.on_binary { |binary| seen; on_binary(binary) }
+      socket.on_ping { |message| seen; on_ping(message) }
+      socket.on_pong { |message| seen; on_pong(message) }
       socket.on_close do |code, message|
         teardown
         on_close(code, message)
@@ -157,6 +195,10 @@ module Azu
       loop do
         reservation, mine = @subscriptions_mutex.synchronize do
           return if @torn_down || @subscriptions.has_key?(topic)
+          limit = self.class.max_subscriptions
+          # A topic being moved from @subscribing to @subscriptions is in both for a moment: counted once
+          held = @subscriptions.size + @subscribing.count { |pending, _| !@subscriptions.has_key?(pending) }
+          raise TooManySubscriptions.new(limit) if held >= limit && !@subscribing.has_key?(topic)
           if pending = @subscribing[topic]?
             {pending, false}
           else
@@ -231,17 +273,48 @@ module Azu
       Azu.spawn_scoped("azu-ws-heartbeat") { ping_until_closed(interval) }
     end
 
+    # How long the peer gets to answer an idle close before its connection is closed underneath it.
+    CLOSE_GRACE = 1.second
+
     private def ping_until_closed(interval : Time::Span) : Nil
       loop do
         select
         when @closed.receive?
           break
         when timeout(interval)
+          break if idle_too_long(interval)
           @send_mutex.synchronize { socket.ping }
         end
       end
     rescue IO::Error
       # The socket closed between two pings.
+    end
+
+    # Notes that the peer sent a frame.
+    private def seen : Nil
+      @last_frame_at.set(Clock.coarse_nanoseconds)
+    end
+
+    # Closes a connection that sent nothing for `idle_timeout` (never less than two pings, so a healthy silent peer
+    # has been pinged before it is given up): the peer is gone or hung, and its subscriptions would otherwise be held
+    # until the TCP stack gives up. The close frame is sent and the subscriptions released at once; the connection
+    # itself is closed after `CLOSE_GRACE` unless the peer answered. `on_close` runs when the peer's answer (or the
+    # closed connection) ends the socket's loop. True when the connection was given up.
+    private def idle_too_long(interval : Time::Span) : Bool
+      return false unless limit = self.class.idle_timeout
+      limit = {limit, interval * 2}.max
+      return false if Clock.coarse_nanoseconds - @last_frame_at.get < limit.total_nanoseconds
+
+      # Released and scheduled before the close frame is written: a peer whose window is full would block that write
+      teardown
+      if transport = @transport
+        Azu.spawn_scoped("azu-ws-idle-close") do
+          sleep CLOSE_GRACE
+          transport.close rescue nil
+        end
+      end
+      close(HTTP::WebSocket::CloseCode::GoingAway, "idle for #{limit.total_seconds.to_i} seconds")
+      true
     end
   end
 end

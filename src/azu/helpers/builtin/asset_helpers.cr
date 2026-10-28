@@ -39,6 +39,39 @@ module Azu
           register_inline_svg
         end
 
+        # The URL an asset helper prints for *path*: an `http(s)://` URL or a site-absolute path as given, anything
+        # else below the asset prefix. Site-absolute means one `/` followed by an ordinary character: `//host/x`,
+        # `/\host/x` and `/<tab>/host/x` would load from another host (browsers read `\` and skip control characters),
+        # so they are prefixed like a relative path.
+        protected def self.asset_url(path : String) : String
+          return path if path.matches?(%r{\Ahttps?://}i) || site_absolute?(path)
+          # Not File.join: with a root prefix ("" or "/") it would hand `//host/x` back as it came
+          "#{@@asset_prefix.chomp('/')}/#{path.lstrip("/\\")}"
+        end
+
+        private def self.site_absolute?(path : String) : Bool
+          return false unless path.starts_with?('/')
+          second = path[1]?
+          second.nil? || !(second == '/' || second == '\\' || second.ascii_whitespace? || second.ascii_control?)
+        end
+
+        # Where `inline_svg` reads from: `public/<asset prefix>` of the working directory, without a trailing slash.
+        protected def self.svg_directory : String
+          File.expand_path(File.join("public", @@asset_prefix.strip('/'))).chomp('/')
+        end
+
+        # The file *path* names below `svg_directory`, nil when it names one outside it (`..`, an absolute path, a
+        # symbolic link that leads out). Paths are resolved (`File.realpath`), so a link inside the directory that
+        # points outside it is refused too; a file that does not exist is nil as well.
+        protected def self.svg_path(path : String) : String?
+          return if path.empty? || path.starts_with?('/') || path.includes?('\0')
+          directory = File.realpath(svg_directory)
+          full = File.realpath(File.expand_path(path, directory))
+          full if full.starts_with?(directory + "/")
+        rescue File::Error
+          nil
+        end
+
         private def self.register_asset_path : Nil
           filter = Crinja.filter({prefix: nil, version: nil}, :asset_path) do
             path = target.to_s
@@ -83,11 +116,7 @@ module Azu
             sizes = arguments["sizes"]
 
             # Build full path
-            full_src = if src.starts_with?("http://") || src.starts_with?("https://") || src.starts_with?("/")
-                         src
-                       else
-                         File.join(@@asset_prefix, src)
-                       end
+            full_src = asset_url(src)
 
             attrs = {
               "src" => full_src,
@@ -128,11 +157,7 @@ module Azu
             id = arguments["id"]
 
             # Build full path
-            full_src = if src.starts_with?("http://") || src.starts_with?("https://") || src.starts_with?("/")
-                         src
-                       else
-                         File.join(@@asset_prefix, src)
-                       end
+            full_src = asset_url(src)
 
             # Add version if configured
             if version = @@asset_version
@@ -168,11 +193,7 @@ module Azu
             id = arguments["id"]
 
             # Build full path
-            full_href = if href.starts_with?("http://") || href.starts_with?("https://") || href.starts_with?("/")
-                          href
-                        else
-                          File.join(@@asset_prefix, href)
-                        end
+            full_href = asset_url(href)
 
             # Add version if configured
             if version = @@asset_version
@@ -202,11 +223,7 @@ module Azu
             type = arguments["type"]
 
             # Build full path
-            full_href = if href.starts_with?("http://") || href.starts_with?("https://") || href.starts_with?("/")
-                          href
-                        else
-                          File.join(@@asset_prefix, href)
-                        end
+            full_href = asset_url(href)
 
             # Determine type from extension
             mime_type = if type.none?
@@ -246,11 +263,7 @@ module Azu
             crossorigin = arguments["crossorigin"]
 
             # Build full path
-            full_href = if href.starts_with?("http://") || href.starts_with?("https://") || href.starts_with?("/")
-                          href
-                        else
-                          File.join(@@asset_prefix, href)
-                        end
+            full_href = asset_url(href)
 
             attrs = {
               "rel"  => "preload",
@@ -288,15 +301,14 @@ module Azu
             height = arguments["height"]
             title = arguments["title"]
 
-            # Try to read SVG file
-            full_path = if path.starts_with?("/")
-                          path
-                        else
-                          File.join("public", @@asset_prefix.lstrip('/'), path)
-                        end
-
+            # Only a file below the asset directory is read: the content is printed unescaped, so a path that
+            # climbs out of it (or an absolute one) is treated like a missing file
             svg_content = begin
-              File.read(full_path)
+              if full_path = svg_path(path)
+                File.read(full_path)
+              else
+                raise File::NotFoundError.new("outside the asset directory", file: path)
+              end
             rescue
               # Return placeholder if file not found
               %Q(<svg class="svg-placeholder"><text>SVG not found: #{Util.escape_html(path)}</text></svg>)

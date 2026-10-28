@@ -98,14 +98,16 @@ module Azu
         "#{scheme}://#{host}#{@request.resource}"
       end
 
-      # Returns the request scheme (http or https).
+      # The scheme the request was made with: `https` when this app terminates TLS, else what a trusted proxy says in
+      # `X-Forwarded-Proto` (`config.trusted_proxies`), else `http`.
       def scheme : String
-        @request.headers["X-Forwarded-Proto"]? || "http"
+        return "https" if Azu.current_config.tls?
+        forwarded("X-Forwarded-Proto").try(&.downcase) || "http"
       end
 
-      # Returns the request host.
+      # The host the request was made to: `X-Forwarded-Host` from a trusted proxy, else the `Host` header.
       def host : String
-        @request.headers["Host"]? || "localhost"
+        forwarded("X-Forwarded-Host") || @request.headers["Host"]? || "localhost"
       end
 
       # Returns the HTTP method.
@@ -192,10 +194,29 @@ module Azu
         @request.headers["User-Agent"]?
       end
 
-      # Returns the client IP address.
+      # The client's address: the peer of the connection, or, when that peer is a trusted proxy
+      # (`config.trusted_proxies`), the client its `X-Forwarded-For` names (the right-most address that is not a
+      # trusted proxy, as `Handler::Throttle` reads it). Nil without an IP peer, or when the proxy's header names nobody.
       def client_ip : String?
-        @request.headers["X-Forwarded-For"]?.try(&.split(",").first.strip) ||
-          @request.headers["X-Real-IP"]?
+        peer = @request.remote_address.as?(Socket::IPAddress) || return
+        parsed = Handler::ClientAddress.parse(peer.address) || return peer.address
+        trusted = Azu.current_config.trusted_proxy_networks
+        client = Handler::ClientAddress.client(parsed, @request.headers.get?("X-Forwarded-For"), trusted) || return
+        Handler::ClientAddress.to_s(client)
+      end
+
+      # The first value of *header*, when the connection's peer is a trusted proxy; nil otherwise.
+      private def forwarded(header : String) : String?
+        return unless peer_trusted?
+        @request.headers[header]?.try(&.split(',').first.strip.presence)
+      end
+
+      private def peer_trusted? : Bool
+        trusted = Azu.current_config.trusted_proxy_networks
+        return false if trusted.empty?
+        peer = @request.remote_address.as?(Socket::IPAddress) || return false
+        address = Handler::ClientAddress.parse(peer.address) || return false
+        trusted.includes?(address)
       end
 
       # Returns request headers.

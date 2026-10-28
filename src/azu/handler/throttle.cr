@@ -25,7 +25,8 @@ module Azu
     #
     #   * **trusted_proxies**  Addresses and CIDR blocks of the reverse proxies in front of the app. Only a request
     #     whose connection comes from one of them has its `X-Forwarded-For` read, from the right, up to the first
-    #     address that is not a trusted proxy: that is the client. Empty (the default): the connection's address.
+    #     address that is not a trusted proxy: that is the client. Without the argument, `config.trusted_proxies`
+    #     (`TRUSTED_PROXIES`), empty by default: the connection's address.
     #   * **ipv6_prefix**  IPv6 clients are counted by their first N bits (64 by default), since one subscriber
     #     owns a whole /64.
     #   * **store**  Where the counters live: `Store::Memory` (this process; the default) or `Store::Redis` (every
@@ -156,13 +157,13 @@ module Azu
       # *max_clients* sizes the memory store built when no *store* is given.
       def initialize(@interval : Int32 = 5, @duration : Int32 = 900, @threshold : Int32 = 100,
                      @blacklist : Array(String) = [] of String, @whitelist : Array(String) = [] of String, @log : ::Log? = nil,
-                     trusted_proxies : Array(String) = [] of String, ipv6_prefix : Int32 = 64, max_clients : Int32 = DEFAULT_MAX_CLIENTS,
+                     trusted_proxies : Array(String)? = nil, ipv6_prefix : Int32 = 64, max_clients : Int32 = DEFAULT_MAX_CLIENTS,
                      store : Store? = nil)
         raise ArgumentError.new("ipv6_prefix must be between 1 and 128") unless 1 <= ipv6_prefix <= 128
         raise ArgumentError.new("max_clients must be positive") unless max_clients > 0
         raise ArgumentError.new("interval and duration must be positive, threshold not negative") if @interval <= 0 || @duration <= 0 || @threshold < 0
         @limits = Limits.new(@interval, @duration, @threshold)
-        @trusted = ClientAddress::Networks.parse(trusted_proxies, "trusted_proxies", catch_all: false)
+        @trusted = trusted_proxies ? ClientAddress::Networks.parse(trusted_proxies, "trusted_proxies", catch_all: false) : Azu.current_config.trusted_proxy_networks
         @ipv6_prefix = ipv6_prefix
         @blacklisted = ClientAddress::Networks.parse(@blacklist, "blacklist")
         @whitelisted = ClientAddress::Networks.parse(@whitelist, "whitelist")

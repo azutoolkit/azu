@@ -20,6 +20,13 @@ module TemplateContextSpec
     HTTP::Server::Context.new(HTTP::Request.new("GET", "/items", headers), HTTP::Server::Response.new(IO::Memory.new))
   end
 
+  # A context whose connection comes from *peer*, with the forwarded headers a proxy would add.
+  def self.proxied(peer : String, headers : HTTP::Headers) : HTTP::Server::Context
+    context = request(headers)
+    context.request.remote_address = Socket::IPAddress.new(peer, 40000)
+    context
+  end
+
   def self.csrf_cookie(context : HTTP::Server::Context) : String?
     context.response.cookies[Azu::Handler::CSRF.cookie_name]?.try(&.value)
   end
@@ -53,6 +60,28 @@ describe Azu::Helpers::TemplateContext do
         context = TemplateContextSpec.request(HTTP::Headers{"Referer" => "https://example.com/from"})
 
         TemplateContextSpec::Page.new("page.jinja", context).render.should eq "https://example.com/from"
+      end
+    end
+  end
+
+  describe "the request variables behind a proxy" do
+    forwarded = HTTP::Headers{"Host" => "app.internal:3000", "X-Forwarded-Host" => "example.com", "X-Forwarded-Proto" => "https", "X-Forwarded-For" => "203.0.113.9, 10.0.0.2"}
+    template = {"vars.jinja" => "{{ client_ip }}|{{ secure }}|{{ current_url }}"}
+
+    it "believe the forwarded headers only when the peer is a trusted proxy" do
+      with_preloaded_templates(template) do |config|
+        config.trusted_proxies = [] of String
+        TemplateContextSpec::Page.new("vars.jinja", TemplateContextSpec.proxied("10.0.0.2", forwarded)).render.should eq "10.0.0.2|false|http://app.internal:3000/items"
+
+        config.trusted_proxies = ["10.0.0.0/8"]
+        TemplateContextSpec::Page.new("vars.jinja", TemplateContextSpec.proxied("10.0.0.2", forwarded)).render.should eq "203.0.113.9|true|https://example.com/items"
+        TemplateContextSpec::Page.new("vars.jinja", TemplateContextSpec.proxied("198.51.100.4", forwarded)).render.should eq "198.51.100.4|false|http://app.internal:3000/items"
+      end
+    end
+
+    it "give an empty client_ip without an IP peer" do
+      with_preloaded_templates(template) do
+        TemplateContextSpec::Page.new("vars.jinja", TemplateContextSpec.request(forwarded)).render.should eq "|false|http://app.internal:3000/items"
       end
     end
   end
