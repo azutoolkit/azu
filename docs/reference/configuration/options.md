@@ -277,6 +277,7 @@ How templates and the CSRF session token store reach your session library; see
 | `upload.max_request_size` | `UInt64` | 64 MB | `UPLOAD_MAX_REQUEST_SIZE` (bytes): the whole multipart request, counted as it streams in |
 | `upload.max_parts` | `Int32` | 100 | `UPLOAD_MAX_PARTS`: fields and files of one multipart request |
 | `upload.max_files` | `Int32` | 20 | `UPLOAD_MAX_FILES`: files of one multipart request |
+| `upload.max_params` | `Int32` | 1000 | `UPLOAD_MAX_PARAMS`: `name=value` pairs (split on `&` or `;`) of one query string or urlencoded body; more is answered `413`, and the pairs are never parsed (not by the router's `_method` override, `Handler::CSRF` or `Azu::Params`: `HTTP::Request#query_params` answers an empty set and `query_too_large?`) |
 | `upload.temp_dir` | `String` | `Dir.tempdir` | `UPLOAD_TEMP_DIR` |
 | `upload.buffer_size` | `Int32` | 8192 | `UPLOAD_BUFFER_SIZE` |
 | `upload.cleanup_interval` | `Time::Span` | 1 hour | `UPLOAD_CLEANUP_INTERVAL` (seconds) |
@@ -435,6 +436,7 @@ These are read outside `Azu::Configuration`:
 |---|---|---|---|
 | `AZU_STRICT_ENVS` | comma separated environment names | `production,staging` | The strict environments: [`Azu::Env.secret`](env.md) raises `Azu::Env::MissingError` for an unset secret instead of using a random per-process value, `Spark` refuses to install without `SPARK_SECRET`, and `start` refuses to boot without the variables of `Azu::Env.require_at_boot`. Judged on `CRYSTAL_ENV` and on `config.env` (`Azu.strict_environment?`); `Azu::Env.strict_environments=` overrides the list |
 | `AZU_ALLOW_DEV_ON_ANY_HOST` | `Bool` | `false` | `true` lets `start` serve the development pages on a non-loopback host with `CRYSTAL_ENV` unset, with a warning instead of a `Configuration::BootError` ([Environments](environments.md#the-default-environment)) |
+| `THROTTLE_STORE`, `THROTTLE_REDIS_URL` | `memory` or `redis` (anything else raises); a URL | `memory`; `REDIS_URL` | Where [`Handler::Throttle`](../handlers/built-in.md#handlerthrottle) keeps its counters when built without `store:`, and the Redis it uses |
 | `CSRF_MAX_FORM_SIZE` | `UInt64` | `1048576` | The most of a urlencoded body `Handler::CSRF` reads to find the token (`max_form_size`); a larger one answers `413` |
 | `CSRF_SECRET` | `String` | `Azu::Env.secret("CSRF_SECRET")`: random per process, `Azu::Env::MissingError` in the strict environments | Key `Handler::CSRF` signs its tokens with when it is given none |
 | `PERFORMANCE_SLOW_REQUEST_THRESHOLD` | `Float64` (milliseconds) | `1000` | `Handler::PerformanceMonitor` (`azu/dev`) logs a warning for a request that takes longer |

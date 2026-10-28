@@ -162,6 +162,22 @@ describe "Azu::Handler::CSRF request bodies" do
       seen.should eq body
     end
 
+    it "refuses a form with more pairs than upload.max_params with 413, before parsing them" do
+      handler = csrf_handler
+      token = issue_token(handler)
+      original = Azu::CONFIG.upload.max_params
+      Azu::CONFIG.upload.max_params = 3
+      begin
+        ["_csrf=#{URI.encode_www_form(token)}&a=&b=&c=", "_csrf=#{URI.encode_www_form(token)};a=;b=;c="].each do |body|
+          context, seen, _ = post_through(handler, token, "application/x-www-form-urlencoded", body)
+          context.response.status_code.should eq 413
+          seen.should be_nil
+        end
+      ensure
+        Azu::CONFIG.upload.max_params = original
+      end
+    end
+
     it "refuses a wrong token with 403 and does not call the endpoint" do
       handler = csrf_handler
       token = issue_token(handler)

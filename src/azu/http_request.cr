@@ -10,6 +10,35 @@ class HTTP::Request
   # same-origin check for the request. A field, not a header, so a client cannot set it.
   property? cors_allowed : Bool = false
 
+  # True when the query string has more pairs than `upload.max_params`: `query_params` is then empty, and
+  # `Azu::Params` answers the request 413 (`Params::Form.query`).
+  getter? query_too_large : Bool = false
+
+  # The query parameters, parsed once: a query string with more than `upload.max_params` pairs is not parsed at
+  # all (`query_too_large?`), so a flood of `a=&a=&...` costs its bytes and nothing more, whoever reads the
+  # parameters first (the router's method override, the negotiation, the error context, an endpoint's `Params`).
+  # The empty set answered then is not kept, so `query` and `resource` still carry the string as it was sent
+  # (the standard library writes the parsed set back into them), and `query=` judges its new value afresh.
+  def query_params : URI::Params
+    @query_params || begin
+      if (encoded = query) && Azu::Params::Form.too_many?(encoded)
+        @query_too_large = true
+        URI::Params.new
+      else
+        @query_too_large = false
+        @query_params = uri.query_params
+      end
+    end
+  end
+
+  # The standard library's hook after `query=`: the new value is parsed through the cap, like the first.
+  private def update_query_params
+    @query_too_large = false
+    return unless @query_params
+    @query_params = nil
+    query_params
+  end
+
   def content_type : MIME::MediaType
     if content = headers["Content-Type"]?
       MIME::MediaType.parse(content)

@@ -28,6 +28,8 @@ PORT=4000
 | `SHUTDOWN_TIMEOUT` | `30` | seconds to wait for requests in flight on SIGTERM |
 | `UPLOAD_MAX_FILE_SIZE` | `10485760` | bytes allowed per uploaded file, multipart text field, urlencoded body and JSON body |
 | `UPLOAD_MAX_REQUEST_SIZE`, `UPLOAD_MAX_PARTS`, `UPLOAD_MAX_FILES` | `67108864`, `100`, `20` | bytes, parts and files allowed in one multipart request |
+| `UPLOAD_MAX_PARAMS` | `1000` | `name=value` pairs allowed in one query string or urlencoded body |
+| `THROTTLE_STORE`, `THROTTLE_REDIS_URL` | `memory`, `REDIS_URL` | where `Azu::Handler::Throttle` counts (`redis` shares the counters between instances) |
 | `SSL_CERT`, `SSL_KEY` | empty | PEM files; TLS is on when both are set |
 | `CACHE_STORE`, `CACHE_REDIS_URL` | `memory`, | see [Redis cache](../caching/setup-redis-cache.md) |
 | `SPARK_SECRET` | | signing secret for Spark live views, required in staging and production |
@@ -211,8 +213,9 @@ reference and the [database guides](../database/define-schema.md).
 
 ## Rate limiting
 
-`Azu::Handler::Throttle` counts requests per client address; it keeps its counters in the memory of
-the process, so each instance of a scaled deployment counts separately. Behind a load balancer pass its address or
+`Azu::Handler::Throttle` counts requests per client address. By default it keeps its counters in the memory of
+the process, so each instance of a scaled deployment counts separately; `THROTTLE_STORE=redis` (on `THROTTLE_REDIS_URL`,
+then `REDIS_URL`) makes every instance count together. Behind a load balancer pass its address or
 network as `trusted_proxies:`, or every visitor is counted as the load balancer
 ([Behind a reverse proxy](../../reference/handlers/built-in.md#behind-a-reverse-proxy)):
 

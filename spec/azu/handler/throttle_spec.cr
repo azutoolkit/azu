@@ -309,12 +309,12 @@ describe Azu::Handler::Throttle do
 
       context.response.status_code.should eq 429
       context.response.headers["Content-Type"].should eq "application/json"
-      context.response.headers["Retry-After"].should eq "0"
+      context.response.headers["Retry-After"].should eq "60" # blacklisted: refused for `duration`
       problem = JSON.parse(body)
       problem["type"].as_s.should eq "about:blank"
       problem["title"].as_s.should eq "Rate Limit Exceeded"
       problem["status"].as_i.should eq 429
-      problem["detail"].as_s.should eq "Rate limit exceeded. Retry after 0 seconds."
+      problem["detail"].as_s.should eq "Rate limit exceeded. Retry after 60 seconds."
       problem["instance"].as_s.should eq "/limited"
       problem["error_id"].as_s.should eq context.response.headers["X-Error-ID"]
     end
@@ -666,24 +666,44 @@ describe Azu::Handler::Throttle do
   end
 
   describe "edge cases" do
-    it "handles a request without a peer address gracefully" do
-      handler = Azu::Handler::Throttle.new(
-        interval: 60,
-        duration: 60,
-        threshold: 100,
-        blacklist: [] of String,
-        whitelist: [] of String
-      )
-      next_handler, verify = create_next_handler(1)
+    it "lets a request without a peer address pass uncounted, with one warning" do
+      backend = ::Log::MemoryBackend.new
+      handler = Azu::Handler::Throttle.new(60, 60, 0, [] of String, [] of String, ::Log.new("throttle_peer_spec", backend, :warn))
+      next_handler, verify = create_next_handler(3)
       handler.next = next_handler
 
-      context, io = create_context("GET", "/test")
-      handler.call(context)
+      3.times do
+        context, io = create_context("GET", "/test")
+        handler.call(context)
+        get_response_body(context, io).should eq("OK")
+      end
 
-      # Should still work with "unknown" as the remote address
-      get_response_body(context, io).should eq("OK")
+      handler.stats[:tracked_ips].should eq 0
+      backend.entries.map(&.message).select(&.includes?("no IP peer address")).size.should eq 1
       verify.call
-      handler.reset
+    end
+
+    it "has defaults for every limit, and refuses limits that cannot work" do
+      handler = Azu::Handler::Throttle.new
+      handler.store.should be_a Azu::Handler::Throttle::Store::Memory
+      expect_raises(ArgumentError) { Azu::Handler::Throttle.new(threshold: -1) }
+      expect_raises(ArgumentError) { Azu::Handler::Throttle.new(duration: 0) }
+      expect_raises(ArgumentError) { Azu::Handler::Throttle.new(interval: 0) }
+    end
+
+    it "lets a UNIX socket peer pass uncounted too" do
+      handler = Azu::Handler::Throttle.new(60, 60, 0, [] of String, [] of String, ::Log.new("throttle_unix_spec", ::Log::MemoryBackend.new, :warn))
+      next_handler, verify = create_next_handler(2)
+      handler.next = next_handler
+
+      2.times do
+        context, io = create_context("GET", "/test")
+        context.request.remote_address = Socket::UNIXAddress.new("/run/azu.sock")
+        handler.call(context)
+        get_response_body(context, io).should eq("OK")
+      end
+      handler.stats[:tracked_ips].should eq 0
+      verify.call
     end
 
     it "handles very high thresholds" do

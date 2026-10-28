@@ -5,8 +5,13 @@ require "compress/zlib"
 module Azu
   module Handler
     # Compresses responses with gzip or deflate when the client accepts it: the standard library's
-    # `HTTP::CompressHandler`, except that an event stream (`text/event-stream`) is left alone. Compression
-    # buffers, so the client would see events late or in batches.
+    # `HTTP::CompressHandler`, except that an event stream (`text/event-stream`) is left alone (compression
+    # buffers, so the client would see events late or in batches) and that every response it decides on carries
+    # `Vary: Accept-Encoding`.
+    #
+    # A compressed page that mixes a secret (a CSRF token, a session id) with text an attacker chooses is open to
+    # BREACH: the size of the body leaks the secret byte by byte. Azu's CSRF tokens are random per page (the signed
+    # token changes with every issue), which is the usual mitigation; leave the handler out for pages where it is not enough.
     class Compression < HTTP::CompressHandler
       def call(context : HTTP::Server::Context) : Nil
         context.response.output = Output.new(context.response.output, context)
@@ -42,6 +47,8 @@ module Azu
           response = @context.response
           return if response.headers.has_key?("Content-Encoding") || event_stream?
 
+          # Compressed or not, the body depends on what the client accepts: a cache must not serve one client's to another
+          Vary.add(response.headers, "Accept-Encoding")
           accepted = @context.request.headers
           if accepted.includes_word?("Accept-Encoding", "gzip")
             compress("gzip") { |io| Compress::Gzip::Writer.new(io, sync_close: true) }
