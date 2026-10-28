@@ -2,7 +2,7 @@
 description: Typed request and response contracts, segment-tree routing and built-in real-time for Crystal web apps.
 icon: house
 ---
-<img alt="azu-readme-cover" src="https://github.com/user-attachments/assets/15b65c4e-6754-4b58-a9b5-3373a69d0244" />
+<img width="900" height="365" alt="azu-readme-cover" src="https://github.com/user-attachments/assets/15b65c4e-6754-4b58-a9b5-3373a69d0244" />
 
 # Azu Web Framework Overview
 
