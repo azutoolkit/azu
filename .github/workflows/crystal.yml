@@ -114,6 +114,13 @@ jobs:
       - name: Run all specs
         run: crystal spec $(find spec -name '*_spec.cr' | sort)
 
+      - name: Verify real Redis session integration
+        working-directory: playground/redis_sessions
+        run: |
+          shards install --frozen
+          crystal spec -Dsession_spec
+          crystal build --no-codegen src/app.cr
+
   # Documentation examples must compile: the docs are only as good as the code they show. Only the
   # files listed in docs/.checked are enforced; the list grows as the docs are brought up to date.
   # The list is split over four runners (`--shard i/4` takes every 4th file), which together cover it all.
@@ -231,6 +238,13 @@ jobs:
 
       - name: Run all specs
         run: crystal spec $(find spec -name '*_spec.cr' | sort)
+
+      - name: Verify real Redis session integration
+        working-directory: playground/redis_sessions
+        run: |
+          shards install --frozen
+          crystal spec -Dsession_spec
+          crystal build --no-codegen src/app.cr
 
   # The concurrency specs only race with several threads: they run here in a -Dpreview_mt build
   # (4 workers) on the oldest supported Crystal. -Dpreview_mt is deprecated there (it warns, and the build still uses

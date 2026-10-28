@@ -1,0 +1,1020 @@
+{
+  "scope": "Local evidence for Azu v1 review; not hosted CI, external deployment validation or enterprise certification.",
+  "framework_suite": {
+    "source_commit": "2899126ea1854278ba937a2a6a2aa2fb5ca02d6a",
+    "examples": 3375,
+    "failures": 0,
+    "errors": 0,
+    "pending": 0
+  },
+  "local_deployment": {
+    "run_id": "20261028T163253Z",
+    "versions": {
+      "azu_commit": "2899126ea1854278ba937a2a6a2aa2fb5ca02d6a",
+      "session_commit": "98b34d1980cc1461a9cb8d5b2a09325999e2f312",
+      "crystal": "Crystal 1.22.1 [23828b0a4] (2026-10-22)",
+      "postgres": "postgres (PostgreSQL) 17.11 (Debian 17.11-0+deb13u1)",
+      "redis": "Redis server v=8.0.2 sha=00000000:0 malloc=jemalloc-5.3.0 bits=64 build=b843bbd074c0e1da",
+      "nginx": "nginx version: nginx/1.26.3"
+    },
+    "completed": true,
+    "checks": [
+      {
+        "name": "Initial migration is repeatable",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Verified TLS, HSTS and security headers",
+        "passed": true,
+        "evidence": "TLSv1.3"
+      },
+      {
+        "name": "Certificate trust is enforced",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Certificate hostname is enforced",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "TLS 1.2 also supported",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Obsolete TLS 1.1 rejected by server",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "HTTP redirects to HTTPS",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Untrusted direct peer cannot forge HTTPS",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Session cookie security attributes",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Anonymous access refused",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Login requires CSRF token",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Wrong password refused",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Forged origin and forwarded host refused",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Real Redis-backed login works",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Login replaces anonymous session ID",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Pre-login session replay is unauthenticated",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Authenticated session shared by both app instances",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Concurrent users remain isolated",
+        "passed": true,
+        "evidence": "40 requests across two instances"
+      },
+      {
+        "name": "Logout succeeds",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Logged-out session cannot be replayed",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Authenticated database write",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Expand migration preserves running old application",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Migration lock contention fails within timeout",
+        "passed": true,
+        "evidence": "0.51s"
+      },
+      {
+        "name": "Failed migration leaves no partial schema/version",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Redis outage fails readiness but preserves liveness",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Redis outage does not authorize protected access",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Redis recovers after restart",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Database outage fails readiness but preserves liveness",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Database outage never returns successful data",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Server error preserves authenticated session cookie",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Database connections recover",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Recovery drill actually removes application data",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Backup restores schema and exact snapshot data",
+        "passed": true,
+        "evidence": "restored application in 0.29s"
+      },
+      {
+        "name": "Local restore meets provisional 30s RTO",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Coordinated key rotation invalidates existing sessions",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Old CSRF token rejected after rotation",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Fresh login works after rotation",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Missing session secret prevents startup",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Production error is sanitized and correlated",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Metrics expose an actionable error signal",
+        "passed": true,
+        "evidence": "local alert predicate: demo_errors_total > 0"
+      },
+      {
+        "name": "Structured log contains matching 500 request ID",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Generated passwords and application keys absent from logs",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "SIGTERM drains an in-flight request and exits cleanly",
+        "passed": true,
+        "evidence": "1.92s"
+      },
+      {
+        "name": "Proxy serves through surviving instance",
+        "passed": true,
+        "evidence": ""
+      },
+      {
+        "name": "Local load meets provisional objectives",
+        "passed": true,
+        "evidence": "25300 requests; 1685.73 req/s; p95 16.38ms; p99 20.31ms; 0 errors"
+      }
+    ],
+    "recovery": {
+      "restore_seconds": 0.293,
+      "snapshot_age_at_loss_seconds": 0.066,
+      "snapshot_sha256": "cd9bc8b90bc74460923f6b8d3d3ba3527dd23c32605c43a0844a5d404d3c4c6b",
+      "restored_sha256": "cd9bc8b90bc74460923f6b8d3d3ba3527dd23c32605c43a0844a5d404d3c4c6b",
+      "backup_bytes": 3136,
+      "recovery_point": "last logical snapshot; the post-backup row is intentionally absent"
+    },
+    "load": {
+      "requests": 25300,
+      "errors": 0,
+      "duration_seconds": 15.008,
+      "rps": 1685.73,
+      "p50_ms": 8.78,
+      "p95_ms": 16.38,
+      "p99_ms": 20.31,
+      "max_ms": 47.75,
+      "scenario": "verified TLS -> Nginx -> 2 Azu processes -> encrypted Redis session + PostgreSQL count query"
+    }
+  },
+  "extended_load": {
+    "run_id": "20261028T164211Z",
+    "completed": true,
+    "all_objectives_passed": false,
+    "workload": "95% authenticated GET /notes, 5% CSRF-protected POST /notes; 20,000 initial rows; verified TLS via Nginx to two Azu processes",
+    "objectives": {
+      "minimum_rps": 100,
+      "p95_ms": 250,
+      "p99_ms": 500,
+      "errors": 0
+    },
+    "stages": [
+      {
+        "name": "warmup",
+        "concurrency": 16,
+        "duration_seconds": 10.013,
+        "requests": 8555,
+        "rps": 854.4,
+        "p95_ms": 29.67,
+        "p99_ms": 36.62,
+        "errors": 0,
+        "successful_writes": 425,
+        "persisted_new_rows": 425,
+        "writes_match": true,
+        "ready_after_stage": true,
+        "within_objectives": true
+      },
+      {
+        "name": "baseline",
+        "concurrency": 16,
+        "duration_seconds": 30.013,
+        "requests": 26303,
+        "rps": 876.38,
+        "p95_ms": 29.55,
+        "p99_ms": 35.55,
+        "errors": 0,
+        "successful_writes": 1313,
+        "persisted_new_rows": 1313,
+        "writes_match": true,
+        "ready_after_stage": true,
+        "within_objectives": true
+      },
+      {
+        "name": "ramp-32",
+        "concurrency": 32,
+        "duration_seconds": 60.048,
+        "requests": 47019,
+        "rps": 783.02,
+        "p95_ms": 66.7,
+        "p99_ms": 77.19,
+        "errors": 0,
+        "successful_writes": 2349,
+        "persisted_new_rows": 2349,
+        "writes_match": true,
+        "ready_after_stage": true,
+        "within_objectives": true
+      },
+      {
+        "name": "ramp-64",
+        "concurrency": 64,
+        "duration_seconds": 60.089,
+        "requests": 44168,
+        "rps": 735.05,
+        "p95_ms": 255.91,
+        "p99_ms": 304.69,
+        "errors": 0,
+        "successful_writes": 2208,
+        "persisted_new_rows": 2208,
+        "writes_match": true,
+        "ready_after_stage": true,
+        "within_objectives": false
+      },
+      {
+        "name": "ramp-128",
+        "concurrency": 128,
+        "duration_seconds": 60.186,
+        "requests": 44000,
+        "rps": 731.07,
+        "p95_ms": 370.62,
+        "p99_ms": 425.17,
+        "errors": 0,
+        "successful_writes": 2204,
+        "persisted_new_rows": 2204,
+        "writes_match": true,
+        "ready_after_stage": true,
+        "within_objectives": false
+      },
+      {
+        "name": "soak-64",
+        "concurrency": 64,
+        "duration_seconds": 180.165,
+        "requests": 122751,
+        "rps": 681.33,
+        "p95_ms": 272.03,
+        "p99_ms": 311.8,
+        "errors": 0,
+        "successful_writes": 6138,
+        "persisted_new_rows": 6138,
+        "writes_match": true,
+        "ready_after_stage": true,
+        "within_objectives": false
+      },
+      {
+        "name": "recovery-16",
+        "concurrency": 16,
+        "duration_seconds": 30.02,
+        "requests": 21577,
+        "rps": 718.75,
+        "p95_ms": 35.51,
+        "p99_ms": 42.69,
+        "errors": 0,
+        "successful_writes": 1077,
+        "persisted_new_rows": 1077,
+        "writes_match": true,
+        "ready_after_stage": true,
+        "within_objectives": true
+      }
+    ]
+  },
+  "framework_comparison": {
+    "result_file": "bench-20261028T171345Z-local-v1-review.json",
+    "source": "2899126",
+    "config": {
+      "runs": 5,
+      "duration": 5,
+      "warmup": 2,
+      "connections": 64,
+      "threads": 2,
+      "ws_clients": 50,
+      "ws_senders": 4,
+      "pinning": "server on CPUs 0,1, load generators on CPUs 2,3",
+      "label": "local-v1-review"
+    },
+    "noise_reasons": [
+      "1-minute load average 0.90 > 0.5",
+      "other processes that disturb a benchmark are running: crystal(28790)",
+      "at the end of the run: other processes that disturb a benchmark are running: crystal(28790)"
+    ],
+    "forced": true,
+    "invalid_rows": [],
+    "scenarios": [
+      {
+        "name": "plaintext",
+        "rows": [
+          {
+            "app": "baseline",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 129629.25,
+              "min": 122889.64,
+              "max": 132529.46,
+              "mean": 128200.03,
+              "stddev": 4513.150396873561,
+              "rsd_pct": 3.5203973016804757
+            },
+            "p99_ms": 1.7,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": false
+          },
+          {
+            "app": "azu",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 91962.87,
+              "min": 82079.22,
+              "max": 98960,
+              "mean": 91409.954,
+              "stddev": 6922.805534082983,
+              "rsd_pct": 7.573360702142989
+            },
+            "p99_ms": 2.17,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "kemal",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 83062.91,
+              "min": 82044.72,
+              "max": 86339.62,
+              "mean": 83825.204,
+              "stddev": 1890.956402889816,
+              "rsd_pct": 2.255832747976153
+            },
+            "p99_ms": 1.99,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": false
+          },
+          {
+            "app": "athena",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 54348.87,
+              "min": 53075.95,
+              "max": 63489.05,
+              "mean": 56873.31799999999,
+              "stddev": 4467.174418339854,
+              "rsd_pct": 7.8546048928248835
+            },
+            "p99_ms": 2.28,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "lucky",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 93999.35,
+              "min": 83110.94,
+              "max": 103932.19,
+              "mean": 94026.39800000002,
+              "stddev": 7768.13603006989,
+              "rsd_pct": 8.26165438143221
+            },
+            "p99_ms": 1.66,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "azu-min",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 112579.2,
+              "min": 102870.73,
+              "max": 118225.16,
+              "mean": 111003.93599999999,
+              "stddev": 7663.8286154591215,
+              "rsd_pct": 6.904105288175658
+            },
+            "p99_ms": 1.8,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          }
+        ]
+      },
+      {
+        "name": "json",
+        "rows": [
+          {
+            "app": "baseline",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 111599.86,
+              "min": 99507.49,
+              "max": 123966.92,
+              "mean": 111396.824,
+              "stddev": 10574.733064916107,
+              "rsd_pct": 9.492849692838735
+            },
+            "p99_ms": 1.7,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "azu",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 80525.96,
+              "min": 73672.75,
+              "max": 89055.48,
+              "mean": 80527.374,
+              "stddev": 5610.778102668112,
+              "rsd_pct": 6.967541376263074
+            },
+            "p99_ms": 2.09,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "kemal",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 78621.88,
+              "min": 71412.91,
+              "max": 84697.71,
+              "mean": 77614.47600000001,
+              "stddev": 5035.714064189905,
+              "rsd_pct": 6.488111913800595
+            },
+            "p99_ms": 2.23,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "athena",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 54059.85,
+              "min": 49526.36,
+              "max": 55250.17,
+              "mean": 52801.56599999999,
+              "stddev": 2413.6567479096925,
+              "rsd_pct": 4.5711840211513675
+            },
+            "p99_ms": 2.5,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": false
+          },
+          {
+            "app": "lucky",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 79047.22,
+              "min": 75370.73,
+              "max": 94015.28,
+              "mean": 80958.77799999999,
+              "stddev": 7581.256989102798,
+              "rsd_pct": 9.364342170657268
+            },
+            "p99_ms": 1.84,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "azu-min",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 100766.33,
+              "min": 95385.13,
+              "max": 108902.44,
+              "mean": 101182.38399999999,
+              "stddev": 5039.250804988773,
+              "rsd_pct": 4.980363780506273
+            },
+            "p99_ms": 1.86,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": false
+          }
+        ]
+      },
+      {
+        "name": "routing",
+        "rows": [
+          {
+            "app": "baseline",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 113535.17,
+              "min": 103990.71,
+              "max": 128960.36,
+              "mean": 115212.41799999999,
+              "stddev": 8979.004645442054,
+              "rsd_pct": 7.793434771451506
+            },
+            "p99_ms": 1.68,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "azu",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 75373.48,
+              "min": 69920.79,
+              "max": 81174.96,
+              "mean": 76265.052,
+              "stddev": 4438.956302529914,
+              "rsd_pct": 5.820433063534677
+            },
+            "p99_ms": 2.01,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "kemal",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 70024.11,
+              "min": 57493.93,
+              "max": 72574.58,
+              "mean": 66122.74399999999,
+              "stddev": 7732.388258609369,
+              "rsd_pct": 11.693991795938429
+            },
+            "p99_ms": 2.08,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "athena",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 49295.85,
+              "min": 45718.94,
+              "max": 53141.63,
+              "mean": 49486.322,
+              "stddev": 2899.211192164171,
+              "rsd_pct": 5.858611177779935
+            },
+            "p99_ms": 2.57,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "lucky",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 76215.5,
+              "min": 70634.92,
+              "max": 85038.76,
+              "mean": 77011.24,
+              "stddev": 5217.958600041781,
+              "rsd_pct": 6.775580551672432
+            },
+            "p99_ms": 1.78,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "azu-min",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 88845.77,
+              "min": 81203.95,
+              "max": 103514.45,
+              "mean": 90547.266,
+              "stddev": 8214.984961789643,
+              "rsd_pct": 9.072593049678213
+            },
+            "p99_ms": 1.71,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          }
+        ]
+      },
+      {
+        "name": "template",
+        "rows": [
+          {
+            "app": "baseline",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 51499.89,
+              "min": 46882.51,
+              "max": 52905.69,
+              "mean": 50647.938,
+              "stddev": 2498.3149257189325,
+              "rsd_pct": 4.932708071390651
+            },
+            "p99_ms": 2.21,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": false
+          },
+          {
+            "app": "azu",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 10997.19,
+              "min": 10478.93,
+              "max": 12281.64,
+              "mean": 11139.688,
+              "stddev": 675.4891063666382,
+              "rsd_pct": 6.063806332517017
+            },
+            "p99_ms": 10.16,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "kemal",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 41466.7,
+              "min": 39543.18,
+              "max": 44968.73,
+              "mean": 42446.295999999995,
+              "stddev": 2379.776896250992,
+              "rsd_pct": 5.606559630670701
+            },
+            "p99_ms": 2.83,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "athena",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 34411.97,
+              "min": 32573.88,
+              "max": 40535.54,
+              "mean": 35606.75,
+              "stddev": 3204.979049042287,
+              "rsd_pct": 9.00104347923438
+            },
+            "p99_ms": 3.28,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "lucky",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 26202.14,
+              "min": 24807.35,
+              "max": 27242.72,
+              "mean": 25922.574,
+              "stddev": 1052.4733198186073,
+              "rsd_pct": 4.0600648678584434
+            },
+            "p99_ms": 3.9,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": false
+          },
+          {
+            "app": "azu-min",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 11669.02,
+              "min": 9816.38,
+              "max": 13315.58,
+              "mean": 11413.064,
+              "stddev": 1364.6181413421123,
+              "rsd_pct": 11.956632691642772
+            },
+            "p99_ms": 8.51,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          }
+        ]
+      }
+    ]
+  },
+  "ecr_comparison": {
+    "result_file": "bench-20261028T173638Z-ecr-comparison.json",
+    "source_patch_sha256": "a5492845771c473647df7ebed265ddcea01212607c3e158313c92b1a2e12a905",
+    "source_hashes": {
+      "benchmark/apps/azu/src/app.cr": "3fb3b01a09e2eaa7f0900ac9de3b92e0be91e2165b2c53a862aa531bf2e3eb54",
+      "benchmark/apps/common/template.ecr": "85caec7c7d6194a1fa7e9277a2ebee97e4777fef2798cfdf98f5d5fa70936f3e",
+      "benchmark/apps/manifest.json": "77042c2e88a1a3210bab64a000c3a6ed40fc38a322a2fe197cd9c02f4d0f0db0"
+    },
+    "source": "2899126 (dirty)",
+    "config": {
+      "runs": 5,
+      "duration": 10,
+      "warmup": 3,
+      "connections": 64,
+      "threads": 2,
+      "ws_clients": 50,
+      "ws_senders": 4,
+      "pinning": "server on CPUs 0,1, load generators on CPUs 2,3",
+      "label": "ecr-comparison"
+    },
+    "noise_reasons": [
+      "other processes that disturb a benchmark are running: crystal(28790)",
+      "at the end of the run: other processes that disturb a benchmark are running: crystal(28790)"
+    ],
+    "forced": true,
+    "invalid_rows": [],
+    "scenarios": [
+      {
+        "name": "template",
+        "rows": [
+          {
+            "app": "baseline",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 48195.27,
+              "min": 45601.83,
+              "max": 50699.27,
+              "mean": 48096.486,
+              "stddev": 2016.5340336032002,
+              "rsd_pct": 4.192684749574429
+            },
+            "p99_ms": 2.93,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": false
+          },
+          {
+            "app": "azu",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 11034.18,
+              "min": 10305.82,
+              "max": 11715.13,
+              "mean": 10995.003999999999,
+              "stddev": 516.7895984150609,
+              "rsd_pct": 4.700222013698776
+            },
+            "p99_ms": 9.74,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": false
+          },
+          {
+            "app": "kemal",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 42839.04,
+              "min": 38430.03,
+              "max": 47248.31,
+              "mean": 42712.01,
+              "stddev": 3468.0841867304775,
+              "rsd_pct": 8.119693235533699
+            },
+            "p99_ms": 2.4,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "athena",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 36436.19,
+              "min": 35294.94,
+              "max": 38583.02,
+              "mean": 36700.588,
+              "stddev": 1240.625399292629,
+              "rsd_pct": 3.3803965192400427
+            },
+            "p99_ms": 3.08,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": false
+          },
+          {
+            "app": "lucky",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 27150.76,
+              "min": 26230.1,
+              "max": 29849.79,
+              "mean": 27554.732,
+              "stddev": 1472.6107191549306,
+              "rsd_pct": 5.344311529340698
+            },
+            "p99_ms": 3.89,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "azu-ecr",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 50177.7,
+              "min": 45308.52,
+              "max": 50824.4,
+              "mean": 48520.31799999999,
+              "stddev": 2697.8804845878562,
+              "rsd_pct": 5.5603108054400145
+            },
+            "p99_ms": 2.35,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          },
+          {
+            "app": "azu-min-ecr",
+            "runs": 5,
+            "rps": {
+              "n": 5,
+              "median": 50332.37,
+              "min": 46076.37,
+              "max": 54462.06,
+              "mean": 50365.60799999999,
+              "stddev": 3391.6144829151776,
+              "rsd_pct": 6.733988961108498
+            },
+            "p99_ms": 2.31,
+            "non2xx": 0,
+            "socket_errors": 0,
+            "noisy": true
+          }
+        ]
+      }
+    ]
+  },
+  "limitations": [
+    "Local deployment used generated test credentials and a protected loopback-only topology.",
+    "Load generators and services shared a four-CPU quota; tests were closed-loop.",
+    "64/128-client latency objectives failed in the extended load test.",
+    "Framework comparisons explicitly retained the forced/noisy flags.",
+    "External authentication providers, cloud secret rotation, off-host/PITR recovery, large-dataset migrations and external alert delivery were not tested.",
+    "Hosted CI/review/merge/release status must be verified independently on the final reviewed commit."
+  ],
+  "supported_session_example": {
+    "path": "playground/redis_sessions",
+    "session_commit": "98b34d1980cc1461a9cb8d5b2a09325999e2f312",
+    "crystal": "1.22.1",
+    "redis": "8.0.2",
+    "examples": 3,
+    "failures": 0,
+    "errors": 0,
+    "pending": 0,
+    "frozen_install": "passed",
+    "executable_build": "passed",
+    "negative_control": "Removing the inner Azu::Handler::Rescuer caused exactly the session cookie preservation test to fail; restoring it passed all three tests.",
+    "ci": "Configured for test and test-latest against Redis 7; hosted execution is still required.",
+    "sha256": {
+      "playground/redis_sessions/src/app.cr": "198bef781834f5b07ef66ac8bc1feb12d53f504973c1e4e13ae8002194f638d1",
+      "playground/redis_sessions/spec/integration_spec.cr": "d54250e77623f76d4a60c342c51916f1c89c3fa0318cca7160234651f37f2b12",
+      "playground/redis_sessions/shard.yml": "8e334984f4222dddb3f1924ba6d7cea966bd30f1fa5dc1f466ac9e9907084d99",
+      "playground/redis_sessions/shard.lock": "5e699aa2660e2cba2d3b0527663e8e586d2a94a7c9426b27b2278479bb05b7da"
+    }
+  }
+}

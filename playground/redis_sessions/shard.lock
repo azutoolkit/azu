@@ -1,0 +1,25 @@
+version: 2.0
+shards:
+  azu:
+    path: ../..
+    version: 0.10.5
+
+  crinja:
+    git: https://github.com/straight-shoota/crinja.git
+    version: 0.9.0
+
+  pool:
+    git: https://github.com/ysbaddaden/pool.git
+    version: 0.2.4
+
+  redis:
+    git: https://github.com/stefanwille/crystal-redis.git
+    version: 2.9.1
+
+  schema:
+    git: https://github.com/azutoolkit/schema.git
+    version: 0.2.7
+
+  session:
+    git: https://github.com/azutoolkit/session.git
+    version: 1.1.0+git.commit.98b34d1980cc1461a9cb8d5b2a09325999e2f312

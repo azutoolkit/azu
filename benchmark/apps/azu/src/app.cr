@@ -3,7 +3,11 @@
 # Build flags (see benchmark/apps/manifest.json):
 #   -Dbench_minimal_handlers  only Rescuer, to separate the router/endpoint cost from the default middleware
 #   -Dbench_raw_db            the DB scenarios use crystal-sqlite3 directly instead of CQL
+#   -Dbench_ecr               render the shared compiled ECR template instead of Crinja
 require "../../../../src/azu"
+{% if flag?(:bench_ecr) %}
+  require "ecr"
+{% end %}
 require "sqlite3"
 require "db"
 require "cql"
@@ -28,14 +32,23 @@ module BenchApp
 
   struct ItemsPage
     include Azu::Response
-    include Azu::Templates::Renderable
 
-    def render
-      items = Bench::ITEMS.map do |item|
-        {"id" => Crinja::Value.new(item.id), "name" => Crinja::Value.new(item.name), "price" => Crinja::Value.new(item.price)}
+    {% if flag?(:bench_ecr) %}
+      # Use the exact template and per-request rendering used by the other ECR fixtures.
+      def render
+        items = Bench::ITEMS
+        ECR.render "#{__DIR__}/../../common/template.ecr"
       end
-      view "template.jinja", {"items" => items}
-    end
+    {% else %}
+      include Azu::Templates::Renderable
+
+      def render
+        items = Bench::ITEMS.map do |item|
+          {"id" => Crinja::Value.new(item.id), "name" => Crinja::Value.new(item.name), "price" => Crinja::Value.new(item.price)}
+        end
+        view "template.jinja", {"items" => items}
+      end
+    {% end %}
   end
 
   {% if flag?(:bench_raw_db) %}
