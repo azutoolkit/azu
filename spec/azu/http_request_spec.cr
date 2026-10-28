@@ -109,6 +109,42 @@ describe "HTTP::Request Extensions" do
     end
   end
 
+  describe "query_params" do
+    around_each do |example|
+      original = Azu::CONFIG.upload.max_params
+      Azu::CONFIG.upload.max_params = 2
+      begin
+        example.run
+      ensure
+        Azu::CONFIG.upload.max_params = original
+      end
+    end
+
+    it "answers an empty set past upload.max_params and keeps the query string as sent" do
+      request = HTTP::Request.new("GET", "/p?a=1&b=2&c=3")
+
+      request.query_params.should be_empty
+      request.query_too_large?.should be_true
+      request.query.should eq "a=1&b=2&c=3"
+      request.resource.should eq "/p?a=1&b=2&c=3"
+
+      request.query = "x=1"
+      request.query_too_large?.should be_false
+      request.query_params["x"].should eq "1"
+
+      request.query = "a=1;b=2;c=3" # the cap applies to a query set later too
+      request.query_params.should be_empty
+      request.query_too_large?.should be_true
+    end
+
+    it "parses a query within the cap once" do
+      request = HTTP::Request.new("GET", "/p?a=1&b=2")
+      request.query_params["a"].should eq "1"
+      request.@query_params.should_not be_nil # kept: the next read parses nothing
+      request.query_too_large?.should be_false
+    end
+  end
+
   describe "accept" do
     it "parses accept header with single type" do
       request = HTTP::Request.new("GET", "/")

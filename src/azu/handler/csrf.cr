@@ -581,7 +581,11 @@ module Azu
 
         bytes = buffer.to_slice
         context.request.body = IO::Memory.new(bytes)
-        HTTP::Params.parse(String.new(bytes))[@param_name]?
+        begin
+          Params::Form.parse_encoded(String.new(bytes))[@param_name]?
+        rescue Params::TooLarge
+          raise BodyTooLarge.new # too many pairs: refused like a body over the size limit, before the pairs exist
+        end
       end
 
       private def multipart_token(context : HTTP::Server::Context, body : IO) : String?

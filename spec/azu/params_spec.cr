@@ -326,6 +326,46 @@ describe Azu::Params do
     end
   end
 
+  describe "parameter count limit" do
+    around_each do |example|
+      original = Azu::CONFIG.upload.max_params
+      Azu::CONFIG.upload.max_params = 3
+      begin
+        example.run
+      ensure
+        Azu::CONFIG.upload.max_params = original
+      end
+    end
+
+    it "refuses a query string or a form body with more pairs than upload.max_params, and takes one at the limit" do
+      at_limit = HTTP::Request.new("GET", "/test?a=1&b=2&c=3")
+      Azu::Params(TestRequest).new(at_limit).query["c"].should eq "3"
+
+      over = HTTP::Request.new("GET", "/test?a=1&b=2&c=3&d=4")
+      error = expect_raises(Azu::Response::PayloadTooLarge) { Azu::Params(TestRequest).new(over) }
+      error.detail.should contain "at most 3"
+
+      form = HTTP::Request.new("POST", "/test", HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"}, "a=&a=&a=&a=")
+      expect_raises(Azu::Response::PayloadTooLarge) { Azu::Params(TestRequest).new(form) }.detail.should contain "form parameters"
+
+      # HTTP::Params splits on `;` as well, so a flood of `a=1;a=2;...` is counted too
+      semicolons = HTTP::Request.new("GET", "/test?a=1;b=2;c=3;d=4")
+      expect_raises(Azu::Response::PayloadTooLarge) { Azu::Params(TestRequest).new(semicolons) }
+      semicolons.query_too_large?.should be_true
+      semicolons.query_params.should be_empty # whoever reads it first pays for no pair
+
+      trailing = HTTP::Request.new("GET", "/test?a=1&b=2&")
+      Azu::Params(TestRequest).new(trailing).query["b"].should eq "2"
+    end
+
+    it "is checked before the router's method override and the CSRF token field parse a form" do
+      router = Azu::Router.new
+      flood = HTTP::Request.new("POST", "/x", HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"}, "_method=delete&a=&b=&c=")
+      context = HTTP::Server::Context.new(flood, HTTP::Server::Response.new(IO::Memory.new))
+      expect_raises(Azu::Response::PayloadTooLarge) { router.process(context) }
+    end
+  end
+
   describe "request body limit" do
     around_each do |example|
       original = Azu::CONFIG.upload.max_file_size

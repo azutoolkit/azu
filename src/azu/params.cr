@@ -15,7 +15,7 @@ module Azu
     getter json : String? = nil
 
     def initialize(request : HTTP::Request)
-      @query = request.query_params
+      @query = Form.query(request)
       @path = request.path_params
       @form, @files, @json = Body.parse(request)
     end
@@ -428,13 +428,35 @@ module Azu
         parse_part(request.body)
       end
 
+      # The query string's parameters: `HTTP::Request#query_params`, which parses at most `upload.max_params` pairs
+      # (it answers an empty set past that, so the other readers of the query stay cheap); here that is a 413.
+      def self.query(request : HTTP::Request) : HTTP::Params
+        params = request.query_params
+        raise Response::PayloadTooLarge.new("Too many query parameters (at most #{Azu.current_config.upload.max_params})") if request.query_too_large?
+        params
+      end
+
       def self.parse_part(input : IO) : HTTP::Params
-        HTTP::Params.parse(Body.read(input))
+        parse_part(Body.read(input))
       end
 
       def self.parse_part(input : String) : HTTP::Params
         raise TooLarge.new("Form data exceeds maximum allowed size") if input.bytesize > Azu.current_config.upload.max_file_size
+        parse_encoded(input)
+      end
+
+      # Parses a urlencoded string that is within `upload.max_file_size`, refusing one with more than
+      # `upload.max_params` pairs (`TooLarge`). Every parse of a form body goes through here (the router's `_method`
+      # override and `Handler::CSRF`'s token field too), so the count is checked before the pairs are allocated.
+      def self.parse_encoded(input : String) : HTTP::Params
+        raise TooLarge.new("Too many form parameters (at most #{Azu.current_config.upload.max_params})") if too_many?(input)
         HTTP::Params.parse(input)
+      end
+
+      # Counted before parsing: each pair costs an allocation, and the count is what a flood of `a=&a=&a=...` grows.
+      # `HTTP::Params` splits on `&` and on `;`, so both are counted.
+      def self.too_many?(encoded : String) : Bool
+        encoded.count { |char| char == '&' || char == ';' } >= Azu.current_config.upload.max_params
       end
 
       def self.parse_part(input : Nil) : HTTP::Params

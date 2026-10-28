@@ -21,7 +21,7 @@ Azu.cache.set("user:1", %({"id":1}))
 Things that are per process in Azu:
 
 - the memory cache (`CACHE_STORE=memory`, the default);
-- `Azu::Handler::Throttle` counters;
+- `Azu::Handler::Throttle` counters, unless `THROTTLE_STORE=redis` (or `store: Throttle::Store::Redis.new(...)`) shares them;
 - the in-memory `Azu::PubSub` backend and the default `Azu::Presence` store (see
   [Real-time across processes](#real-time-across-processes));
 - the CSRF key while `CSRF_SECRET` is unset: `Azu::Handler::CSRF` reads `CSRF_SECRET` itself (and raises in production

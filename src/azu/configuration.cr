@@ -486,6 +486,18 @@ module Azu
     property max_request_size : UInt64 = ENV.fetch("UPLOAD_MAX_REQUEST_SIZE", "67108864").to_u64 # 64MB default
     # The most parts (fields and files) and files of one multipart request; more is answered 413.
     property max_parts : Int32 = ENV.fetch("UPLOAD_MAX_PARTS", "100").to_i
+    # The most parameters (`name=value` pairs) of one query string or urlencoded body; more is answered 413. At least 1.
+    getter max_params : Int32 = UploadConfiguration.at_least_one("UPLOAD_MAX_PARAMS", ENV.fetch("UPLOAD_MAX_PARAMS", "1000").to_i)
+
+    def max_params=(value : Int32) : Int32
+      @max_params = UploadConfiguration.at_least_one("upload.max_params", value)
+    end
+
+    protected def self.at_least_one(name : String, value : Int32) : Int32
+      raise ArgumentError.new("#{name} must be at least 1, not #{value}") if value < 1
+      value
+    end
+
     property max_files : Int32 = ENV.fetch("UPLOAD_MAX_FILES", "20").to_i
     property temp_dir : String = ENV.fetch("UPLOAD_TEMP_DIR", Dir.tempdir)
     property buffer_size : Int32 = ENV.fetch("UPLOAD_BUFFER_SIZE", "8192").to_i                        # 8KB default

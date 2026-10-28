@@ -1,3 +1,7 @@
+require "./throttle/store"
+require "./throttle/memory"
+require "./throttle/redis"
+
 module Azu
   module Handler
     # Handler for protecting against Denial-of-service attacks and/or to rate limit requests.
@@ -11,13 +15,11 @@ module Azu
     #
     # ### Options
     #
-    # All five are required:
-    #
-    #   * **interval**   Seconds until the request counter is reset
-    #   * **duration**   Seconds a remote address stays blocked
-    #   * **threshold**  Number of requests allowed per interval
-    #   * **blacklist**  Remote addresses refused at once
-    #   * **whitelist**  Remote addresses never throttled
+    #   * **interval**   Seconds until the request counter is reset (5)
+    #   * **duration**   Seconds a remote address stays blocked (900)
+    #   * **threshold**  Number of requests allowed per interval (100)
+    #   * **blacklist**  Remote addresses refused at once (none)
+    #   * **whitelist**  Remote addresses never throttled (none)
     #
     # `log:` is optional: without it, the log of the app serving the request. The others are optional too:
     #
@@ -26,12 +28,21 @@ module Azu
     #     address that is not a trusted proxy: that is the client. Empty (the default): the connection's address.
     #   * **ipv6_prefix**  IPv6 clients are counted by their first N bits (64 by default), since one subscriber
     #     owns a whole /64.
-    #   * **max_clients**  The most clients tracked at once (100 000 by default); see "Memory" below.
+    #   * **store**  Where the counters live: `Store::Memory` (this process; the default) or `Store::Redis` (every
+    #     instance of the app together). Without one, `THROTTLE_STORE=redis` selects Redis (`THROTTLE_REDIS_URL`,
+    #     then `REDIS_URL`), else memory.
+    #   * **max_clients**  The most clients the memory store tracks at once (100 000 by default); see "Memory" below.
     #
     # ### Memory
     #
-    # A tracker whose window and block have ended is dropped by a sweep that runs on a request, at most once a second
-    # (no fiber). When more than `max_clients` are tracked the oldest ones that are not blocked go first.
+    # The memory store drops a tracker whose window and block have ended by a sweep that runs on a request, at most
+    # once a second (no fiber). When more than `max_clients` are tracked the oldest ones that are not blocked go first.
+    #
+    # ### Clients it cannot identify
+    #
+    # A request without an IP peer (a UNIX socket listener, a server bound to something that is not a socket) names
+    # no client: it passes uncounted, with one warning for the process. Listen on TCP, with the proxy in
+    # `trusted_proxies`, to throttle behind a socket.
     #
     # ### Usage
     #
@@ -46,40 +57,6 @@ module Azu
     # ```
     class Throttle
       include HTTP::Handler
-
-      # Thread-safe request tracker structure
-      private struct RequestTracker
-        property expires : Time::Instant
-        property requests : Int32
-        property block_expires : Time::Instant?
-
-        def initialize(@expires : Time::Instant, @requests : Int32 = 0, @block_expires : Time::Instant? = nil)
-        end
-
-        def blocked? : Bool
-          !@block_expires.nil?
-        end
-
-        def block_expired?(current_time : Time::Instant) : Bool
-          if block_time = @block_expires
-            block_time < current_time
-          else
-            false
-          end
-        end
-
-        def watch_expired?(current_time : Time::Instant) : Bool
-          @expires <= current_time
-        end
-
-        def increment_requests : RequestTracker
-          RequestTracker.new(@expires, @requests + 1, @block_expires)
-        end
-
-        def block(duration : Int32, current_time : Time::Instant) : RequestTracker
-          RequestTracker.new(@expires, @requests, current_time + duration.seconds)
-        end
-      end
 
       # Throttle's own 429, the only error whose HTML page is cached: its text is fixed by `Retry-After`, so what
       # one client is shown is what another would be. An error a user raises (`RateLimitError`, or a subclass of it)
@@ -150,50 +127,46 @@ module Azu
       RETRY_AFTER    = "Retry-After"
       CONTENT_TYPE   = "Content-Type"
       CONTENT_LENGTH = "Content-Length"
-      UNKNOWN_CLIENT = "unknown"
       UNRESOLVED     = "!forwarded"
 
       DEFAULT_MAX_CLIENTS = 100_000
-      SWEEP_EVERY         = 1.second
 
-      private getter interval : Int32 = 5,
-        duration : Int32 = 900,
-        threshold : Int32 = 100,
-        blacklist : Array(String) = [] of String,
-        whitelist : Array(String) = [] of String
+      private getter interval : Int32,
+        duration : Int32,
+        threshold : Int32,
+        blacklist : Array(String),
+        whitelist : Array(String)
+
+      # The store the counters live in.
+      getter store : Store
 
       @log : ::Log?
       @refusal_lines = LogBudget.new(LOG_PER_SECOND)
       @event_lines = LogBudget.new(LOG_PER_SECOND)
-      # Clients inside their window, then clients that are blocked. Both keep the order clients entered them in, which
-      # is what makes eviction and sweeping cheap: the front of `@tracker` is the oldest first-seen client, and the
-      # front of `@blocked` is the block that ends first (every block lasts `duration`).
-      @tracker : Hash(String, RequestTracker)
-      @blocked : Hash(String, RequestTracker)
-      @mutex : Mutex
+      @unidentified_warned = Atomic(Bool).new(false)
+      @limits : Limits
       @trusted : ClientAddress::Networks
       @ipv6_prefix : Int32
-      @max_clients : Int32
-      @next_sweep : Time::Instant
       @blacklisted : ClientAddress::Networks
       @whitelisted : ClientAddress::Networks
 
       # Without an explicit log, the log of the app serving the request (`Azu.current_config`).
       # *trusted_proxies*, *blacklist* and *whitelist* take IP addresses and CIDR blocks and raise `ArgumentError` for
       # any other entry; *trusted_proxies* also refuses a block that is everything (`0.0.0.0/0`, `::/0`).
-      def initialize(@interval, @duration, @threshold, @blacklist, @whitelist, @log : ::Log? = nil,
-                     trusted_proxies : Array(String) = [] of String, ipv6_prefix : Int32 = 64, max_clients : Int32 = DEFAULT_MAX_CLIENTS)
+      # *max_clients* sizes the memory store built when no *store* is given.
+      def initialize(@interval : Int32 = 5, @duration : Int32 = 900, @threshold : Int32 = 100,
+                     @blacklist : Array(String) = [] of String, @whitelist : Array(String) = [] of String, @log : ::Log? = nil,
+                     trusted_proxies : Array(String) = [] of String, ipv6_prefix : Int32 = 64, max_clients : Int32 = DEFAULT_MAX_CLIENTS,
+                     store : Store? = nil)
         raise ArgumentError.new("ipv6_prefix must be between 1 and 128") unless 1 <= ipv6_prefix <= 128
         raise ArgumentError.new("max_clients must be positive") unless max_clients > 0
+        raise ArgumentError.new("interval and duration must be positive, threshold not negative") if @interval <= 0 || @duration <= 0 || @threshold < 0
+        @limits = Limits.new(@interval, @duration, @threshold)
         @trusted = ClientAddress::Networks.parse(trusted_proxies, "trusted_proxies", catch_all: false)
         @ipv6_prefix = ipv6_prefix
-        @max_clients = max_clients
         @blacklisted = ClientAddress::Networks.parse(@blacklist, "blacklist")
         @whitelisted = ClientAddress::Networks.parse(@whitelist, "whitelist")
-        @tracker = Hash(String, RequestTracker).new
-        @blocked = Hash(String, RequestTracker).new
-        @mutex = Mutex.new
-        @next_sweep = Clock.instant + SWEEP_EVERY
+        @store = store || Store.from_env(max_clients)
       end
 
       private def log : ::Log
@@ -201,10 +174,14 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context)
-        client = client_address(context)
+        unless client = client_address(context)
+          unidentified(context)
+          return call_next(context)
+        end
 
-        return call_next(context) unless deflect?(client)
-        too_many_requests(context, client.key)
+        verdict = deflect(client)
+        return call_next(context) unless retry_after = verdict.retry_after
+        too_many_requests(context, retry_after)
       end
 
       # Who a request is from: the address, as it is compared with the black and white lists, and the key its
@@ -215,12 +192,17 @@ module Azu
       # REMOTE_ADDR is never set by the server and a client can send any value for it,
       # which would let it dodge the limit, borrow a whitelisted address or frame another one.
       # `X-Forwarded-For` is read only when the connection comes from a trusted proxy (see `ClientAddress.client`).
-      private def client_address(context : HTTP::Server::Context) : Client
-        case address = context.request.remote_address
-        when Socket::IPAddress then identify(address, context.request.headers)
-        when Nil               then Client.new(UNKNOWN_CLIENT, UNKNOWN_CLIENT)
-        else                        Client.new(address.to_s, address.to_s)
-        end
+      # Nil for a request without an IP peer (none, or a UNIX socket's): nothing identifies its client.
+      private def client_address(context : HTTP::Server::Context) : Client?
+        address = context.request.remote_address
+        identify(address, context.request.headers) if address.is_a?(Socket::IPAddress)
+      end
+
+      # Every such request would share one bucket, so one visitor could lock every other out: they pass instead.
+      private def unidentified(context : HTTP::Server::Context) : Nil
+        return if @unidentified_warned.swap(true)
+        peer = context.request.remote_address.try { |address| " (#{address.class.name.rpartition("::").last})" } || ""
+        log.warn { "#{context.request.method} #{context.request.path}: the request has no IP peer address#{peer}, so Throttle cannot tell its client and lets such requests pass; listen on TCP (with the proxy in trusted_proxies) to count them" }
       end
 
       private def identify(peer : Socket::IPAddress, headers : HTTP::Headers) : Client
@@ -237,30 +219,24 @@ module Azu
         end
       end
 
-      private def deflect?(client : Client) : Bool
+      # A whitelisted client is never counted; a blacklisted one is refused for `duration` without being counted.
+      private def deflect(client : Client) : Verdict
         if ip = client.ip
-          return false if @whitelisted.includes?(ip)
-          return true if @blacklisted.includes?(ip)
+          return Verdict.new if @whitelisted.includes?(ip)
+          return Verdict.new(duration) if @blacklisted.includes?(ip)
         end
 
-        @mutex.synchronize { watch(client.key) }
+        verdict = @store.hit(client.key, @limits)
+        case verdict.event
+        in Verdict::Event::Blocked  then log_event("#{client.key} blocked")
+        in Verdict::Event::Released then log_event("#{client.key} released")
+        in Nil                      then nil
+        end
+        verdict
       end
 
-      private def too_many_requests(context, remote : String)
-        retry_after = @mutex.synchronize do
-          if tracker = @blocked[remote]?
-            if block_exp = tracker.block_expires
-              remaining = block_exp - Clock.instant
-              remaining.total_seconds.to_i64
-            else
-              0_i64
-            end
-          else
-            0_i64
-          end
-        end
-
-        error = Refusal.new(retry_after.to_i32)
+      private def too_many_requests(context, retry_after : Int32)
+        error = Refusal.new(retry_after)
         log_refusal(context.request, error)
         error.to_s(context)
         context.response.close
@@ -281,85 +257,14 @@ module Azu
         log.warn { message } if write
       end
 
-      # All methods below must be called within @mutex.synchronize block
-      private def watch(remote : String) : Bool
-        # Use monotonic time to prevent clock skew vulnerabilities
-        # (e.g., NTP adjustments causing indefinite blocks)
-        current_time = Clock.instant
-        sweep(current_time)
-
-        if blocked = @blocked[remote]?
-          return still_blocked?(remote, blocked, current_time)
-        end
-
-        tracker = @tracker[remote]? || begin
-          make_room
-          RequestTracker.new(current_time + interval.seconds, 0)
-        end
-        count(remote, tracker.increment_requests, current_time)
+      # Forgets every client (`Store#reset`): for specs and operators.
+      def reset : Nil
+        @store.reset
       end
 
-      private def still_blocked?(remote : String, tracker : RequestTracker, current_time : Time::Instant) : Bool
-        return true unless tracker.block_expired?(current_time)
-
-        @blocked.delete(remote)
-        log_event("#{remote} released")
-        false
-      end
-
-      # Counts one request of a client that is not blocked: a window that has ended starts over, a client over the
-      # threshold moves to the blocked table.
-      private def count(remote : String, tracker : RequestTracker, current_time : Time::Instant) : Bool
-        if tracker.watch_expired?(current_time)
-          @tracker.delete(remote)
-          return false
-        end
-
-        if tracker.requests > threshold
-          @tracker.delete(remote)
-          @blocked[remote] = tracker.block(duration, current_time)
-          log_event("#{remote} blocked")
-          return true
-        end
-
-        @tracker[remote] = tracker
-        false
-      end
-
-      # Drops the trackers whose window has ended, and the blocks that have ended (they are in the order they end in,
-      # so only the front is looked at), at most once per SWEEP_EVERY, on a request.
-      private def sweep(current_time : Time::Instant) : Nil
-        return if current_time < @next_sweep
-        @next_sweep = current_time + SWEEP_EVERY
-        @tracker.reject! { |_, tracker| tracker.watch_expired?(current_time) }
-        while (first = @blocked.first_value?) && first.block_expired?(current_time)
-          @blocked.shift
-        end
-      end
-
-      # A new client does not grow the tables past max_clients: the client first seen longest ago and not blocked goes,
-      # and only when every tracked client is blocked, the block that ends first. Both are the front of a table, O(1).
-      private def make_room : Nil
-        return if @tracker.size + @blocked.size < @max_clients
-        @tracker.shift? || @blocked.shift?
-      end
-
-      # Reset tracker (useful for testing)
-      def reset
-        @mutex.synchronize do
-          @tracker.clear
-          @blocked.clear
-        end
-      end
-
-      # Get tracker stats (useful for monitoring)
-      def stats
-        @mutex.synchronize do
-          {
-            tracked_ips: @tracker.size + @blocked.size,
-            blocked_ips: @blocked.size,
-          }
-        end
+      # Clients tracked and blocked (`Store#stats`; zeros for the Redis store).
+      def stats : NamedTuple(tracked_ips: Int32, blocked_ips: Int32)
+        @store.stats
       end
     end
   end

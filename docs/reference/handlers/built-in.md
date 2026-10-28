@@ -331,8 +331,16 @@ Other behavior:
 Azu::Handler::Compression.new
 ```
 
-The standard library's `HTTP::CompressHandler`: gzip or deflate for clients that send `Accept-Encoding`. It is not
-in the default stack. `Static` already compresses and sets its own length, so place `Compression` after `Static`.
+The standard library's `HTTP::CompressHandler`: gzip or deflate for clients that send `Accept-Encoding`, with
+`Vary: Accept-Encoding` on every response it decides on, so a cache never serves one client's body to another; an
+event stream (`text/event-stream`) is left alone. It is not in the default stack. `Static` already compresses and sets
+its own length, so place `Compression` after `Static`.
+
+{% hint style="warning" %}
+A compressed page that mixes a secret (a CSRF token, a session id) with text an attacker chooses leaks the secret
+through the body's size (BREACH). Azu's CSRF tokens are random per page, the usual mitigation; leave the handler out
+for pages where that is not enough.
+{% endhint %}
 
 ### Handler::CORS
 
@@ -595,14 +603,16 @@ Azu::Handler::Throttle.new(
   trusted_proxies: ["10.0.0.0/8", "::1"],
   ipv6_prefix: 64,
   max_clients: 100_000,
+  store: nil, # Store::Memory, or Store::Redis with THROTTLE_STORE=redis
 )
 ```
 
-The first five arguments are required.
+Every argument has a default (the values above): `Azu::Handler::Throttle.new` allows 100 requests in 5 seconds
+and blocks for 15 minutes.
 
 - `interval` - seconds in which `threshold` requests are allowed per client address.
 - `threshold` - requests allowed within `interval`; the next one blocks the client.
-- `duration` - seconds a blocked client stays blocked.
+- `duration` - seconds a blocked client stays blocked, and the `Retry-After` a blacklisted client is answered.
 - `blacklist` / `whitelist` - addresses and CIDR blocks that are always refused / never counted.
 - `log : ::Log?` - where blocks, releases and refusals are logged (at most 10 refusals a second, then one line
   counting the rest). Without one, the log of the app serving the request.
@@ -611,14 +621,28 @@ The first five arguments are required.
   `ArgumentError`. Empty by default: the client is the address of the connection, as before.
 - `ipv6_prefix : Int32` - IPv6 clients are counted by their first N bits, 64 by default: a subscriber owns a whole /64
   and could otherwise dodge the limit, and fill the table, by rotating the rest.
-- `max_clients : Int32` - the most clients tracked at once, 100 000 by default.
+- `max_clients : Int32` - the most clients the memory store tracks at once, 100 000 by default.
+- `store : Throttle::Store?` - where the counters live. `Throttle::Store::Memory` (the default) counts in this process,
+  so each instance of a scaled deployment allows the limit on its own; `Throttle::Store::Redis` counts every instance
+  together, in one Lua script per request on the shared `Azu::Redis` pool, with Redis's own expiry (a block outlives a
+  restart; Redis Cluster is not supported). Without the argument, `THROTTLE_STORE=redis` selects Redis on
+  `THROTTLE_REDIS_URL` (then `REDIS_URL`, with the `REDIS_TLS_*` settings), `memory` or unset selects memory, and
+  anything else raises `ArgumentError`. `Store::Redis.new(url)` or `.new(client, prefix)` build one by hand (keys are
+  `azu:throttle:c:<client>` and `azu:throttle:b:<client>`; the pool stays open for the life of the process). Redis is
+  asked with 250 ms timeouts and no retry, since every request waits for the answer; while it fails or is too slow,
+  clients are counted in a memory store of this process instead and Redis is left alone for 2 seconds before it is
+  asked again (one warning per such window): the limit degrades to per-instance counting rather than disappearing,
+  and an outage never stalls the app. A client built by hand keeps its own timeouts: keep them short.
 
-Clients are identified by the peer address of the connection (not by headers a client controls). A blocked
+Clients are identified by the peer address of the connection (not by headers a client controls). A request without an
+IP peer (a UNIX socket listener, a server bound to something that is not a socket) names no client and passes
+uncounted, with one warning for the process: listen on TCP, with the proxy in `trusted_proxies`, to count it. A blocked
 client gets `429` with `Retry-After` (seconds left) and the body of a `Response::RateLimitError`, chosen by `Accept`
 like every [error response](../errors/error-types.md#error-response-format): with `threshold: 3` the fourth request in
 the interval answers `429`, and a JSON client gets
 `{"type":"about:blank","title":"Rate Limit Exceeded","status":429,"detail":"Rate limit exceeded. Retry after 899 seconds.",...}`.
-`stats` returns `{tracked_ips: Int32, blocked_ips: Int32}`, and `reset` clears the counters.
+`stats` returns `{tracked_ips: Int32, blocked_ips: Int32}` (zeros for the Redis store), and `reset` clears the counters
+(the Redis store scans its keys for that: not on a request).
 
 Outside development, the HTML page of a refusal is rendered once a second for each `Retry-After` value and locale,
 and served to every client refused in that second, with the same `X-Error-ID`. A custom `error.html` must therefore

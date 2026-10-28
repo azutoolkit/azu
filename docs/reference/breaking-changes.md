@@ -13,6 +13,17 @@ from an early 0.5 release to the current API, with old and new code side by side
 
 ## Next release
 
+**`Handler::Throttle` has defaults, a store seam and refuses blacklisted clients for `duration`.** Every constructor
+argument has a default (`interval: 5, duration: 900, threshold: 100`, empty lists), so `Throttle.new` works. The
+counters live in a `Throttle::Store`: `Store::Memory` (the default, the table it kept before) or `Store::Redis`, which
+every instance of the app shares (`store:`, or `THROTTLE_STORE=redis` with `THROTTLE_REDIS_URL` / `REDIS_URL`; while
+Redis fails, clients are counted in this process). `interval` and `duration` must be positive (`ArgumentError`). A
+blacklisted client is answered `Retry-After: <duration>` instead of `0`, and a request without an IP peer (a UNIX socket
+listener) passes uncounted with one warning instead of sharing one bucket with every other such request.
+`Handler::Compression` adds `Vary: Accept-Encoding`. A query string or urlencoded body with more than
+`upload.max_params` pairs (`UPLOAD_MAX_PARAMS`, 1000; `&` or `;` separated) is answered `413` before any pair is
+parsed: `HTTP::Request#query_params` is then empty and `query_too_large?` true.
+
 **`start` refuses to boot a misconfigured server, and staging is strict.** `Azu::App#start` runs
 `Configuration#check_boot` before it binds: a server whose `CRYSTAL_ENV` was never set and whose host is not loopback
 (it would serve the exception page and the dev dashboard on every interface) raises `Azu::Configuration::BootError`

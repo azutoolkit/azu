@@ -255,10 +255,15 @@ describe Azu::Handler::HealthCheck do
 end
 
 describe Azu::Handler::Compression do
-  it "gzips for clients that accept it" do
+  it "gzips for clients that accept it, and tells caches the body depends on Accept-Encoding either way" do
     serve([Azu::Handler::Compression.new] of HTTP::Handler) do |client|
       response = client.get("/hello", HTTP::Headers{"Accept-Encoding" => "gzip"})
       response.headers["Content-Encoding"].should eq "gzip"
+      response.headers["Vary"].should eq "Accept-Encoding"
+
+      plain = client.get("/hello", HTTP::Headers{"Accept-Encoding" => "identity"})
+      plain.headers["Content-Encoding"]?.should be_nil
+      plain.headers["Vary"].should eq "Accept-Encoding"
     end
   end
 end
