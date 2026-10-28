@@ -33,7 +33,7 @@ crystal: ">= 1.22.1"
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.5.119
+    version: ~> 0.10.0
 
 targets:
   hello:

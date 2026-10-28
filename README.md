@@ -60,7 +60,7 @@ crystal: ">= 1.22.1"
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.5.119
+    version: ~> 0.10.0
 ```
 
 ```bash
@@ -270,6 +270,8 @@ The raw snapshot is committed: [report](benchmark/snapshots/2026-10-26-v0.5.123-
 ## Contributing
 
 Bug reports and pull requests are welcome. [Contributing setup](docs/contributing/setup.md) covers building and testing; [standards](docs/contributing/standards.md) covers style. Run `crystal spec` and `crystal tool format --check src spec` before you push.
+
+Found a vulnerability? Please report it privately as [SECURITY.md](SECURITY.md) describes, not in a public issue.
 
 ## License
 

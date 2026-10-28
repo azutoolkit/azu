@@ -18,7 +18,7 @@ The code below uses the JoobQ 0.4.2 API. Check [JoobQ's README](https://github.c
 dependencies:
   azu:
     github: azutoolkit/azu
-    version: ~> 0.5.119
+    version: ~> 0.10.0
   joobq:
     github: azutoolkit/joobq
 ```
