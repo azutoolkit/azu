@@ -43,6 +43,7 @@ module Azu
           at:       now.to_rfc3339,
           requests: metrics.try { |monitored| requests(monitored, now) },
           sql:      sql(queries, config.database.slow_query_ms),
+          errors:   errors(ErrorStore.instance),
           runtime:  {heap_bytes: GC.stats.heap_size.to_i64, free_bytes: GC.stats.free_bytes.to_i64},
         }
       end
@@ -82,7 +83,38 @@ module Azu
           pool:       pool,
           n_plus_one: alerts,
           slowest:    slowest,
+          recent:     recent.last(100).reverse.map { |query|
+            {id: query.id, at: Time.unix_ms(query.started_ms).to_s("%H:%M:%S"), sql: query.normalized_sql[0, 2000],
+             ms: query.duration_ms.round(2), caller: query.caller, model: query.table, endpoint: query.endpoint,
+             pool_wait_ms: query.pool_wait_ms.round(2)}
+          },
+          histogram: histogram(recent.map(&.duration_ms)),
         }
+      end
+
+      # No raw request/context or bound SQL parameters cross the local telemetry socket.
+      # RequestInfo has already applied the exception page's redaction policy.
+      def self.errors(store : ErrorStore)
+        store.recent(10).map do |report|
+          {id: report.id, at: report.timestamp.to_s("%H:%M:%S"), class: report.exception_class,
+           message: report.message[0, 2000], route: report.request.route || report.request.line,
+           params: report.request.params.first(30).map { |key, value| {key[0, 128], value[0, 512]} },
+           frames: report.frames.first(40).map { |frame| frame.raw[0, 512] },
+           problem: {type: "about:blank", title: report.status_text, status: report.status,
+                     detail: report.message[0, 2000], instance: report.request.path, error_id: report.error_id}}
+        end
+      end
+
+      def self.histogram(times : Array(Float64))
+        bounds = [1.0, 5.0, 10.0, 50.0, 100.0]
+        labels = ["<1", "1–5", "5–10", "10–50", "50–100", "≥100"]
+        counts = Array.new(6, 0)
+        times.each do |ms|
+          next unless ms.finite? && ms >= 0
+          counts[bounds.index { |bound| ms < bound } || 5] += 1
+        end
+        maximum = Math.max(1, counts.max)
+        labels.map_with_index { |label, index| {label: label, count: counts[index], bar: counts[index] * 12 // maximum} }
       end
 
       private def self.percentile(sorted : Array(Float64), rank : Float64) : Float64
