@@ -117,6 +117,7 @@
 * [Spark live views](explanation/spark-live-views.md)
 * [Type safety](explanation/architecture/type-safety.md)
 * [Performance design](explanation/architecture/performance-design.md)
+* [Request-path performance and concurrency](explanation/request-path-performance.md)
 
 ## Contributing
 

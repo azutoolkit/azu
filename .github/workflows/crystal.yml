@@ -246,17 +246,20 @@ jobs:
           crystal spec -Dsession_spec
           crystal build --no-codegen src/app.cr
 
-  # The concurrency specs only race with several threads: they run here in a -Dpreview_mt build
-  # (4 workers) on the oldest supported Crystal. -Dpreview_mt is deprecated there (it warns, and the build still uses
-  # the threaded scheduler); moving to execution contexts is a separate change.
+  # Exercise both the legacy threaded scheduler and Crystal 1.22's execution contexts.
+  # Modern execution contexts start with one worker; the spec flag explicitly resizes them.
   test-mt:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        flags: ["-Dpreview_mt", "-Dazu_parallel_spec"]
     container:
       image: crystallang/crystal:1.22.1
     env:
       CRYSTAL_ENV: pipeline
-      CRYSTAL_WORKERS: "4"
+      CRYSTAL_WORKERS: "16"
     steps:
       - uses: actions/checkout@v7
 
@@ -267,7 +270,7 @@ jobs:
         run: shards install
 
       - name: Run the concurrency specs with threads
-        run: crystal spec -Dpreview_mt spec/azu/mt_stress_spec.cr spec/azu/app_scope_spec.cr spec/azu/graceful_shutdown_spec.cr
+        run: crystal spec ${{ matrix.flags }} spec/azu/mt_stress_spec.cr spec/azu/app_scope_spec.cr spec/azu/graceful_shutdown_spec.cr spec/azu/performance_scope_spec.cr spec/azu/json_response_spec.cr spec/azu/template_body_limit_spec.cr
 
   # Every push to master that passes every test job (the oldest and the newest Crystal, the threaded specs and the
   # documentation checks) is a release: the job writes the version into shard.yml,

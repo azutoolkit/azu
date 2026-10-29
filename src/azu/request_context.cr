@@ -1,7 +1,13 @@
 require "http/server"
 
+class Fiber
+  # :nodoc:
+  # Owned by this fiber, never inherited by a spawned fiber or keyed by a thread.
+  property azu_request_context : Azu::RequestContext::Info?
+end
+
 module Azu
-  # Fiber-keyed record of the HTTP request being served, so lower layers (the
+  # Fiber-owned record of the HTTP request being served, so lower layers (the
   # database instrumentation, loggers) can tie their work back to it without the
   # context being passed around. Entries live only for the duration of `scope`.
   module RequestContext
@@ -76,8 +82,6 @@ module Azu
     private ID_PREFIX  = "req_"
     private HEX_DIGITS = "0123456789abcdef"
 
-    @@mutex = Mutex.new
-    @@contexts = {} of Fiber => Info
     @@entropy = IdEntropy.new
 
     # :nodoc:
@@ -103,27 +107,23 @@ module Azu
     end
 
     def self.current? : Info?
-      @@mutex.synchronize { @@contexts[Fiber.current]? }
+      Fiber.current.azu_request_context
     end
 
     # Runs the block with `context` registered for the current fiber. A scope that is already open
-    # (e.g. from the RequestId handler) is reused. Looking for one and opening a new one is a single
-    # critical section.
+    # (e.g. from the RequestId handler) is reused. A fiber only runs on one thread at a time;
+    # its state follows it when the scheduler moves it, without a process-wide registry or lock.
     def self.scope(context : HTTP::Server::Context, & : Info ->)
       fiber = Fiber.current
-      created = false
-      info = @@mutex.synchronize do
-        @@contexts[fiber]? || begin
-          created = true
-          @@contexts[fiber] = new_info(context, fiber)
-        end
+      if info = fiber.azu_request_context
+        return yield info
       end
-      return yield info unless created
 
+      info = fiber.azu_request_context = new_info(context, fiber)
       begin
         yield info
       ensure
-        @@mutex.synchronize { @@contexts.delete(fiber) }
+        fiber.azu_request_context = nil
       end
     end
 
@@ -135,18 +135,12 @@ module Azu
     # Runs the block with an explicit context (for jobs and specs).
     def self.with(request_id : String, method : String = "GET", path : String = "/", endpoint : String? = nil, &)
       fiber = Fiber.current
-      previous = @@mutex.synchronize { @@contexts[fiber]? }
-      @@mutex.synchronize { @@contexts[fiber] = Info.new(request_id, method, path, fiber.object_id, endpoint) }
+      previous = fiber.azu_request_context
+      fiber.azu_request_context = Info.new(request_id, method, path, fiber.object_id, endpoint)
       begin
         yield
       ensure
-        @@mutex.synchronize do
-          if previous
-            @@contexts[fiber] = previous
-          else
-            @@contexts.delete(fiber)
-          end
-        end
+        fiber.azu_request_context = previous
       end
     end
   end

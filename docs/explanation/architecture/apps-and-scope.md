@@ -27,7 +27,7 @@ limit applied while parameters are parsed, the error body of a `422`. An endpoin
 there is no place to pass an app down. That code calls `Azu.current_config` instead, which answers with the
 configuration of the app serving the current fiber, and with `Azu::CONFIG` when no app is.
 
-The answer is kept per fiber, since each request runs in its own fiber. `Azu::App::Scope` sets it: `App#chain` puts
+The answer is kept on the connection's fiber and scoped to each request. `Azu::App::Scope` sets it: `App#chain` puts
 this handler in front of every chain of the app, so it is never in the list you pass to `start`. For each request it
 
 - counts the request as in flight, which is what `stop` waits for;
@@ -40,8 +40,10 @@ A fiber started with `spawn` does not inherit the record: it starts with the glo
 outlives the chain too, so the upgrade captures the app and its configuration, and the channel's callbacks run with
 them. `Azu.with_config(config) { ... }` sets the configuration alone for a block; specs use it, and so does a mount.
 
-The record lives in a hash guarded by a mutex: a request writes it when it enters the scope and when it leaves, and
-each `Azu.current_config` call reads it.
+The record lives on the owning Fiber: entering a scope saves the previous value, and leaving restores it even
+after an exception. Reads do not take a global mutex. The test cleanup method `clear_fiber_configs` advances an
+atomic generation; a fiber drops an invalidated configuration on its next lookup or scope exit, preserving its app.
+See [request-path performance](../request-path-performance.md) for concurrency boundaries and measurements.
 
 ## What belongs to an app
 

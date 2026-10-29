@@ -537,6 +537,14 @@ module Azu
     end
 
     class PayloadTooLarge < Error
+      # A size rejection can leave an unread body. Crystal closes that connection
+      # instead of draining attacker-controlled input; tell keep-alive clients to
+      # reconnect rather than advertising a connection the server will discard.
+      def to_s(context : HTTP::Server::Context)
+        context.response.headers["Connection"] = "close"
+        super
+      end
+
       def initialize(message = "The request body is larger than the server is willing to process.", context : ErrorContext? = nil)
         super(
           title: "Payload Too Large",

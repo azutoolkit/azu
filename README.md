@@ -6,6 +6,10 @@
 
 **Azu is a web framework for Crystal built on typed contracts and real-time.** Every endpoint declares the request it accepts and the response it returns, Azu validates the request before your code runs, and the same contracts give you links, an OpenAPI document and tests. Live components, WebSockets, pub/sub and presence are in the box.
 
+For allocation-sensitive APIs, `Azu::Response::Json.new({message: "Hello, World!"})`
+serializes directly to buffered HTTP IO. See the [request-path performance guide](docs/explanation/request-path-performance.md)
+for typed endpoints, multi-core configuration, measurements and streaming tradeoffs.
+
 ## Hello, contract
 
 ```crystal

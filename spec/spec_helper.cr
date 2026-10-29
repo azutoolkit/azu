@@ -1,6 +1,10 @@
 require "spec"
 require "../src/azu"
 
+{% if flag?(:azu_parallel_spec) %}
+  Fiber::ExecutionContext.default.resize(Fiber::ExecutionContext.default_workers_count)
+{% end %}
+
 ENV["CRYSTAL_ENV"] ||= "test"
 
 # Runs the block with Azu::CONFIG.env switched, restoring it afterwards.

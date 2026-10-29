@@ -31,6 +31,13 @@ require "./azu/templates/**"
 require "./azu/exception_page/**"
 require "./azu/ui/**"
 
+class Fiber
+  # :nodoc:
+  property azu_scope : Azu::FiberScope?
+  # :nodoc:
+  property azu_config_generation : UInt64 = 0_u64
+end
+
 # Not globbed on purpose: `azu/cql` is opt-in and needs the cql shard, `azu/dev` is the opt-in dashboard and
 # performance tooling. Add every new core directory above; spec/azu/opt_in_integrations_spec.cr fails when one is
 # missing.
@@ -42,9 +49,9 @@ module Azu
   alias Validator = Schema::Validator
   CONFIG = Configuration.new
 
-  # What `with_app` and `with_config` set for a fiber, in one record so a request opens and closes
-  # both with one registry write each.
-  private struct FiberScope
+  # :nodoc:
+  # Value stored on the owning fiber. A snapshot restores both fields when a scope exits.
+  struct FiberScope
     getter app : App?
     getter config : Configuration?
 
@@ -60,9 +67,9 @@ module Azu
     end
   end
 
-  # Fiber-local configuration and app storage for testing and isolation
-  @@fiber_scopes = {} of Fiber => FiberScope
-  @@config_mutex = Mutex.new
+  # Invalidates configurations for the test cleanup API without retaining every active fiber.
+  # Normal requests only read this counter; clearing is never part of request dispatch.
+  @@config_generation = Atomic(UInt64).new(0_u64)
 
   # Get the current configuration
   #
@@ -77,9 +84,7 @@ module Azu
   # puts current.env # => "development"
   # ```
   def self.current_config : Configuration
-    @@config_mutex.synchronize do
-      @@fiber_scopes[Fiber.current]?.try(&.config) || CONFIG
-    end
+    fiber_scope(Fiber.current).try(&.config) || CONFIG
   end
 
   # Whether this process runs in a strict environment (`Azu::Env.strict_environments`: production and staging by
@@ -121,7 +126,7 @@ module Azu
 
   # :nodoc:
   #
-  # `with_app(app) { with_config(config) { ... } }` with one registry write on the way in and one on
+  # `with_app(app) { with_config(config) { ... } }` with one fiber-local write on the way in and one on
   # the way out, which is what serving a request does.
   def self.with_scope(app : App?, config : Configuration, &)
     fiber = Fiber.current
@@ -135,21 +140,24 @@ module Azu
 
   # Replaces the fiber's record with what the block makes of it and returns the one that was there.
   private def self.enter_scope(fiber : Fiber, & : FiberScope -> FiberScope) : FiberScope?
-    @@config_mutex.synchronize do
-      previous = @@fiber_scopes[fiber]?
-      @@fiber_scopes[fiber] = yield(previous || FiberScope.new)
-      previous
-    end
+    previous = fiber_scope(fiber)
+    fiber.azu_scope = yield(previous || FiberScope.new)
+    previous
   end
 
   private def self.leave_scope(fiber : Fiber, previous : FiberScope?) : Nil
-    @@config_mutex.synchronize do
-      if previous
-        @@fiber_scopes[fiber] = previous
-      else
-        @@fiber_scopes.delete(fiber)
-      end
+    # As with the former registry, an enclosing scope's saved snapshot survives a clear.
+    fiber.azu_config_generation = @@config_generation.get
+    fiber.azu_scope = previous
+  end
+
+  private def self.fiber_scope(fiber : Fiber) : FiberScope?
+    generation = @@config_generation.get
+    if fiber.azu_config_generation != generation
+      fiber.azu_scope = fiber.azu_scope.try { |scope| FiberScope.new(scope.app) }
+      fiber.azu_config_generation = generation
     end
+    fiber.azu_scope
   end
 
   # Like `spawn`, but the new fiber sees the configuration that is current in the fiber that spawns
@@ -164,7 +172,7 @@ module Azu
   # The app serving the request this fiber is handling (or the fiber spawned by `spawn_scoped` from
   # it); nil outside one. A mounted app's requests belong to the app that owns the server.
   def self.current_app : App?
-    @@config_mutex.synchronize { @@fiber_scopes[Fiber.current]?.try(&.app) }
+    Fiber.current.azu_scope.try(&.app)
   end
 
   # Runs the block with `app` as the current app of this fiber. A nil `app` leaves things as they are.
@@ -203,12 +211,10 @@ module Azu
 
   # Clear all fiber-local configurations
   #
-  # Useful for cleanup in test suites.
+  # Useful for cleanup in test suites. Invalidated configurations are released on the
+  # owning fiber's next configuration lookup or scope exit; apps remain unchanged.
   def self.clear_fiber_configs : Nil
-    @@config_mutex.synchronize do
-      @@fiber_scopes.reject! { |_, scope| scope.app.nil? }
-      @@fiber_scopes.transform_values! { |scope| FiberScope.new(scope.app) }
-    end
+    @@config_generation.add(1_u64)
   end
 
   # Rails-like cache API
