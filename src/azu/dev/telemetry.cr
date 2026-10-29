@@ -53,7 +53,7 @@ module Azu
         last_ten = recent.count { |request| now - request.timestamp <= 10.seconds }
         times = recent.map(&.processing_time).sort!
         rows = recent.last(RECENT).reverse.map do |request|
-          {at: request.timestamp.to_local.to_s("%H:%M:%S"), method: request.method, path: request.path,
+          {at: request.timestamp.to_local.to_s("%H:%M:%S"), method: request.method, path: Azu::Env.redact_url(request.path),
            status: request.status_code, ms: request.processing_time.round(2), endpoint: request.endpoint}
         end
         {

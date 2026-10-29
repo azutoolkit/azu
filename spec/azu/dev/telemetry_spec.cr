@@ -36,6 +36,14 @@ describe Azu::Dev::Telemetry do
     Azu::QueryStore.instance.clear
   end
 
+  it "redacts sensitive query parameters from request metrics before exporting them" do
+    metrics = Azu::PerformanceMetrics.new
+    metrics.record_request("CompatFailure", "GET", "/broken?password=do-not-export-this&name=Ada", 2.0, 0_i64, 0_i64, 500)
+    json = JSON.parse(Azu::Dev::Telemetry.requests(metrics, Time.utc).to_json)
+    json.to_json.should_not contain "do-not-export-this"
+    json["recent"][0]["path"].as_s.should contain "name=Ada"
+  end
+
   it "leaves requests out without a performance monitor" do
     json = JSON.parse(Azu::Dev::Telemetry.snapshot(development_config, nil).to_json)
     json["requests"].raw.should be_nil
