@@ -25,6 +25,9 @@ describe Azu::Dev::Telemetry do
     json["requests"]["recent"][0]["method"].as_s.should eq "POST"
     json["requests"]["recent"][0]["status"].as_i.should eq 422
     json["sql"]["total"].as_i.should eq 6
+    json["sql"]["recent"].as_a.size.should eq 6
+    json["sql"]["recent"][0]["ms"].as_f.should eq 120.0
+    json["sql"]["histogram"].as_a.sum { |bucket| bucket["count"].as_i }.should eq 6
     json["sql"]["n_plus_one"][0]["count"].as_i.should eq 5
     json["sql"]["n_plus_one"][0]["caller"].as_s.should eq "index_page.cr:14"
     json["sql"]["slowest"][0]["ms"].as_f.should eq 120.0
@@ -58,5 +61,46 @@ describe Azu::Dev::Telemetry do
       File.delete?(path)
       Azu::Dev::Telemetry.reset
     end
+  end
+end
+
+describe "terminal diagnostics telemetry" do
+  it "buckets latency without counting invalid timings" do
+    buckets = Azu::Dev::Telemetry.histogram([0.5, 1.0, 5.0, 10.0, 50.0, 100.0, Float64::NAN, -1.0])
+    buckets.map(&.[:count]).should eq [1, 1, 1, 1, 1, 1]
+    buckets.map(&.[:bar]).should eq [12, 12, 12, 12, 12, 12]
+  end
+
+  it "receives rescuer reports with request secrets filtered" do
+    store = Azu::ErrorStore.instance
+    store.clear
+    config = development_config
+    context = HTTP::Server::Context.new(HTTP::Request.new("GET", "/broken?password=do-not-export&name=Ada"), HTTP::Server::Response.new(IO::Memory.new))
+    rescuer = Azu::Handler::Rescuer.new
+    rescuer.next = ->(_context : HTTP::Server::Context) { raise "terminal report integration" }
+    Azu.with_config(config) { rescuer.call(context) }
+    json = Azu::Dev::Telemetry.errors(store).to_json
+    json.should contain "terminal report integration"
+    json.should_not contain "do-not-export"
+    JSON.parse(json).as_a.first["problem"]["status"].as_i.should eq 500
+  ensure
+    store.try(&.clear)
+  end
+
+  it "exports bounded recent reports with problem details and redacted parameters" do
+    store = Azu::ErrorStore.new
+    none = [] of {String, String}
+    request = Azu::ExceptionPage::RequestInfo.new("request-1", "POST", "/login", "/login", nil, nil, nil, nil,
+      [{"password", "[FILTERED]"}], none, none, none, none)
+    12.times do
+      report = Azu::ExceptionPage::Report.new(500, "RuntimeError", "failure", [] of Azu::ExceptionPage::Frame,
+        [] of Azu::ExceptionPage::Cause, request)
+      store.record(report)
+    end
+    rows = JSON.parse(Azu::Dev::Telemetry.errors(store).to_json).as_a
+    rows.size.should eq 10
+    rows.first["problem"]["status"].as_i.should eq 500
+    rows.first["params"].to_json.should contain "[FILTERED]"
+    store.recent(0).should be_empty
   end
 end

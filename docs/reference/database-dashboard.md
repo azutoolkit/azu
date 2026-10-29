@@ -393,3 +393,11 @@ end
 - [CQL bridge](api/cql-bridge.md)
 - [Optimize database queries](../how-to/performance/optimize-database-queries.md)
 - [Dev tools](dev/azu-dev.md)
+
+## Terminal diagnostics in `azu dev`
+
+The development-only `Azu::Dev::Telemetry` producer sends version 1 JSON snapshots to `AZU_TELEMETRY_SOCKET` once per second. It sends no data without that variable or outside development. The CLI owns the private Unix socket and renders snapshots in bounded terminal cards.
+
+The SQL object includes up to 100 recent normalized statements with stable IDs, timing, caller/table/endpoint attribution and pool-wait timing. Pool statistics use the attached schema's existing snapshot; six latency buckets summarize the last 500 retained queries. The existing `azu/cql` subscriber captures native async-engine events without a second SQL subscription. Bound SQL parameters are excluded.
+
+The errors array contains up to ten reports from the existing development rescuer subscriber: route, class, message, redacted request parameters and up to forty stack frames. Problem details are normalized from the report (`about:blank`, status, title, detail, instance and error ID); application-specific RFC 7807 extensions are not copied. Treat development exception messages and stack traces as sensitive. This local diagnostic channel is not a production telemetry exporter.

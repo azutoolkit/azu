@@ -66,6 +66,11 @@ module Azu
       report.recorded = true
     end
 
+    # Bounded report snapshot, newest first, for local development telemetry.
+    def recent(limit : Int32 = 20) : Array(ExceptionPage::Report)
+      @mutex.synchronize { @reports.to_a.last(limit.clamp(0, MAX_REPORTS)).reverse }
+    end
+
     def report(id : String) : ExceptionPage::Report?
       @mutex.synchronize { @reports.find { |report| report.id == id } }
     end
