@@ -76,6 +76,11 @@ module Azu
           {sql: alert.normalized_sql, count: alert.count, endpoint: alert.endpoint, caller: alert.caller, suggestion: alert.suggestion}
         end
         slowest = recent.sort_by { |query| -query.duration_ms }.first(5).map { |query| {sql: query.normalized_sql, ms: query.duration_ms.round(2)} }
+        rows = recent.last(100).reverse.map do |query|
+          {id: query.id, at: Time.unix_ms(query.started_ms).to_s("%H:%M:%S"), sql: query.normalized_sql[0, 2000],
+           ms: query.duration_ms.round(2), caller: query.caller, model: query.table, endpoint: query.endpoint,
+           pool_wait_ms: query.pool_wait_ms.round(2)}
+        end
         {
           total:      recent.size,
           avg_ms:     recent.empty? ? 0.0 : (recent.sum(&.duration_ms) / recent.size).round(2),
@@ -83,12 +88,8 @@ module Azu
           pool:       pool,
           n_plus_one: alerts,
           slowest:    slowest,
-          recent:     recent.last(100).reverse.map { |query|
-            {id: query.id, at: Time.unix_ms(query.started_ms).to_s("%H:%M:%S"), sql: query.normalized_sql[0, 2000],
-             ms: query.duration_ms.round(2), caller: query.caller, model: query.table, endpoint: query.endpoint,
-             pool_wait_ms: query.pool_wait_ms.round(2)}
-          },
-          histogram: histogram(recent.map(&.duration_ms)),
+          recent:     rows,
+          histogram:  histogram(recent.map(&.duration_ms)),
         }
       end
 
@@ -109,9 +110,9 @@ module Azu
         bounds = [1.0, 5.0, 10.0, 50.0, 100.0]
         labels = ["<1", "1–5", "5–10", "10–50", "50–100", "≥100"]
         counts = Array.new(6, 0)
-        times.each do |ms|
-          next unless ms.finite? && ms >= 0
-          counts[bounds.index { |bound| ms < bound } || 5] += 1
+        times.each do |duration_ms|
+          next unless duration_ms.finite? && duration_ms >= 0
+          counts[bounds.index { |bound| duration_ms < bound } || 5] += 1
         end
         maximum = Math.max(1, counts.max)
         labels.map_with_index { |label, index| {label: label, count: counts[index], bar: counts[index] * 12 // maximum} }
