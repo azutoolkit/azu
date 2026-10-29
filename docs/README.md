@@ -231,7 +231,7 @@ Also: [Examples](examples.md) (runnable apps in `playground/`) · [Everything in
 | Topic | Pages |
 |---|---|
 | The whole box | [Everything in the box](explanation/features.md) |
-| Architecture | [Architecture overview](explanation/architecture/overview.md) · [Apps, configuration and scope](explanation/architecture/apps-and-scope.md) · [Request lifecycle](explanation/architecture/request-lifecycle.md) · [Type safety](explanation/architecture/type-safety.md) · [Performance design](explanation/architecture/performance-design.md) |
+| Architecture | [Architecture overview](explanation/architecture/overview.md) · [Apps, configuration and scope](explanation/architecture/apps-and-scope.md) · [Request lifecycle](explanation/architecture/request-lifecycle.md) · [Type safety](explanation/architecture/type-safety.md) · [Performance design](explanation/architecture/performance-design.md) · [Request-path performance](explanation/request-path-performance.md) |
 | Building blocks | [Endpoints](explanation/concepts/endpoints.md) · [Contracts](explanation/concepts/contracts.md) · [Middleware](explanation/concepts/middleware.md) · [Real-time](explanation/concepts/real-time.md) · [Components](explanation/concepts/components.md) · [Spark live views](explanation/spark-live-views.md) |
 
 ## Contributing

@@ -115,9 +115,11 @@ module Azu
         @request.method
       end
 
-      # Returns the request body as string.
+      # Reads the body once, bounded by the same upload limit as endpoint parsing.
       def body : String?
-        @request.body.try(&.gets_to_end)
+        @request.body.try { |io| Azu::Params::Body.read(io) }
+      rescue ex : Azu::Params::TooLarge
+        raise Response::PayloadTooLarge.new(ex.message.to_s)
       end
 
       # Check if the request is an AJAX request.

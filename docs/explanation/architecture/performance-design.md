@@ -42,6 +42,10 @@ with an id per page costs the same per request as one with a handful of URLs.
 
 ## Response generation
 
+`Azu::Response::Json(T)` writes typed values directly to buffered HTTP IO, avoiding a complete intermediate
+JSON String. It is opt-in because a large response can commit headers before serialization finishes; see
+[request-path performance](../request-path-performance.md) for examples and failure semantics.
+
 An endpoint returns an object whose `render` produces the body; it is written to the connection by `<<`. Small
 bodies are buffered by the standard library and written when the endpoint returns, large ones leave while they are
 written. `Static` sends files with a weak `ETag` derived from the file's modification time, answers `304` to a matching
@@ -79,8 +83,11 @@ HTTP contexts are pooled; there is no pooling code in the framework.
 
 Every connection runs in a fiber, scheduled cooperatively by Crystal. A fiber yields on I/O (sockets, `sleep`, channel
 operations), so a request waiting on a socket does not block the others, and CPU-bound work in an endpoint does
-block the thread it runs on. Move heavy computation to a background job, or `spawn` it and answer
-earlier. The upload, cache cleanup and heartbeat tasks are fibers of the same process.
+block the thread it runs on. Move heavy computation to a bounded background-job system or an appropriate
+execution context; merely spawning a fiber does not provide another CPU or make a busy loop yield. The upload,
+cache cleanup and heartbeat tasks are fibers of the same process. Crystal 1.22's modern default context starts
+with one worker: applications opt into parallel execution by resizing it at boot, as described in the
+[concurrency guide](../request-path-performance.md#multi-core-configuration-and-remaining-boundaries).
 
 ## Measured
 
