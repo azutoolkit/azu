@@ -6,7 +6,7 @@ description: "Build CQL models from request contracts, responses from models, an
 
 `require "azu/cql"` (opt-in, see [Database dashboard](../database-dashboard.md)) also connects Azu's request and
 response contracts to CQL models. It is plain compile-time code: no runtime reflection, no CQL patches beyond one
-method on `CQL::ActiveRecord::Validations`. Development and CI use CQL 0.0.925 or newer. The basic bridge still checks for the telemetry hooks introduced in 0.0.541; enabling request-cache diagnostics additionally requires the per-fiber tracker available in the tested 0.0.925 release. The dashboard keeps bound values and database error details out of what it shows unless `database.show_params` is on in development; hand-written SQL appears as written. See [what the tab shows of your data](../database-dashboard.md#what-the-tab-shows-of-your-data).
+method on `CQL::ActiveRecord::Validations`. Development and CI use released CQL 1.x (`~> 1.0`). The bridge mirrors public CQL types for applications that `include Azu`; private ORM helpers are deliberately excluded. The basic bridge still checks for the telemetry hooks introduced in 0.0.541; enabling request-cache diagnostics additionally requires the per-fiber tracker available in CQL 1.x. The dashboard keeps bound values and database error details out of what it shows unless `database.show_params` is on in development; hand-written SQL appears as written. See [what the tab shows of your data](../database-dashboard.md#what-the-tab-shows-of-your-data).
 
 ```crystal
 require "sqlite3"
