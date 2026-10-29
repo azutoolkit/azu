@@ -364,10 +364,12 @@ module Azu
 
     # Apps usually `include Azu`, which makes this module visible as `CQL` inside
     # their namespace, and CQL's own macros expand unqualified `CQL::...` there.
-    # Mirror every ORM type here so `CQL::ActiveRecord::Model` keeps resolving.
+    # Mirror public ORM types so `CQL::ActiveRecord::Model` keeps resolving.
+    # Private implementation types (e.g. CQL v1 MigrationLock) cannot be aliased
+    # outside CQL and must not become part of the bridge API.
     {% for name in ::CQL.constants %}
       {% type = ::CQL.constant(name) %}
-      {% if type.is_a?(TypeNode) && !Azu::CQL.has_constant?(name) %}
+      {% if type.is_a?(TypeNode) && type.public? && !Azu::CQL.has_constant?(name) %}
         alias {{ name.id }} = ::CQL::{{ name.id }}
       {% end %}
     {% end %}
