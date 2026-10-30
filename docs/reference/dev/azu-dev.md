@@ -233,6 +233,9 @@ warnings follow `PERFORMANCE_SLOW_REQUEST_THRESHOLD` and `PERFORMANCE_MEMORY_THR
 Optional application integrations can report metadata through:
 
 ```crystal
+require "azu"
+require "azu/dev"
+
 Azu::Dev::IntegrationEvents.sessions("cookie")
 Azu::Dev::IntegrationEvents.session("sign-in", "accepted")
 Azu::Dev::IntegrationEvents.mailer("WelcomeMailer", "Static example text")
