@@ -223,3 +223,22 @@ warnings follow `PERFORMANCE_SLOW_REQUEST_THRESHOLD` and `PERFORMANCE_MEMORY_THR
 - [Monitor performance in development](../../how-to/performance/monitor-performance.md)
 - [Database dashboard](../database-dashboard.md)
 - [Performance design](../../explanation/architecture/performance-design.md)
+
+## Shared terminal dashboard
+
+`Azu::Dev::DashboardSnapshot` owns the calculations used by the browser provider and the CLI's optional `dashboard` telemetry field. `Azu::Components::DashboardDataProvider` remains a compatibility façade. The snapshot includes health insights, p50/p99 latency, route counts, cache/component metrics, tracing summaries, profiler spans, and bounded graph series. Its memory series measures GC heap; RSS is a separate value.
+
+`azu dev` supplies a private `AZU_TELEMETRY_SOCKET`. Export runs only in development, once a second, with a write deadline and a 1 MiB payload ceiling. Existing telemetry v1 fields are retained. Use `Azu::CQL.attach { AppDB }` to supply SQL, pool, transaction, and declared-schema metadata without adding a second CQL subscriber.
+
+Optional application integrations can report metadata through:
+
+```crystal
+Azu::Dev::IntegrationEvents.sessions("cookie")
+Azu::Dev::IntegrationEvents.session("sign-in", "accepted")
+Azu::Dev::IntegrationEvents.mailer("WelcomeMailer", "Static example text")
+Azu::Dev::IntegrationEvents.delivery("WelcomeMailer", "delivered")
+```
+
+These APIs do nothing outside development. Record outcomes only after they are known. Cookie sessions never expose an active-session count; server-side integrations may supply an authoritative `active: count.to_i64`. Mailer previews must be static examples, not customer messages. Events retain at most 100 entries per integration and do not accept credentials, recipients, or session contents.
+
+The CLI labels older or missing telemetry as unavailable, marks stale samples, and hides explicitly disabled features. Production SSH monitoring keeps its separate, sanitized read-only contract.

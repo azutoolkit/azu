@@ -38,6 +38,14 @@ module Azu
         {columns, rows}
       end
 
+      def schema_snapshot : JSON::Any?
+        JSON.parse({tables: schema.tables.first(100).map do |name, table|
+          {name: name.to_s, columns: table.columns.first(100).map { |column, definition| {name: column.to_s, type: definition.type.to_s} }}
+        end}.to_json)
+      rescue
+        nil
+      end
+
       def pool : PoolSnapshot?
         stats = schema.pool_stats
         PoolSnapshot.new(stats.open, stats.idle, stats.in_flight, stats.max)
