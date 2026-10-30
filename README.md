@@ -209,6 +209,8 @@ info = Azu::OpenAPI::Info.new("Hello API", "1.0.0")
 puts Azu::OpenAPI.document(Azu::App.default, info).to_json(pretty: true)
 ```
 
+**Shared browser and terminal diagnostics.** `azu dev` can consume the same health, latency, cache, component, and tracing snapshot as the browser. Older telemetry fields remain compatible; optional session and mailer adapters report metadata only. See [development telemetry](docs/reference/dev/azu-dev.md#shared-terminal-dashboard).
+
 **A dashboard while you develop.** `require "azu/dev"` adds routes, configuration, logs and timings at `/dev-dashboard`, and with CQL every query tied to its request, with N+1 detection. See the [tutorial](docs/tutorials/getting-started.md#5-the-development-dashboard).
 
 ## Everything in the box

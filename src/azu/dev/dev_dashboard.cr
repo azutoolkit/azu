@@ -42,7 +42,7 @@ module Azu
                      @queries : QueryStore = QueryStore.instance, @errors : ErrorStore = ErrorStore.instance)
         monitored = metrics || Azu::CONFIG.performance_monitor.try(&.metrics)
         @metrics = monitored || PerformanceMetrics.new
-        @start_time = Time.utc
+        @start_time = @metrics.start_time
         # Exception pages link to the errors kept here.
         ExceptionPage.dashboard_path = @path
         # Guarded by `run_playground` itself, and sent without a token by dashboard.js. Registered whatever the

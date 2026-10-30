@@ -133,6 +133,11 @@ module Azu
     def connection_source : String?
     end
 
+    # Declared schema metadata; optional and never runs DDL.
+    def schema_snapshot : JSON::Any?
+      nil
+    end
+
     # Runs read-only SQL (always rolled back) and returns columns and rows.
     abstract def read_only(sql : String, limit : Int32) : {Array(String), Array(Array(String?))}
 

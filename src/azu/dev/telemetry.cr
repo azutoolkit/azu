@@ -1,5 +1,6 @@
 require "json"
 require "socket"
+require "./dashboard_export"
 
 module Azu
   module Dev
@@ -26,26 +27,37 @@ module Azu
         loop do
           sleep INTERVAL
           begin
-            socket ||= UNIXSocket.new(path)
-            socket.puts snapshot(config).to_json
+            unless socket
+              socket = UNIXSocket.new(path)
+              socket.write_timeout = 250.milliseconds
+            end
+            payload = snapshot(config).to_json
+            next if payload.bytesize > 1_048_576
+            socket.puts payload
             socket.flush
           rescue IO::Error | Socket::Error
             socket.try(&.close) rescue nil
             socket = nil # azu dev went away or is restarting: try again next time
+          rescue ex
+            config.log.warn { "Development telemetry sample unavailable (#{ex.class})" }
           end
         end
       end
 
       def self.snapshot(config : Configuration, metrics : PerformanceMetrics? = config.performance_monitor.try(&.metrics),
                         queries : QueryStore = QueryStore.instance, now : Time = Clock.now)
-        {
-          v:        VERSION,
-          at:       now.to_rfc3339,
-          requests: metrics.try { |monitored| requests(monitored, now) },
-          sql:      sql(queries, config.database.slow_query_ms),
-          errors:   errors(ErrorStore.instance),
-          runtime:  {heap_bytes: GC.stats.heap_size.to_i64, free_bytes: GC.stats.free_bytes.to_i64},
-        }
+        Azu.with_config(config) do
+          {
+            v:         VERSION,
+            at:        now.to_rfc3339,
+            requests:  metrics.try { |monitored| requests(monitored, now) },
+            sql:       sql(queries, config.database.slow_query_ms),
+            errors:    errors(ErrorStore.instance),
+            database:  queries.adapter.try(&.schema_snapshot),
+            dashboard: metrics.try { |monitored| DashboardSnapshot.new(monitored, monitored.start_time, config.log).telemetry(config) },
+            runtime:   {heap_bytes: GC.stats.heap_size.to_i64, free_bytes: GC.stats.free_bytes.to_i64},
+          }
+        end
       end
 
       def self.requests(metrics : PerformanceMetrics, now : Time)
