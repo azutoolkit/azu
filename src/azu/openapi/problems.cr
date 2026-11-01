@@ -15,23 +15,45 @@ module Azu::OpenAPI
     ERROR        = "Azu.Error"
     LEGACY       = "Azu.LegacyValidationError"
     LEGACY_ERROR = "Azu.LegacyError"
+    ENVELOPE     = "Azu.ErrorEnvelope"
 
     # The same body is sent as `application/problem+json` to a client that names it in Accept and as
     # `application/json` to any other.
     PROBLEM_MEDIA_TYPES = ["application/problem+json", "application/json"]
 
-    BAD_REQUEST       = "BadRequest"
-    NOT_FOUND         = "NotFound"
-    VALIDATION_FAILED = "ValidationFailed"
+    BAD_REQUEST            = "BadRequest"
+    UNAUTHORIZED           = "Unauthorized"
+    FORBIDDEN              = "Forbidden"
+    NOT_FOUND              = "NotFound"
+    METHOD_NOT_ALLOWED     = "MethodNotAllowed"
+    PAYLOAD_TOO_LARGE      = "PayloadTooLarge"
+    UNSUPPORTED_MEDIA_TYPE = "UnsupportedMediaType"
+    VALIDATION_FAILED      = "ValidationFailed"
 
     # The name of the schema the 422 response uses.
     def self.validation_schema(legacy : Bool) : String
       legacy ? LEGACY : VALIDATION
     end
 
+    def self.validation_schema(format : ErrorFormat) : String
+      case format
+      when .legacy?   then LEGACY
+      when .envelope? then ENVELOPE
+      else                 VALIDATION
+      end
+    end
+
     # The name of the schema the other error responses use.
     def self.error_schema(legacy : Bool) : String
       legacy ? LEGACY_ERROR : ERROR
+    end
+
+    def self.error_schema(format : ErrorFormat) : String
+      case format
+      when .legacy?   then LEGACY_ERROR
+      when .envelope? then ENVELOPE
+      else                 ERROR
+      end
     end
 
     def self.schemas : Map
@@ -98,14 +120,50 @@ module Azu::OpenAPI
             "Timestamp"   => Map{"type" => "string", "format" => "date-time"},
           },
         },
+        ENVELOPE => envelope_schema,
       }
     end
 
+    def self.envelope_schema(wrapper_key : String? = "error") : Map
+      inner = Map{
+        "type"       => "object",
+        "properties" => Map{
+          "code"       => Map{"type" => "string"},
+          "message"    => Map{"type" => "string"},
+          "details"    => Map{"type" => ["object", "array", "string", "null"] of Value},
+          "request_id" => Map{"type" => "string"},
+        },
+        "required" => ["code", "message"] of Value,
+      }
+      if key = wrapper_key
+        Map{
+          "type"       => "object",
+          "properties" => Map{key => inner},
+          "required"   => [key] of Value,
+        }
+      else
+        inner
+      end
+    end
+
     def self.responses(legacy : Bool = false) : Map
+      responses(legacy ? ErrorFormat::Legacy : ErrorFormat::Problem)
+    end
+
+    def self.responses(format : ErrorFormat) : Map
+      media_types = (format.legacy? || format.envelope?) ? ["application/json"] : PROBLEM_MEDIA_TYPES
+      err_schema = error_schema(format)
+      val_schema = validation_schema(format)
+
       Map{
-        BAD_REQUEST       => error_response("The request could not be parsed.", legacy),
-        NOT_FOUND         => error_response("Nothing is routed there, or the endpoint found nothing.", legacy),
-        VALIDATION_FAILED => legacy ? response("The request broke its contract.", ["application/json"], LEGACY) : response("The request broke its contract.", PROBLEM_MEDIA_TYPES, VALIDATION),
+        BAD_REQUEST            => response("The request could not be parsed.", media_types, err_schema),
+        UNAUTHORIZED           => response_with_headers("Authentication is required or failed.", media_types, err_schema, Map{"WWW-Authenticate" => Map{"schema" => Map{"type" => "string"}}}),
+        FORBIDDEN              => response("The authenticated principal is not allowed to perform this action.", media_types, err_schema),
+        NOT_FOUND              => response("Nothing is routed there, or the endpoint found nothing.", media_types, err_schema),
+        METHOD_NOT_ALLOWED     => response_with_headers("The HTTP method is not allowed for this resource.", media_types, err_schema, Map{"Allow" => Map{"schema" => Map{"type" => "string"}}}),
+        PAYLOAD_TOO_LARGE      => response("The request body exceeds the maximum allowed size.", media_types, err_schema),
+        UNSUPPORTED_MEDIA_TYPE => response_with_headers("The request Content-Type is not supported.", media_types, err_schema, Map{"Accept" => Map{"schema" => Map{"type" => "string"}}, "Accept-Post" => Map{"schema" => Map{"type" => "string"}}}),
+        VALIDATION_FAILED      => response("The request broke its contract.", media_types, val_schema),
       }
     end
 
@@ -120,6 +178,12 @@ module Azu::OpenAPI
 
     private def self.error_response(description : String, legacy : Bool) : Map
       response(description, legacy ? ["application/json"] : PROBLEM_MEDIA_TYPES, error_schema(legacy))
+    end
+
+    private def self.response_with_headers(description : String, media_types : Array(String), schema : String, headers : Map) : Map
+      res = response(description, media_types, schema)
+      res["headers"] = headers
+      res
     end
 
     private def self.response(description : String, media_types : Array(String), schema : String) : Map

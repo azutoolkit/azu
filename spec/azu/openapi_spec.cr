@@ -886,3 +886,70 @@ describe "validations with constants and computed arguments" do
     properties["total"].should eq JSON.parse(%({"type": "integer", "format": "int32"}))
   end
 end
+
+describe "OpenAPI 3.1 auth requirements, route metadata, hygiene responses, and ErrorEnvelope" do
+  it "emits securitySchemes, operation security, x-required-role/permissions, public security:[], 401/403/405/413/415, and Azu.ErrorEnvelope" do
+    app = Azu::App.new
+    app.config.error_format = Azu::ErrorFormat::Envelope
+    app.config.router.method_not_allowed = true
+    app.config.auth.enabled = true
+    app.config.auth.roles = [:viewer, :operator, :admin]
+    app.config.auth.default_read_role = :viewer
+    app.config.auth.default_write_role = :operator
+    app.config.auth.bearer_format = "JWT"
+    app.config.hygiene.max_body_size = 65_536_u64
+    app.config.hygiene.strict_content_type = true
+    app.config.hygiene.allowed_content_types = ["application/json"]
+
+    app.router.post "/session", OpenAPISpec::Users::CreateEndpoint.new,
+      public: true,
+      summary: "Sign in",
+      description: "Authenticates a user session."
+    app.router.get "/users", OpenAPISpec::Users::ListEndpoint.new,
+      summary: "List users"
+    app.router.post "/users", OpenAPISpec::Users::CreateEndpoint.new,
+      requires: Azu::Access.role(:operator) & Azu::Access.permissions("users:create"),
+      enrolment_exempt: true,
+      summary: "Create user"
+
+    doc = JSON.parse(Azu::OpenAPI.document(app, OpenAPISpec.info).to_json)
+    OpenAPIValidator.problems(doc).should be_empty
+
+    # Security schemes
+    scheme = doc["components"]["securitySchemes"]["bearerAuth"]
+    scheme["type"].should eq "http"
+    scheme["scheme"].should eq "bearer"
+    scheme["bearerFormat"].should eq "JWT"
+
+    # ErrorEnvelope schema
+    envelope = doc["components"]["schemas"]["Azu.ErrorEnvelope"]
+    envelope["properties"]["error"]["required"].as_a.map(&.as_s).should eq ["code", "message"]
+
+    # Public route: security: [] and summary/description, no 401/403
+    post_session = doc["paths"]["/session"]["post"]
+    post_session["summary"].should eq "Sign in"
+    post_session["description"].should eq "Authenticates a user session."
+    post_session["security"].as_a.should be_empty
+    post_session["responses"].as_h.has_key?("401").should be_false
+    post_session["responses"].as_h.has_key?("405").should be_true
+    post_session["responses"].as_h.has_key?("413").should be_true
+    post_session["responses"].as_h.has_key?("415").should be_true
+    post_session["requestBody"]["content"].as_h.keys.should eq ["application/json"]
+
+    # Default read role (:viewer) on GET /users
+    get_users = doc["paths"]["/users"]["get"]
+    get_users["summary"].should eq "List users"
+    get_users["x-required-role"].should eq "viewer"
+    get_users["security"][0]["bearerAuth"].as_a.map(&.as_s).should eq ["role:viewer"]
+    get_users["responses"].as_h.has_key?("401").should be_true
+    get_users["responses"].as_h.has_key?("403").should be_true
+    get_users["responses"].as_h.has_key?("405").should be_true
+
+    # Explicit role & permissions + enrolment_exempt on POST /users
+    post_users = doc["paths"]["/users"]["post"]
+    post_users["x-required-role"].should eq "operator"
+    post_users["x-required-permissions"].as_a.map(&.as_s).should eq ["users:create"]
+    post_users["x-enrolment-exempt"].should eq true
+    post_users["security"][0]["bearerAuth"].as_a.map(&.as_s).should eq ["role:operator", "users:create"]
+  end
+end

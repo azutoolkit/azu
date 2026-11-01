@@ -16,14 +16,51 @@ module Azu
   #
   # ```
   # module ExampleApp
-  #   class UserEndpoint
-  #     include Azu::Endpoint(UserRequest, UserResponse)
+  #   struct PurgeQueueEndpoint
+  #     include Azu::Endpoint(PurgeRequest, PurgeResponse)
+  #
+  #     post "/queues/:name/purge"
+  #     summary "Purge all jobs from a queue"
+  #     require_role :operator
+  #     require_permissions "queues:purge"
+  #     audit! critical: true
+  #
+  #     before_action :verify_unlocked
+  #
+  #     def call : PurgeResponse
+  #       PurgeResponse.new
+  #     end
   #   end
   # end
   # ```
-  #
   module Endpoint(Request, Response)
     include Routable
+
+    # Internal control-flow exception raised by `halt!` to stop endpoint execution immediately.
+    class Halt < Exception
+    end
+
+    CONTAINER_NAMESPACES = {"Api", "Endpoints", "Controllers", "Handlers", "Web"}
+
+    # Derives a conventional dot-separated action name from an endpoint type name
+    # (e.g., `"Api::Queues::PurgeEndpoint"` -> `"queues.purge"`, `"SignInEndpoint"` -> `"sign_in"`).
+    def self.derive_action_name(type_name : String) : String
+      parts = type_name.split("::").reject(&.empty?)
+      while parts.size > 1 && CONTAINER_NAMESPACES.includes?(parts.first)
+        parts.shift
+      end
+      return "endpoint" if parts.empty?
+
+      last = parts.last
+      {"Endpoint", "Handler", "Action"}.each do |suffix|
+        if last.ends_with?(suffix) && last.size > suffix.size
+          last = last[0, last.size - suffix.size]
+          break
+        end
+      end
+      parts[-1] = last
+      parts.map(&.underscore).join(".")
+    end
 
     @context : HTTP::Server::Context? = nil
     @params : Params(Request)? = nil
@@ -43,6 +80,11 @@ module Azu
     # The operation the OpenAPI document describes this endpoint with, built from `Request` and `Response`.
     def openapi_operation : OpenAPI::Operation?
       OpenAPI::Operation.of(self.class, Request, Response)
+    end
+
+    # Route metadata and access options declared on this endpoint's type.
+    def route_options : RouteOptions
+      self.class.route_options
     end
 
     # :nodoc:
@@ -79,17 +121,82 @@ module Azu
               enforce_contract
             end
             negotiate_format
+            execute_action(context)
+          rescue Halt
+            next
           rescue ex : Azu::Response::Error
+            context.azu_last_error = ex
             ex.to_s(context)
             next
           end
-          write_response(call, context)
         end
       ensure
         # Uploaded files live as long as the request: copy one you want to keep (see "Handle file uploads").
         @params.try(&.cleanup_files)
       end
       context
+    end
+
+    # Registers one or more methods on this endpoint to run before `#call`.
+    macro before_action(*names)
+      {% for name in names %}
+        {% BEFORE_ACTIONS << {@type.name.stringify, name.id.stringify} %}
+      {% end %}
+    end
+
+    # Registers one or more methods on this endpoint to run after `#call` (taking 0 args or `(response)`).
+    macro after_action(*names)
+      {% for name in names %}
+        {% AFTER_ACTIONS << {@type.name.stringify, name.id.stringify} %}
+      {% end %}
+    end
+
+    # Registers one or more methods on this endpoint to wrap `before_action`, `#call`, and `after_action` via `yield`.
+    macro around_action(*names)
+      {% for name in names %}
+        {% AROUND_ACTIONS << {@type.name.stringify, name.id.stringify} %}
+      {% end %}
+    end
+
+    # Runs `around_action`, `before_action`, `#call`, `after_action`, and writes the response.
+    # Expanded at compile time for `@type` with zero per-request heap allocation.
+    private def execute_action(context : HTTP::Server::Context) : Nil
+      {% begin %}
+        {% lineage = [@type.name.stringify] + @type.ancestors.map(&.name.stringify) %}
+        {% around_pairs = (@type.class? && @type.superclass && @type.superclass.has_constant?("AROUND_ACTIONS")) ? @type.superclass.constant("AROUND_ACTIONS") : @type.constant("AROUND_ACTIONS") %}
+        {% before_pairs = (@type.class? && @type.superclass && @type.superclass.has_constant?("BEFORE_ACTIONS")) ? @type.superclass.constant("BEFORE_ACTIONS") : @type.constant("BEFORE_ACTIONS") %}
+        {% after_pairs = (@type.class? && @type.superclass && @type.superclass.has_constant?("AFTER_ACTIONS")) ? @type.superclass.constant("AFTER_ACTIONS") : @type.constant("AFTER_ACTIONS") %}
+        {% arounds = around_pairs.select { |pair| lineage.includes?(pair[0]) }.map { |pair| pair[1] } %}
+        {% befores = before_pairs.select { |pair| lineage.includes?(pair[0]) }.map { |pair| pair[1] } %}
+        {% afters = after_pairs.select { |pair| lineage.includes?(pair[0]) }.map { |pair| pair[1] } %}
+        {% if arounds.empty? && befores.empty? && afters.empty? %}
+          write_response(call, context)
+        {% else %}
+          {% code = "" %}
+          {% for action in befores %}
+            {% code = "#{code.id}#{action.id}\n" %}
+          {% end %}
+          {% code = "#{code.id}action_result = call\n" %}
+          {% for action in afters %}
+            {% method_def = @type.methods.find { |method_node| method_node.name == action.id.stringify } %}
+            {% if method_def && method_def.args.size > 0 %}
+              {% code = "#{code.id}#{action.id}(action_result)\n" %}
+            {% else %}
+              {% code = "#{code.id}#{action.id}\n" %}
+            {% end %}
+          {% end %}
+          {% code = "#{code.id}result = action_result\n" %}
+          {% for idx in (0...arounds.size) %}
+            {% action = arounds[arounds.size - 1 - idx] %}
+            {% code = "#{action.id} do\n#{code.id}end\n" %}
+          {% end %}
+          result : Response? = nil
+          {{ code.id }}
+          if final_result = result
+            write_response(final_result, context)
+          end
+        {% end %}
+      {% end %}
     end
 
     # Whether the request is parsed and checked against its contract before `call`. A contract that defines
@@ -147,6 +254,126 @@ module Azu
     macro included
       @@resource : String = ""
 
+      BEFORE_ACTIONS = [] of Tuple(String, String)
+      AFTER_ACTIONS  = [] of Tuple(String, String)
+      AROUND_ACTIONS = [] of Tuple(String, String)
+
+      # Route metadata and access requirements declared on this endpoint (including any inherited from a superclass).
+      def self.route_options : Azu::RouteOptions
+        own = Azu::DeclaredEndpoints.class_route_options(name)
+        \{% if @type.superclass && !["Reference", "Value", "Struct", "Object"].includes?(@type.superclass.name.stringify) %}
+          \{{ @type.superclass }}.route_options.merge(own)
+        \{% else %}
+          own
+        \{% end %}
+      end
+
+      def self.route_options=(options : Azu::RouteOptions) : Azu::RouteOptions
+        Azu::DeclaredEndpoints.set_class_route_options(name, options)
+      end
+
+      private def self.own_route_options : Azu::RouteOptions
+        Azu::DeclaredEndpoints.class_route_options(name)
+      end
+
+      # Conventional dot-separated action name derived from this endpoint's type name
+      # (e.g. `Queues::PurgeEndpoint` -> `"queues.purge"`).
+      def self.conventional_action_name : String
+        Azu::Endpoint.derive_action_name(name)
+      end
+
+      # Marks this endpoint as `public: true` (authentication and authorization are skipped).
+      def self.public!(flag : Bool = true) : Nil
+        opts = own_route_options
+        self.route_options = opts.copy_with(public: flag, requires: flag ? nil : opts.requires)
+      end
+
+      # Requires the authenticated principal to hold at least `role` (or any of `roles`, or higher in `c.auth.roles`).
+      def self.require_role(*roles : Symbol | String) : Nil
+        self.route_options = own_route_options.with_requirement(Azu::Access.role(*roles))
+      end
+
+      # Alias for `require_role` when listing one or more allowed roles.
+      def self.allow_roles(*roles : Symbol | String) : Nil
+        self.route_options = own_route_options.with_requirement(Azu::Access.role(*roles))
+      end
+
+      # Requires the authenticated principal to hold all listed `permissions`.
+      def self.require_permissions(*permissions : Symbol | String) : Nil
+        self.route_options = own_route_options.with_requirement(Azu::Access.permissions(*permissions))
+      end
+
+      # Requires the authenticated principal to hold at least one of the listed `permissions`.
+      def self.require_any_permission(*permissions : Symbol | String) : Nil
+        self.route_options = own_route_options.with_requirement(Azu::Access.any_permission(*permissions))
+      end
+
+      # Combines an explicit `Azu::Access::Requirement` into this endpoint's route options.
+      def self.requires(requirement : Azu::Access::Requirement) : Nil
+        self.route_options = own_route_options.with_requirement(requirement)
+      end
+
+      # Exempts this endpoint from the enrolment gate (`principal.enrolment_pending?` / `c.auth.enrolment_gate`).
+      def self.enrolment_exempt!(exempt : Bool = true) : Nil
+        self.route_options = own_route_options.copy_with(enrolment_exempt: exempt)
+      end
+
+      # Exempts this endpoint from CSRF validation (`Handler::CSRF`).
+      def self.csrf_exempt!(exempt : Bool = true) : Nil
+        self.route_options = own_route_options.copy_with(csrf_exempt: exempt)
+      end
+
+      # Configures audit logging for this endpoint.
+      def self.audit(action : String? = nil, *, critical : Bool = false, enabled : Bool = true) : Nil
+        opts = own_route_options
+        self.route_options = opts.copy_with(
+          audit: enabled,
+          audit_action: action || opts.audit_action,
+          audit_critical: critical
+        )
+      end
+
+      # Enables audit logging for this endpoint and automatically derives `audit_action` from
+      # `conventional_action_name` unless an explicit `audit_action` was already set.
+      def self.audit!(*, critical : Bool = false) : Nil
+        opts = own_route_options
+        self.route_options = opts.copy_with(
+          audit: true,
+          audit_action: opts.audit_action || conventional_action_name,
+          audit_critical: critical
+        )
+      end
+
+      # Disables audit logging for this endpoint (`audit: false`).
+      def self.no_audit! : Nil
+        self.route_options = own_route_options.copy_with(audit: false)
+      end
+
+      # Sets the OpenAPI summary for this endpoint.
+      def self.summary(text : String) : Nil
+        self.route_options = own_route_options.copy_with(summary: text)
+      end
+
+      # Sets the OpenAPI description for this endpoint.
+      def self.description(text : String) : Nil
+        self.route_options = own_route_options.copy_with(description: text)
+      end
+
+      # Sets the maximum request body size in bytes (`413 Payload Too Large` when exceeded) for this endpoint.
+      def self.max_body_size(bytes : Int) : Nil
+        self.route_options = own_route_options.copy_with(max_body_size: bytes.to_u64)
+      end
+
+      # Sets the allowed request `Content-Type` media types (`415 Unsupported Media Type` when violated) for this endpoint.
+      def self.content_types(*types : String) : Nil
+        self.route_options = own_route_options.copy_with(content_types: types.to_a)
+      end
+
+      # Sets the allowed request `Content-Type` media types (`415 Unsupported Media Type` when violated) for this endpoint.
+      def self.content_types(types : Array(String)) : Nil
+        self.route_options = own_route_options.copy_with(content_types: types)
+      end
+
       # The `{verb, path}` pairs the verb macros declared on this type, in order. They are registered on
       # `Azu::App.default` on first use; `Router::Builder#endpoint` registers them on any other app.
       # Kept per type (keyed by its name), so a subclass never sees its siblings' routes.
@@ -160,6 +387,23 @@ module Azu
         url
       end
 
+      # :nodoc:
+      def self._declare_default_route(verb : String, path : Azu::Router::Path, inline_opts : Azu::RouteOptions) : Nil
+        \{% begin %}
+          \{% inits = @type.methods.select { |m| m.name == "initialize" } %}
+          \{% can_default_new = inits.empty? || inits.any? { |m| m.args.all? { |a| !a.default_value.is_a?(Nop) } } %}
+          \{% if can_default_new %}
+            Azu::DeclaredEndpoints.declare(
+              ->(router : Azu::Router) {
+                router.register(verb, path, new, inline_opts)
+                nil
+              },
+              "#{verb.upcase} #{path}"
+            )
+          \{% end %}
+        \{% end %}
+      end
+
       # Calculate resource name for helper generation
       {%
         helper_resource_name = @type.stringify.split("::")
@@ -168,9 +412,10 @@ module Azu
       %}
 
       {% for method in Azu::Router::RESOURCES %}
-      def self.{{method.id}}(path : Azu::Router::Path)
-        # first: a declaration refused once the app serves leaves nothing behind
-        Azu::DeclaredEndpoints.declare(->(router : Azu::Router) { router.{{method.id}}(path, new); nil }, "{{method.id.upcase}} #{path}")
+      def self.{{method.id}}(path : Azu::Router::Path, options : Azu::RouteOptions? = nil, **opts)
+        inline_opts = options || Azu::RouteOptions.new(**opts)
+        Azu::DeclaredEndpoints.set_route_options(name, {{method}}, path, inline_opts)
+        _declare_default_route({{method}}, path, inline_opts)
         @@resource = path
         routes << { {{method}}, path }
 
@@ -456,6 +701,161 @@ module Azu
     # Generate CSRF token meta tag
     private def csrf_metatag : String
       Azu::Handler::CSRF.metatag(context)
+    end
+
+    # Authenticated principal helpers
+    private def principal : Auth::Principal?
+      context.principal?
+    end
+
+    private def principal? : Auth::Principal?
+      context.principal?
+    end
+
+    private def principal! : Auth::Principal
+      if p = context.principal?
+        p
+      else
+        auth = Azu.current_config.auth
+        raise Azu::Response::AuthenticationError.new(
+          auth.unauthorized_message,
+          code: auth.unauthorized_code,
+          www_authenticate: auth.www_authenticate
+        )
+      end
+    end
+
+    private def current_user : Auth::Principal?
+      context.principal?
+    end
+
+    private def current_user? : Auth::Principal?
+      context.principal?
+    end
+
+    private def current_user! : Auth::Principal
+      principal!
+    end
+
+    # Imperative in-action authorization check against the current `principal!`.
+    private def authorize!(requirement : Access::Requirement, *, message : String? = nil, code : String? = nil) : Auth::Principal
+      user = principal!
+      auth = Azu.current_config.auth
+      unless requirement.satisfied_by?(user, auth.roles)
+        raise Azu::Response::AuthorizationError.new(
+          message || auth.forbidden_message,
+          code: code || auth.forbidden_code
+        )
+      end
+      user
+    end
+
+    # Imperative in-action authorization check using role/permission keyword arguments.
+    private def authorize!(
+      *,
+      role : Symbol | String | Nil = nil,
+      roles : Enumerable? = nil,
+      permissions : Enumerable? = nil,
+      any_permission : Enumerable? = nil,
+      message : String? = nil,
+      code : String? = nil,
+    ) : Auth::Principal
+      opts = RouteOptions.new(role: role, roles: roles, permissions: permissions, any_permission: any_permission)
+      if req = opts.requires
+        authorize!(req, message: message, code: code)
+      else
+        principal!
+      end
+    end
+
+    # Raises `401 Unauthorized` (`Response::AuthenticationError`).
+    private def unauthorized!(
+      message : String = Azu.current_config.auth.unauthorized_message,
+      *,
+      code : String = Azu.current_config.auth.unauthorized_code,
+      www_authenticate : String? = Azu.current_config.auth.www_authenticate,
+      details : JSON::Any? = nil,
+    ) : NoReturn
+      raise Azu::Response::AuthenticationError.new(message, code: code, www_authenticate: www_authenticate, details: details)
+    end
+
+    # Raises `403 Forbidden` (`Response::AuthorizationError`).
+    private def forbidden!(
+      message : String = Azu.current_config.auth.forbidden_message,
+      *,
+      code : String = Azu.current_config.auth.forbidden_code,
+      details : JSON::Any? = nil,
+    ) : NoReturn
+      raise Azu::Response::AuthorizationError.new(message, code: code, details: details)
+    end
+
+    # Raises `404 Not Found` (`Response::NotFound`).
+    private def not_found!(
+      message : String = "The server can't find the requested resource.",
+      *,
+      path : String = context.request.path,
+      code : String = "not_found",
+      details : JSON::Any? = nil,
+    ) : NoReturn
+      raise Azu::Response::NotFound.new(path, message: message, code: code, details: details)
+    end
+
+    # Raises `400 Bad Request` (`Response::BadRequest`).
+    private def bad_request!(
+      message : String = "The server cannot or will not process the request due to something that is perceived to be a client error.",
+      *,
+      code : String = "bad_request",
+      details : JSON::Any? = nil,
+    ) : NoReturn
+      raise Azu::Response::BadRequest.new(message, code: code, details: details)
+    end
+
+    # Raises `409 Conflict` (`Response::Conflict`).
+    private def conflict!(
+      message : String = "The request could not be completed due to a conflict with the current state of the target resource.",
+      *,
+      code : String = "conflict",
+      details : JSON::Any? = nil,
+    ) : NoReturn
+      raise Azu::Response::Conflict.new(message, code: code, details: details)
+    end
+
+    # Raises `422 Unprocessable Entity` (`Response::ValidationError`) for a specific field.
+    private def unprocessable!(
+      field : String,
+      message : String,
+      *,
+      code : String = "validation_failed",
+    ) : NoReturn
+      raise Azu::Response::ValidationError.new(field, message, code: code)
+    end
+
+    # Raises `422 Unprocessable Entity` (`Response::ValidationError`) with a message.
+    private def unprocessable!(
+      message : String,
+      *,
+      code : String = "validation_failed",
+      details : JSON::Any? = nil,
+    ) : NoReturn
+      raise Azu::Response::ValidationError.new(message, code: code, details: details)
+    end
+
+    # Immediately halts endpoint execution and writes `status` and `body` to `context.response`.
+    private def halt!(
+      status : HTTP::Status | Int32 = 200,
+      body : String = "",
+      headers : HTTP::Headers? = nil,
+    ) : NoReturn
+      if status.is_a?(HTTP::Status)
+        context.response.status = status
+      else
+        context.response.status_code = status
+      end
+      headers.try do |hdrs|
+        hdrs.each { |k, v| context.response.headers[k] = v }
+      end
+      context.response.print(body) unless body.empty?
+      raise Halt.new
     end
   end
 end

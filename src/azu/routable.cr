@@ -1,5 +1,6 @@
 require "http/server"
 require "./openapi/operation"
+require "./auth/access"
 
 module Azu
   # Anything the router can dispatch a request to: an endpoint, a WebSocket upgrader or any plain
@@ -12,6 +13,11 @@ module Azu
     # that has none, which is then left out of the document. `Endpoint` overrides this.
     def openapi_operation : OpenAPI::Operation?
       nil
+    end
+
+    # Default route metadata and security options declared on this routable (`Endpoint` overrides this).
+    def route_options : RouteOptions
+      RouteOptions.new
     end
   end
 end

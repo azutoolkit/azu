@@ -116,7 +116,7 @@ module OpenAPIValidator
         names = type.as_a?.try(&.map(&.as_s?)) || [type.as_s?]
         problems << "#{at}: #{type} is not a JSON Schema type" unless names.all? { |name| name && TYPES.includes?(name) }
       end
-      hash.each { |key, child| check_types(child, "#{at}/#{key}", problems) unless key == "properties" || key == "example" }
+      hash.each { |key, child| check_types(child, "#{at}/#{key}", problems) unless key == "properties" || key == "example" || key == "securitySchemes" }
       hash["properties"]?.try(&.as_h?).try &.each { |key, child| check_types(child, "#{at}/properties/#{key}", problems) }
     elsif array = node.as_a?
       array.each_with_index { |child, index| check_types(child, "#{at}/#{index}", problems) }

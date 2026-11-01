@@ -6,11 +6,37 @@ require "html"
 require "base64"
 
 module Azu
+  # Configuration for the cookie-session / anonymous CSRF header guard (`c.csrf_guard`).
+  class CSRFGuardConfiguration
+    # Whether the CSRF header guard is enabled.
+    property? enabled : Bool = false
+
+    # Required header name on state-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`).
+    property header_name : String = "X-Requested-With"
+
+    # Optional expected header value. When `nil`, any non-empty header value satisfies the guard.
+    property expected_value : String? = nil
+
+    # When `true`, also compares the header value against `session_adapter.csrf_token(context)` in constant time.
+    property? verify_session_token : Bool = false
+
+    # Whether to also run `Handler::CSRF#validate_origin` when `Origin` or `Referer` is present.
+    property? check_origin : Bool = false
+
+    # Stable error code returned on 403 refusal.
+    property error_code : String = "csrf"
+
+    # Human-readable error message returned on 403 refusal.
+    property error_message : String = "CSRF header check failed"
+  end
+
   module Handler
     # The CSRF Handler implements Cross-Site Request Forgery protection
-    # following OWASP recommendations for token-based mitigation
+    # following OWASP recommendations for token-based mitigation.
+    # Can be used either in the HTTP::Handler pipeline or as a post-routing `Router::Hook`.
     class CSRF
       include HTTP::Handler
+      include Router::Hook
 
       # HTTP methods that require CSRF protection
       UNSAFE_METHODS = %w(POST PUT PATCH DELETE)
@@ -155,6 +181,11 @@ module Azu
       property cookie_max_age : Int32
       property cookie_same_site : HTTP::Cookie::SameSite
       property? secure_cookies : Bool
+      property? header_guard : Bool
+      property expected_header_value : String?
+      property? verify_session_token : Bool
+      property error_code : String
+      property error_message : String
       # Used by the SynchronizerToken strategy; the cookie-based strategies always use their cookie.
       setter token_store : TokenStore?
 
@@ -201,14 +232,35 @@ module Azu
         defer_secret : Bool = false,
         max_form_size : UInt64? = nil,
         @check_origin : Bool = true,
+        @header_guard : Bool = false,
+        @expected_header_value : String? = nil,
+        @verify_session_token : Bool = false,
+        @error_code : String = "csrf",
+        @error_message : String = "CSRF header check failed",
         @log : Log = Log.for("Azu::Handler::CSRF"),
       )
         @max_form_size = max_form_size || ENV["CSRF_MAX_FORM_SIZE"]?.try(&.to_u64?) || FORM_SIZE_LIMIT
         key = secret_key
         key = @@shared_secret_key if key.nil? && @@shared_secret_key && !@@shared_secret_key.try(&.empty?)
         @secret_key = key.presence.try { |given| checked_secret(given) }
-        self.secret_key unless defer_secret
-        @@in_use.set(true)
+        unless @header_guard
+          self.secret_key unless defer_secret
+          @@in_use.set(true)
+        end
+      end
+
+      # Builds a header-guard CSRF instance from `CSRFGuardConfiguration`.
+      def self.header_guard(config : CSRFGuardConfiguration = Azu.current_config.csrf_guard) : CSRF
+        new(
+          header_guard: true,
+          header_name: config.header_name,
+          expected_header_value: config.expected_value,
+          verify_session_token: config.verify_session_token?,
+          check_origin: config.check_origin?,
+          error_code: config.error_code,
+          error_message: config.error_message,
+          defer_secret: true
+        )
       end
 
       # Whether a state-changing request that names its origin (an `Origin` header, else a `Referer`) must come
@@ -374,16 +426,16 @@ module Azu
           return
         end
 
-        # Skip CSRF protection for configured routes
-        if skip_route?(context.request.path)
+        # Skip CSRF protection for configured routes or non-cookie auth schemes (bearer / jwt)
+        if skip_route?(context.request.path) || non_cookie_principal?(context)
           call_next(context)
           return
         end
 
         # A request that names an origin must come from this app's own, or from one a CORS handler earlier in the
         # chain allowed (no body is read for one that does not)
-        if @check_origin && names_origin?(context) && !context.request.cors_allowed? && !validate_origin(context)
-          refuse(context, Response::AuthorizationError.new("CSRF origin check failed"))
+        if origin_refused?(context)
+          refuse(context, Response::AuthorizationError.new("CSRF origin check failed", code: @error_code))
           return
         end
 
@@ -391,11 +443,43 @@ module Azu
         if valid_token?(context)
           call_next(context)
         else
-          refuse(context, Response::AuthorizationError.new("CSRF token validation failed"))
+          refuse(context, Response::AuthorizationError.new(token_failure_message, code: @error_code))
         end
       rescue BodyTooLarge
         context.response.headers["Connection"] = "close" # the rest of the body is not read: do not wait for the next request in it
         refuse(context, Response::PayloadTooLarge.new)
+      end
+
+      # Post-routing `Router::Hook` entrypoint: runs after 404/405 and 403 `Auth::Authorize`.
+      def call(context : HTTP::Server::Context, route : Router::Route) : Nil
+        return if safe_method?(context.request.method) || route.csrf_exempt? || skip_route?(context.request.path) || non_cookie_principal?(context)
+
+        if origin_refused?(context)
+          raise Response::AuthorizationError.new("CSRF origin check failed", code: @error_code)
+        end
+
+        unless valid_token?(context)
+          raise Response::AuthorizationError.new(token_failure_message, code: @error_code)
+        end
+      rescue BodyTooLarge
+        context.response.headers["Connection"] = "close"
+        raise Response::PayloadTooLarge.new
+      end
+
+      private def origin_refused?(context : HTTP::Server::Context) : Bool
+        @check_origin && names_origin?(context) && !context.request.cors_allowed? && !validate_origin(context)
+      end
+
+      private def token_failure_message : String
+        @header_guard ? @error_message : "CSRF token validation failed"
+      end
+
+      private def non_cookie_principal?(context : HTTP::Server::Context) : Bool
+        if principal = context.principal
+          principal.auth_scheme != :cookie
+        else
+          false
+        end
       end
 
       # The refusal is written here, never raised to the `Rescuer`: this is where it is logged (the request headers are
@@ -417,6 +501,8 @@ module Azu
 
       # Validate CSRF token based on configured strategy
       def valid_token?(context : HTTP::Server::Context) : Bool
+        return validate_header_guard(context) if @header_guard
+
         case @strategy
         when .synchronizer_token?
           validate_synchronizer_token(context)
@@ -427,6 +513,22 @@ module Azu
         else
           false
         end
+      end
+
+      private def validate_header_guard(context : HTTP::Server::Context) : Bool
+        supplied = context.request.headers[@header_name]?.try(&.strip)
+        return false if supplied.nil? || supplied.empty?
+
+        if expected = @expected_header_value
+          return false unless Crypto::Subtle.constant_time_compare(supplied, expected)
+        end
+
+        if @verify_session_token
+          return false unless session_token = token_store.read(context)
+          return false unless Crypto::Subtle.constant_time_compare(supplied, session_token)
+        end
+
+        true
       end
 
       # Generate CSRF token for forms/AJAX requests. Issuing one sets the token cookie, so a response that already

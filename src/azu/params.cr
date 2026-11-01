@@ -62,15 +62,70 @@ module Azu
 
     # Builds the typed request with the standard library's `from_json` and
     # `URI::Params::Serializable.from_www_form`. Input that cannot become a `Request`
-    # is the client's mistake, so it is answered with 400 rather than a server error.
+    # is the client's mistake, so it is answered with 400 rather than a server error
+    # (or 422 / configured status when `c.hygiene.require_json_object` is enabled).
     def typed_request : Request
+      hygiene = Azu.current_config.hygiene
+      if hygiene.require_json_object?
+        return typed_request_with_json_hygiene(hygiene)
+      end
+
       if body = json
         Request.from_json json_with_url_overrides(body)
       else
         Request.from_www_form to_query
       end
+    rescue ex : Response::Error
+      raise ex
     rescue ex : JSON::Error | URI::SerializableError | Time::Format::Error | ArgumentError
       raise Response::BadRequest.new(ex.message.to_s)
+    end
+
+    private def typed_request_with_json_hygiene(hygiene : HygieneConfiguration) : Request
+      if !(body = json).nil?
+        normalized = normalize_json_object_body!(body, hygiene)
+        begin
+          Request.from_json json_with_url_overrides(normalized)
+        rescue ex : JSON::Error | Time::Format::Error | ArgumentError
+          raise Response::ValidationError.new(ex.message.to_s, code: hygiene.non_object_json_code)
+        end
+      elsif to_query.empty?
+        begin
+          Request.from_json json_with_url_overrides("{}")
+        rescue ex : JSON::Error | Time::Format::Error | ArgumentError
+          raise Response::ValidationError.new(ex.message.to_s, code: hygiene.non_object_json_code)
+        end
+      else
+        begin
+          Request.from_www_form to_query
+        rescue ex : URI::SerializableError | Time::Format::Error | ArgumentError
+          raise Response::ValidationError.new(ex.message.to_s, code: hygiene.non_object_json_code)
+        end
+      end
+    end
+
+    private def normalize_json_object_body!(body : String, hygiene : HygieneConfiguration) : String
+      trimmed = body.strip
+      return "{}" if trimmed.empty? || trimmed == "null"
+
+      parsed = begin
+        JSON.parse(trimmed)
+      rescue JSON::ParseException
+        if hygiene.malformed_json_status == HTTP::Status::UNPROCESSABLE_ENTITY
+          raise Response::ValidationError.new(hygiene.malformed_json_message, code: hygiene.malformed_json_code)
+        else
+          raise Response::BadRequest.new(
+            hygiene.malformed_json_message,
+            code: hygiene.malformed_json_code
+          )
+        end
+      end
+
+      unless parsed.raw.is_a?(Hash)
+        raise Response::ValidationError.new(hygiene.non_object_json_message, code: hygiene.non_object_json_code)
+      end
+
+      trimmed
     end
 
     # The path and the query string win over the body, as for forms. A JSON body is the contract's input, so a key
@@ -192,7 +247,9 @@ module Azu
         sub_type = request.content_type.sub_type if format?(request)
         case sub_type
         when "json"
-          {HTTP::Params.new, no_files, request.body.try { |body| read(body) }}
+          raw_json = request.body.try { |body| read(body) }
+          raw_json = "" if raw_json.nil? && Azu.current_config.hygiene.require_json_object?
+          {HTTP::Params.new, no_files, raw_json}
         when "x-www-form-urlencoded"
           {Form.parse(request), no_files, nil}
         when "form-data"
@@ -218,7 +275,7 @@ module Azu
 
       # An oversized body is refused after at most limit + 1 bytes, instead of buffering all of it first.
       def self.read(io : IO) : String
-        limit = Azu.current_config.upload.max_file_size
+        limit = Azu.current_config.hygiene.max_body_size || Azu.current_config.upload.max_file_size
         content = IO::Sized.new(io, read_size: limit.to_i64 + 1).gets_to_end
         raise TooLarge.new("Request body exceeds maximum allowed size") if content.bytesize > limit
         content
