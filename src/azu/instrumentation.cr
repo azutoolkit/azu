@@ -1,3 +1,5 @@
+require "./auth/principal"
+
 module Azu
   # The seam between core and the optional subsystems (`require "azu/dev"`, APM integrations).
   #
@@ -38,6 +40,40 @@ module Azu
       memory_before : Int64,
       memory_after : Int64
 
+    # One finished HTTP request, reported after the response status is finalised.
+    # `route_pattern` is the matched route's pattern (e.g. `"/users/:id"`), or `nil` when the request
+    # did not match a route (`404`, `405`, or pre-routing `401`) so metrics labels stay bounded.
+    record RequestEvent,
+      method : String,
+      route_pattern : String?,
+      path : String,
+      status : Int32,
+      duration : Time::Span,
+      request_id : String?
+
+    # Outcome of an audited request.
+    enum AuditOutcome
+      Pending
+      Succeeded
+      Denied
+      RateLimited
+      Failed
+    end
+
+    # Structured audit event emitted for state-changing requests (and routes with `audit_action` / `audit_critical`).
+    record AuditEvent,
+      action : String?,
+      method : String,
+      route_pattern : String?,
+      path : String,
+      principal : Auth::Principal?,
+      status : Int32,
+      outcome : AuditOutcome,
+      error_code : String?,
+      duration : Time::Span,
+      request_id : String?,
+      client_address : String? = nil
+
     alias Hook = Configuration ->
 
     private record Subscription(T), enabled : Proc(Bool), callback : Proc(T, Nil)
@@ -46,6 +82,8 @@ module Azu
     @@component_subscriptions = [] of Subscription(ComponentEvent)
     @@redis_subscriptions = [] of Subscription(RedisCommand)
     @@exception_subscriptions = [] of Subscription(ExceptionPage::Report)
+    @@response_subscriptions = [] of Subscription(RequestEvent)
+    @@audit_subscriptions = [] of Subscription(AuditEvent)
     @@prepare_hooks = [] of Hook
     @@finalize_hooks = [] of Hook
 
@@ -82,6 +120,43 @@ module Azu
       notify(@@exception_subscriptions, report)
     end
 
+    # Listens to finished HTTP responses (`RequestEvent`).
+    def self.on_response(enabled : Proc(Bool) = -> { true }, &block : RequestEvent ->) : Nil
+      @@response_subscriptions << Subscription(RequestEvent).new(enabled, ->(event : RequestEvent) { block.call(event); nil })
+    end
+
+    # Whether any global response subscriber is enabled.
+    def self.response? : Bool
+      active?(@@response_subscriptions)
+    end
+
+    # Reports a finished HTTP response to enabled global subscribers.
+    def self.report_response(event : RequestEvent) : Nil
+      notify(@@response_subscriptions, event)
+    end
+
+    # Listens to structured audit events (`AuditEvent`).
+    def self.on_audit(enabled : Proc(Bool) = -> { true }, &block : AuditEvent ->) : Nil
+      @@audit_subscriptions << Subscription(AuditEvent).new(enabled, ->(event : AuditEvent) { block.call(event); nil })
+    end
+
+    # Whether any global audit subscriber is enabled.
+    def self.audit? : Bool
+      active?(@@audit_subscriptions)
+    end
+
+    # Reports an audit event to enabled global subscribers, swallowing listener exceptions.
+    def self.report_audit(event : AuditEvent) : Nil
+      notify(@@audit_subscriptions, event)
+    end
+
+    # Reports an audit event without swallowing listener exceptions (used for `audit_critical: true` pre-action checks).
+    def self.report_audit!(event : AuditEvent) : Nil
+      @@audit_subscriptions.each do |subscription|
+        subscription.callback.call(event) if enabled?(subscription)
+      end
+    end
+
     # Runs when `Configuration#prepare` starts what an app needs to run.
     def self.on_prepare(&hook : Hook) : Nil
       @@prepare_hooks << hook
@@ -102,17 +177,28 @@ module Azu
 
     # For specs: runs the block with no subscribers and hooks registered, then restores the previous ones.
     def self.isolate(&)
-      saved = {@@cache_subscriptions, @@component_subscriptions, @@redis_subscriptions, @@exception_subscriptions, @@prepare_hooks, @@finalize_hooks}
+      saved = {
+        @@cache_subscriptions,
+        @@component_subscriptions,
+        @@redis_subscriptions,
+        @@exception_subscriptions,
+        @@response_subscriptions,
+        @@audit_subscriptions,
+        @@prepare_hooks,
+        @@finalize_hooks,
+      }
       @@cache_subscriptions = [] of Subscription(CacheOperation)
       @@component_subscriptions = [] of Subscription(ComponentEvent)
       @@redis_subscriptions = [] of Subscription(RedisCommand)
       @@exception_subscriptions = [] of Subscription(ExceptionPage::Report)
+      @@response_subscriptions = [] of Subscription(RequestEvent)
+      @@audit_subscriptions = [] of Subscription(AuditEvent)
       @@prepare_hooks = [] of Hook
       @@finalize_hooks = [] of Hook
       begin
         yield
       ensure
-        @@cache_subscriptions, @@component_subscriptions, @@redis_subscriptions, @@exception_subscriptions, @@prepare_hooks, @@finalize_hooks = saved
+        @@cache_subscriptions, @@component_subscriptions, @@redis_subscriptions, @@exception_subscriptions, @@response_subscriptions, @@audit_subscriptions, @@prepare_hooks, @@finalize_hooks = saved
       end
     end
 

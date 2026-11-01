@@ -1018,4 +1018,159 @@ describe Azu::Router do
       allow.should eq "GET, OPTIONS"
     end
   end
+
+  describe "405 Method Not Allowed, replaceable responders, switches, hooks, and struct endpoints" do
+    it "answers 404 by default when method_not_allowed is false, and 405 with Allow when enabled" do
+      router = Azu::Router.new
+      router.get "/queues/:name", VerbEndpoint.new("get")
+      router.post "/queues/:name", VerbEndpoint.new("post")
+
+      # Default: 404
+      io1 = IO::Memory.new
+      ctx1 = HTTP::Server::Context.new(HTTP::Request.new("DELETE", "/queues/default"), HTTP::Server::Response.new(io1))
+      router.process(ctx1)
+      ctx1.response.close
+      ctx1.response.status_code.should eq 404
+      ctx1.route_pattern.should eq "/queues/:name"
+
+      # Enabled: 405 with Allow
+      router.method_not_allowed = true
+      io2 = IO::Memory.new
+      ctx2 = HTTP::Server::Context.new(HTTP::Request.new("DELETE", "/queues/default"), HTTP::Server::Response.new(io2))
+      router.process(ctx2)
+      ctx2.response.close
+      ctx2.response.status_code.should eq 405
+      ctx2.response.headers["Allow"]?.should eq "GET, HEAD, POST"
+      ctx2.route_pattern.should eq "/queues/:name"
+    end
+
+    it "supports custom not_found and method_not_allowed responders" do
+      router = Azu::Router.new
+      router.get "/items", VerbEndpoint.new("get")
+      router.not_found = ->(ctx : HTTP::Server::Context) do
+        ctx.response.content_type = "application/json"
+        ctx.response.print %({"custom":"not_found","path":#{ctx.request.path.to_json}})
+      end
+      router.method_not_allowed = ->(ctx : HTTP::Server::Context, allowed : Array(String)) do
+        ctx.response.content_type = "application/json"
+        ctx.response.print %({"custom":"method_not_allowed","allow":#{allowed.to_json}})
+      end
+
+      io404 = IO::Memory.new
+      ctx404 = HTTP::Server::Context.new(HTTP::Request.new("GET", "/missing"), HTTP::Server::Response.new(io404))
+      router.process(ctx404)
+      ctx404.response.close
+      ctx404.response.status_code.should eq 404
+      JSON.parse(io404.to_s.split("\r\n\r\n", 2).last)["custom"].should eq "not_found"
+
+      io405 = IO::Memory.new
+      ctx405 = HTTP::Server::Context.new(HTTP::Request.new("DELETE", "/items"), HTTP::Server::Response.new(io405))
+      router.process(ctx405)
+      ctx405.response.close
+      ctx405.response.status_code.should eq 405
+      ctx405.response.headers["Allow"]?.should eq "GET, HEAD"
+      JSON.parse(io405.to_s.split("\r\n\r\n", 2).last)["allow"].as_a.map(&.as_s).should eq ["GET", "HEAD"]
+    end
+
+    it "allows disabling head_wrapping and method_override" do
+      router = Azu::Router.new
+      router.head_wrapping = false
+      router.method_override = false
+      router.method_not_allowed = true
+      router.get "/items", VerbEndpoint.new("get")
+      router.post "/items", VerbEndpoint.new("post")
+      router.put "/items", VerbEndpoint.new("put")
+      router.head "/explicit-head", VerbEndpoint.new("head")
+
+      # HEAD on /items returns 405 with Allow: GET, POST, PUT (no auto HEAD)
+      io_head = IO::Memory.new
+      ctx_head = HTTP::Server::Context.new(HTTP::Request.new("HEAD", "/items"), HTTP::Server::Response.new(io_head))
+      router.process(ctx_head)
+      ctx_head.response.close
+      ctx_head.response.status_code.should eq 405
+      ctx_head.response.headers["Allow"]?.should eq "GET, POST, PUT"
+
+      # Explicit HEAD route still works
+      io_exp = IO::Memory.new
+      ctx_exp = HTTP::Server::Context.new(HTTP::Request.new("HEAD", "/explicit-head"), HTTP::Server::Response.new(io_exp))
+      router.process(ctx_exp)
+      ctx_exp.response.close
+      ctx_exp.response.status_code.should eq 200
+
+      # Method override disabled: POST with ?_method=PUT or X-HTTP-Method-Override: PUT stays POST
+      req_override = HTTP::Request.new("POST", "/items?_method=PUT", HTTP::Headers{"X-HTTP-Method-Override" => "PUT"})
+      io_post = IO::Memory.new
+      ctx_post = HTTP::Server::Context.new(req_override, HTTP::Server::Response.new(io_post))
+      router.process(ctx_post)
+      ctx_post.response.close
+      io_post.to_s.should contain "handled by post"
+    end
+
+    it "dispatches struct endpoints with constructor dependencies without Routable union crashes" do
+      dep = ["q1", "q2"]
+      router = Azu::Router.new
+      router.get "/queues", DependentStructEndpoint.new(dep, 42),
+        requires: Azu::Access.role(:viewer),
+        summary: "List queues"
+      router.post "/session", DependentStructEndpoint.new(dep, 1),
+        public: true,
+        summary: "Sign in"
+
+      io = IO::Memory.new
+      ctx = HTTP::Server::Context.new(HTTP::Request.new("GET", "/queues"), HTTP::Server::Response.new(io))
+      router.process(ctx)
+      ctx.response.close
+      io.to_s.split("\r\n\r\n", 2).last.should eq "q1,q2:42"
+
+      table = router.route_table
+      table.size.should eq 3 # GET /queues, HEAD /queues, POST /session
+      get_entry = table.find! { |entry| entry.method.get? && entry.pattern == "/queues" }
+      get_entry.summary.should eq "List queues"
+      get_entry.public?.should be_false
+      get_entry.requires.try(&.role).should eq "viewer"
+
+      post_entry = table.find! { |entry| entry.method.post? && entry.pattern == "/session" }
+      post_entry.public?.should be_true
+    end
+
+    it "runs before_dispatch, around_dispatch, and after_dispatch hooks on leaf routes only and memoizes resolve" do
+      events = [] of String
+      router = Azu::Router.new
+      router.get "/items/:id", VerbEndpoint.new("get"), public: true
+
+      router.around_dispatch do |_ctx, route, proceed|
+        events << "around_before:#{route.pattern}"
+        proceed.call
+        events << "around_after:#{route.pattern}"
+      end
+
+      router.before_dispatch do |_ctx, route|
+        events << "before:#{route.pattern}"
+      end
+
+      router.after_dispatch do |_ctx, route, err|
+        events << "after:#{route.pattern}:#{err.try(&.code) || "ok"}"
+      end
+
+      io = IO::Memory.new
+      ctx = HTTP::Server::Context.new(HTTP::Request.new("GET", "/items/99"), HTTP::Server::Response.new(io))
+      router.public_route?(ctx).should be_true
+      ctx.azu_match_resolved?.should be_true
+      router.process(ctx)
+      ctx.response.close
+      io.to_s.should contain "handled by get"
+      events.should eq ["before:/items/:id", "around_before:/items/:id", "around_after:/items/:id", "after:/items/:id:ok"]
+    end
+  end
+end
+
+private struct DependentStructEndpoint
+  include Azu::Endpoint(Azu::Request, VerbResponse)
+
+  def initialize(@items : Array(String), @count : Int32)
+  end
+
+  def call : VerbResponse
+    VerbResponse.new("#{@items.join(",")}:#{@count}")
+  end
 end

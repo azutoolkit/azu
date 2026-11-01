@@ -101,8 +101,19 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context)
-        HeadOutput.wrap(context)
-        return if @app.track { Azu.with_scope(@app, @app.config) { call_next(context) } }
+        context.azu_started_at = Time.instant
+        context.azu_in_app_scope = true
+        HeadOutput.wrap(context) if @app.config.router.head_wrapping?
+        tracked = @app.track do
+          Azu.with_scope(@app, @app.config) do
+            begin
+              call_next(context)
+            ensure
+              @app.config.report_unmatched_and_response_for(context)
+            end
+          end
+        end
+        return if tracked
 
         context.response.status_code = 503
         context.response.headers["Connection"] = "close"
@@ -248,6 +259,7 @@ module Azu
     private def serve(handlers : Array(HTTP::Handler), signals : Bool) : Nil
       started = Time.instant
       @config.check_boot # before anything is bound: a misconfigured server never answers a request
+      validate_pipeline!(handlers)
       http = server(handlers)
       bring_up(http, handlers)
       router.freeze # after the declared endpoints were taken, before any request reads the routes
@@ -412,25 +424,37 @@ module Azu
     end
 
     # The handlers `App#start` uses when none are given: a request id, request logging, error pages,
-    # security headers (HSTS for the requests that came over TLS) and static files from `public/` (falling
-    # through to the router). Fresh instances on every call, since a handler can be in one chain only.
+    # security headers (HSTS for the requests that came over TLS), authentication (when `c.auth.enabled?` is true),
+    # and static files from `public/` (falling through to the router). Fresh instances on every call, since a
+    # handler can be in one chain only.
     def default_handlers : Array(HTTP::Handler)
-      [
+      @config.install_preset_hooks! if @config.auth.enabled?
+      stack = [
         Handler::RequestId.new,
         Handler::Logger.new(@config.log),
         Handler::Rescuer.new,
         Handler::SecurityHeaders.new(hsts: @config.tls? ? true : :auto, trusted_proxies: @config.trusted_proxies),
-        Handler::Static.new(fallthrough: true, cache_max_age: @config.assets.cache_max_age),
       ] of HTTP::Handler
+      stack << Handler::Authentication.new(@config) if @config.auth.enabled?
+      stack << Handler::Static.new(fallthrough: true, cache_max_age: @config.assets.cache_max_age)
+      stack
     end
 
-    # The default stack with *handlers* inside it: after `SecurityHeaders`, so the rescuer catches what they
-    # raise and their refusals carry the security headers, and before `Static`, so a static file is still served
-    # only to a request they let through. What `start(handlers, defaults: true)` serves.
+    # The default stack with *handlers* inside it: after `SecurityHeaders` (and `Authentication` when enabled),
+    # so the rescuer catches what they raise and their refusals carry the security headers, and before `Static`,
+    # so a static file is still served only to a request they let through. What `start(handlers, defaults: true)` serves.
     def default_handlers(handlers : Array(HTTP::Handler)) : Array(HTTP::Handler)
       stack = default_handlers
+      if handlers.any?(Auth::AuthenticationStage)
+        stack.reject!(Handler::Authentication)
+      end
       stack[-1, 0] = handlers
       stack
+    end
+
+    # Validates that the handler pipeline and router hooks satisfy the authentication and authorization boot rules.
+    def validate_pipeline!(handlers : Array(HTTP::Handler) = @config.handlers) : Nil
+      @config.check_auth_boot!(handlers)
     end
 
     # An `HTTP::Server` for this app. It is not bound or started: call `bind_tcp`/`listen` on it, or
@@ -443,6 +467,7 @@ module Azu
     # handles a request without a socket (this is what `Azu::Testing::Client` does).
     def dispatcher(handlers : Array(HTTP::Handler) = [] of HTTP::Handler) : HTTP::Handler
       @config.i18n.apply
+      @config.install_preset_hooks!
       router # takes the declared endpoints now, so a duplicate route fails at boot, not on a request
       HTTP::Server.build_middleware(chain(handlers), ->(context : HTTP::Server::Context) { router.process(context) })
     end

@@ -179,12 +179,14 @@ module Azu
     end
 
     # Everything that must hold before the server binds, in the order a deployment meets it: the bind address, the
-    # TLS files, the WebSocket limits, then the variables the app registered with `Azu::Env.require_at_boot` (an
-    # error in a strict environment, a warning elsewhere). `App#start` calls it; an app embedding its own server can too.
+    # TLS files, the WebSocket limits, the auth/authorization contract, then the variables the app registered with
+    # `Azu::Env.require_at_boot` (an error in a strict environment, a warning elsewhere). `App#start` calls it;
+    # an app embedding its own server can too.
     def check_boot : Nil
       check_bind_host
       check_tls_files
       check_websocket_limits
+      check_auth_boot!
       Env.check_required_at_boot!(strict_environment?)
     end
 
@@ -303,8 +305,235 @@ module Azu
     # How template helpers and the session CSRF token store reach the session library (see `SessionAdapter`).
     property session_adapter : SessionAdapter? = nil
 
-    # The shape of validation failures: an RFC 7807 problem body (labelled `application/problem+json` only for a client that names it in `Accept`), or the pre-0.6 body.
+    # The shape of validation failures: an RFC 7807 problem body (labelled `application/problem+json` only for a client that names it in `Accept`), `Envelope`, or the pre-0.6 `Legacy` body.
     property error_format : ErrorFormat = ErrorFormat::Problem
+
+    # Configuration for `ErrorFormat::Envelope` (`wrapper_key`, `validation_mode`, `renderer`).
+    getter error_envelope : ErrorEnvelopeConfiguration = ErrorEnvelopeConfiguration.new
+
+    # Custom error renderer proc `(HTTP::Server::Context, Response::Error) -> Nil`, delegating to `error_envelope.renderer`.
+    def error_renderer : Proc(HTTP::Server::Context, Response::Error, Nil)?
+      @error_envelope.renderer
+    end
+
+    def error_renderer=(renderer : Proc(HTTP::Server::Context, Response::Error, Nil)?)
+      @error_envelope.renderer = renderer
+    end
+
+    # Shortcut for `error_envelope.validation_mode`.
+    def validation_error_mode : ValidationErrorMode
+      @error_envelope.validation_mode
+    end
+
+    def validation_error_mode=(mode : ValidationErrorMode)
+      @error_envelope.validation_mode = mode
+    end
+
+    # Authentication and authorization configuration (`c.auth`).
+    getter auth : Auth::Configuration = Auth::Configuration.new
+
+    # Request hygiene configuration (`c.hygiene`: body size limit, strict content-type, JSON-object rule, strict request ID).
+    getter hygiene : HygieneConfiguration = HygieneConfiguration.new
+
+    # Cookie-session / anonymous CSRF header guard configuration (`c.csrf_guard`).
+    getter csrf_guard : CSRFGuardConfiguration = CSRFGuardConfiguration.new
+
+    # Structured audit hook configuration (`c.audit`).
+    getter audit : AuditConfiguration = AuditConfiguration.new
+
+    @response_callbacks = [] of Proc(Instrumentation::RequestEvent, Nil)
+    @audit_callbacks = [] of Proc(Instrumentation::AuditEvent, Nil)
+
+    # Registers a per-response observability callback receiving `Instrumentation::RequestEvent`.
+    def on_response(&block : Instrumentation::RequestEvent ->) : Nil
+      @response_callbacks << ->(event : Instrumentation::RequestEvent) { block.call(event); nil }
+    end
+
+    # Registers a structured audit callback receiving `Instrumentation::AuditEvent`.
+    def on_audit(&block : Instrumentation::AuditEvent ->) : Nil
+      @audit.enabled = true
+      @audit_callbacks << ->(event : Instrumentation::AuditEvent) { block.call(event); nil }
+    end
+
+    # Clears per-configuration response and audit callbacks (for specs).
+    def clear_observability_hooks! : Nil
+      @response_callbacks.clear
+      @audit_callbacks.clear
+    end
+
+    # True when at least one response listener (per-config or global `Instrumentation`) is active.
+    def response_listening? : Bool
+      !@response_callbacks.empty? || Instrumentation.response?
+    end
+
+    # True when audit logging is enabled or at least one audit listener is active.
+    def audit_listening? : Bool
+      @audit.enabled? || !@audit_callbacks.empty? || Instrumentation.audit?
+    end
+
+    # :nodoc:
+    def emit_audit(event : Instrumentation::AuditEvent) : Nil
+      @audit_callbacks.each do |callback|
+        begin
+          callback.call(event)
+        rescue ex
+          Log.for("azu.audit").debug(exception: ex) { "Audit callback failed" }
+        end
+      end
+    end
+
+    # :nodoc:
+    def emit_audit!(event : Instrumentation::AuditEvent) : Nil
+      @audit_callbacks.each(&.call(event))
+    end
+
+    # :nodoc:
+    def report_response_for(context : HTTP::Server::Context) : Nil
+      return unless response_listening?
+
+      duration = Time.instant - context.azu_started_at
+      pattern = context.matched_route ? context.route_pattern : nil
+      event = Instrumentation::RequestEvent.new(
+        method: context.request.method,
+        route_pattern: pattern,
+        path: context.request.path,
+        status: context.response.status_code,
+        duration: duration,
+        request_id: RequestContext.current_id(context)
+      )
+      @response_callbacks.each do |callback|
+        begin
+          callback.call(event)
+        rescue ex
+          Log.for("azu.instrumentation").debug(exception: ex) { "on_response callback failed" }
+        end
+      end
+      Instrumentation.report_response(event)
+    end
+
+    # :nodoc:
+    def report_unmatched_and_response_for(context : HTTP::Server::Context) : Nil
+      unless context.matched_route || context.azu_unmatched_audited?
+        context.azu_unmatched_audited = true
+        duration = Time.instant - context.azu_started_at
+        hook_emitted = false
+        @router.after_hooks.each do |hook|
+          if hook.is_a?(Auth::AuditHook)
+            hook.emit_unmatched(context, duration, context.azu_last_error)
+            hook_emitted = true
+          end
+        end
+        if !hook_emitted && audit_listening?
+          Auth::AuditHook.new(self).emit_unmatched(context, duration, context.azu_last_error)
+        end
+      end
+      report_response_for(context)
+    end
+
+    # Idempotently installs the post-routing hooks (`Auth::Authorize`, `Handler::CSRF` header guard,
+    # `Hygiene::BodyCheck`, and `Auth::AuditHook`) on `router` in the contract check order.
+    def install_preset_hooks! : Nil
+      install_authorize_preset!
+      install_csrf_preset!
+      install_hygiene_preset!
+      install_audit_preset!
+    end
+
+    private def install_authorize_preset! : Nil
+      return if !@auth.enabled? || @router.has_before_hook?(Auth::Authorize)
+      @router.before_dispatch(Auth::Authorize.new(self))
+    end
+
+    private def install_csrf_preset! : Nil
+      return if !@csrf_guard.enabled? || @router.has_before_hook?(Handler::CSRF)
+      @router.before_dispatch(Handler::CSRF.header_guard(@csrf_guard))
+    end
+
+    private def install_hygiene_preset! : Nil
+      needs_hygiene = @auth.enabled? || !@hygiene.max_body_size.nil? || @hygiene.strict_content_type?
+      return if !needs_hygiene || @router.has_before_hook?(Hygiene::BodyCheck)
+      @router.before_dispatch(Hygiene::BodyCheck.new(self))
+    end
+
+    private def install_audit_preset! : Nil
+      return if (!@auth.enabled? && !@audit.enabled?) || @router.has_after_hook?(Auth::AuditHook)
+      audit_hook = Auth::AuditHook.new(self)
+      @router.around_dispatch(audit_hook)
+      @router.after_dispatch(audit_hook)
+    end
+
+    # Validates the authentication and authorization configuration at boot.
+    # Raises `Configuration::BootError` on incomplete or inconsistent setup.
+    def check_auth_boot!(handlers : Array(HTTP::Handler)? = nil) : Nil
+      install_preset_hooks! if @auth.enabled?
+
+      entries = router.route_table
+      validate_known_roles!(entries)
+      validate_auth_pipeline!(entries, handlers)
+      validate_route_coverage!(entries)
+    end
+
+    private def validate_known_roles!(entries : Array(Router::RouteEntry)) : Nil
+      return if @auth.roles.empty?
+
+      if default_req = @auth.default_access
+        ensure_roles_known!(default_req.roles, "in c.auth.default_access")
+      end
+      @auth.verb_defaults.each do |method, req|
+        ensure_roles_known!(req.roles, "in c.auth default for #{method.to_s.upcase}")
+      end
+      entries.each do |entry|
+        if req = entry.requires
+          ensure_roles_known!(req.roles, "on route #{entry.method.to_s.upcase} #{entry.pattern}")
+        end
+      end
+    end
+
+    private def ensure_roles_known!(roles : Array(String), location : String) : Nil
+      roles.each do |role|
+        if @auth.role_index(role).nil?
+          raise BootError.new("Unknown role #{role.inspect} #{location}; known roles in c.auth.roles are #{@auth.roles.inspect}")
+        end
+      end
+    end
+
+    private def validate_auth_pipeline!(entries : Array(Router::RouteEntry), handlers : Array(HTTP::Handler)?) : Nil
+      has_route_requires = requires_configured?(entries)
+      has_authorize_hook = router.has_before_hook?(Auth::Authorize)
+
+      if (has_route_requires || @auth.enabled?) && !has_authorize_hook
+        raise BootError.new("Routes declare `requires:` (or auth defaults are configured), but `Azu::Auth::Authorize` is not registered on the router")
+      end
+
+      return unless has_authorize_hook || has_route_requires || @auth.enabled?
+      ensure_authentication_stage!(handlers)
+    end
+
+    private def requires_configured?(entries : Array(Router::RouteEntry)) : Bool
+      entries.any? { |entry| !entry.requires.nil? } || !@auth.default_access.nil? || !@auth.verb_defaults.empty?
+    end
+
+    private def ensure_authentication_stage!(handlers : Array(HTTP::Handler)?) : Nil
+      has_stage_handler = (handlers || @handlers).any?(Auth::AuthenticationStage)
+      if @auth.authenticator.nil? && !has_stage_handler
+        raise BootError.new("Authorization is configured, but no `c.auth.authenticator` or `Azu::Auth::AuthenticationStage` handler is present")
+      end
+      if handlers && !has_stage_handler
+        raise BootError.new("Authorization is configured, but no `Azu::Handler::Authentication` (or `Azu::Auth::AuthenticationStage`) handler is in the middleware pipeline")
+      end
+    end
+
+    private def validate_route_coverage!(entries : Array(Router::RouteEntry)) : Nil
+      return unless router.has_before_hook?(Auth::Authorize)
+
+      entries.each do |entry|
+        next if entry.public?
+        effective = entry.requires || @auth.default_access_for(entry.method)
+        if effective.nil?
+          raise BootError.new("Route #{entry.method.to_s.upcase} #{entry.pattern} is not marked `public: true` and has no `requires:` or default role configured")
+        end
+      end
+    end
 
     # The query parameter that picks the format of a `Response::Negotiable` (`?format=json`), or nil
     # to turn it off. A value that is not a format name (html, json, xml, text, txt) is ignored, so an

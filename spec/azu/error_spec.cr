@@ -448,4 +448,110 @@ describe "Azu Error Handling" do
       error.context.should eq(context)
     end
   end
+
+  describe "ErrorFormat::Envelope, ValidationErrorMode, and standard HTTP errors" do
+    it "renders the configurable error envelope with code, message, details, and request_id" do
+      app = Azu::App.new
+      app.config.error_format = Azu::ErrorFormat::Envelope
+
+      Azu.with_config(app.config) do
+        req = HTTP::Request.new("POST", "/queues", HTTP::Headers{"Accept" => "application/json", "X-Request-ID" => "req_abc_123"})
+        io = IO::Memory.new
+        ctx = HTTP::Server::Context.new(req, HTTP::Server::Response.new(io))
+
+        err = Azu::Response::ValidationError.new({"name" => ["must be present", "is too short"], "limit" => ["must be positive"]})
+        err.to_s(ctx)
+        ctx.response.close
+
+        ctx.response.status_code.should eq 422
+        ctx.response.content_type.should eq "application/json"
+        body = JSON.parse(io.to_s.split("\r\n\r\n", 2).last)
+        env = body["error"]
+        env["code"].should eq "validation_failed"
+        env["request_id"].should eq "req_abc_123"
+        env["details"]["name"].as_a.map(&.as_s).should eq ["must be present", "is too short"]
+      end
+    end
+
+    it "supports FirstMessageOnly validation mode and flat wrapper_key = nil" do
+      app = Azu::App.new
+      app.config.error_format = Azu::ErrorFormat::Envelope
+      app.config.error_envelope.wrapper_key = nil
+      app.config.error_envelope.validation_mode = Azu::ValidationErrorMode::FirstMessageOnly
+
+      Azu.with_config(app.config) do
+        req = HTTP::Request.new("POST", "/queues")
+        io = IO::Memory.new
+        ctx = HTTP::Server::Context.new(req, HTTP::Server::Response.new(io))
+
+        err = Azu::Response::ValidationError.new({"name" => ["must be present", "is too short"]})
+        err.to_s(ctx)
+        ctx.response.close
+
+        body = JSON.parse(io.to_s.split("\r\n\r\n", 2).last)
+        body["code"].should eq "validation_failed"
+        body["message"].should eq "name: must be present"
+        body["details"]["name"].should eq "must be present"
+      end
+    end
+
+    it "supports a custom error_renderer proc" do
+      app = Azu::App.new
+      app.config.error_renderer = ->(ctx : HTTP::Server::Context, error : Azu::Response::Error) do
+        ctx.response.content_type = "application/json"
+        ctx.response.print({code: error.code, msg: error.detail, status: error.status_code}.to_json)
+      end
+
+      Azu.with_config(app.config) do
+        io = IO::Memory.new
+        ctx = HTTP::Server::Context.new(HTTP::Request.new("GET", "/"), HTTP::Server::Response.new(io))
+        Azu::Response::Forbidden.new("No access", code: "custom_forbidden").to_s(ctx)
+        ctx.response.close
+
+        ctx.response.status_code.should eq 403
+        parsed = JSON.parse(io.to_s.split("\r\n\r\n", 2).last)
+        parsed["code"].should eq "custom_forbidden"
+        parsed["msg"].should eq "No access"
+      end
+    end
+
+    it "attaches protocol headers for 401, 405, 413, 415, 426, 429, and 503" do
+      render_error = ->(err : Azu::Response::Error) do
+        io = IO::Memory.new
+        ctx = HTTP::Server::Context.new(HTTP::Request.new("GET", "/x"), HTTP::Server::Response.new(io))
+        err.to_s(ctx)
+        ctx.response.close
+        ctx.response
+      end
+
+      r401 = render_error.call(Azu::Response::Unauthorized.new("Bad token", www_authenticate: "Bearer realm=\"api\""))
+      r401.status_code.should eq 401
+      r401.headers["WWW-Authenticate"]?.should eq "Bearer realm=\"api\""
+
+      r405 = render_error.call(Azu::Response::MethodNotAllowed.new("DELETE", "/x", ["GET", "POST"]))
+      r405.status_code.should eq 405
+      r405.headers["Allow"]?.should eq "GET, POST"
+
+      r413 = render_error.call(Azu::Response::PayloadTooLarge.new)
+      r413.status_code.should eq 413
+      r413.headers["Connection"]?.should eq "close"
+
+      r415 = render_error.call(Azu::Response::UnsupportedMediaType.new("JSON only", ["application/json"]))
+      r415.status_code.should eq 415
+      r415.headers["Accept"]?.should eq "application/json"
+      r415.headers["Accept-Post"]?.should eq "application/json"
+
+      r426 = render_error.call(Azu::Response::UpgradeRequired.new("TLS required", "TLS/1.3"))
+      r426.status_code.should eq 426
+      r426.headers["Upgrade"]?.should eq "TLS/1.3"
+
+      r429 = render_error.call(Azu::Response::TooManyRequests.new(30))
+      r429.status_code.should eq 429
+      r429.headers["Retry-After"]?.should eq "30"
+
+      r503 = render_error.call(Azu::Response::ServiceUnavailable.new("Draining", 5))
+      r503.status_code.should eq 503
+      r503.headers["Retry-After"]?.should eq "5"
+    end
+  end
 end

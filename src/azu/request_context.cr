@@ -16,13 +16,30 @@ module Azu
       getter method : String
       getter path : String
       property endpoint : String?
+      property route_pattern : String?
       getter fiber_id : UInt64
       # The request being served; nil for a context opened with `RequestContext.with` (jobs, specs).
       getter http_context : HTTP::Server::Context?
       # When the context was opened, so an error can say how long the request ran before it failed.
       getter started_at : Time::Instant = Time.instant
 
-      def initialize(@request_id, @method, @path, @fiber_id, @endpoint = nil, @http_context = nil)
+      def initialize(@request_id, @method, @path, @fiber_id, @endpoint = nil, @http_context = nil, @route_pattern = nil)
+      end
+
+      def principal : Auth::Principal?
+        @http_context.try(&.principal?)
+      end
+
+      def principal? : Auth::Principal?
+        @http_context.try(&.principal?)
+      end
+
+      def current_user : Auth::Principal?
+        @http_context.try(&.principal?)
+      end
+
+      def current_user? : Auth::Principal?
+        @http_context.try(&.principal?)
       end
     end
 
@@ -108,6 +125,12 @@ module Azu
 
     def self.current? : Info?
       Fiber.current.azu_request_context
+    end
+
+    # The request ID of the active `RequestContext` or the `X-Request-ID` header on `context`.
+    def self.current_id(context : HTTP::Server::Context? = nil) : String?
+      current?.try(&.request_id).presence ||
+        context.try { |ctx| ctx.response.headers["X-Request-ID"]?.presence || ctx.request.headers["X-Request-ID"]?.presence }
     end
 
     # Runs the block with `context` registered for the current fiber. A scope that is already open
