@@ -122,6 +122,26 @@ module Azu
       Requirement.new(any_permissions: permissions.map(&.to_s).to_a)
     end
 
+    # OAuth 2.0 alias for `permissions`: requires all listed scopes.
+    def self.scopes(*scopes : Symbol | String) : Requirement
+      permissions(*scopes)
+    end
+
+    # OAuth 2.0 alias for `permissions`: requires all listed scopes.
+    def self.scopes(scopes : Enumerable) : Requirement
+      permissions(scopes)
+    end
+
+    # OAuth 2.0 alias for `any_permission`: requires at least one of the listed scopes.
+    def self.any_scope(*scopes : Symbol | String) : Requirement
+      any_permission(*scopes)
+    end
+
+    # OAuth 2.0 alias for `any_permission`: requires at least one of the listed scopes.
+    def self.any_scope(scopes : Enumerable) : Requirement
+      any_permission(scopes)
+    end
+
     # Requires an authenticated principal without a specific role or permission constraint.
     def self.authenticated : Requirement
       Requirement.new
@@ -162,25 +182,22 @@ module Azu
       roles : Enumerable? = nil,
       permissions : Enumerable? = nil,
       any_permission : Enumerable? = nil,
+      scopes : Enumerable? = nil,
+      any_scope : Enumerable? = nil,
     )
-      req = requires
-      if role
-        r = Access.role(role)
-        req = req ? (req & r) : r
-      end
-      if roles
-        r = Access.role(roles)
-        req = req ? (req & r) : r
-      end
-      if permissions
-        p = Access.permissions(permissions)
-        req = req ? (req & p) : p
-      end
-      if any_permission
-        p = Access.any_permission(any_permission)
-        req = req ? (req & p) : p
-      end
+      req = combine_requirement(requires, role) { |val| Access.role(val) }
+      req = combine_requirement(req, roles) { |val| Access.role(val) }
+      req = combine_requirement(req, permissions) { |val| Access.permissions(val) }
+      req = combine_requirement(req, any_permission) { |val| Access.any_permission(val) }
+      req = combine_requirement(req, scopes) { |val| Access.scopes(val) }
+      req = combine_requirement(req, any_scope) { |val| Access.any_scope(val) }
       @requires = (@public == true) ? nil : req
+    end
+
+    private def combine_requirement(existing : Access::Requirement?, value, &) : Access::Requirement?
+      return existing unless value
+      added = yield value
+      existing ? (existing & added) : added
     end
 
     def public? : Bool
@@ -301,11 +318,30 @@ module Azu
 
     # Configuration for authentication, role hierarchy, per-verb access defaults, and enrolment gates.
     class Configuration
+      @enabled : Bool = false
+      @enabled_explicit : Bool = false
+
       # Enables the preset auth pipeline in `App#default_handlers`.
-      property? enabled : Bool = false
+      # Automatically becomes `true` when an authenticator is configured unless explicitly set to `false`.
+      def enabled? : Bool
+        @enabled
+      end
+
+      def enabled=(value : Bool) : Bool
+        @enabled_explicit = true
+        @enabled = value
+      end
 
       # The authenticator used by `Handler::Authentication` when none is passed explicitly.
       property authenticator : Authenticator? = nil
+
+      # Enables `c.auth` unless `c.auth.enabled = false` was explicitly set by the caller.
+      protected def enable_by_convention! : Nil
+        @enabled = true unless @enabled_explicit
+      end
+
+      # When `true`, mounts Authly's OAuth 2.0 / OIDC provider endpoints on `router` at boot.
+      property? oauth_provider : Bool = false
 
       # Ordered role names from lowest to highest privilege (e.g. `["viewer", "operator", "admin"]`).
       getter roles : Array(String) = [] of String
@@ -345,6 +381,24 @@ module Azu
       # Sets the ordered role hierarchy from lowest to highest privilege.
       def roles=(list : Enumerable) : Array(String)
         @roles = list.map(&.to_s).to_a
+      end
+
+      # Conventional role hierarchy setup: sets `roles` from lowest to highest privilege and,
+      # unless per-verb or default access was already customized, automatically configures
+      # `default_read_role` (`GET`/`HEAD`) to the lowest role and `default_write_role`
+      # (`POST`/`PUT`/`PATCH`/`DELETE`) to the second role (or the sole role when only one is given).
+      def role_hierarchy(*roles : Symbol | String) : Array(String)
+        role_hierarchy(roles)
+      end
+
+      # Conventional role hierarchy setup from an `Enumerable`.
+      def role_hierarchy(list : Enumerable) : Array(String)
+        self.roles = list
+        if @verb_defaults.empty? && @default_access.nil? && !@roles.empty?
+          self.default_read_role = @roles.first
+          self.default_write_role = @roles[1]? || @roles.first
+        end
+        @roles
       end
 
       # Returns the index of `role` in `roles` (0 = lowest privilege), or `nil` if unknown.

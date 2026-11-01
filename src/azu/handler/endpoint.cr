@@ -308,6 +308,16 @@ module Azu
         self.route_options = own_route_options.with_requirement(Azu::Access.any_permission(*permissions))
       end
 
+      # OAuth 2.0 alias for `require_permissions`: requires all listed scopes.
+      def self.require_scopes(*scopes : Symbol | String) : Nil
+        self.route_options = own_route_options.with_requirement(Azu::Access.scopes(*scopes))
+      end
+
+      # OAuth 2.0 alias for `require_any_permission`: requires at least one of the listed scopes.
+      def self.require_any_scope(*scopes : Symbol | String) : Nil
+        self.route_options = own_route_options.with_requirement(Azu::Access.any_scope(*scopes))
+      end
+
       # Combines an explicit `Azu::Access::Requirement` into this endpoint's route options.
       def self.requires(requirement : Azu::Access::Requirement) : Nil
         self.route_options = own_route_options.with_requirement(requirement)
@@ -737,6 +747,51 @@ module Azu
       principal!
     end
 
+    # True when a principal is authenticated on the current request.
+    private def authenticated? : Bool
+      !context.principal?.nil?
+    end
+
+    # True when the authenticated principal satisfies `role` (including role hierarchy inheritance).
+    private def role?(role_name : Symbol | String) : Bool
+      user = context.principal?
+      return false unless user
+      Access.role(role_name).satisfied_by?(user, Azu.current_config.auth.roles)
+    end
+
+    # True when the authenticated principal holds `perm`.
+    private def permission?(perm : Symbol | String) : Bool
+      context.principal?.try(&.has_permission?(perm)) || false
+    end
+
+    # OAuth 2.0 alias for `permission?`: true when the authenticated principal holds `scope_name`.
+    private def scope?(scope_name : Symbol | String) : Bool
+      permission?(scope_name)
+    end
+
+    # Verified token claims hash for the current principal (empty hash when unauthenticated).
+    private def claims : Hash(String, JSON::Any)
+      context.principal?.try(&.claims) || ({} of String => JSON::Any)
+    end
+
+    # Returns `context.authly_claims` when `Authly` is loaded, or `principal?.try(&.claims)`.
+    private def authly_claims
+      {% if @top_level.has_constant?("Authly") %}
+        context.authly_claims
+      {% else %}
+        context.principal?.try(&.claims)
+      {% end %}
+    end
+
+    # Returns `context.authly_claims!` when `Authly` is loaded, or `principal!.claims`.
+    private def authly_claims!
+      {% if @top_level.has_constant?("Authly") %}
+        context.authly_claims!
+      {% else %}
+        principal!.claims
+      {% end %}
+    end
+
     # Imperative in-action authorization check against the current `principal!`.
     private def authorize!(requirement : Access::Requirement, *, message : String? = nil, code : String? = nil) : Auth::Principal
       user = principal!
@@ -750,17 +805,26 @@ module Azu
       user
     end
 
-    # Imperative in-action authorization check using role/permission keyword arguments.
+    # Imperative in-action authorization check using role/permission/scope keyword arguments.
     private def authorize!(
       *,
       role : Symbol | String | Nil = nil,
       roles : Enumerable? = nil,
       permissions : Enumerable? = nil,
       any_permission : Enumerable? = nil,
+      scopes : Enumerable? = nil,
+      any_scope : Enumerable? = nil,
       message : String? = nil,
       code : String? = nil,
     ) : Auth::Principal
-      opts = RouteOptions.new(role: role, roles: roles, permissions: permissions, any_permission: any_permission)
+      opts = RouteOptions.new(
+        role: role,
+        roles: roles,
+        permissions: permissions,
+        any_permission: any_permission,
+        scopes: scopes,
+        any_scope: any_scope
+      )
       if req = opts.requires
         authorize!(req, message: message, code: code)
       else
