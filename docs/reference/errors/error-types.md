@@ -23,6 +23,9 @@ error.title       # => "Payment failed"
 - `status : HTTP::Status` - HTTP status (`status_code` is the number)
 - `title : String` - Short title
 - `detail : String` - Longer explanation
+- `code : String` - Stable machine-readable error code (for example `"unauthorized"`, `"forbidden"`, `"not_found"`, `"validation_failed"`)
+- `details : JSON::Any?` - Optional structured payload emitted in `ErrorFormat::Envelope`
+- `headers : HTTP::Headers` - Error-specific HTTP headers (`Allow`, `WWW-Authenticate`, `Retry-After`, `Upgrade`) applied when the error is written
 - `source : String` - What the error is about, such as a path
 - `errors : Array(String)` - Individual messages
 - `context : ErrorContext?` - Additional context
@@ -81,10 +84,26 @@ raise Azu::Response::NotFound.new("/users/123")
 **Usage:** Resource doesn't exist. The router answers paths no route matches with it (it writes the error itself,
 without raising it).
 
+### MethodNotAllowed (405)
+
+Method not allowed for the matched path; sets the `Allow` response header.
+
+```crystal
+raise Azu::Response::MethodNotAllowed.new("POST", "/users", ["GET", "HEAD"])
+```
+
 ### TimeoutError (408)
 
 ```crystal
 raise Azu::Response::TimeoutError.new("Upstream did not answer in time")
+```
+
+### Conflict (409)
+
+Conflict with the current state of the target resource.
+
+```crystal
+raise Azu::Response::Conflict.new("Email already registered", code: "email_taken")
 ```
 
 ### PayloadTooLarge (413)
@@ -93,6 +112,22 @@ The request body is larger than the server accepts. Raised for bodies and upload
 
 ```crystal
 raise Azu::Response::PayloadTooLarge.new
+```
+
+### UnsupportedMediaType (415)
+
+The request `Content-Type` is not accepted by the endpoint or `config.hygiene.allowed_content_types`.
+
+```crystal
+raise Azu::Response::UnsupportedMediaType.new("Content-Type must be application/json")
+```
+
+### UpgradeRequired (426)
+
+Sets the `Upgrade` response header when `upgrade` is given.
+
+```crystal
+raise Azu::Response::UpgradeRequired.new("TLS/1.3 required", upgrade: "TLS/1.3")
 ```
 
 ### ValidationError (422)
@@ -162,17 +197,24 @@ raise Azu::Response::ExternalServiceError.new("Payments", "Payment gateway error
 
 **Usage:** Proxy/gateway errors, failing third-party APIs
 
-### Statuses without a class
+### ServiceUnavailable (503)
 
-There is no class for 405, 409, 410, 501, 503 and 504. Build an `Azu::Response::Error` with the status, or define a
+Temporary overload, maintenance, or upstream auth/audit store outage. Sets `Retry-After` when `retry_after` is given.
+
+```crystal
+raise Azu::Response::ServiceUnavailable.new("Try again shortly", retry_after: 5)
+```
+
+### Statuses without a dedicated class
+
+For statuses without a dedicated subclass (such as 410, 501, or 504), build an `Azu::Response::Error` with the status, or define a
 subclass (see [Creating Custom Errors](#creating-custom-errors)):
 
 ```crystal
-raise Azu::Response::Error.new("Conflict", HTTP::Status::CONFLICT, ["Email already registered"])
-raise Azu::Response::Error.new("Service Unavailable", HTTP::Status::SERVICE_UNAVAILABLE, [] of String)
+raise Azu::Response::Error.new("Gone", HTTP::Status::GONE, ["Resource was permanently removed"])
 ```
 
-Inside an endpoint, `error("Email already registered", 409)` builds the same object.
+Inside an endpoint, `error("Resource was permanently removed", 410)` builds the same object.
 
 ### ErrorContext
 
@@ -245,6 +287,7 @@ of a broken request contract uses, and it is the same for every JSON client (see
   messages there.
 - `error_id` is the value of the `X-Error-ID` response header.
 - In development `context` and `backtrace` are added. Production bodies never carry them.
+- `error_format = Envelope` (also enabled by `config.api_defaults!`) writes a structured JSON envelope (`{"error":{"code":"...","message":"...","details":...,"request_id":"..."}}`) as `application/json`. `config.error_envelope.wrapper_key` customizes the outer key (`"error"` by default, or `nil` for a flat object), `config.validation_error_mode` selects `FirstMessageOnly` or `AllMessages`, and `config.error_renderer` replaces the renderer proc altogether.
 - `error_format = Legacy` writes a PascalCase body (`Status`, `Link`, `Title`, `Detail`, `Source`, `Errors`,
   `ErrorId`, `Fingerprint`, `Context`, `Backtrace`, `Timestamp`) as `application/json`, for validation failures and for
   every other error.
@@ -257,13 +300,18 @@ of a broken request contract uses, and it is the same for every JSON client (see
 | 401 | Unauthorized | `AuthenticationError` |
 | 403 | Forbidden | `AuthorizationError`, `Forbidden` |
 | 404 | Not Found | `NotFound` |
+| 405 | Method Not Allowed | `MethodNotAllowed` |
 | 406 | Not Acceptable | `NotAcceptable` |
 | 408 | Request Timeout | `TimeoutError` |
+| 409 | Conflict | `Conflict` |
 | 413 | Payload Too Large | `PayloadTooLarge` |
+| 415 | Unsupported Media Type | `UnsupportedMediaType` |
 | 422 | Unprocessable Entity | `ValidationError` |
+| 426 | Upgrade Required | `UpgradeRequired` |
 | 429 | Too Many Requests | `RateLimitError` |
 | 500 | Internal Server Error | `Error`, `DatabaseError` |
 | 502 | Bad Gateway | `ExternalServiceError` |
+| 503 | Service Unavailable | `ServiceUnavailable` |
 
 ## See also
 

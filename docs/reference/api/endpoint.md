@@ -405,8 +405,85 @@ end
 `Endpoint.path(**params)` returns the declared path with each argument filling the path parameter of its name, and
 the prefix of the app it is mounted in: see [Template helpers](../templates/helpers.md#type-safe-endpoint-helpers).
 
+### Declarative security, hygiene, audit, and OpenAPI macros
+
+Class-level macros inside an `Azu::Endpoint` body configure its `Azu::RouteOptions` (inherited by subclasses and merged with `scope` and call-site options):
+
+| Macro | Effect |
+|---|---|
+| `public!(flag = true)` | Marks the endpoint `public: true` so authentication and authorization are skipped |
+| `require_role(*roles)` / `allow_roles(*roles)` | Requires at least `role` (or any of `roles`, or higher in `config.auth.roles`) |
+| `require_permissions(*perms)` / `require_scopes(*scopes)` | Requires all listed permissions or OAuth 2.0 scopes |
+| `require_any_permission(*perms)` / `require_any_scope(*scopes)` | Requires at least one of the listed permissions or scopes |
+| `requires(requirement)` | Combines an `Azu::Access::Requirement` into the endpoint's requirement |
+| `enrolment_exempt!(exempt = true)` | Exempts the endpoint from the enrolment gate (`principal.enrolment_pending?`) |
+| `csrf_exempt!(exempt = true)` | Exempts the endpoint from `Handler::CSRF` checks |
+| `audit(action = nil, *, critical = false, enabled = true)` | Configures structured audit logging for the endpoint |
+| `audit!(*, critical = false)` | Enables audit logging and derives `audit_action` from the endpoint's type name (e.g. `Queues::PurgeEndpoint` -> `"queues.purge"`) |
+| `no_audit!` | Disables audit logging on this endpoint (`audit: false`) |
+| `summary(text)` / `description(text)` | Sets the OpenAPI operation `summary` or `description` |
+| `max_body_size(bytes)` | Caps the request body size in bytes (`413 Payload Too Large` when exceeded) |
+| `content_types(*types)` | Restricts accepted request `Content-Type` values (`415 Unsupported Media Type` when violated) |
+
+### Action hooks (`before_action`, `after_action`, `around_action`)
+
+Action hooks expand at compile time inside the endpoint with zero per-request closure allocation:
+
+```crystal
+struct AuditedActionEndpoint
+  include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+  post "/audited"
+  require_role :operator
+  require_scopes "items:write"
+  audit!
+
+  around_action :measure_step
+  before_action :verify_header
+  after_action :tag_response
+
+  private def measure_step(&) : Nil
+    yield
+  end
+
+  private def verify_header : Nil
+    bad_request! "Missing X-Client header", code: "missing_client" unless header["X-Client"]?
+  end
+
+  private def tag_response(_res : Azu::Response::Empty) : Nil
+    header "X-Processed", "true"
+  end
+
+  def call : Azu::Response::Empty
+    Azu::Response::Empty.new
+  end
+end
+```
+
+### Principal, authorization, error, and halt helpers
+
+Available as private methods inside `call` and action hooks:
+
+| Helper | Behavior |
+|---|---|
+| `principal` / `principal?` / `current_user` / `current_user?` | Returns `Azu::Auth::Principal?` for the current request |
+| `principal!` / `current_user!` | Returns `Azu::Auth::Principal` or raises `401` (`Response::AuthenticationError`) |
+| `authenticated?` | `true` when a principal is present |
+| `role?(name)` | `true` when the principal satisfies `name` (including `config.auth.roles` hierarchy) |
+| `permission?(name)` / `scope?(name)` | `true` when the principal holds `name` |
+| `claims` / `authly_claims` / `authly_claims!` | Verified token claims (`Hash(String, JSON::Any)`, or `Authly::Claims` when `Authly` is loaded) |
+| `authorize!(requirement_or_kwargs)` | Checks `role:`, `roles:`, `permissions:`, `scopes:`, etc. against `principal!` or raises `403` |
+| `unauthorized!(message, *, code, www_authenticate, details)` | Raises `401` (`Response::AuthenticationError`) |
+| `forbidden!(message, *, code, details)` | Raises `403` (`Response::AuthorizationError`) |
+| `not_found!(message, *, path, code, details)` | Raises `404` (`Response::NotFound`) |
+| `bad_request!(message, *, code, details)` | Raises `400` (`Response::BadRequest`) |
+| `conflict!(message, *, code, details)` | Raises `409` (`Response::Conflict`) |
+| `unprocessable!(field, message, *, code)` | Raises `422` (`Response::ValidationError`) |
+| `halt!(status = 200, body = "", headers = nil)` | Writes `status`, `headers`, and `body` immediately and short-circuits the action |
+
 ## See also
 
+- [Authentication and authorization](auth.md)
 - [Request](request.md)
 - [Response](response.md)
 - [Router](router.md)

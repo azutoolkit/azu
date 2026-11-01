@@ -387,152 +387,21 @@ module Azu
       @audit_callbacks.each(&.call(event))
     end
 
-    # :nodoc:
-    def report_response_for(context : HTTP::Server::Context) : Nil
-      return unless response_listening?
-
-      duration = Time.instant - context.azu_started_at
-      pattern = context.matched_route ? context.route_pattern : nil
-      event = Instrumentation::RequestEvent.new(
-        method: context.request.method,
-        route_pattern: pattern,
-        path: context.request.path,
-        status: context.response.status_code,
-        duration: duration,
-        request_id: RequestContext.current_id(context)
-      )
-      @response_callbacks.each do |callback|
-        begin
-          callback.call(event)
-        rescue ex
-          Log.for("azu.instrumentation").debug(exception: ex) { "on_response callback failed" }
-        end
-      end
-      Instrumentation.report_response(event)
-    end
-
-    # :nodoc:
-    def report_unmatched_and_response_for(context : HTTP::Server::Context) : Nil
-      unless context.matched_route || context.azu_unmatched_audited?
-        context.azu_unmatched_audited = true
-        duration = Time.instant - context.azu_started_at
-        hook_emitted = false
-        @router.after_hooks.each do |hook|
-          if hook.is_a?(Auth::AuditHook)
-            hook.emit_unmatched(context, duration, context.azu_last_error)
-            hook_emitted = true
-          end
-        end
-        if !hook_emitted && audit_listening?
-          Auth::AuditHook.new(self).emit_unmatched(context, duration, context.azu_last_error)
-        end
-      end
-      report_response_for(context)
-    end
-
-    # Idempotently installs the post-routing hooks (`Auth::Authorize`, `Handler::CSRF` header guard,
-    # `Hygiene::BodyCheck`, and `Auth::AuditHook`) on `router` in the contract check order.
-    def install_preset_hooks! : Nil
-      install_authorize_preset!
-      install_csrf_preset!
-      install_hygiene_preset!
-      install_audit_preset!
-    end
-
-    private def install_authorize_preset! : Nil
-      return if !@auth.enabled? || @router.has_before_hook?(Auth::Authorize)
-      @router.before_dispatch(Auth::Authorize.new(self))
-    end
-
-    private def install_csrf_preset! : Nil
-      return if !@csrf_guard.enabled? || @router.has_before_hook?(Handler::CSRF)
-      @router.before_dispatch(Handler::CSRF.header_guard(@csrf_guard))
-    end
-
-    private def install_hygiene_preset! : Nil
-      needs_hygiene = @auth.enabled? || !@hygiene.max_body_size.nil? || @hygiene.strict_content_type?
-      return if !needs_hygiene || @router.has_before_hook?(Hygiene::BodyCheck)
-      @router.before_dispatch(Hygiene::BodyCheck.new(self))
-    end
-
-    private def install_audit_preset! : Nil
-      return if (!@auth.enabled? && !@audit.enabled?) || @router.has_after_hook?(Auth::AuditHook)
-      audit_hook = Auth::AuditHook.new(self)
-      @router.around_dispatch(audit_hook)
-      @router.after_dispatch(audit_hook)
-    end
-
-    # Validates the authentication and authorization configuration at boot.
-    # Raises `Configuration::BootError` on incomplete or inconsistent setup.
-    def check_auth_boot!(handlers : Array(HTTP::Handler)? = nil) : Nil
-      install_preset_hooks! if @auth.enabled?
-
-      entries = router.route_table
-      validate_known_roles!(entries)
-      validate_auth_pipeline!(entries, handlers)
-      validate_route_coverage!(entries)
-    end
-
-    private def validate_known_roles!(entries : Array(Router::RouteEntry)) : Nil
-      return if @auth.roles.empty?
-
-      if default_req = @auth.default_access
-        ensure_roles_known!(default_req.roles, "in c.auth.default_access")
-      end
-      @auth.verb_defaults.each do |method, req|
-        ensure_roles_known!(req.roles, "in c.auth default for #{method.to_s.upcase}")
-      end
-      entries.each do |entry|
-        if req = entry.requires
-          ensure_roles_known!(req.roles, "on route #{entry.method.to_s.upcase} #{entry.pattern}")
-        end
-      end
-    end
-
-    private def ensure_roles_known!(roles : Array(String), location : String) : Nil
-      roles.each do |role|
-        if @auth.role_index(role).nil?
-          raise BootError.new("Unknown role #{role.inspect} #{location}; known roles in c.auth.roles are #{@auth.roles.inspect}")
-        end
-      end
-    end
-
-    private def validate_auth_pipeline!(entries : Array(Router::RouteEntry), handlers : Array(HTTP::Handler)?) : Nil
-      has_route_requires = requires_configured?(entries)
-      has_authorize_hook = router.has_before_hook?(Auth::Authorize)
-
-      if (has_route_requires || @auth.enabled?) && !has_authorize_hook
-        raise BootError.new("Routes declare `requires:` (or auth defaults are configured), but `Azu::Auth::Authorize` is not registered on the router")
-      end
-
-      return unless has_authorize_hook || has_route_requires || @auth.enabled?
-      ensure_authentication_stage!(handlers)
-    end
-
-    private def requires_configured?(entries : Array(Router::RouteEntry)) : Bool
-      entries.any? { |entry| !entry.requires.nil? } || !@auth.default_access.nil? || !@auth.verb_defaults.empty?
-    end
-
-    private def ensure_authentication_stage!(handlers : Array(HTTP::Handler)?) : Nil
-      has_stage_handler = (handlers || @handlers).any?(Auth::AuthenticationStage)
-      if @auth.authenticator.nil? && !has_stage_handler
-        raise BootError.new("Authorization is configured, but no `c.auth.authenticator` or `Azu::Auth::AuthenticationStage` handler is present")
-      end
-      if handlers && !has_stage_handler
-        raise BootError.new("Authorization is configured, but no `Azu::Handler::Authentication` (or `Azu::Auth::AuthenticationStage`) handler is in the middleware pipeline")
-      end
-    end
-
-    private def validate_route_coverage!(entries : Array(Router::RouteEntry)) : Nil
-      return unless router.has_before_hook?(Auth::Authorize)
-
-      entries.each do |entry|
-        next if entry.public?
-        effective = entry.requires || @auth.default_access_for(entry.method)
-        if effective.nil?
-          raise BootError.new("Route #{entry.method.to_s.upcase} #{entry.pattern} is not marked `public: true` and has no `requires:` or default role configured")
-        end
-      end
+    # One-call convention preset for strict JSON APIs:
+    # - `error_format = ErrorFormat::Envelope`
+    # - `router.method_not_allowed = true`
+    # - `router.method_override = false`
+    # - `hygiene.strict_content_type = true`
+    # - `hygiene.require_json_object = true`
+    # - `hygiene.strict_request_id = true`
+    def api_defaults! : self
+      @error_format = ErrorFormat::Envelope
+      @router.method_not_allowed = true
+      @router.method_override = false
+      @hygiene.strict_content_type = true
+      @hygiene.require_json_object = true
+      @hygiene.strict_request_id = true
+      self
     end
 
     # The query parameter that picks the format of a `Response::Negotiable` (`?format=json`), or nil

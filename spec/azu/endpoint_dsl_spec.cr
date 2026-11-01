@@ -201,6 +201,49 @@ module EndpointDslSpecFixtures
   class SiblingAdminEndpoint < BaseAdminEndpoint
     get "/admin/sibling"
   end
+
+  struct MockClaims
+    getter payload : Hash(String, JSON::Any)
+
+    def initialize(@payload : Hash(String, JSON::Any))
+    end
+  end
+
+  class MockAuthlyVerifier
+    def verify(token : String) : MockClaims?
+      case token
+      when "valid-scoped"
+        MockClaims.new(JSON.parse(%({"sub":"u-99","cid":"cli-1","role":"viewer","scope":"data:read data:export"})).as_h)
+      when "missing-scope"
+        MockClaims.new(JSON.parse(%({"sub":"u-99","cid":"cli-1","role":"viewer","scope":"other:scope"})).as_h)
+      when "store-down"
+        raise Azu::Auth::VerificationUnavailable.new("Redis down")
+      else
+        nil
+      end
+    end
+  end
+
+  class MockOAuthProviderHandler
+    include HTTP::Handler
+
+    def call(context : HTTP::Server::Context)
+      context.response.print("oauth:#{context.request.method}:#{context.request.path}")
+    end
+  end
+
+  struct ScopedResourceEndpoint
+    include Azu::Endpoint(Azu::Request, TextOut)
+
+    get "/scoped-data"
+    require_role :viewer
+    require_scopes "data:read"
+
+    def call : TextOut
+      cid = claims["cid"]?.try(&.as_s?) || "none"
+      TextOut.new("user=#{principal!.id},client=#{cid},has_read=#{scope?("data:read")}")
+    end
+  end
 end
 
 private def call_dsl_app(
@@ -449,6 +492,151 @@ describe "Azu::Endpoint DSL, Action Hooks, and Conventions" do
       b2.should eq "base"
       h2["X-Base-Hook"]?.should eq "ran"
       h2["X-Sub-Hook"]?.should be_nil
+    end
+  end
+
+  describe "conventional auth setup (c.api_defaults!, c.auth.jwt, c.auth.role_hierarchy, c.auth.authly, mount_authly)" do
+    it "configures strict JSON API defaults and role_hierarchy by convention" do
+      app = Azu::App.new
+      app.config.api_defaults!
+      app.config.auth.role_hierarchy :viewer, :operator, :admin
+
+      app.config.error_format.should eq Azu::ErrorFormat::Envelope
+      app.config.router.method_not_allowed?.should be_true
+      app.config.router.method_override?.should be_false
+      app.config.hygiene.strict_content_type?.should be_true
+      app.config.hygiene.require_json_object?.should be_true
+      app.config.hygiene.strict_request_id?.should be_true
+
+      app.config.auth.roles.should eq ["viewer", "operator", "admin"]
+      app.config.auth.default_access_for(Azu::Method::Get).try(&.role).should eq "viewer"
+      app.config.auth.default_access_for(Azu::Method::Post).try(&.role).should eq "operator"
+    end
+
+    it "verifies HMAC JWT tokens, claims, scopes, and revocation blocks via c.auth.jwt" do
+      secret = "test-jwt-hmac-secret-key-32-bytes!"
+      revoked_jti = Set{"revoked-1"}
+
+      app = Azu::App.new
+      app.config.api_defaults!
+      app.config.auth.jwt(secret, issuer: "https://auth.example.com", audience: "https://api.example.com") do |identity, _ctx|
+        !revoked_jti.includes?(identity.token_id || "")
+      end
+      app.config.auth.role_hierarchy :viewer, :operator, :admin
+
+      app.config.auth.enabled?.should be_true
+      app.config.auth.bearer_format.should eq "JWT"
+
+      app.routes do
+        get "/items", EndpointDslSpecFixtures::PublicHealthEndpoint, role: :viewer, public: false
+        post "/items", EndpointDslSpecFixtures::PublicHealthEndpoint,
+          requires: Azu::Access.role(:operator) & Azu::Access.scopes("items:write"),
+          public: false
+      end
+
+      now = Time.utc.to_unix
+      make_jwt = ->(payload : Hash(String, JSON::Any::Type), alg : String, key : String) do
+        hdr = Base64.urlsafe_encode({"alg" => alg, "typ" => "JWT"}.to_json, padding: false)
+        pld = Base64.urlsafe_encode(payload.to_json, padding: false)
+        sig = Base64.urlsafe_encode(OpenSSL::HMAC.digest(:sha256, key, "#{hdr}.#{pld}"), padding: false)
+        "#{hdr}.#{pld}.#{sig}"
+      end
+
+      valid_token = make_jwt.call(
+        {
+          "sub"   => "u-42",
+          "iss"   => "https://auth.example.com",
+          "aud"   => "https://api.example.com",
+          "exp"   => now + 300,
+          "role"  => "operator",
+          "scope" => "items:read items:write",
+          "jti"   => "ok-1",
+        } of String => JSON::Any::Type,
+        "HS256",
+        secret
+      )
+
+      s_ok, _, _ = call_dsl_app(
+        app,
+        "POST",
+        "/items",
+        HTTP::Headers{"Authorization" => "Bearer #{valid_token}", "Content-Type" => "application/json"},
+        "{}"
+      )
+      s_ok.should eq 200
+
+      # Expired token -> 401 token_expired
+      expired_token = make_jwt.call(
+        {
+          "sub"  => "u-42",
+          "iss"  => "https://auth.example.com",
+          "aud"  => "https://api.example.com",
+          "exp"  => now - 60,
+          "role" => "operator",
+        } of String => JSON::Any::Type,
+        "HS256",
+        secret
+      )
+      s_exp, _, b_exp = call_dsl_app(app, "GET", "/items", HTTP::Headers{"Authorization" => "Bearer #{expired_token}"})
+      s_exp.should eq 401
+      JSON.parse(b_exp)["error"]["code"].should eq "token_expired"
+
+      # Revoked JTI -> 401 invalid_token
+      revoked_token = make_jwt.call(
+        {
+          "sub"  => "u-42",
+          "iss"  => "https://auth.example.com",
+          "aud"  => "https://api.example.com",
+          "exp"  => now + 300,
+          "role" => "viewer",
+          "jti"  => "revoked-1",
+        } of String => JSON::Any::Type,
+        "HS256",
+        secret
+      )
+      s_rev, _, b_rev = call_dsl_app(app, "GET", "/items", HTTP::Headers{"Authorization" => "Bearer #{revoked_token}"})
+      s_rev.should eq 401
+      JSON.parse(b_rev)["error"]["code"].should eq "invalid_token"
+    end
+
+    it "integrates with Authly TokenVerifier via c.auth.authly, handles 503 store outages, and mounts OAuth2/OIDC routes via mount_authly" do
+      verifier = EndpointDslSpecFixtures::MockAuthlyVerifier.new
+      oauth_handler = EndpointDslSpecFixtures::MockOAuthProviderHandler.new
+
+      app = Azu::App.new
+      app.config.api_defaults!
+      app.config.auth.authly(verifier, realm: "api")
+      app.config.auth.role_hierarchy :viewer, :operator
+
+      app.routes do
+        mount_authly oauth_handler
+        endpoint EndpointDslSpecFixtures::ScopedResourceEndpoint
+      end
+
+      # 1. Mounted OAuth2 / OIDC provider endpoints are public and csrf_exempt on token/discovery routes
+      s_disc, _, b_disc = call_dsl_app(app, "GET", "/.well-known/openid-configuration")
+      s_disc.should eq 200
+      b_disc.should eq "oauth:GET:/.well-known/openid-configuration"
+
+      s_tok, _, b_tok = call_dsl_app(app, "POST", "/oauth/token", HTTP::Headers{"Content-Type" => "application/json"}, "{}")
+      s_tok.should eq 200
+      b_tok.should eq "oauth:POST:/oauth/token"
+
+      # 2. Protected resource endpoint checks OAuth2 scopes declared via require_scopes
+      s_200, _, b_200 = call_dsl_app(app, "GET", "/scoped-data", HTTP::Headers{"Authorization" => "Bearer valid-scoped"})
+      s_200.should eq 200
+      b_200.should eq "user=u-99,client=cli-1,has_read=true"
+
+      # Missing required scope -> 403 forbidden
+      s_403, _, _ = call_dsl_app(app, "GET", "/scoped-data", HTTP::Headers{"Authorization" => "Bearer missing-scope"})
+      s_403.should eq 403
+
+      # 3. Token store outage raises VerificationUnavailable -> 503 with Retry-After: 1 and Cache-Control: no-store
+      s_503, h_503, b_503 = call_dsl_app(app, "GET", "/scoped-data", HTTP::Headers{"Authorization" => "Bearer store-down"})
+      s_503.should eq 503
+      h_503["Retry-After"]?.should eq "1"
+      h_503["Cache-Control"]?.should eq "no-store"
+      JSON.parse(b_503)["error"]["code"].should eq "temporarily_unavailable"
     end
   end
 end

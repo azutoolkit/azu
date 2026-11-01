@@ -80,6 +80,11 @@ module Azu
         @router.mount app.config, at: prefixed(path)
       end
 
+      # Registers Authly's OAuth 2.0 and OpenID Connect provider endpoints below this builder's prefix.
+      def mount_authly(handler : HTTP::Handler? = nil) : Nil
+        @router.mount_authly(handler, prefix: @prefix, scope_options: @defaults)
+      end
+
       private def prefixed(path : Path) : String
         path == "/" && !@prefix.empty? ? @prefix : @prefix + path
       end

@@ -409,6 +409,27 @@ These exist only after `require "azu/dev"`:
 - `development_tools` returns `Azu::DevelopmentTools` (the profiler and the memory leak detector).
 - Building with `PERFORMANCE_MONITORING=true` (or `-Dperformance_monitoring`) makes `require "azu"` load `azu/dev`.
 
+### Authentication, authorization, hygiene, and observability
+
+| Option / Helper | Type | Default | Meaning |
+|---|---|---|---|
+| `api_defaults!` | `Configuration` | — | Preset for strict JSON APIs: sets `error_format = ErrorFormat::Envelope`, `router.method_not_allowed = true`, `router.method_override = false`, `hygiene.strict_content_type = true`, `hygiene.require_json_object = true`, and `hygiene.strict_request_id = true` |
+| `error_format` | `ErrorFormat` | `ErrorFormat::Problem` | `Problem` (RFC 7807), `Envelope` (`{"error":{"code","message","details","request_id"}}`), or `Legacy` |
+| `error_envelope.wrapper_key` | `String?` | `"error"` | Outer JSON key for `ErrorFormat::Envelope` (`nil` writes a flat object) |
+| `error_envelope.validation_mode` / `validation_error_mode` | `ValidationErrorMode` | `AllMessages` | `AllMessages` (`Hash(String, Array(String))`) or `FirstMessageOnly` (`Hash(String, String)`) |
+| `error_renderer` | `Proc(HTTP::Server::Context, Response::Error, Nil)?` | `nil` | Custom error renderer proc |
+| `auth` | `Auth::Configuration` | disabled | Authentication, role hierarchy, per-verb defaults, and Authly setup (see [Authentication and authorization](../api/auth.md#options)) |
+| `hygiene.max_body_size` | `UInt64?` | `nil` | Global request body size limit in bytes (`413 Payload Too Large` when exceeded) |
+| `hygiene.strict_content_type?` | `Bool` | `false` | Require `POST`/`PUT`/`PATCH` requests with bodies to carry an allowed `Content-Type` (`415` otherwise) |
+| `hygiene.allowed_content_types` | `Array(String)` | `["application/json", "application/x-www-form-urlencoded", "multipart/form-data"]` | Accepted media types when `strict_content_type?` is enabled |
+| `hygiene.require_json_object?` | `Bool` | `false` | Reject valid non-object JSON roots (`[]`, `"str"`, `123`, `true`, `null`) with `422` (`code: "invalid_body"`) while malformed JSON stays `400` |
+| `hygiene.strict_request_id?` | `Bool` | `false` | Accept incoming `X-Request-ID` only when it matches `\A[A-Za-z0-9._-]{1,128}\z`; regenerate a fresh UUIDv4 otherwise |
+| `csrf_guard.enabled?` | `Bool` | `false` | Require `csrf_guard.header_name` (`"X-CSRF-Protection"` by default) on state-changing cookie/anonymous requests while exempting non-cookie (`:bearer`, `:jwt`) principals |
+| `audit.enabled?` | `Bool` | `false` | Enable `Auth::AuditHook` (automatically enabled when `on_audit` or `auth.enabled` is used) |
+| `audit.anonymous_rate_limit` | `Int32?` | `nil` | Optional cap on anonymous audit events per client IP per `anonymous_rate_window` |
+| `on_response(&block)` | `Nil` | — | Registers a callback receiving `Instrumentation::RequestEvent` (`method`, `route_pattern`, `path`, `status`, `duration`, `request_id`) after each response |
+| `on_audit(&block)` | `Nil` | — | Registers a callback receiving `Instrumentation::AuditEvent` (`action`, `method`, `route_pattern`, `path`, `principal`, `status`, `outcome`, `error_code`, `duration`, `request_id`, `client_address`) |
+
 ### Introspection
 
 `handlers` holds the array given to `start`, for the development dashboard to draw. Assigning it does not change

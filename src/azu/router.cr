@@ -38,6 +38,21 @@ module Azu
     ALLOW_ORDER = [Azu::Method::Get, Azu::Method::Head, Azu::Method::Post, Azu::Method::Put, Azu::Method::Patch,
                    Azu::Method::Delete, Azu::Method::Connect, Azu::Method::Trace, Azu::Method::Options]
 
+    # Adapts a plain `HTTP::Handler` (such as `Authly::Handler`) into an `Azu::Routable` target.
+    class HandlerAdapter
+      include Routable
+
+      getter handler : HTTP::Handler
+      getter name : String
+
+      def initialize(@handler : HTTP::Handler, @name : String = @handler.class.name)
+      end
+
+      def call(context : HTTP::Server::Context)
+        @handler.call(context)
+      end
+    end
+
     # Heap-allocated box around a routable target so `Route` never stores a mixed struct+class `Routable` union field.
     abstract class Target
       abstract def call(context : HTTP::Server::Context)
@@ -54,6 +69,8 @@ module Azu
           endpoint
         elsif endpoint.is_a?(Routable)
           Of(typeof(endpoint)).new(endpoint)
+        elsif endpoint.is_a?(HTTP::Handler)
+          Of(HandlerAdapter).new(HandlerAdapter.new(endpoint))
         else
           inst = endpoint.new
           Of(typeof(inst)).new(inst)
@@ -71,12 +88,18 @@ module Azu
         end
 
         def endpoint_class_name : String
-          {{ T.name.stringify }}
+          {% if T <= HandlerAdapter %}
+            @endpoint.name
+          {% else %}
+            {{ T.name.stringify }}
+          {% end %}
         end
 
         def handler_name : String
           {% if T <= Channel::Upgrader %}
             @endpoint.channel.name
+          {% elsif T <= HandlerAdapter %}
+            @endpoint.name
           {% else %}
             {{ T.name.stringify }}
           {% end %}
@@ -474,6 +497,65 @@ module Azu
       end
       child.router.mounted_as = mount
       @mounts << mount
+    end
+
+    @authly_mounted : Bool = false
+
+    # Registers Authly's OAuth 2.0 and OpenID Connect provider endpoints on this router with
+    # `public: true` and `csrf_exempt: true` on non-browser token/API endpoints so they integrate
+    # seamlessly with Azu's authentication, CSRF guard, and route table.
+    #
+    # When `handler` is `nil` and `Authly` (`azutoolkit/authly`) is loaded, builds `Authly::Handler.new`.
+    def mount_authly(
+      handler : HTTP::Handler? = nil,
+      *,
+      prefix : String = "",
+      scope_options : RouteOptions? = nil,
+    ) : Nil
+      return if @authly_mounted && prefix.empty?
+      resolved = handler || default_authly_handler
+      target = Target.wrap(HandlerAdapter.new(resolved, resolved.class.name))
+      base = prefix.rstrip('/')
+
+      browser_opts = RouteOptions.new(public: true)
+      api_opts = RouteOptions.new(public: true, csrf_exempt: true)
+
+      ["/oauth/authorize", "/device"].each do |route_path|
+        get "#{base}#{route_path}", target, browser_opts, scope_options: scope_options
+        post "#{base}#{route_path}", target, browser_opts, scope_options: scope_options
+      end
+
+      [
+        "/oauth/token",
+        "/oauth/par",
+        "/oauth/device/code",
+        "/oauth/introspect",
+        "/introspect",
+        "/oauth/revoke",
+        "/revoke",
+        "/oauth/register",
+      ].each do |route_path|
+        post "#{base}#{route_path}", target, api_opts, scope_options: scope_options
+      end
+
+      [
+        "/oauth/userinfo",
+        "/.well-known/openid-configuration",
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/jwks.json",
+      ].each do |route_path|
+        get "#{base}#{route_path}", target, api_opts, scope_options: scope_options
+      end
+
+      @authly_mounted = true if prefix.empty?
+    end
+
+    private def default_authly_handler : HTTP::Handler
+      {% if @top_level.has_constant?("Authly") %}
+        Authly::Handler.new
+      {% else %}
+        raise ArgumentError.new("mount_authly without a handler requires `require \"authly\"` (azutoolkit/authly), or pass an HTTP::Handler")
+      {% end %}
     end
 
     # Adds routes declared in the block, optionally below a path prefix.

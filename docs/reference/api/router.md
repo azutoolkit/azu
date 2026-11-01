@@ -44,28 +44,37 @@ without a receiver. Each returns `Nil`.
 
 | Signature | Notes |
 |---|---|
-| `get(path, endpoint)`, `post`, `put`, `patch`, `delete`, `options`, `head`, `connect`, `trace` | `endpoint` is an `Azu::Routable` instance, or a class the builder instantiates with `new`. `get` also registers `HEAD` (see [HTTP methods](#http-methods)) |
-| `endpoint(type)` | Registers every route the verb macros declared in `type`, below the builder's prefix. Raises `ArgumentError` ("... declares no routes") for a type that declares none |
-| `ws(path, channel)` | A WebSocket route to an `Azu::Channel` class |
-| `scope(prefix, &)` | Prefixes every route, mount and scope declared in the block. Scopes nest; inside one, `"/"` is the scope's own path |
+| `get(path, endpoint, **options)`, `post`, `put`, `patch`, `delete`, `options`, `head`, `connect`, `trace` | `endpoint` is an `Azu::Routable` instance, an `HTTP::Handler`, or a class the builder instantiates with `new`. `options` accepts `Azu::RouteOptions` keywords (`role:`, `roles:`, `permissions:`, `scopes:`, `public:`, `summary:`, etc.). `get` also registers `HEAD` (see [HTTP methods](#http-methods)) |
+| `endpoint(target, **options)` | Registers every route the verb macros declared in `target` (an endpoint type or pre-constructed instance), below the builder's prefix. Raises `ArgumentError` ("... declares no routes") for a type that declares none |
+| `ws(path, channel, **options)` | A WebSocket route to an `Azu::Channel` class |
+| `scope(prefix, **options, &)` | Prefixes every route, mount and scope declared in the block, and passes `RouteOptions` defaults (`role:`, `scopes:`, `public:`, etc.) down to routes inside the block |
 | `mount(app : App, at : String)` | Serves `app` below the path (see [Mounting another app](#mounting-another-app)) |
+| `mount_authly(handler = nil)` | Registers Authly's OAuth 2.0 and OpenID Connect provider endpoints below the builder's prefix with `public: true` and `csrf_exempt: true` on non-browser routes |
 
 ### Router
 
 | Signature | Returns | Notes |
 |---|---|---|
-| `get(path, handler : Routable)`, and the other eight verbs | — | What the builder calls, without a prefix |
-| `register(verb : String, path, handler : Routable)` | — | The verb as a lowercase name (`"get"`); `ArgumentError` ("unknown HTTP verb") for another |
-| `ws(path, channel : Channel.class)` | — | A WebSocket route |
-| `root(endpoint : Routable)` | — | Registers `GET /` only (see [Limits](#limits)) |
+| `get(path, handler, **options)`, and the other eight verbs | — | What the builder calls, without a prefix |
+| `register(verb : String, path, handler, **options)` | — | The verb as a lowercase name (`"get"`); `ArgumentError` ("unknown HTTP verb") for another |
+| `endpoint(target, **options)` | `Nil` | Registers every route declared inside `target` (an endpoint type or instance) |
+| `ws(path, channel : Channel.class, **options)` | — | A WebSocket route |
+| `root(endpoint : Routable, **options)` | — | Registers `GET /` only (see [Limits](#limits)) |
 | `mount(child : Configuration, at : String)` | `Nil` | What `Builder#mount` calls with the app's configuration |
+| `mount_authly(handler = nil, *, prefix = "")` | `Nil` | Registers Authly's OAuth 2.0 and OIDC provider endpoints |
 | `routes(scope = "", &)` | the block's value | Yields a `Router::Builder` on this router, with `scope` as its prefix |
-| `process(context)` | — | Routes one request: the method override, the lookup, `context.request.path_params`, then the route's `call`. The app calls it after the last handler |
+| `before_dispatch(hook_or_block)`, `around_dispatch`, `after_dispatch` | `self` | Registers a post-match `Router::Hook` (or block) |
+| `method_not_allowed` / `method_not_allowed=` | `Bool` | When `true` (or set to a `Proc(HTTP::Server::Context, Array(String), Nil)` responder), answers `405` with `Allow` when a path matches under another method |
+| `not_found` / `not_found=` | `Proc(HTTP::Server::Context, Nil)?` | Custom responder for `404 Not Found` |
+| `head_wrapping?` / `head_wrapping=` | `Bool` | Whether `get` routes answer `HEAD` requests automatically (`true` by default) |
+| `method_override?` / `method_override=` | `Bool` | Whether `POST` requests may override their method to `PUT`, `PATCH`, or `DELETE` (`true` by default) |
+| `process(context)` | — | Routes one request: the method override, the lookup, `context.request.path_params`, post-match hooks, then the route's `call`. The app calls it after the last handler |
 | `path_of(endpoint : Routable.class)` | `String?` | The path the type was last registered under on this router, without the mount prefix; nil when this router does not route it |
 | `mounted_as` | `Router::Mount?` | The mount this router's app is served through; nil when it is not mounted. `mount` sets it |
 | `mount_prefix` | `String` | What precedes every path of this router in a URL: the mount paths of every level, `""` when not mounted |
 | `route_info` | `Array(Hash(String, String))` | One hash per route, in declaration order: `"method"`, `"path"`, `"resource"` (the route key, method and path: `/get/users`), `"handler"` (the class name, or the channel's), `"description"` |
-| `registered_routes` | `Array(Router::Route)` | The routes in declaration order; a `Route` has `endpoint`, `method`, `path` and `resource` |
+| `route_table(include_mounts = true)` | `Array(Router::RouteEntry)` | Low-cardinality route table (including mounted apps) with `method`, `pattern`, `handler`, and `options` (`requires`, `public?`, `summary`, etc.) |
+| `registered_routes` | `Array(Router::Route)` | The routes in declaration order; a `Route` has `endpoint`, `method`, `path`, `resource`, and `options` |
 | `clear_path_cache` | `Nil` | Does nothing: the router keeps no cache (see [Lookup cost](#lookup-cost)) |
 
 `Router::Mount#prefix` is the full path a mount is served under, including the mounts above it, and
@@ -286,11 +295,11 @@ HTML forms can only `GET` or `POST`, so a `POST` may ask to be handled as `PUT`,
 field (urlencoded form body or query string) or the `X-HTTP-Method-Override` header. Only `POST` is overridable and
 only to those three verbs.
 
-### Not found
+### Not found and method not allowed (`404` and `405`)
 
-When no route matches, the router answers `404` with an `Azu::Response::NotFound`, rendered as HTML, JSON, XML or
-plain text according to the first `Accept` entry (plain text with no `Accept` or `*/*`). A JSON client gets the
-problem body; this is `GET /nope` with `Accept: application/json` in production:
+When no route matches, the router answers `404` with an `Azu::Response::NotFound` (or calls `router.not_found` when a custom responder proc is set). When `router.method_not_allowed = true` (or `config.api_defaults!` is used) and the path matches under another HTTP method, the router answers `405 Method Not Allowed` with an `Allow` header listing the allowed methods in deterministic order (`GET, HEAD, POST, PUT, PATCH, DELETE, CONNECT, TRACE, OPTIONS`).
+
+ Both errors render according to `config.error_format` (`Problem`, `Envelope`, or `Legacy`) and the `Accept` header. With `Problem` (the default), `GET /nope` with `Accept: application/json` in production answers:
 
 ```json
 {"type":"about:blank","title":"Not Found","status":404,"detail":"The server can't find the requested resource.","errors":[],"error_id":"e971adacb1def55a7b6661fa0433c959","instance":"/nope"}
@@ -319,8 +328,7 @@ end
 - **`OPTIONS` under a mount.** A path below a mount is answered from the mounted app's routes, even when the parent
   routes the same path itself (`get "/admin/stats"` next to `mount admin, at: "/admin"`): `GET /admin/stats` reaches the
   parent's endpoint, `OPTIONS /admin/stats` answers `404` when the mounted app does not route `/stats`.
-- **No `405`.** A method a path does not route answers `404`, without an `Allow` header; only `OPTIONS` lists the
-  methods.
+- **`405` is opt-in.** By default `router.method_not_allowed` is `false`, so a method a path does not route answers `404` for backward compatibility. Set `config.router.method_not_allowed = true` (or call `config.api_defaults!`) to answer `405` with an `Allow` header.
 - **`root`.** `Router#root` registers `GET /` only (no `HEAD`), and `path_of` does not know it. A
   `get "/"` declared after it, or `root` after a `get "/"`, raises `DuplicateRoute`.
   Use `get "/", Endpoint` instead.
@@ -332,5 +340,6 @@ end
 
 - [App](app.md)
 - [Endpoint](endpoint.md)
+- [Authentication and authorization](auth.md)
 - [Built-in handlers](../handlers/built-in.md)
 - [Mount an app under a prefix](../../how-to/apps/mount-an-app.md)

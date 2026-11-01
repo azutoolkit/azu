@@ -115,14 +115,14 @@ server = app.server([*app.default_handlers, handler] of HTTP::Handler)
 - **Response.** If the response type includes `JSON::Serializable` the `200` response carries its schema
   as `application/json`. A `Response::Negotiable` lists every media type it renders, with the schema under
   `application/json` and `{"type": "string"}` under the others.
-- **Errors.** An operation with request fields adds `400` and `422`; one with a path parameter adds `404`.
+- **Security and route metadata.** Operations carry any `summary` and `description` declared on the endpoint or route (`RouteOptions`). When `config.auth` is enabled or a route has an effective access requirement, `components.securitySchemes` includes the HTTP bearer security scheme (`config.auth.security_scheme_name`, `"bearerAuth"` by default, with optional `bearerFormat` such as `"JWT"`), protected operations emit `security: [{"bearerAuth": [...]}]`, and `public: true` routes emit `security: []`. When `config.auth.document_requirements_in_description?` is `true`, the operation description also includes a human-readable summary of required roles and scopes.
+- **Errors.** An operation with request fields adds `400` and `422`; one with a path parameter adds `404`; a protected operation adds `401` and `403`; a route with a body size limit adds `413`; a route with content-type restrictions adds `415`.
   They reference shared `components`: `Azu.ValidationProblem` is the RFC 7807 problem body (listed as
   `application/problem+json` and `application/json`) that `Response::ValidationError` writes, and `Azu.Error` is the
   problem body (listed as `application/problem+json` and `application/json`) the other `Response::Error` classes write
   for a client that accepts JSON (`type`, `title`, `status`, `detail`, `errors`, `error_id`, and `instance` when the
-  error knows the path). The document follows the `error_format` the app has when it is built: with `Legacy` the 400,
-  404 and 422 are `application/json`, and `Azu.LegacyValidationError` and `Azu.LegacyError` (the PascalCase bodies,
-  `Status` being the underscored `HTTP::Status` member name) replace the problem schemas.
+  error knows the path). The document follows the `error_format` the app has when it is built: with `Envelope` (`config.api_defaults!`) the error responses are `application/json` referencing `Azu.ErrorEnvelope` and `Azu.ValidationErrorEnvelope`; with `Legacy` they reference `Azu.LegacyValidationError` and `Azu.LegacyError` (the PascalCase bodies,
+  `Status` being the underscored `HTTP::Status` member name).
 - **Components.** Every `JSON::Serializable` type becomes a named schema under `components.schemas`, named
   after its type (`Shop::Address` is `Shop.Address`; a generic `Page(Shop::User)` is `Page.Shop.User`, since
   component names allow only letters, digits, `.`, `-` and `_`) and referenced with `$ref`. Recursive
@@ -205,8 +205,7 @@ and the mounted apps. Treat it like source code you would show to a client.
 
 ## Limits
 
-- **Not generated:** summaries and descriptions of operations and parameters, security schemes and requirements,
-  examples, and a success status other than `200` (an endpoint's status is set while it runs, so the document cannot
+- **Not generated:** parameter descriptions, examples, and a success status other than `200` (an endpoint's status is set while it runs, so the document cannot
   know about a `201` or `204`). Azu cannot read them from the code; add them by editing `to_h` (see
   [Publish your OpenAPI document](../../how-to/api/publish-openapi.md#add-what-azu-does-not-generate)).
 - **JSON only.** There is no YAML writer (`JSON.parse(document.to_json).to_yaml`, with `require "yaml"`,
