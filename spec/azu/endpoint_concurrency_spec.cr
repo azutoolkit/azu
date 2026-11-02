@@ -32,6 +32,42 @@ module EndpointConcurrencySpec
       EchoResponse.new echo_request.name
     end
   end
+
+  # A struct built with its dependencies and registered as an instance: the router keeps that one value for every request.
+  struct SlowStructEndpoint
+    include Azu::Endpoint(EchoRequest, EchoResponse)
+
+    def initialize(@delay : Time::Span)
+    end
+
+    def call : EchoResponse
+      sleep @delay
+      status 202
+      EchoResponse.new echo_request.name
+    end
+  end
+end
+
+describe "struct endpoints registered as instances under concurrent requests" do
+  it "answers each request with its own parameters and its own status" do
+    app = Azu::App.new
+    app.router.post("/echo", EndpointConcurrencySpec::SlowStructEndpoint.new(30.milliseconds))
+    names = %w(alpha bravo charlie delta echo foxtrot)
+    results = Channel({String, String, Int32}).new
+    names.each do |name|
+      spawn do
+        client = Azu::Testing::Client.new(app, [Azu::Handler::Rescuer.new] of HTTP::Handler)
+        response = client.post("/echo", json: {name: name})
+        results.send({name, response.body, response.status_code})
+      end
+    end
+
+    names.size.times do
+      sent, received, code = results.receive
+      received.should eq sent
+      code.should eq 202
+    end
+  end
 end
 
 describe "class endpoints under concurrent requests" do

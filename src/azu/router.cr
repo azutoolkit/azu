@@ -95,13 +95,11 @@ module Azu
         def initialize(@endpoint : T)
         end
 
-        def call(context : HTTP::Server::Context) : Nil
-          {% if T <= HandlerAdapter || T <= Channel::Upgrader %}
-            context.request.headers["X-Azu-Endpoint"] = endpoint_class_name
-          {% end %}
-          ep = @endpoint
-          ep.call(context)
-          nil
+        def call(context : HTTP::Server::Context)
+          # A struct is copied here: calling it where it is stored would keep the request's state (`@context`,
+          # `@params`) in the one value every request shares, and a request that waits would answer with another's.
+          endpoint = @endpoint
+          endpoint.call(context)
         end
 
         def endpoint_class_name : String

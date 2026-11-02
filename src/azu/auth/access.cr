@@ -276,10 +276,6 @@ module Azu
     getter content_types : Array(String)?
     getter success_status : Int32?
 
-    def_equals_and_hash @requires, @public, @enrolment_exempt, @csrf_exempt,
-      @audit, @audit_action, @audit_critical, @summary, @description,
-      @max_body_size, @content_types, @success_status
-
     def initialize(
       requires : Access::Requirement? = nil,
       @public : Bool? = nil,
