@@ -150,29 +150,31 @@ module Azu::OpenAPI
       scheme = config.auth.security_scheme_name
       scopes = [] of Value
 
-      if requirement = req
-        if role = requirement.role
-          scopes << "role:#{role}"
-          object["x-required-role"] = role
-        end
-        unless requirement.all_permissions.empty?
-          requirement.all_permissions.each { |perm| scopes << perm }
-          object["x-required-permissions"] = requirement.all_permissions.map(&.as(Value))
-        end
-        unless requirement.any_permissions.empty?
-          requirement.any_permissions.each { |perm| scopes << perm }
-          object["x-required-any-permissions"] = requirement.any_permissions.map(&.as(Value))
-        end
-        if config.auth.document_requirements_in_description?
-          note = "Requires #{requirement.summary}."
-          existing = object["description"]?.try(&.as?(String))
-          object["description"] = existing ? "#{existing} #{note}" : note
-        end
-      end
+      apply_requirement_metadata!(object, scopes, req, config) if req
 
       object["x-enrolment-exempt"] = true if route.enrolment_exempt?
       object["security"] = [Map{scheme => scopes}.as(Value)] of Value
       true
+    end
+
+    private def apply_requirement_metadata!(object : Map, scopes : Array(Value), requirement : Access::Requirement, config : Configuration) : Nil
+      if role = requirement.role
+        scopes << "role:#{role}"
+        object["x-required-role"] = role
+      end
+      unless requirement.all_permissions.empty?
+        requirement.all_permissions.each { |perm| scopes << perm }
+        object["x-required-permissions"] = requirement.all_permissions.map(&.as(Value))
+      end
+      unless requirement.any_permissions.empty?
+        requirement.any_permissions.each { |perm| scopes << perm }
+        object["x-required-any-permissions"] = requirement.any_permissions.map(&.as(Value))
+      end
+      return unless config.auth.document_requirements_in_description?
+
+      note = "Requires #{requirement.summary}."
+      existing = object["description"]?.try(&.as?(String))
+      object["description"] = existing ? "#{existing} #{note}" : note
     end
 
     # Query parameters for a method without a body. For the others Azu reads a JSON body, or a form

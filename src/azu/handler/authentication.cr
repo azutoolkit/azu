@@ -29,43 +29,52 @@ module Azu
       end
 
       def call(context : HTTP::Server::Context, route : Router::Route) : Nil
-        return if route.public?
-        return if context.request.method == "OPTIONS" && !route.method.options?
+        return if skip_route?(context, route)
 
         cfg = @config || Azu.current_config
         auth = cfg.auth
 
-        principal = context.principal?
-        unless principal
-          raise Response::AuthenticationError.new(
-            auth.unauthorized_message,
-            code: auth.unauthorized_code,
-            www_authenticate: auth.www_authenticate
-          )
-        end
+        principal = require_principal!(context, auth)
+        verify_requirement!(principal, route, auth)
+        verify_enrolment!(principal, route, auth)
+      end
 
-        if req = route.effective_requirement(auth)
-          unless req.satisfied_by?(principal, auth.roles)
-            raise Response::AuthorizationError.new(
-              auth.forbidden_message,
-              code: auth.forbidden_code
-            )
-          end
-        end
+      private def skip_route?(context : HTTP::Server::Context, route : Router::Route) : Bool
+        route.public? || (context.request.method == "OPTIONS" && !route.method.options?)
+      end
 
-        unless route.enrolment_exempt?
-          enrolment_blocked = if gate = auth.enrolment_gate
-                                !gate.call(principal, route)
-                              else
-                                principal.enrolment_pending?
-                              end
-          if enrolment_blocked
-            raise Response::AuthorizationError.new(
-              auth.enrolment_error_message,
-              code: auth.enrolment_error_code
-            )
-          end
-        end
+      private def require_principal!(context : HTTP::Server::Context, auth : Configuration) : Principal
+        context.principal? || raise Response::AuthenticationError.new(
+          auth.unauthorized_message,
+          code: auth.unauthorized_code,
+          www_authenticate: auth.www_authenticate
+        )
+      end
+
+      private def verify_requirement!(principal : Principal, route : Router::Route, auth : Configuration) : Nil
+        return unless req = route.effective_requirement(auth)
+        return if req.satisfied_by?(principal, auth.roles)
+
+        raise Response::AuthorizationError.new(
+          auth.forbidden_message,
+          code: auth.forbidden_code
+        )
+      end
+
+      private def verify_enrolment!(principal : Principal, route : Router::Route, auth : Configuration) : Nil
+        return if route.enrolment_exempt?
+
+        enrolment_blocked = if gate = auth.enrolment_gate
+                              !gate.call(principal, route)
+                            else
+                              principal.enrolment_pending?
+                            end
+        return unless enrolment_blocked
+
+        raise Response::AuthorizationError.new(
+          auth.enrolment_error_message,
+          code: auth.enrolment_error_code
+        )
       end
     end
 
@@ -74,7 +83,7 @@ module Azu
     class AuditHook
       include Router::Hook
 
-      STATE_CHANGING_METHODS = %w(POST PUT PATCH DELETE)
+      STATE_CHANGING_METHODS = %w[POST PUT PATCH DELETE]
 
       private struct RateBucket
         property count : Int32
@@ -223,7 +232,6 @@ module Azu
         when 404 then "not_found"
         when 405 then "method_not_allowed"
         when 429 then "rate_limited"
-        else          nil
         end
       end
 
@@ -371,7 +379,7 @@ module Azu
           end
 
           context.principal = principal
-        rescue ex : Auth::VerificationUnavailable
+        rescue Auth::VerificationUnavailable
           render_auth_error(context, cfg, unavailable_error)
           return
         rescue ex : Response::AuthenticationError
@@ -419,11 +427,9 @@ module Azu
         request_id: RequestContext.current_id(context)
       )
       @response_callbacks.each do |callback|
-        begin
-          callback.call(event)
-        rescue ex
-          Log.for("azu.instrumentation").debug(exception: ex) { "on_response callback failed" }
-        end
+        callback.call(event)
+      rescue ex
+        Log.for("azu.instrumentation").debug(exception: ex) { "on_response callback failed" }
       end
       Instrumentation.report_response(event)
     end

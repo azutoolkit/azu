@@ -53,7 +53,7 @@ module Azu
     class BodyCheck
       include Router::Hook
 
-      BODY_METHODS = %w(POST PUT PATCH DELETE)
+      BODY_METHODS = %w[POST PUT PATCH DELETE]
 
       # Wraps a request body IO to enforce a maximum byte limit as the body is read,
       # raising `Response::PayloadTooLarge` (`413`) at `limit + 1` bytes.

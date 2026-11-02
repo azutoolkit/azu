@@ -334,7 +334,7 @@ module Azu
       # Effective access requirement for this route: `nil` when `public?`, else the route's own
       # `requires` (which includes any enclosing `scope` or endpoint requirement), else the verb default in `auth`.
       def effective_requirement(auth : Auth::Configuration) : Access::Requirement?
-        return nil if public?
+        return if public?
         requires || auth.default_access_for(@method)
       end
     end
@@ -737,7 +737,7 @@ module Azu
 
     private def find_in_tree(method : Azu::Method, path : String) : Tree::Match(Route)?
       found = @tree.find(method, path)
-      return nil if found && found.payload.auto_head? && !@head_wrapping
+      return if found && found.payload.auto_head? && !@head_wrapping
       found
     end
 
@@ -803,7 +803,7 @@ module Azu
       context.response.headers["Allow"] = allowed.join(", ")
       if responder = @method_not_allowed_responder
         responder.call(context, allowed)
-        return nil
+        return
       end
       ex = Response::MethodNotAllowed.new(context.request.method, context.request.path, allowed)
       context.azu_last_error = ex
@@ -815,7 +815,7 @@ module Azu
       if responder = @not_found
         context.response.status = :not_found
         responder.call(context)
-        return nil
+        return
       end
       ex = not_found(context)
       context.azu_last_error = ex
@@ -982,20 +982,23 @@ module Azu
 
     # Returns the low-cardinality route table for metrics labels, OpenAPI inspection, and boot checks.
     def route_table(include_mounts : Bool = true) : Array(RouteEntry)
-      leaf_routes(include_mounts).map do |(pattern, route, _owner)|
-        RouteEntry.new(
+      entries = [] of RouteEntry
+      leaf_routes(include_mounts).each do |(pattern, route, _owner)|
+        entries << RouteEntry.new(
           method: route.method,
           pattern: pattern,
           handler: route.target.handler_name,
           options: route.options
         )
       end
+      entries
     end
 
     # Get route information for development tools
     # Build array of routes from the routes registry
     def route_info : Array(Hash(String, String))
-      @routes_registry.map do |route|
+      info = [] of Hash(String, String)
+      @routes_registry.each do |route|
         # Extract original path from resource by removing method prefix
         original_path = case route.method
                         when .web_socket?
@@ -1006,7 +1009,7 @@ module Azu
 
         handler_name = route.target.handler_name
 
-        {
+        info << {
           "method"      => route.method.to_s.upcase,
           "path"        => original_path.empty? ? "/" : original_path,
           "resource"    => route.resource,
@@ -1014,6 +1017,7 @@ module Azu
           "description" => route.summary || "#{route.method.to_s.upcase} route handler",
         }
       end
+      info
     end
   end
 end

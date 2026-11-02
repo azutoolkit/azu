@@ -344,7 +344,7 @@ module Azu
 
         if custom = config.error_renderer
           custom.call(context, self)
-          return nil
+          return
         end
 
         content = negotiate_error_content(context, config) || fallback_error_content(context, config)
@@ -352,7 +352,7 @@ module Azu
       end
 
       private def negotiate_error_content(context : HTTP::Server::Context, config : Configuration) : String?
-        accept_type = context.request.accept.try(&.first?) || return nil
+        accept_type = context.request.accept.try(&.first?) || return
         sub_type = accept_type.sub_type || return plain_error_content(context)
 
         case sub_type
