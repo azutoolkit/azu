@@ -415,6 +415,9 @@ Class-level macros inside an `Azu::Endpoint` body configure its `Azu::RouteOptio
 | `require_role(*roles)` / `allow_roles(*roles)` | Requires at least `role` (or any of `roles`, or higher in `config.auth.roles`) |
 | `require_permissions(*perms)` / `require_scopes(*scopes)` | Requires all listed permissions or OAuth 2.0 scopes |
 | `require_any_permission(*perms)` / `require_any_scope(*scopes)` | Requires at least one of the listed permissions or scopes |
+| `require_mfa!(*amr, acr = nil)` / `require_mfa(*amr, acr = nil)` | Requires verified multi-factor authentication (and optionally specific `amr` method(s) and/or `acr` level); answers `403` with `code: "mfa_required"` and `WWW-Authenticate` when missing |
+| `require_challenge_response!` | Requires Authly challenge-response MFA (`Azu::Access.challenge_response`) |
+| `require_social!(*providers)` | Requires social login authentication, optionally restricted to one of `providers` (e.g. `:google`, `:github`) |
 | `requires(requirement)` | Combines an `Azu::Access::Requirement` into the endpoint's requirement |
 | `enrolment_exempt!(exempt = true)` | Exempts the endpoint from the enrolment gate (`principal.enrolment_pending?`) |
 | `csrf_exempt!(exempt = true)` | Exempts the endpoint from `Handler::CSRF` checks |
@@ -472,8 +475,13 @@ Available as private methods inside `call` and action hooks:
 | `authenticated?` | `true` when a principal is present |
 | `role?(name)` | `true` when the principal satisfies `name` (including `config.auth.roles` hierarchy) |
 | `permission?(name)` / `scope?(name)` | `true` when the principal holds `name` |
+| `mfa_verified?` | `true` when the principal has verified multi-factor authentication |
+| `amr?(method)` | `true` when the principal holds the given Authentication Method Reference (`amr`) |
+| `challenge_authenticated?` | `true` when the principal authenticated via an Authly challenge-response grant |
+| `social_authenticated?` | `true` when the principal authenticated via a social OAuth/OIDC provider |
+| `auth_provider` | Returns the social / identity provider name (`"google"`, `"github"`, etc.) or `nil` |
 | `claims` / `authly_claims` / `authly_claims!` | Verified token claims (`Hash(String, JSON::Any)`, or `Authly::Claims` when `Authly` is loaded) |
-| `authorize!(requirement_or_kwargs)` | Checks `role:`, `roles:`, `permissions:`, `scopes:`, etc. against `principal!` or raises `403` |
+| `authorize!(requirement_or_kwargs)` | Checks `role:`, `roles:`, `permissions:`, `scopes:`, `mfa:`, `amr:`, `acr:`, `challenge_response:`, `social:`, etc. against `principal!` or raises `403` |
 | `unauthorized!(message, *, code, www_authenticate, details)` | Raises `401` (`Response::AuthenticationError`) |
 | `forbidden!(message, *, code, details)` | Raises `403` (`Response::AuthorizationError`) |
 | `not_found!(message, *, path, code, details)` | Raises `404` (`Response::NotFound`) |

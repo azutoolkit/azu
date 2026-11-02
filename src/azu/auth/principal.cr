@@ -73,16 +73,88 @@ module Azu
       def has_scope?(scope : String | Symbol) : Bool
         has_permission?(scope)
       end
+
+      # True when the principal has completed multi-factor or cryptographic challenge-response authentication.
+      def mfa_verified? : Bool
+        false
+      end
+
+      # Authentication Methods References (RFC 8176 `amr` claim, e.g. `["pwd", "mfa"]`, `["challenge_response"]`).
+      def amr : Enumerable(String)
+        [] of String
+      end
+
+      # Authentication Context Class Reference (`acr` claim, e.g. `"aal2"`, `"mfa"`).
+      def acr : String?
+        nil
+      end
+
+      # Upstream identity/social provider name (e.g. `"google"`, `"github"`, `"apple"`), if any.
+      def auth_provider : String?
+        nil
+      end
+
+      # Upstream social provider subject identifier (`"social_uid"` claim), if any.
+      def social_uid : String?
+        nil
+      end
+
+      # True when `amr` contains `method` (case-insensitive).
+      def has_amr?(method : String | Symbol) : Bool
+        target = method.to_s.downcase
+        amr.any? { |entry| entry.downcase == target }
+      end
+
+      # True when authenticated via Authly cryptographic challenge-response.
+      def challenge_authenticated? : Bool
+        has_amr?("challenge_response") || has_amr?("urn:ietf:params:oauth:grant-type:challenge")
+      end
+
+      # True when authenticated via an external social identity provider.
+      def social_authenticated? : Bool
+        !auth_provider.nil? || has_amr?("social") || has_amr?("urn:ietf:params:oauth:grant-type:social")
+      end
     end
 
     # Concrete, ready-to-use `Principal` for bearer tokens, JWT/Authly claims, or session users.
     class Identity < Principal
+      DEFAULT_MFA_AMR = {
+        "mfa",
+        "otp",
+        "totp",
+        "hwk",
+        "swk",
+        "fido",
+        "webauthn",
+        "challenge_response",
+        "urn:ietf:params:oauth:grant-type:challenge",
+        "sms",
+        "pin",
+      }
+
+      DEFAULT_MFA_ACR = {
+        "aal2",
+        "aal3",
+        "phr",
+        "phrh",
+        "mfa",
+        "urn:mace:incommon:iap:silver",
+      }
+
       getter id : String
       getter name : String?
       getter roles : Array(String)
       getter permissions : Array(String)
       getter auth_scheme : Symbol
       getter? enrolment_pending : Bool
+      getter? mfa_verified : Bool
+      getter amr : Array(String)
+      getter acr : String?
+      getter auth_provider : String?
+      getter social_uid : String?
+      getter email : String?
+      getter? email_verified : Bool
+      getter key_id : String?
       getter metadata : Hash(String, String)
       getter claims : Hash(String, JSON::Any)
       @validator : Proc(HTTP::Server::Context, Bool)?
@@ -96,6 +168,14 @@ module Azu
         scopes = nil,
         @auth_scheme : Symbol = :bearer,
         @enrolment_pending : Bool = false,
+        mfa_verified : Bool? = nil,
+        amr = [] of String,
+        @acr : String? = nil,
+        @auth_provider : String? = nil,
+        @social_uid : String? = nil,
+        @email : String? = nil,
+        @email_verified : Bool = false,
+        @key_id : String? = nil,
         @metadata : Hash(String, String) = {} of String => String,
         @claims : Hash(String, JSON::Any) = {} of String => JSON::Any,
         @validator : Proc(HTTP::Server::Context, Bool)? = nil,
@@ -106,6 +186,13 @@ module Azu
           scopes.each { |scope| perms << scope.to_s unless perms.includes?(scope.to_s) }
         end
         @permissions = perms
+        @amr = amr.map(&.to_s).to_a
+        @mfa_verified = mfa_verified.nil? ? Identity.infer_mfa_verified?(@amr, @acr) : mfa_verified
+      end
+
+      # Alias for `auth_provider`.
+      def provider : String?
+        @auth_provider
       end
 
       # Builds an `Identity` from verified JWT or OAuth 2.0 / Authly claims.
@@ -116,6 +203,8 @@ module Azu
       # - `"roles"` / `"role"` -> `roles`
       # - `"scope"` (space-delimited string), `"scopes"`, `"permissions"` -> `permissions` / `scopes`
       # - `"enrolment_pending"` -> `enrolment_pending?`
+      # - `"mfa"` / `"mfa_verified"` / `"challenge_verified"`, `"amr"`, `"acr"` -> `mfa_verified?`, `amr`, `acr`
+      # - `"provider"` / `"idp"` / `"cid": "social:<provider>"`, `"social_uid"`, `"email"`, `"email_verified"` -> social fields
       def self.from_claims(
         payload : Hash(String, JSON::Any),
         *,
@@ -129,10 +218,16 @@ module Azu
                           extract_space_or_list(payload["scopes"]?) +
                           extract_string_list(payload["permissions"]?)
         pending = payload["enrolment_pending"]?.try(&.as_bool?) || false
+        extracted_amr = (extract_string_list(payload["amr"]?) + extract_string_list(payload["grant_type"]?)).uniq
+        extracted_acr = payload["acr"]?.try(&.as_s?)
+        explicit_mfa = extract_explicit_mfa(payload)
+        provider_name = extract_provider(payload)
+        social_id = payload["social_uid"]?.try(&.as_s?)
+        email_val = payload["email"]?.try(&.as_s?)
+        email_ver = extract_bool(payload["email_verified"]?)
+        kid = payload["key_id"]?.try(&.as_s?) || payload["kid"]?.try(&.as_s?)
 
-        meta = {} of String => String
-        payload["cid"]?.try(&.as_s?).try { |cid| meta["client_id"] = cid }
-        payload["jti"]?.try(&.as_s?).try { |jti| meta["jti"] = jti }
+        meta = build_metadata(payload, provider_name, social_id, kid)
 
         new(
           id: subject,
@@ -141,10 +236,68 @@ module Azu
           permissions: extracted_perms.uniq,
           auth_scheme: auth_scheme,
           enrolment_pending: pending,
+          mfa_verified: explicit_mfa,
+          amr: extracted_amr,
+          acr: extracted_acr,
+          auth_provider: provider_name,
+          social_uid: social_id,
+          email: email_val,
+          email_verified: email_ver,
+          key_id: kid,
           metadata: meta,
           claims: payload,
           validator: validator
         )
+      end
+
+      protected def self.infer_mfa_verified?(amr : Array(String), acr : String?) : Bool
+        return true if amr.any? { |entry| DEFAULT_MFA_AMR.includes?(entry.downcase) }
+        return true if acr && DEFAULT_MFA_ACR.includes?(acr.downcase)
+        false
+      end
+
+      private def self.extract_explicit_mfa(payload : Hash(String, JSON::Any)) : Bool?
+        {"mfa", "mfa_verified", "challenge_verified"}.each do |key|
+          if val = payload[key]?
+            if !(flag = val.as_bool?).nil?
+              return flag
+            end
+          end
+        end
+        nil
+      end
+
+      private def self.extract_provider(payload : Hash(String, JSON::Any)) : String?
+        if explicit = payload["provider"]?.try(&.as_s?).presence || payload["idp"]?.try(&.as_s?).presence
+          return explicit
+        end
+        if (cid = payload["cid"]?.try(&.as_s?)) && cid.starts_with?("social:")
+          cid.lchop("social:").presence
+        end
+      end
+
+      private def self.extract_bool(value : JSON::Any?) : Bool
+        return false unless value
+        case raw = value.raw
+        when Bool   then raw
+        when String then raw.downcase == "true"
+        else             false
+        end
+      end
+
+      private def self.build_metadata(
+        payload : Hash(String, JSON::Any),
+        provider : String?,
+        social_uid : String?,
+        key_id : String?,
+      ) : Hash(String, String)
+        meta = {} of String => String
+        payload["cid"]?.try(&.as_s?).try { |cid| meta["client_id"] = cid }
+        payload["jti"]?.try(&.as_s?).try { |jti| meta["jti"] = jti }
+        meta["provider"] = provider if provider
+        meta["social_uid"] = social_uid if social_uid
+        meta["key_id"] = key_id if key_id
+        meta
       end
 
       # Builds an `Identity` from an `Authly::Claims` (or any object exposing `#payload : Hash(String, JSON::Any)`).

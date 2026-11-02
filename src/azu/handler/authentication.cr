@@ -53,12 +53,38 @@ module Azu
 
       private def verify_requirement!(principal : Principal, route : Router::Route, auth : Configuration) : Nil
         return unless req = route.effective_requirement(auth)
-        return if req.satisfied_by?(principal, auth.roles)
 
-        raise Response::AuthorizationError.new(
-          auth.forbidden_message,
-          code: auth.forbidden_code
+        unless req.role_and_permissions_satisfied_by?(principal, auth.roles)
+          raise Response::AuthorizationError.new(
+            auth.forbidden_message,
+            code: auth.forbidden_code
+          )
+        end
+
+        verify_mfa!(principal, route, req, auth) if req.mfa_requirement?
+      end
+
+      private def verify_mfa!(
+        principal : Principal,
+        route : Router::Route,
+        req : Access::Requirement,
+        auth : Configuration,
+      ) : Nil
+        mfa_ok = if gate = auth.mfa_gate
+                   gate.call(principal, route) && req.mfa_satisfied_by?(principal)
+                 else
+                   req.mfa_satisfied_by?(principal)
+                 end
+        return if mfa_ok
+
+        err = Response::AuthorizationError.new(
+          auth.mfa_error_message,
+          code: auth.mfa_error_code
         )
+        if challenge_header = auth.mfa_www_authenticate.presence
+          err.headers["WWW-Authenticate"] = challenge_header
+        end
+        raise err
       end
 
       private def verify_enrolment!(principal : Principal, route : Router::Route, auth : Configuration) : Nil

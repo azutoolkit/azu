@@ -54,9 +54,19 @@ end
 | `Principal#valid?(context)` | `Bool` | Per-request validity hook; returning `false` answers `401` |
 | `Principal#has_role?(role)` | `Bool` | Exact role membership check |
 | `Principal#has_permission?(perm)`, `Principal#has_scope?(scope)` | `Bool` | Exact permission / scope membership check |
+| `Principal#mfa_verified?` | `Bool` | `true` when multi-factor authentication has been verified (`mfa` claim, `amr` containing `"challenge_response"`/`"mfa"`/`"totp"`/`"webauthn"`, or `acr` `"aal2"`/`"aal3"`/`"mfa"`/`"phr"`) |
+| `Principal#amr` | `Enumerable(String)` | Authentication Method References (`amr` claim) |
+| `Principal#acr` | `String?` | Authentication Context Class Reference (`acr` claim) |
+| `Principal#has_amr?(method)` | `Bool` | Case-insensitive `amr` membership check |
+| `Principal#challenge_authenticated?` | `Bool` | `true` when `amr` includes `"challenge_response"` or `"urn:ietf:params:oauth:grant-type:challenge"` |
+| `Principal#social_authenticated?` | `Bool` | `true` when `auth_provider` is present or `amr` includes `"social"` / `"urn:ietf:params:oauth:grant-type:social"` |
+| `Principal#auth_provider`, `Identity#provider` | `String?` | Social / identity provider name (`"google"`, `"github"`, etc., from `provider`/`idp` claim or `"social:<provider>"` `cid`) |
+| `Principal#social_uid` | `String?` | External provider subject identifier (`social_uid` / `idp_sub` claim) |
 | `Identity.from_claims(payload)` | `Identity` | Builds an `Identity` from a `Hash(String, JSON::Any)` or `Authly::Claims` |
 | `Identity#client_id` | `String?` | `"cid"` or `"client_id"` claim |
 | `Identity#token_id` | `String?` | `"jti"` claim |
+| `Identity#email` / `Identity#email_verified?` | `String?` / `Bool` | `"email"` and `"email_verified"` claims (OIDC / social sign-in) |
+| `Identity#key_id` | `String?` | `"kid"` or `"key_id"` claim (cryptographic challenge-response key ID) |
 
 On `HTTP::Server::Context`:
 - `context.principal` / `context.principal?` / `context.current_user` / `context.current_user?` returns `Azu::Auth::Principal?` (automatically bridging `context.authly_claims` when `Authly::Handler::Bearer` is used).
@@ -79,11 +89,14 @@ On `HTTP::Server::Context`:
 | `Azu::Access.role(*roles)` | `Access::Requirement` | Requires any of the listed roles (or a higher role in `config.auth.roles`) |
 | `Azu::Access.permissions(* perms)`, `Azu::Access.scopes(*scopes)` | `Access::Requirement` | Requires all listed permissions / OAuth 2.0 scopes |
 | `Azu::Access.any_permission(*perms)`, `Azu::Access.any_scope(*scopes)` | `Access::Requirement` | Requires at least one of the listed permissions / scopes |
+| `Azu::Access.mfa(*amr, acr = nil)` | `Access::Requirement` | Requires multi-factor authentication (`principal.mfa_verified?`), optionally constraining `amr` and/or `acr` |
+| `Azu::Access.challenge_response` | `Access::Requirement` | Requires Authly challenge-response MFA (`mfa: true` and `amr` matching `"challenge_response"` or `"urn:ietf:params:oauth:grant-type:challenge"`) |
+| `Azu::Access.social(*providers)` | `Access::Requirement` | Requires social login authentication (`principal.social_authenticated?`), optionally constrained to one of `providers` (e.g. `:google`, `:github`) |
 | `Azu::Access.authenticated` | `Access::Requirement` | Requires an authenticated principal without a specific role or scope constraint |
 | `req_a & req_b` | `Access::Requirement` | Combines two requirements so both must hold |
-| `req.satisfied_by?(principal, role_hierarchy)` | `Bool` | Evaluates role, permission, and scope constraints against `principal` |
+| `req.satisfied_by?(principal, role_hierarchy)` | `Bool` | Evaluates role, permission, scope, social, and MFA constraints against `principal` |
 
-`Azu::RouteOptions` holds per-route security, hygiene, audit, and OpenAPI metadata (`requires`, `public`, `enrolment_exempt`, `csrf_exempt`, `audit`, `audit_action`, `audit_critical`, `summary`, `description`, `max_body_size`, `content_types`) and composes in three layers:
+`Azu::RouteOptions` holds per-route security, hygiene, audit, and OpenAPI metadata (`requires`, `public`, `enrolment_exempt`, `csrf_exempt`, `audit`, `audit_action`, `audit_critical`, `summary`, `description`, `max_body_size`, `content_types`, plus shorthand keywords `role:`, `roles:`, `permissions:`, `scopes:`, `mfa:`, `amr:`, `acr:`, `challenge_response:`, `social:`) and composes in three layers:
 `scope_options.merge(endpoint.route_options).merge(call_site_options)`.
 
 ### Handlers and router hooks
@@ -112,6 +125,9 @@ On `HTTP::Server::Context`:
 | `default_access` | `Access::Requirement?` | `nil` | Fallback requirement when a verb has no entry in `verb_defaults` |
 | `enrolment_gate` | `Proc(Principal, Router::Route, Bool)?` | `nil` | Custom enrolment check returning `true` when allowed or `false` when blocked (`403`) |
 | `enrolment_error_code` / `enrolment_error_message` | `String` | `"enrolment_required"` | Error code and message returned on `403` when an account fails the enrolment gate |
+| `mfa_gate` | `Proc(Principal, Router::Route, Bool)?` | `nil` | Custom step-up MFA check returning `true` when allowed or `false` when blocked (`403` with `mfa_error_code`) |
+| `mfa_error_code` / `mfa_error_message` | `String` | `"mfa_required"` | Error code and message returned on `403` when a route requires MFA and the token has not satisfied it |
+| `mfa_www_authenticate` | `String` | `"Bearer error=\"insufficient_user_authentication\", ..."` | `WWW-Authenticate` challenge header set on `403 mfa_required` responses |
 | `unauthorized_code` / `unauthorized_message` / `www_authenticate` | `String` | `"unauthorized"` / `"Authentication required"` / `"Bearer"` | Default `401` code, message, and `WWW-Authenticate` header |
 | `forbidden_code` / `forbidden_message` | `String` | `"forbidden"` / `"Insufficient permissions"` | Default `403` code and message |
 | `security_scheme_name` / `bearer_format` | `String` / `String?` | `"bearerAuth"` / `nil` | OpenAPI security scheme name and optional `bearerFormat` |
