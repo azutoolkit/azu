@@ -84,7 +84,10 @@ module Azu
         end
 
         def call(context : HTTP::Server::Context)
-          @endpoint.call(context)
+          # A struct is copied here: calling it where it is stored would keep the request's state (`@context`,
+          # `@params`) in the one value every request shares, and a request that waits would answer with another's.
+          endpoint = @endpoint
+          endpoint.call(context)
         end
 
         def endpoint_class_name : String
