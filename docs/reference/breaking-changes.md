@@ -13,6 +13,12 @@ from an early 0.5 release to the current API, with old and new code side by side
 
 ## Next release
 
+**Path parameters are percent-decoded.** `params["id"]` for `/users/a%20b` is now `a b` (it was `a%20b`), and an
+encoded slash (`%2F`) stays inside its segment, so `/users/a%2Fb` reads `a/b` without becoming two segments. A
+sequence that is not valid percent-encoding (`100%`) is left as written. Code that decoded a parameter itself must
+stop doing so, or a value that contains a literal `%` is decoded twice. Routing is unchanged: the path is matched as
+sent.
+
 **Request-cache diagnostics require CQL's per-fiber tracker.** `Middleware.new(query_cache: true)`
 now refuses older process-wide trackers at construction. Upgrade CQL to 0.0.925 or newer, or disable
 this optional diagnostic. Concurrent requests retain independent IDs and query counts. Azu's development

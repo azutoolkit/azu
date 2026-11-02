@@ -621,7 +621,7 @@ module Azu
       return process_unmatched(context) if match.nil?
 
       # Nil for a route without parameters also forgets the `mount_path` of the mount that led here
-      context.request.path_params = match.params
+      context.request.path_params = decode_params(match.params)
       route = match.payload
 
       # A mounted child app delegates to its own router, which will match its leaf route and run its own hooks.
@@ -770,6 +770,17 @@ module Azu
         end
       end
       {allowed, first_route}
+    end
+
+    # Percent-decodes the values of the path parameters: `/users/a%20b` reads `a b`, and `%2F` stays inside its
+    # segment. A value with no `%` is left as it is, so a path without escapes allocates nothing here. The tree
+    # keeps the raw text (it matches on the request path as sent); the endpoint sees the decoded one.
+    private def decode_params(params : Hash(String, String)?) : Hash(String, String)?
+      return params unless params
+      params.each do |name, value|
+        params[name] = URI.decode(value) if value.includes?('%')
+      end
+      params
     end
 
     # An `OPTIONS` that no `options` route takes: `204` with the methods the path routes in `Allow`, or `404` when it routes

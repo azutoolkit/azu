@@ -152,7 +152,7 @@ describe Azu::Testing::Client do
   it "encodes a wildcard path parameter segment by segment" do
     app = TestingHardeningSpec.app
     client = Azu::Testing::Client.new(app, [] of HTTP::Handler)
-    client.get(TestingHardeningSpec::FilesEndpoint, path: "a b/c").body.should eq "a%20b/c"
+    client.get(TestingHardeningSpec::FilesEndpoint, path: "a b/c").body.should eq "a b/c"
   end
 
   it "looks the route up by verb and names the verbs an endpoint is routed for" do
