@@ -120,7 +120,7 @@ describe "Azu over a real connection" do
       response = client.get "/wire/hello/w%20orld/?x=1&y=%26", headers: HTTP::Headers{"Accept" => "text/plain"}
 
       response.status_code.should eq 200
-      response.body.should eq "Welcome, w%20orld"
+      response.body.should eq "Welcome, w orld"
     end
   end
 
