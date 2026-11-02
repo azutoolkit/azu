@@ -49,7 +49,7 @@ without a receiver. Each returns `Nil`.
 | `ws(path, channel, **options)` | A WebSocket route to an `Azu::Channel` class |
 | `scope(prefix, **options, &)` | Prefixes every route, mount and scope declared in the block, and passes `RouteOptions` defaults (`role:`, `scopes:`, `public:`, etc.) down to routes inside the block |
 | `mount(app : App, at : String)` | Serves `app` below the path (see [Mounting another app](#mounting-another-app)) |
-| `mount_authly(handler = nil)` | Registers Authly's OAuth 2.0 and OpenID Connect provider endpoints below the builder's prefix with `public: true` and `csrf_exempt: true` on non-browser routes |
+| `mount_authly(handler = nil)` | Registers Authly's OAuth 2.0, OpenID Connect, MFA challenge (`/oauth/challenge`), and social login (`/oauth/social/:provider` and `/oauth/social/:provider/callback`) endpoints below the builder's prefix with `public: true`, `csrf_exempt: true` on non-browser routes, and `content_types: ["application/x-www-form-urlencoded", "application/json"]` |
 
 ### Router
 

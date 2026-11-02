@@ -147,7 +147,7 @@ app.config.auth.authly CustomTokenVerifier.new, realm: "api"
 app.config.auth.role_hierarchy :viewer, :operator, :admin
 ```
 
-When `require "authly"` is present in your application, `config.auth.authly(audience: "https://api.example.com", provider: true)` builds `Authly::StrategyTokenVerifier.new` and mounts `Authly::Handler.new` with no extra arguments:
+When `require "authly"` is present in your application, `config.auth.authly(audience: "https://api.example.com", provider: true)` builds `Authly::StrategyTokenVerifier.new`, mounts `Authly::Handler.new` (including `POST /oauth/challenge` and `GET|POST /oauth/social/:provider(/callback)`), and configures default `Authly.config.issuance_options` so `challenge_response` grants carry `{"amr" => "challenge_response", "mfa" => true}` and `social` grants carry `{"amr" => "social"}`:
 
 <!-- skip -->
 ```crystal
@@ -158,6 +158,26 @@ MyApp.configure do |config|
   config.api_defaults!
   config.auth.authly audience: "https://api.example.com", provider: true
   config.auth.role_hierarchy :viewer, :operator, :admin
+end
+```
+
+### MFA via Authly challenge-response and Social Login
+
+Use `require_challenge_response!`, `require_mfa!`, or `require_social!` on endpoints (or `challenge_response: true`, `mfa: true`, `social: :google` on `scope` / route verbs) to enforce step-up MFA or social provider constraints. When a valid token lacks MFA, Azu answers `403 Forbidden` with `code: "mfa_required"` and a `WWW-Authenticate: Bearer error="insufficient_user_authentication"` challenge header so the client knows to initiate `POST /oauth/challenge` and `POST /oauth/token` (`grant_type=challenge_response`):
+
+```crystal
+struct WireTransferEndpoint
+  include Azu::Endpoint(Azu::Request, QueueResponse)
+
+  post "/api/transfers"
+  require_role :operator
+  require_scopes "transfers:write"
+  require_challenge_response!
+
+  def call : QueueResponse
+    content_type "application/json"
+    QueueResponse.new(name: "transfer", actor: principal!.id)
+  end
 end
 ```
 

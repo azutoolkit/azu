@@ -318,6 +318,43 @@ module Azu
         self.route_options = own_route_options.with_requirement(Azu::Access.any_scope(*scopes))
       end
 
+      # Requires the authenticated principal to have verified multi-factor authentication
+      # (and optionally a specific `acr` level).
+      def self.require_mfa!(*, acr : (Symbol | String)? = nil) : Nil
+        self.route_options = own_route_options.with_requirement(Azu::Access.mfa(acr: acr))
+      end
+
+      # Requires the authenticated principal to have verified multi-factor authentication
+      # with one of the specified `amr` method(s) (and optionally `acr` level).
+      def self.require_mfa!(*amr : Symbol | String, acr : (Symbol | String)? = nil) : Nil
+        self.route_options = own_route_options.with_requirement(Azu::Access.mfa(*amr, acr: acr))
+      end
+
+      # Alias for `require_mfa!`.
+      def self.require_mfa(*, acr : (Symbol | String)? = nil) : Nil
+        require_mfa!(acr: acr)
+      end
+
+      # Alias for `require_mfa!`.
+      def self.require_mfa(*amr : Symbol | String, acr : (Symbol | String)? = nil) : Nil
+        require_mfa!(*amr, acr: acr)
+      end
+
+      # Requires the authenticated principal to have authenticated via Authly challenge-response MFA.
+      def self.require_challenge_response! : Nil
+        self.route_options = own_route_options.with_requirement(Azu::Access.challenge_response)
+      end
+
+      # Requires the authenticated principal to have authenticated via social login.
+      def self.require_social! : Nil
+        self.route_options = own_route_options.with_requirement(Azu::Access.social)
+      end
+
+      # Requires the authenticated principal to have authenticated via one of the listed social `providers`.
+      def self.require_social!(*providers : Symbol | String) : Nil
+        self.route_options = own_route_options.with_requirement(Azu::Access.social(*providers))
+      end
+
       # Combines an explicit `Azu::Access::Requirement` into this endpoint's route options.
       def self.requires(requirement : Azu::Access::Requirement) : Nil
         self.route_options = own_route_options.with_requirement(requirement)
@@ -775,6 +812,31 @@ module Azu
       permission?(scope_name)
     end
 
+    # True when the authenticated principal has verified multi-factor authentication.
+    private def mfa_verified? : Bool
+      context.principal?.try(&.mfa_verified?) || false
+    end
+
+    # True when the authenticated principal holds the given Authentication Method Reference (`amr`).
+    private def amr?(method : Symbol | String) : Bool
+      context.principal?.try(&.has_amr?(method)) || false
+    end
+
+    # True when the authenticated principal authenticated via an Authly challenge-response grant.
+    private def challenge_authenticated? : Bool
+      context.principal?.try(&.challenge_authenticated?) || false
+    end
+
+    # True when the authenticated principal authenticated via a social OAuth/OIDC provider.
+    private def social_authenticated? : Bool
+      context.principal?.try(&.social_authenticated?) || false
+    end
+
+    # Social or identity provider identifier (`"google"`, `"github"`, etc.) for the current principal, if any.
+    private def auth_provider : String?
+      context.principal?.try(&.auth_provider)
+    end
+
     # Verified token claims hash for the current principal (empty hash when unauthenticated).
     private def claims : Hash(String, JSON::Any)
       context.principal?.try(&.claims) || ({} of String => JSON::Any)
@@ -802,16 +864,26 @@ module Azu
     private def authorize!(requirement : Access::Requirement, *, message : String? = nil, code : String? = nil) : Auth::Principal
       user = principal!
       auth = Azu.current_config.auth
-      unless requirement.satisfied_by?(user, auth.roles)
+      unless requirement.role_and_permissions_satisfied_by?(user, auth.roles)
         raise Azu::Response::AuthorizationError.new(
           message || auth.forbidden_message,
           code: code || auth.forbidden_code
         )
       end
+      unless requirement.mfa_satisfied_by?(user)
+        err = Azu::Response::AuthorizationError.new(
+          message || auth.mfa_error_message,
+          code: code || auth.mfa_error_code
+        )
+        if code.nil? && (challenge_header = auth.mfa_www_authenticate.presence)
+          err.headers["WWW-Authenticate"] = challenge_header
+        end
+        raise err
+      end
       user
     end
 
-    # Imperative in-action authorization check using role/permission/scope keyword arguments.
+    # Imperative in-action authorization check using role/permission/scope/MFA/social keyword arguments.
     private def authorize!(
       *,
       role : (Symbol | String)? = nil,
@@ -820,6 +892,11 @@ module Azu
       any_permission : Enumerable? = nil,
       scopes : Enumerable? = nil,
       any_scope : Enumerable? = nil,
+      mfa : Bool? = nil,
+      amr : Enumerable? = nil,
+      acr : (Symbol | String)? = nil,
+      challenge_response : Bool? = nil,
+      social : (Bool | Symbol | String | Enumerable)? = nil,
       message : String? = nil,
       code : String? = nil,
     ) : Auth::Principal
@@ -829,7 +906,12 @@ module Azu
         permissions: permissions,
         any_permission: any_permission,
         scopes: scopes,
-        any_scope: any_scope
+        any_scope: any_scope,
+        mfa: mfa,
+        amr: amr,
+        acr: acr,
+        challenge_response: challenge_response,
+        social: social
       )
       if req = opts.requires
         authorize!(req, message: message, code: code)
