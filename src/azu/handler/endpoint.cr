@@ -814,7 +814,7 @@ module Azu
     # Imperative in-action authorization check using role/permission/scope keyword arguments.
     private def authorize!(
       *,
-      role : Symbol | String | Nil = nil,
+      role : (Symbol | String)? = nil,
       roles : Enumerable? = nil,
       permissions : Enumerable? = nil,
       any_permission : Enumerable? = nil,

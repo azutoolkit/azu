@@ -180,7 +180,7 @@ module Azu
       @content_types : Array(String)? = nil,
       @success_status : Int32? = nil,
       *,
-      role : Symbol | String | Nil = nil,
+      role : (Symbol | String)? = nil,
       roles : Enumerable? = nil,
       permissions : Enumerable? = nil,
       any_permission : Enumerable? = nil,

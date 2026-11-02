@@ -34,11 +34,11 @@ module Azu
       # returning `nil` when no Bearer header is present.
       protected def extract_bearer_token(context : HTTP::Server::Context) : String?
         header = context.request.headers["Authorization"]?
-        return nil unless header
+        return unless header
 
         stripped = header.strip
-        return nil unless stripped.size >= 6 && stripped[0, 6].compare("Bearer", case_insensitive: true) == 0
-        return nil if stripped.size > 6 && !stripped[6].ascii_whitespace?
+        return unless stripped.size >= 6 && stripped[0, 6].compare("Bearer", case_insensitive: true) == 0
+        return if stripped.size > 6 && !stripped[6].ascii_whitespace?
 
         token = stripped[6..].strip
         token.empty? ? nil : token
@@ -136,8 +136,8 @@ module Azu
 
       def authenticate(context : HTTP::Server::Context) : Principal?
         token = extract_bearer_token(context)
-        return nil unless token
-        return nil if token.bytesize > MAX_TOKEN_BYTES
+        return unless token
+        return if token.bytesize > MAX_TOKEN_BYTES
 
         if principal = match_static_token(token)
           return principal
@@ -153,7 +153,7 @@ module Azu
       end
 
       private def match_static_token(token : String) : Principal?
-        return nil if @hashed_tokens.empty?
+        return if @hashed_tokens.empty?
 
         candidate = Digest::SHA256.digest(token)
         matched : Principal? = nil
@@ -240,7 +240,7 @@ module Azu
 
       def authenticate(context : HTTP::Server::Context) : Principal?
         token = extract_bearer_token(context)
-        return nil unless token
+        return unless token
         reject!(@invalid_message, @invalid_code) if token.bytesize > MAX_TOKEN_BYTES
 
         parts = token.split('.', 4)
@@ -377,7 +377,7 @@ module Azu
 
       def authenticate(context : HTTP::Server::Context) : Principal?
         token = extract_bearer_token(context)
-        return nil unless token
+        return unless token
         reject! if token.bytesize > MAX_TOKEN_BYTES
 
         verified = begin
