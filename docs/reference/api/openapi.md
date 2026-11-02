@@ -112,8 +112,10 @@ server = app.server([*app.default_handlers, handler] of HTTP::Handler)
   declared as a path parameter. A form is read together with the path and the query string, so the form schema leaves
   path-named fields out. The keys follow the parser: `@[JSON::Field(key:)]` renames a field in the JSON body only;
   query parameters and form fields always use the variable name.
-- **Response.** If the response type includes `JSON::Serializable` the `200` response carries its schema
-  as `application/json`. A `Response::Negotiable` lists every media type it renders, with the schema under
+- **Response.** If the response type includes `JSON::Serializable` the success response carries its schema
+  as `application/json`; `Azu::Response::Json(T)` is described by `T` (when `T` is `JSON::Serializable`), since that is its body. The
+  success response is `200` unless the endpoint declares `success_status 201` (or `204`, which has no content): the endpoint still sets
+  the status itself with `status` in `call`; the declaration only tells the document. A `Response::Negotiable` lists every media type it renders, with the schema under
   `application/json` and `{"type": "string"}` under the others.
 - **Security and route metadata.** Operations carry any `summary` and `description` declared on the endpoint or route (`RouteOptions`). When `config.auth` is enabled or a route has an effective access requirement, `components.securitySchemes` includes the HTTP bearer security scheme (`config.auth.security_scheme_name`, `"bearerAuth"` by default, with optional `bearerFormat` such as `"JWT"`), protected operations emit `security: [{"bearerAuth": [...]}]`, and `public: true` routes emit `security: []`. When `config.auth.document_requirements_in_description?` is `true`, the operation description also includes a human-readable summary of required roles and scopes.
 - **Errors.** An operation with request fields adds `400` and `422`; one with a path parameter adds `404`; a protected operation adds `401` and `403`; a route with a body size limit adds `413`; a route with content-type restrictions adds `415`.

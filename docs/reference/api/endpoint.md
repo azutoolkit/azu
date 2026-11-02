@@ -424,6 +424,7 @@ Class-level macros inside an `Azu::Endpoint` body configure its `Azu::RouteOptio
 | `summary(text)` / `description(text)` | Sets the OpenAPI operation `summary` or `description` |
 | `max_body_size(bytes)` | Caps the request body size in bytes (`413 Payload Too Large` when exceeded) |
 | `content_types(*types)` | Restricts accepted request `Content-Type` values (`415 Unsupported Media Type` when violated) |
+| `success_status(code)` | Declares the success status for the OpenAPI document (`201`, `204`); set it at run time with `status` |
 
 ### Action hooks (`before_action`, `after_action`, `around_action`)
 

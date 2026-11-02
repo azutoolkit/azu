@@ -384,6 +384,12 @@ module Azu
         self.route_options = own_route_options.copy_with(content_types: types)
       end
 
+      # Declares the status this endpoint answers on success, for the OpenAPI document (`204` documents no content).
+      # The endpoint still sets it at run time with `status`; this only tells the generator.
+      def self.success_status(code : Int) : Nil
+        self.route_options = own_route_options.copy_with(success_status: code.to_i)
+      end
+
       # The `{verb, path}` pairs the verb macros declared on this type, in order. They are registered on
       # `Azu::App.default` on first use; `Router::Builder#endpoint` registers them on any other app.
       # Kept per type (keyed by its name), so a subclass never sees its siblings' routes.

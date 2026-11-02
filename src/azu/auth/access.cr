@@ -164,6 +164,7 @@ module Azu
     getter description : String?
     getter max_body_size : UInt64?
     getter content_types : Array(String)?
+    getter success_status : Int32?
 
     def initialize(
       requires : Access::Requirement? = nil,
@@ -177,6 +178,7 @@ module Azu
       @description : String? = nil,
       @max_body_size : UInt64? = nil,
       @content_types : Array(String)? = nil,
+      @success_status : Int32? = nil,
       *,
       role : Symbol | String | Nil = nil,
       roles : Enumerable? = nil,
@@ -241,6 +243,7 @@ module Azu
         description: other.description || @description,
         max_body_size: other.max_body_size || @max_body_size,
         content_types: other.content_types || @content_types,
+        success_status: other.success_status || @success_status,
       )
     end
 
@@ -276,6 +279,7 @@ module Azu
       description : String? = @description,
       max_body_size : UInt64? = @max_body_size,
       content_types : Array(String)? = @content_types,
+      success_status : Int32? = @success_status,
     ) : RouteOptions
       RouteOptions.new(
         requires: requires,
@@ -289,6 +293,7 @@ module Azu
         description: description,
         max_body_size: max_body_size,
         content_types: content_types,
+        success_status: success_status,
       )
     end
   end

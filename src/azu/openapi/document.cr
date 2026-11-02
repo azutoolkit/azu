@@ -249,7 +249,7 @@ module Azu::OpenAPI
       has_body : Bool,
       config : Configuration,
     ) : Map
-      responses = Map{"200" => success(operation)}
+      responses = Map{success_code(route) => success(operation, route.success_status)}
       if contract
         responses["400"] = problem(Problems::BAD_REQUEST)
         responses["422"] = problem(Problems::VALIDATION_FAILED)
@@ -271,8 +271,13 @@ module Azu::OpenAPI
     end
 
     # A `Negotiable` response lists every media type it renders; the JSON one carries the schema.
-    private def success(operation : Operation) : Map
-      response = Map{"description" => "Successful response"}
+    private def success_code(route : Router::Route) : String
+      (route.success_status || 200).to_s
+    end
+
+    private def success(operation : Operation, status : Int32?) : Map
+      response = Map{"description" => status == 204 ? "No content" : "Successful response"}
+      return response if status == 204
       schema = operation.response_schema
       if operation.response_types.empty?
         response["content"] = Map{"application/json" => Map{"schema" => schema}} if schema
