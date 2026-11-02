@@ -86,6 +86,20 @@ private def dispatch(router : Azu::Router, path : String) : String
 end
 
 describe Azu::Router do
+  describe "path parameters" do
+    it "reads them percent-decoded, with an encoded slash staying inside its segment" do
+      router = Azu::Router.new
+      router.get "/users/:id", ParamsHandler.new
+      router.get "/files/*rest", ParamsHandler.new
+
+      dispatch(router, "/users/a%20b").should contain %({"id" => "a b"})
+      dispatch(router, "/users/a%2Fb").should contain %({"id" => "a/b"})
+      dispatch(router, "/users/plain").should contain %({"id" => "plain"})
+      dispatch(router, "/users/100%").should contain %({"id" => "100%"})
+      dispatch(router, "/files/x%20y/z").should contain %({"rest" => "x y/z"})
+    end
+  end
+
   describe "routable targets" do
     it "dispatches to an HTTP::Handler class, a struct that is only Routable and the root" do
       router = Azu::Router.new

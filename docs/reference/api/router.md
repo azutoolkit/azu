@@ -247,6 +247,9 @@ struct DocsEndpoint
 end
 ```
 
+Parameter values are percent-decoded: `/users/a%20b` gives `params["id"] # => "a b"`, and `%2F` stays inside its
+segment (`/users/a%2Fb` gives `"a/b"`).
+
 ### Route matching
 
 The router tries static segments before parameters, and parameters before wildcards, and falls back to the next
