@@ -14,10 +14,17 @@ module Azu
   #   requires: Azu::Access.role(:operator) & Azu::Access.permissions("queues:purge")
   # ```
   module Access
-    struct Requirement
+    class Requirement
       getter roles : Array(String)
       getter all_permissions : Array(String)
       getter any_permissions : Array(String)
+      getter? mfa : Bool
+      getter amr : Array(String)
+      getter acr : String?
+      getter? social : Bool
+      getter auth_providers : Array(String)
+
+      def_equals_and_hash @roles, @all_permissions, @any_permissions, @mfa, @amr, @acr, @social, @auth_providers
 
       def initialize(
         role : String? = nil,
@@ -25,6 +32,11 @@ module Azu
         @any_permissions : Array(String) = [] of String,
         *,
         roles : Array(String)? = nil,
+        @mfa : Bool = false,
+        @amr : Array(String) = [] of String,
+        @acr : String? = nil,
+        @social : Bool = false,
+        @auth_providers : Array(String) = [] of String,
       )
         @roles = roles || (role ? [role] : [] of String)
       end
@@ -34,19 +46,34 @@ module Azu
         @roles.first?
       end
 
+      # True when this requirement mandates MFA, a specific `amr`, or a specific `acr`.
+      def mfa_requirement? : Bool
+        @mfa || !@amr.empty? || !@acr.nil?
+      end
+
       # Combines two requirements so both must hold.
       def &(other : Requirement) : Requirement
         Requirement.new(
           roles: other.roles.empty? ? @roles : other.roles,
           all_permissions: (@all_permissions + other.all_permissions).uniq,
-          any_permissions: (@any_permissions + other.any_permissions).uniq
+          any_permissions: (@any_permissions + other.any_permissions).uniq,
+          mfa: @mfa || other.mfa?,
+          amr: (@amr + other.amr).uniq,
+          acr: other.acr || @acr,
+          social: @social || other.social?,
+          auth_providers: (@auth_providers + other.auth_providers).uniq
         )
       end
 
-      # True when `principal` satisfies the role and permission rules of this requirement.
+      # True when `principal` satisfies the role, permission, social, and MFA rules of this requirement.
       # When `role_hierarchy` is non-empty (ordered from lowest to highest privilege), a principal
       # holding a role at or above a required role's index satisfies the role check.
       def satisfied_by?(principal : Auth::Principal, role_hierarchy : Array(String) = [] of String) : Bool
+        role_and_permissions_satisfied_by?(principal, role_hierarchy) && mfa_satisfied_by?(principal)
+      end
+
+      # True when `principal` satisfies the role, permission, and social provider rules of this requirement.
+      def role_and_permissions_satisfied_by?(principal : Auth::Principal, role_hierarchy : Array(String) = [] of String) : Bool
         unless @roles.empty?
           return false unless @roles.any? { |req_role| role_satisfied?(principal, req_role, role_hierarchy) }
         end
@@ -59,20 +86,64 @@ module Azu
           return false unless @any_permissions.any? { |perm| principal.has_permission?(perm) }
         end
 
+        return false unless social_satisfied?(principal)
+
+        true
+      end
+
+      # True when `principal` satisfies the MFA, `amr`, and `acr` constraints of this requirement.
+      def mfa_satisfied_by?(principal : Auth::Principal) : Bool
+        return false if @mfa && !principal.mfa_verified?
+
+        unless @amr.empty?
+          return false unless @amr.any? { |method| principal.has_amr?(method) }
+        end
+
+        if expected_acr = @acr
+          return false unless principal.acr.try(&.downcase) == expected_acr.downcase
+        end
+
         true
       end
 
       # Human-readable summary used in OpenAPI descriptions and error diagnostics.
       def summary : String
         parts = [] of String
+        append_role_summary(parts)
+        parts << "permissions #{@all_permissions.map { |perm| "`#{perm}`" }.join(", ")}" unless @all_permissions.empty?
+        parts << "any permission of #{@any_permissions.map { |perm| "`#{perm}`" }.join(", ")}" unless @any_permissions.empty?
+        append_mfa_and_social_summary(parts)
+        parts.empty? ? "authenticated" : parts.join(" and ")
+      end
+
+      private def append_role_summary(parts : Array(String)) : Nil
         if @roles.size == 1
           parts << "role `#{@roles.first}`"
         elsif @roles.size > 1
           parts << "role in #{@roles.map { |role_name| "`#{role_name}`" }.join(", ")}"
         end
-        parts << "permissions #{@all_permissions.map { |perm| "`#{perm}`" }.join(", ")}" unless @all_permissions.empty?
-        parts << "any permission of #{@any_permissions.map { |perm| "`#{perm}`" }.join(", ")}" unless @any_permissions.empty?
-        parts.empty? ? "authenticated" : parts.join(" and ")
+      end
+
+      private def append_mfa_and_social_summary(parts : Array(String)) : Nil
+        parts << "MFA" if @mfa
+        parts << "AMR in #{@amr.map { |method| "`#{method}`" }.join(", ")}" unless @amr.empty?
+        if expected_acr = @acr
+          parts << "ACR `#{expected_acr}`"
+        end
+        if !@auth_providers.empty?
+          parts << "social provider in #{@auth_providers.map { |prov| "`#{prov}`" }.join(", ")}"
+        elsif @social
+          parts << "social login"
+        end
+      end
+
+      private def social_satisfied?(principal : Auth::Principal) : Bool
+        return false if @social && !principal.social_authenticated?
+        unless @auth_providers.empty?
+          provider = principal.auth_provider.try(&.downcase)
+          return false unless provider && @auth_providers.any? { |allowed| allowed.downcase == provider }
+        end
+        true
       end
 
       private def role_satisfied?(principal : Auth::Principal, required : String, hierarchy : Array(String)) : Bool
@@ -142,6 +213,45 @@ module Azu
       any_permission(scopes)
     end
 
+    # Requires multi-factor authentication (`principal.mfa_verified?`), optionally constraining `acr`.
+    def self.mfa(*, acr : (Symbol | String)? = nil) : Requirement
+      Requirement.new(mfa: true, acr: acr.try(&.to_s))
+    end
+
+    # Requires multi-factor authentication (`principal.mfa_verified?`), optionally constraining
+    # allowed Authentication Methods References (`amr`) and/or `acr`.
+    def self.mfa(*amr : Symbol | String, acr : (Symbol | String)? = nil) : Requirement
+      Requirement.new(mfa: true, amr: amr.map(&.to_s).to_a, acr: acr.try(&.to_s))
+    end
+
+    # Requires multi-factor authentication (`principal.mfa_verified?`) with an `Enumerable` of `amr` values.
+    def self.mfa(amr : Enumerable, *, acr : (Symbol | String)? = nil) : Requirement
+      Requirement.new(mfa: true, amr: amr.map(&.to_s).to_a, acr: acr.try(&.to_s))
+    end
+
+    # Requires authentication via Authly cryptographic challenge-response (`challenge_response` / `urn:ietf:params:oauth:grant-type:challenge`).
+    def self.challenge_response : Requirement
+      Requirement.new(
+        mfa: true,
+        amr: ["challenge_response", "urn:ietf:params:oauth:grant-type:challenge"]
+      )
+    end
+
+    # Requires social sign-in authentication via any configured social OAuth/OIDC provider.
+    def self.social : Requirement
+      Requirement.new(social: true)
+    end
+
+    # Requires social sign-in authentication, constrained to one of the listed `providers` (e.g. `:google`, `:github`).
+    def self.social(*providers : Symbol | String) : Requirement
+      Requirement.new(social: true, auth_providers: providers.map(&.to_s).to_a)
+    end
+
+    # Requires social sign-in authentication constrained to an `Enumerable` of `providers`.
+    def self.social(providers : Enumerable) : Requirement
+      Requirement.new(social: true, auth_providers: providers.map(&.to_s).to_a)
+    end
+
     # Requires an authenticated principal without a specific role or permission constraint.
     def self.authenticated : Requirement
       Requirement.new
@@ -152,7 +262,7 @@ module Azu
   #
   # Options compose in three layers:
   # `scope_defaults.merge(endpoint.route_options).merge(call_site_options)`.
-  struct RouteOptions
+  class RouteOptions
     getter requires : Access::Requirement?
     getter public : Bool?
     getter enrolment_exempt : Bool?
@@ -165,6 +275,10 @@ module Azu
     getter max_body_size : UInt64?
     getter content_types : Array(String)?
     getter success_status : Int32?
+
+    def_equals_and_hash @requires, @public, @enrolment_exempt, @csrf_exempt,
+      @audit, @audit_action, @audit_critical, @summary, @description,
+      @max_body_size, @content_types, @success_status
 
     def initialize(
       requires : Access::Requirement? = nil,
@@ -186,6 +300,11 @@ module Azu
       any_permission : Enumerable? = nil,
       scopes : Enumerable? = nil,
       any_scope : Enumerable? = nil,
+      mfa : Bool? = nil,
+      amr : Enumerable? = nil,
+      acr : (Symbol | String)? = nil,
+      challenge_response : Bool? = nil,
+      social : (Bool | Symbol | String | Enumerable)? = nil,
     )
       req = combine_requirement(requires, role) { |val| Access.role(val) }
       req = combine_requirement(req, roles) { |val| Access.role(val) }
@@ -193,7 +312,54 @@ module Azu
       req = combine_requirement(req, any_permission) { |val| Access.any_permission(val) }
       req = combine_requirement(req, scopes) { |val| Access.scopes(val) }
       req = combine_requirement(req, any_scope) { |val| Access.any_scope(val) }
+      req = combine_mfa_and_social_requirements(req, mfa, amr, acr, challenge_response, social)
       @requires = (@public == true) ? nil : req
+    end
+
+    private def combine_mfa_and_social_requirements(
+      req : Access::Requirement?,
+      mfa : Bool?,
+      amr : Enumerable?,
+      acr : (Symbol | String)?,
+      challenge_response : Bool?,
+      social : (Bool | Symbol | String | Enumerable)?,
+    ) : Access::Requirement?
+      req = merge_optional_requirement(req, build_mfa_requirement(mfa, amr, acr))
+      req = merge_optional_requirement(req, challenge_response ? Access.challenge_response : nil)
+      merge_optional_requirement(req, build_social_requirement(social))
+    end
+
+    private def build_mfa_requirement(
+      mfa : Bool?,
+      amr : Enumerable?,
+      acr : (Symbol | String)?,
+    ) : Access::Requirement?
+      return nil unless mfa == true || amr || acr
+      amr_list = amr ? amr.map(&.to_s).to_a : [] of String
+      Access::Requirement.new(
+        mfa: true,
+        amr: amr_list,
+        acr: acr.try(&.to_s)
+      )
+    end
+
+    private def merge_optional_requirement(
+      existing : Access::Requirement?,
+      added : Access::Requirement?,
+    ) : Access::Requirement?
+      return existing unless added
+      existing ? (existing & added) : added
+    end
+
+    private def build_social_requirement(social : (Bool | Symbol | String | Enumerable)?) : Access::Requirement?
+      case social
+      when Bool
+        social ? Access.social : nil
+      when Symbol, String
+        Access.social(social)
+      when Enumerable
+        Access.social(social)
+      end
     end
 
     private def combine_requirement(existing : Access::Requirement?, value, &) : Access::Requirement?
@@ -366,6 +532,19 @@ module Azu
 
       # Error message emitted on `403` when an account fails the enrolment gate.
       property enrolment_error_message : String = "Account enrolment must be completed before accessing this resource"
+
+      # Optional custom MFA gate proc returning `true` when MFA is satisfied or `false` when step-up MFA is required.
+      # When `nil`, `requirement.mfa_satisfied_by?(principal)` is checked.
+      property mfa_gate : Proc(Principal, Router::Route, Bool)? = nil
+
+      # Error code emitted on `403` when a route requires MFA / challenge-response and the principal has not satisfied it.
+      property mfa_error_code : String = "mfa_required"
+
+      # Error message emitted on `403` when a route requires MFA / challenge-response and the principal has not satisfied it.
+      property mfa_error_message : String = "Multi-factor authentication is required to access this resource"
+
+      # Optional `WWW-Authenticate` challenge header emitted on `403 mfa_required` responses.
+      property mfa_www_authenticate : String = "Bearer error=\"insufficient_user_authentication\", error_description=\"Multi-factor authentication required\""
 
       # Default error code and message for `401` and `403`.
       property unauthorized_code : String = "unauthorized"

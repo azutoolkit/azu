@@ -511,7 +511,10 @@ module Azu
         provider : Bool = false,
       )
         @bearer_format ||= "JWT"
-        @oauth_provider = true if provider
+        if provider
+          @oauth_provider = true
+          configure_authly_issuance_claims!
+        end
         auth = AuthlyAuthenticator.new(verifier, realm: realm)
         self.authenticator = auth
         enable_by_convention!
@@ -527,7 +530,10 @@ module Azu
         &validator : Identity, HTTP::Server::Context -> Bool
       )
         @bearer_format ||= "JWT"
-        @oauth_provider = true if provider
+        if provider
+          @oauth_provider = true
+          configure_authly_issuance_claims!
+        end
         auth = AuthlyAuthenticator.new(verifier, realm: realm, &validator)
         self.authenticator = auth
         enable_by_convention!
@@ -548,6 +554,30 @@ module Azu
           authly(verifier, realm: realm, provider: provider)
         {% else %}
           raise ArgumentError.new("c.auth.authly without a verifier requires `require \"authly\"` (azutoolkit/authly), or pass a verifier responding to `#verify(token : String)`")
+        {% end %}
+      end
+
+      private def configure_authly_issuance_claims! : Nil
+        {% if @top_level.has_constant?("Authly") %}
+          return if Authly.config.issuance_options
+
+          Authly.config.issuance_options = ->(_client_id : String, grant_type : String) do
+            claims = {} of String => Authly::AdditionalClaim
+            case grant_type
+            when "challenge_response", "urn:ietf:params:oauth:grant-type:challenge"
+              claims["amr"] = "challenge_response"
+              claims["mfa"] = true
+            when "social", "urn:ietf:params:oauth:grant-type:social"
+              claims["amr"] = "social"
+            end
+            aud = Authly.config.token_audience || Authly.config.base_url.presence || Authly.config.issuer.presence || "authly"
+            Authly::IssuanceOptions.new(
+              audience: aud,
+              expires_at: Authly.config.access_ttl.from_now,
+              additional_claims: claims,
+              issue_refresh: Authly.config.issue_refresh_tokens? && grant_type != "client_credentials"
+            )
+          end
         {% end %}
       end
     end
