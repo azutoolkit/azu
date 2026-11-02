@@ -216,6 +216,14 @@ module EndpointDslSpecFixtures
         MockClaims.new(JSON.parse(%({"sub":"u-99","cid":"cli-1","role":"viewer","scope":"data:read data:export"})).as_h)
       when "missing-scope"
         MockClaims.new(JSON.parse(%({"sub":"u-99","cid":"cli-1","role":"viewer","scope":"other:scope"})).as_h)
+      when "social-google-factor1"
+        MockClaims.new(JSON.parse(%({"sub":"u-social-1","cid":"social:google","role":"operator","scope":"transfers:write","amr":["social"],"social_uid":"g-1001","email":"dev@example.com","email_verified":true})).as_h)
+      when "social-github-factor1"
+        MockClaims.new(JSON.parse(%({"sub":"u-social-2","cid":"social:github","role":"operator","scope":"transfers:write","amr":["social"],"social_uid":"gh-2002","email":"octo@example.com","email_verified":true})).as_h)
+      when "mfa-challenge-verified"
+        MockClaims.new(JSON.parse(%({"sub":"u-social-1","cid":"cli-1","role":"operator","scope":"transfers:write","amr":["social","challenge_response"],"acr":"aal2","mfa":true,"provider":"google","social_uid":"g-1001","kid":"key-ed25519-1"})).as_h)
+      when "viewer-mfa-verified"
+        MockClaims.new(JSON.parse(%({"sub":"u-viewer-1","cid":"cli-1","role":"viewer","scope":"data:read","amr":["challenge_response"],"acr":"aal2","mfa":true})).as_h)
       when "store-down"
         raise Azu::Auth::VerificationUnavailable.new("Redis down")
       else
@@ -228,6 +236,8 @@ module EndpointDslSpecFixtures
     include HTTP::Handler
 
     def call(context : HTTP::Server::Context)
+      body_str = context.request.body.try(&.gets_to_end) || ""
+      context.response.headers["X-OAuth-Body"] = body_str unless body_str.empty?
       context.response.print("oauth:#{context.request.method}:#{context.request.path}")
     end
   end
@@ -242,6 +252,62 @@ module EndpointDslSpecFixtures
     def call : TextOut
       cid = claims["cid"]?.try(&.as_s?) || "none"
       TextOut.new("user=#{principal!.id},client=#{cid},has_read=#{scope?("data:read")}")
+    end
+  end
+
+  struct ChallengeMfaTransferEndpoint
+    include Azu::Endpoint(Azu::Request, TextOut)
+
+    post "/transfers"
+    require_role :operator
+    require_scopes "transfers:write"
+    require_challenge_response!
+
+    def call : TextOut
+      TextOut.new(
+        "transfer:user=#{principal!.id}:mfa=#{mfa_verified?}:challenge=#{challenge_authenticated?}:kid=#{principal!.as(Azu::Auth::Identity).key_id}"
+      )
+    end
+  end
+
+  struct AcrSensitiveVaultEndpoint
+    include Azu::Endpoint(Azu::Request, TextOut)
+
+    get "/vault"
+    require_role :operator
+    require_mfa! :challenge_response, acr: "aal2"
+
+    def call : TextOut
+      TextOut.new("vault:acr=#{principal!.acr}:amr=#{principal!.amr.join("+")}")
+    end
+  end
+
+  struct SocialProfileEndpoint
+    include Azu::Endpoint(Azu::Request, TextOut)
+
+    get "/social/profile"
+    require_role :viewer
+    require_social! :google
+
+    def call : TextOut
+      ident = principal!.as(Azu::Auth::Identity)
+      TextOut.new(
+        "social:user=#{ident.id}:provider=#{auth_provider}:uid=#{ident.social_uid}:email=#{ident.email}:verified=#{ident.email_verified?}:social=#{social_authenticated?}"
+      )
+    end
+  end
+
+  struct ImperativeStepUpEndpoint
+    include Azu::Endpoint(Azu::Request, TextOut)
+
+    post "/billing/payout"
+    require_role :operator
+
+    def call : TextOut
+      if header["X-High-Value"]? == "true"
+        authorize!(challenge_response: true)
+      end
+      TextOut.new("payout:ok:mfa=#{mfa_verified?}")
     end
   end
 end
@@ -637,6 +703,239 @@ describe "Azu::Endpoint DSL, Action Hooks, and Conventions" do
       h_503["Retry-After"]?.should eq "1"
       h_503["Cache-Control"]?.should eq "no-store"
       JSON.parse(b_503)["error"]["code"].should eq "temporarily_unavailable"
+    end
+
+    it "supports Authly MFA challenge-response routes, form-urlencoded OAuth hygiene, and declarative/imperative MFA enforcement" do
+      verifier = EndpointDslSpecFixtures::MockAuthlyVerifier.new
+      oauth_handler = EndpointDslSpecFixtures::MockOAuthProviderHandler.new
+
+      app = Azu::App.new
+      app.config.api_defaults!
+      app.config.auth.authly(verifier, realm: "api")
+      app.config.auth.role_hierarchy :viewer, :operator, :admin
+
+      app.routes do
+        mount_authly oauth_handler
+        endpoint EndpointDslSpecFixtures::ChallengeMfaTransferEndpoint
+        endpoint EndpointDslSpecFixtures::AcrSensitiveVaultEndpoint
+        endpoint EndpointDslSpecFixtures::ImperativeStepUpEndpoint
+      end
+
+      # 1. POST /oauth/challenge accepts both JSON and application/x-www-form-urlencoded even under c.api_defaults!
+      s_chal_json, h_chal_json, b_chal_json = call_dsl_app(
+        app,
+        "POST",
+        "/oauth/challenge",
+        HTTP::Headers{"Content-Type" => "application/json"},
+        %({"client_id":"cli-1","subject":"u-social-1","key_id":"key-ed25519-1"})
+      )
+      s_chal_json.should eq 200
+      b_chal_json.should eq "oauth:POST:/oauth/challenge"
+      h_chal_json["X-OAuth-Body"]?.should eq %({"client_id":"cli-1","subject":"u-social-1","key_id":"key-ed25519-1"})
+
+      s_chal_form, h_chal_form, b_chal_form = call_dsl_app(
+        app,
+        "POST",
+        "/oauth/challenge",
+        HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"},
+        "client_id=cli-1&subject=u-social-1&key_id=key-ed25519-1"
+      )
+      s_chal_form.should eq 200
+      b_chal_form.should eq "oauth:POST:/oauth/challenge"
+      h_chal_form["X-OAuth-Body"]?.should eq "client_id=cli-1&subject=u-social-1&key_id=key-ed25519-1"
+
+      # 2. POST /oauth/token with grant_type=challenge_response (form-urlencoded) passes hygiene & CSRF checks
+      s_tok_cr, h_tok_cr, b_tok_cr = call_dsl_app(
+        app,
+        "POST",
+        "/oauth/token",
+        HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"},
+        "grant_type=challenge_response&client_id=cli-1&challenge_id=ch-1&signature=deadbeef"
+      )
+      s_tok_cr.should eq 200
+      b_tok_cr.should eq "oauth:POST:/oauth/token"
+      h_tok_cr["X-OAuth-Body"]?.should eq "grant_type=challenge_response&client_id=cli-1&challenge_id=ch-1&signature=deadbeef"
+
+      # 3. Declarative require_challenge_response! rejects single-factor token with 403 mfa_required + WWW-Authenticate
+      s_no_mfa, h_no_mfa, b_no_mfa = call_dsl_app(
+        app,
+        "POST",
+        "/transfers",
+        HTTP::Headers{"Authorization" => "Bearer social-google-factor1", "Content-Type" => "application/json"},
+        "{}"
+      )
+      s_no_mfa.should eq 403
+      JSON.parse(b_no_mfa)["error"]["code"].should eq "mfa_required"
+      (h_no_mfa["WWW-Authenticate"]? || "").should contain("insufficient_user_authentication")
+
+      # 4. Role failure takes precedence over MFA failure (viewer has MFA, but /transfers requires :operator)
+      s_role_fail, _, b_role_fail = call_dsl_app(
+        app,
+        "POST",
+        "/transfers",
+        HTTP::Headers{"Authorization" => "Bearer viewer-mfa-verified", "Content-Type" => "application/json"},
+        "{}"
+      )
+      s_role_fail.should eq 403
+      JSON.parse(b_role_fail)["error"]["code"].should eq "forbidden"
+
+      # 5. Challenge-response MFA token succeeds on both ChallengeMfaTransferEndpoint and AcrSensitiveVaultEndpoint
+      s_mfa_ok, _, b_mfa_ok = call_dsl_app(
+        app,
+        "POST",
+        "/transfers",
+        HTTP::Headers{"Authorization" => "Bearer mfa-challenge-verified", "Content-Type" => "application/json"},
+        "{}"
+      )
+      s_mfa_ok.should eq 200
+      b_mfa_ok.should eq "transfer:user=u-social-1:mfa=true:challenge=true:kid=key-ed25519-1"
+
+      s_vault_ok, _, b_vault_ok = call_dsl_app(
+        app,
+        "GET",
+        "/vault",
+        HTTP::Headers{"Authorization" => "Bearer mfa-challenge-verified"}
+      )
+      s_vault_ok.should eq 200
+      b_vault_ok.should eq "vault:acr=aal2:amr=social+challenge_response"
+
+      # 6. Imperative step-up MFA via authorize!(challenge_response: true)
+      s_low_val, _, b_low_val = call_dsl_app(
+        app,
+        "POST",
+        "/billing/payout",
+        HTTP::Headers{"Authorization" => "Bearer social-google-factor1", "Content-Type" => "application/json"},
+        "{}"
+      )
+      s_low_val.should eq 200
+      b_low_val.should eq "payout:ok:mfa=false"
+
+      s_high_no_mfa, h_high_no_mfa, b_high_no_mfa = call_dsl_app(
+        app,
+        "POST",
+        "/billing/payout",
+        HTTP::Headers{"Authorization" => "Bearer social-google-factor1", "Content-Type" => "application/json", "X-High-Value" => "true"},
+        "{}"
+      )
+      s_high_no_mfa.should eq 403
+      JSON.parse(b_high_no_mfa)["error"]["code"].should eq "mfa_required"
+      (h_high_no_mfa["WWW-Authenticate"]? || "").should contain("insufficient_user_authentication")
+
+      s_high_mfa, _, b_high_mfa = call_dsl_app(
+        app,
+        "POST",
+        "/billing/payout",
+        HTTP::Headers{"Authorization" => "Bearer mfa-challenge-verified", "Content-Type" => "application/json", "X-High-Value" => "true"},
+        "{}"
+      )
+      s_high_mfa.should eq 200
+      b_high_mfa.should eq "payout:ok:mfa=true"
+    end
+
+    it "supports Authly Social Login routes (GET/POST callback, grant_type=social), scoped mount_authly prefix stripping, and social identity claims" do
+      verifier = EndpointDslSpecFixtures::MockAuthlyVerifier.new
+      oauth_handler = EndpointDslSpecFixtures::MockOAuthProviderHandler.new
+
+      app = Azu::App.new
+      app.config.api_defaults!
+      app.config.csrf_guard.enabled = true
+      app.config.auth.authly(verifier, realm: "api")
+      app.config.auth.role_hierarchy :viewer, :operator, :admin
+
+      app.routes do
+        mount_authly oauth_handler
+        scope "/auth" do
+          mount_authly oauth_handler
+        end
+        endpoint EndpointDslSpecFixtures::SocialProfileEndpoint
+      end
+
+      # 1. GET /oauth/social/:provider initiates redirect flow
+      s_soc_init, _, b_soc_init = call_dsl_app(app, "GET", "/oauth/social/google")
+      s_soc_init.should eq 200
+      b_soc_init.should eq "oauth:GET:/oauth/social/google"
+
+      # 2. GET /oauth/social/:provider/callback and cross-origin POST /oauth/social/:provider/callback (Apple form_post)
+      #    work even when CSRF guard and strict JSON hygiene are enabled
+      s_soc_cb_get, _, b_soc_cb_get = call_dsl_app(app, "GET", "/oauth/social/google/callback?code=abc&state=xyz")
+      s_soc_cb_get.should eq 200
+      b_soc_cb_get.should eq "oauth:GET:/oauth/social/google/callback"
+
+      s_soc_cb_post, h_soc_cb_post, b_soc_cb_post = call_dsl_app(
+        app,
+        "POST",
+        "/oauth/social/apple/callback",
+        HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded", "Origin" => "https://appleid.apple.com"},
+        "code=apple-code&state=apple-state"
+      )
+      s_soc_cb_post.should eq 200
+      b_soc_cb_post.should eq "oauth:POST:/oauth/social/apple/callback"
+      h_soc_cb_post["X-OAuth-Body"]?.should eq "code=apple-code&state=apple-state"
+
+      # 3. POST /oauth/token with grant_type=social exchanges social assertion for Authly token
+      s_soc_tok, h_soc_tok, b_soc_tok = call_dsl_app(
+        app,
+        "POST",
+        "/oauth/token",
+        HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"},
+        "grant_type=social&provider=google&subject=g-1001&code_verifier=pkce-verifier"
+      )
+      s_soc_tok.should eq 200
+      b_soc_tok.should eq "oauth:POST:/oauth/token"
+      h_soc_tok["X-OAuth-Body"]?.should eq "grant_type=social&provider=google&subject=g-1001&code_verifier=pkce-verifier"
+
+      # 4. Scoped mount_authly (`scope "/auth" { mount_authly }`) strips "/auth" prefix for Authly::Handler
+      s_scoped_chal, h_scoped_chal, b_scoped_chal = call_dsl_app(
+        app,
+        "POST",
+        "/auth/oauth/challenge",
+        HTTP::Headers{"Content-Type" => "application/json"},
+        %({"client_id":"cli-1"})
+      )
+      s_scoped_chal.should eq 200
+      b_scoped_chal.should eq "oauth:POST:/oauth/challenge"
+      h_scoped_chal["X-OAuth-Body"]?.should eq %({"client_id":"cli-1"})
+
+      s_scoped_soc, _, b_scoped_soc = call_dsl_app(app, "GET", "/auth/oauth/social/github")
+      s_scoped_soc.should eq 200
+      b_scoped_soc.should eq "oauth:GET:/oauth/social/github"
+
+      # 5. SocialProfileEndpoint (`require_social! :google`) extracts social claims and enforces provider constraint
+      s_google, _, b_google = call_dsl_app(
+        app,
+        "GET",
+        "/social/profile",
+        HTTP::Headers{"Authorization" => "Bearer social-google-factor1"}
+      )
+      s_google.should eq 200
+      b_google.should eq "social:user=u-social-1:provider=google:uid=g-1001:email=dev@example.com:verified=true:social=true"
+
+      # GitHub social token is rejected on a `:google`-restricted endpoint with 403 forbidden
+      s_github, _, b_github = call_dsl_app(
+        app,
+        "GET",
+        "/social/profile",
+        HTTP::Headers{"Authorization" => "Bearer social-github-factor1"}
+      )
+      s_github.should eq 403
+      JSON.parse(b_github)["error"]["code"].should eq "forbidden"
+
+      # 6. OpenAPI generation includes x-required-mfa, x-required-amr, x-required-acr, and x-required-social-providers
+      app.router.endpoint EndpointDslSpecFixtures::ChallengeMfaTransferEndpoint
+      app.router.endpoint EndpointDslSpecFixtures::AcrSensitiveVaultEndpoint
+      openapi = JSON.parse(Azu::OpenAPI.document(app, Azu::OpenAPI::Info.new(title: "Test", version: "1.0")).to_json)
+      paths = openapi["paths"]
+      transfer_op = paths["/transfers"]["post"]
+      transfer_op["x-required-mfa"].as_bool.should be_true
+      transfer_op["x-required-amr"].as_a.map(&.as_s).should eq ["challenge_response", "urn:ietf:params:oauth:grant-type:challenge"]
+
+      vault_op = paths["/vault"]["get"]
+      vault_op["x-required-mfa"].as_bool.should be_true
+      vault_op["x-required-acr"].as_s.should eq "aal2"
+
+      social_op = paths["/social/profile"]["get"]
+      social_op["x-required-social"].as_bool.should be_true
+      social_op["x-required-social-providers"].as_a.map(&.as_s).should eq ["google"]
     end
   end
 end

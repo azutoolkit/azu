@@ -106,11 +106,9 @@ module Azu
         HeadOutput.wrap(context) if @app.config.router.head_wrapping?
         tracked = @app.track do
           Azu.with_scope(@app, @app.config) do
-            begin
-              call_next(context)
-            ensure
-              @app.config.report_unmatched_and_response_for(context)
-            end
+            call_next(context)
+          ensure
+            @app.config.report_unmatched_and_response_for(context)
           end
         end
         return if tracked
