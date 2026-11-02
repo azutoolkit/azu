@@ -38,6 +38,11 @@ module Azu::Response
     def initialize(@value : T)
     end
 
+    # What the body is, for the OpenAPI document: the wrapped type (it has a schema when it is `JSON::Serializable`).
+    def self.openapi_type : T.class
+      T
+    end
+
     # Compatibility for callers that explicitly need a String (allocates the body).
     def render : String
       @value.to_json

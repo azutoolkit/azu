@@ -289,7 +289,7 @@ module Azu
       getter? auto_head : Bool
 
       delegate requires, public?, enrolment_exempt?, csrf_exempt?, audit, audit_action,
-        audit_critical?, summary, description, max_body_size, content_types, to: @options
+        audit_critical?, summary, description, max_body_size, content_types, success_status, to: @options
 
       def initialize(
         endpoint : T,
@@ -347,7 +347,7 @@ module Azu
       getter options : RouteOptions
 
       delegate public?, requires, enrolment_exempt?, csrf_exempt?, audit_action,
-        audit_critical?, summary, description, max_body_size, content_types, to: @options
+        audit_critical?, summary, description, max_body_size, content_types, success_status, to: @options
 
       def initialize(
         @method : Azu::Method,

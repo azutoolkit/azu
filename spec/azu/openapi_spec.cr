@@ -395,6 +395,38 @@ private def document : JSON::Any
   JSON.parse(Azu::OpenAPI.document(OpenAPISpec.app, OpenAPISpec.info, OpenAPISpec.servers).to_json)
 end
 
+module OpenAPISpec
+  struct WrappedEndpoint
+    include Azu::Endpoint(Azu::Request, Azu::Response::Json(UserView))
+
+    def call : Azu::Response::Json(UserView)
+      Azu::Response::Json.new(UserView.new)
+    end
+  end
+
+  struct MadeEndpoint
+    include Azu::Endpoint(Azu::Request, Azu::Response::Json(UserView))
+
+    success_status 201
+
+    def call : Azu::Response::Json(UserView)
+      status 201
+      Azu::Response::Json.new(UserView.new)
+    end
+  end
+
+  struct GoneEndpoint
+    include Azu::Endpoint(Azu::Request, Azu::Response::Empty)
+
+    success_status 204
+
+    def call : Azu::Response::Empty
+      status 204
+      Azu::Response::Empty.new
+    end
+  end
+end
+
 describe OpenAPIValidator do
   it "finds what a broken document gets wrong" do
     broken = JSON.parse(<<-JSON)
@@ -452,6 +484,25 @@ describe Azu::OpenAPI do
 
     it "gives a response that is not JSON::Serializable no body schema" do
       document["paths"]["/api/users/{id}"]["delete"]["responses"]["200"].as_h.has_key?("content").should be_false
+    end
+
+    it "describes a Response::Json by the type it wraps, and documents a declared success status" do
+      app = Azu::App.new
+      app.routes do
+        get "/wrapped", OpenAPISpec::WrappedEndpoint
+        post "/made", OpenAPISpec::MadeEndpoint
+        delete "/gone", OpenAPISpec::GoneEndpoint
+      end
+      parsed = JSON.parse(Azu::OpenAPI.document(app, OpenAPISpec.info).to_json)
+      ok = parsed["paths"]["/wrapped"]["get"]["responses"]["200"]
+      ok["content"]["application/json"]["schema"]["$ref"].as_s.should end_with "UserView"
+      made = parsed["paths"]["/made"]["post"]["responses"]
+      made.as_h.has_key?("200").should be_false
+      made["201"]["content"]["application/json"]["schema"]["$ref"].as_s.should end_with "UserView"
+      gone = parsed["paths"]["/gone"]["delete"]["responses"]["204"]
+      gone.as_h.has_key?("content").should be_false
+      parsed["paths"]["/gone"]["delete"]["responses"].as_h.has_key?("200").should be_false
+      OpenAPIValidator.problems(parsed).should be_empty
     end
 
     it "prefixes mounted apps below every mount above them" do
