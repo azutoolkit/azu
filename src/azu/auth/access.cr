@@ -334,7 +334,7 @@ module Azu
       amr : Enumerable?,
       acr : (Symbol | String)?,
     ) : Access::Requirement?
-      return nil unless mfa == true || amr || acr
+      return unless mfa == true || amr || acr
       amr_list = amr ? amr.map(&.to_s).to_a : [] of String
       Access::Requirement.new(
         mfa: true,

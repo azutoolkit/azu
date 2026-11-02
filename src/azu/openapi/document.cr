@@ -170,6 +170,11 @@ module Azu::OpenAPI
         requirement.any_permissions.each { |perm| scopes << perm }
         object["x-required-any-permissions"] = requirement.any_permissions.map(&.as(Value))
       end
+      object["x-required-mfa"] = true if requirement.mfa?
+      object["x-required-amr"] = requirement.amr.map(&.as(Value)) unless requirement.amr.empty?
+      requirement.acr.try { |acr| object["x-required-acr"] = acr }
+      object["x-required-social"] = true if requirement.social?
+      object["x-required-social-providers"] = requirement.auth_providers.map(&.as(Value)) unless requirement.auth_providers.empty?
       return unless config.auth.document_requirements_in_description?
 
       note = "Requires #{requirement.summary}."
