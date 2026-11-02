@@ -58,8 +58,16 @@ module Azu
       property title : String = "Internal Server Error"
       property detail : String = "Internal Server Error"
       property code : String = "internal_server_error"
-      property details : JSON::Any? = nil
+      @custom_details : JSON::Any? = nil
       property headers : HTTP::Headers = HTTP::Headers.new
+
+      def details : JSON::Any?
+        @custom_details
+      end
+
+      def details=(@custom_details : JSON::Any?)
+      end
+
       property source : String = ""
       property errors : Array(String) = [] of String
       property context : ErrorContext?
@@ -125,15 +133,17 @@ module Azu
         @report if env.development?
       end
 
-      def initialize(@detail = "", @source = "", @errors = Array(String).new, @context = nil, *, code : String? = nil, @details : JSON::Any? = nil)
+      def initialize(@detail = "", @source = "", @errors = Array(String).new, @context = nil, *, code : String? = nil, details : JSON::Any? = nil)
         @code = code || Error.default_code(@status)
+        @custom_details = details
         @fingerprint = generate_fingerprint
       end
 
-      def initialize(@title, @status, @errors = [] of String, @context = nil, cause : Exception? = nil, *, code : String? = nil, @details : JSON::Any? = nil, detail : String? = nil, @source : String = "")
+      def initialize(@title, @status, @errors = [] of String, @context = nil, cause : Exception? = nil, *, code : String? = nil, details : JSON::Any? = nil, detail : String? = nil, @source : String = "")
         super(@title, cause)
         @detail = detail || @title
         @code = code || Error.default_code(@status)
+        @custom_details = details
         @fingerprint = generate_fingerprint
       end
 
@@ -260,7 +270,7 @@ module Azu
       end
 
       protected def envelope_details(mode : ValidationErrorMode) : JSON::Any?
-        details
+        @custom_details
       end
 
       private def resolve_request_id(http_context : HTTP::Server::Context?) : String?
@@ -344,7 +354,7 @@ module Azu
 
         if custom = config.error_renderer
           custom.call(context, self)
-          return nil
+          return
         end
 
         content = negotiate_error_content(context, config) || fallback_error_content(context, config)
@@ -352,7 +362,7 @@ module Azu
       end
 
       private def negotiate_error_content(context : HTTP::Server::Context, config : Configuration) : String?
-        accept_type = context.request.accept.try(&.first?) || return nil
+        accept_type = context.request.accept.try(&.first?) || return
         sub_type = accept_type.sub_type || return plain_error_content(context)
 
         case sub_type
@@ -514,7 +524,7 @@ module Azu
       end
 
       protected def envelope_details(mode : ValidationErrorMode) : JSON::Any?
-        return details if @field_errors.empty?
+        return @custom_details if @field_errors.empty?
 
         if mode.first_message_only?
           first_map = Hash(String, JSON::Any).new

@@ -34,11 +34,11 @@ module Azu
       # returning `nil` when no Bearer header is present.
       protected def extract_bearer_token(context : HTTP::Server::Context) : String?
         header = context.request.headers["Authorization"]?
-        return nil unless header
+        return unless header
 
         stripped = header.strip
-        return nil unless stripped.size >= 6 && stripped[0, 6].compare("Bearer", case_insensitive: true) == 0
-        return nil if stripped.size > 6 && !stripped[6].ascii_whitespace?
+        return unless stripped.size >= 6 && stripped[0, 6].compare("Bearer", case_insensitive: true) == 0
+        return if stripped.size > 6 && !stripped[6].ascii_whitespace?
 
         token = stripped[6..].strip
         token.empty? ? nil : token
@@ -136,8 +136,8 @@ module Azu
 
       def authenticate(context : HTTP::Server::Context) : Principal?
         token = extract_bearer_token(context)
-        return nil unless token
-        return nil if token.bytesize > MAX_TOKEN_BYTES
+        return unless token
+        return if token.bytesize > MAX_TOKEN_BYTES
 
         if principal = match_static_token(token)
           return principal
@@ -153,7 +153,7 @@ module Azu
       end
 
       private def match_static_token(token : String) : Principal?
-        return nil if @hashed_tokens.empty?
+        return if @hashed_tokens.empty?
 
         candidate = Digest::SHA256.digest(token)
         matched : Principal? = nil
@@ -240,7 +240,7 @@ module Azu
 
       def authenticate(context : HTTP::Server::Context) : Principal?
         token = extract_bearer_token(context)
-        return nil unless token
+        return unless token
         reject!(@invalid_message, @invalid_code) if token.bytesize > MAX_TOKEN_BYTES
 
         parts = token.split('.', 4)
@@ -377,7 +377,7 @@ module Azu
 
       def authenticate(context : HTTP::Server::Context) : Principal?
         token = extract_bearer_token(context)
-        return nil unless token
+        return unless token
         reject! if token.bytesize > MAX_TOKEN_BYTES
 
         verified = begin
@@ -511,7 +511,10 @@ module Azu
         provider : Bool = false,
       )
         @bearer_format ||= "JWT"
-        @oauth_provider = true if provider
+        if provider
+          @oauth_provider = true
+          configure_authly_issuance_claims!
+        end
         auth = AuthlyAuthenticator.new(verifier, realm: realm)
         self.authenticator = auth
         enable_by_convention!
@@ -527,7 +530,10 @@ module Azu
         &validator : Identity, HTTP::Server::Context -> Bool
       )
         @bearer_format ||= "JWT"
-        @oauth_provider = true if provider
+        if provider
+          @oauth_provider = true
+          configure_authly_issuance_claims!
+        end
         auth = AuthlyAuthenticator.new(verifier, realm: realm, &validator)
         self.authenticator = auth
         enable_by_convention!
@@ -548,6 +554,30 @@ module Azu
           authly(verifier, realm: realm, provider: provider)
         {% else %}
           raise ArgumentError.new("c.auth.authly without a verifier requires `require \"authly\"` (azutoolkit/authly), or pass a verifier responding to `#verify(token : String)`")
+        {% end %}
+      end
+
+      private def configure_authly_issuance_claims! : Nil
+        {% if @top_level.has_constant?("Authly") %}
+          return if Authly.config.issuance_options
+
+          Authly.config.issuance_options = ->(_client_id : String, grant_type : String) do
+            claims = {} of String => Authly::AdditionalClaim
+            case grant_type
+            when "challenge_response", "urn:ietf:params:oauth:grant-type:challenge"
+              claims["amr"] = "challenge_response"
+              claims["mfa"] = true
+            when "social", "urn:ietf:params:oauth:grant-type:social"
+              claims["amr"] = "social"
+            end
+            aud = Authly.config.token_audience || Authly.config.base_url.presence || Authly.config.issuer.presence || "authly"
+            Authly::IssuanceOptions.new(
+              audience: aud,
+              expires_at: Authly.config.access_ttl.from_now,
+              additional_claims: claims,
+              issue_refresh: Authly.config.issue_refresh_tokens? && grant_type != "client_credentials"
+            )
+          end
         {% end %}
       end
     end

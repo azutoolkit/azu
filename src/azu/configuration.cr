@@ -374,11 +374,9 @@ module Azu
     # :nodoc:
     def emit_audit(event : Instrumentation::AuditEvent) : Nil
       @audit_callbacks.each do |callback|
-        begin
-          callback.call(event)
-        rescue ex
-          Log.for("azu.audit").debug(exception: ex) { "Audit callback failed" }
-        end
+        callback.call(event)
+      rescue ex
+        Log.for("azu.audit").debug(exception: ex) { "Audit callback failed" }
       end
     end
 

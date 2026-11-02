@@ -44,18 +44,30 @@ module Azu
 
       getter handler : HTTP::Handler
       getter name : String
+      getter prefix : String
 
-      def initialize(@handler : HTTP::Handler, @name : String = @handler.class.name)
+      def initialize(@handler : HTTP::Handler, @name : String = @handler.class.name, @prefix : String = "")
       end
 
       def call(context : HTTP::Server::Context)
-        @handler.call(context)
+        if @prefix.empty?
+          @handler.call(context)
+        else
+          request = context.request
+          original = request.path
+          request.path = original.lchop(@prefix).presence || "/"
+          begin
+            @handler.call(context)
+          ensure
+            request.path = original
+          end
+        end
       end
     end
 
     # Heap-allocated box around a routable target so `Route` never stores a mixed struct+class `Routable` union field.
     abstract class Target
-      abstract def call(context : HTTP::Server::Context)
+      abstract def call(context : HTTP::Server::Context) : Nil
       abstract def endpoint_class_name : String
       abstract def handler_name : String
       abstract def openapi_operation : OpenAPI::Operation?
@@ -284,15 +296,18 @@ module Azu
     end
 
     # What a route points at is boxed in `Target` so a struct endpoint never lives in a `Routable` module field.
-    struct Route
+    class Route
       getter target : Target
       getter resource : String
+      getter path : String
       getter method : Azu::Method
       getter options : RouteOptions
       getter? auto_head : Bool
 
+      def_equals_and_hash @target, @resource, @path, @method, @options, @auto_head
+
       delegate requires, public?, enrolment_exempt?, csrf_exempt?, audit, audit_action,
-        audit_critical?, summary, description, max_body_size, content_types, to: @options
+        audit_critical?, summary, description, max_body_size, content_types, success_status, to: @options
 
       def initialize(
         endpoint : T,
@@ -305,6 +320,8 @@ module Azu
         **opts,
       ) forall T
         @target = Target.wrap(endpoint)
+        stripped = @method.web_socket? ? @resource.lchop("/ws") : @resource.lchop("/#{@method.to_s.downcase}")
+        @path = stripped.empty? ? "/" : stripped
         call_opts = options || RouteOptions.new(**opts)
         ep_opts = @target.route_options
         @options = if scope = scope_options
@@ -319,15 +336,9 @@ module Azu
         @target.unwrap
       end
 
-      # The path the route was declared with, without the method prefix of `resource`.
-      def path : String
-        path = method.web_socket? ? resource.lchop("/ws") : resource.lchop("/#{method.to_s.downcase}")
-        path.empty? ? "/" : path
-      end
-
       # Alias for `path` (e.g. `"/queues/:name"`).
       def pattern : String
-        path
+        @path
       end
 
       def mount? : Bool
@@ -337,7 +348,7 @@ module Azu
       # Effective access requirement for this route: `nil` when `public?`, else the route's own
       # `requires` (which includes any enclosing `scope` or endpoint requirement), else the verb default in `auth`.
       def effective_requirement(auth : Auth::Configuration) : Access::Requirement?
-        return nil if public?
+        return if public?
         requires || auth.default_access_for(@method)
       end
     end
@@ -350,7 +361,7 @@ module Azu
       getter options : RouteOptions
 
       delegate public?, requires, enrolment_exempt?, csrf_exempt?, audit_action,
-        audit_critical?, summary, description, max_body_size, content_types, to: @options
+        audit_critical?, summary, description, max_body_size, content_types, success_status, to: @options
 
       def initialize(
         @method : Azu::Method,
@@ -517,19 +528,25 @@ module Azu
     ) : Nil
       return if @authly_mounted && prefix.empty?
       resolved = handler || default_authly_handler
-      target = Target.wrap(HandlerAdapter.new(resolved, resolved.class.name))
       base = prefix.rstrip('/')
+      target = Target.wrap(HandlerAdapter.new(resolved, resolved.class.name, base))
 
-      browser_opts = RouteOptions.new(public: true)
-      api_opts = RouteOptions.new(public: true, csrf_exempt: true)
+      oauth_content_types = ["application/x-www-form-urlencoded", "application/json"]
+      browser_opts = RouteOptions.new(public: true, content_types: oauth_content_types)
+      api_opts = RouteOptions.new(public: true, csrf_exempt: true, content_types: oauth_content_types)
 
       ["/oauth/authorize", "/device"].each do |route_path|
         get "#{base}#{route_path}", target, browser_opts, scope_options: scope_options
         post "#{base}#{route_path}", target, browser_opts, scope_options: scope_options
       end
 
+      get "#{base}/oauth/social/:provider", target, browser_opts, scope_options: scope_options
+      get "#{base}/oauth/social/:provider/callback", target, api_opts, scope_options: scope_options
+      post "#{base}/oauth/social/:provider/callback", target, api_opts, scope_options: scope_options
+
       [
         "/oauth/token",
+        "/oauth/challenge",
         "/oauth/par",
         "/oauth/device/code",
         "/oauth/introspect",
@@ -633,11 +650,10 @@ module Azu
         return ""
       end
 
-      pattern = mount_prefix + route.path
+      prefix = mount_prefix
+      pattern = prefix.empty? ? route.path : prefix + route.path
       context.route_pattern = pattern
       context.matched_route = route
-      RequestContext.current?.try(&.route_pattern = pattern)
-      context.request.headers["X-Azu-Endpoint"] = route.target.endpoint_class_name
 
       dispatch_matched(context, route)
     end
@@ -656,7 +672,6 @@ module Azu
           if other_route = matched_other
             pattern = mount_prefix + other_route.path
             context.route_pattern = pattern
-            RequestContext.current?.try(&.route_pattern = pattern)
           end
           if @method_not_allowed
             res = answer_method_not_allowed(context, allowed)
@@ -681,6 +696,10 @@ module Azu
         return ""
       end
 
+      dispatch_matched_with_hooks(context, route)
+    end
+
+    private def dispatch_matched_with_hooks(context : HTTP::Server::Context, route : Route)
       caught_error : Response::Error? = nil
       halted = false
       begin
@@ -692,9 +711,7 @@ module Azu
           end
         end
         unless halted
-          run_around_hooks(context, route, 0) do
-            route.target.call(context)
-          end
+          run_around_hooks(context, route, 0)
         end
       rescue ex : Response::Error
         caught_error = ex
@@ -727,20 +744,20 @@ module Azu
       cfg.report_response_for(context)
     end
 
-    private def run_around_hooks(context : HTTP::Server::Context, route : Route, index : Int32, &block : -> Nil) : Nil
+    private def run_around_hooks(context : HTTP::Server::Context, route : Route, index : Int32) : Nil
       if index < @around_hooks.size
         hook = @around_hooks[index]
         hook.around(context, route) do
-          run_around_hooks(context, route, index + 1, &block)
+          run_around_hooks(context, route, index + 1)
         end
       else
-        block.call
+        route.target.call(context)
       end
     end
 
     private def find_in_tree(method : Azu::Method, path : String) : Tree::Match(Route)?
       found = @tree.find(method, path)
-      return nil if found && found.payload.auto_head? && !@head_wrapping
+      return if found && found.payload.auto_head? && !@head_wrapping
       found
     end
 
@@ -806,7 +823,7 @@ module Azu
       context.response.headers["Allow"] = allowed.join(", ")
       if responder = @method_not_allowed_responder
         responder.call(context, allowed)
-        return nil
+        return
       end
       ex = Response::MethodNotAllowed.new(context.request.method, context.request.path, allowed)
       context.azu_last_error = ex
@@ -818,7 +835,7 @@ module Azu
       if responder = @not_found
         context.response.status = :not_found
         responder.call(context)
-        return nil
+        return
       end
       ex = not_found(context)
       context.azu_last_error = ex
@@ -985,20 +1002,23 @@ module Azu
 
     # Returns the low-cardinality route table for metrics labels, OpenAPI inspection, and boot checks.
     def route_table(include_mounts : Bool = true) : Array(RouteEntry)
-      leaf_routes(include_mounts).map do |(pattern, route, _owner)|
-        RouteEntry.new(
+      entries = [] of RouteEntry
+      leaf_routes(include_mounts).each do |(pattern, route, _owner)|
+        entries << RouteEntry.new(
           method: route.method,
           pattern: pattern,
           handler: route.target.handler_name,
           options: route.options
         )
       end
+      entries
     end
 
     # Get route information for development tools
     # Build array of routes from the routes registry
     def route_info : Array(Hash(String, String))
-      @routes_registry.map do |route|
+      info = [] of Hash(String, String)
+      @routes_registry.each do |route|
         # Extract original path from resource by removing method prefix
         original_path = case route.method
                         when .web_socket?
@@ -1009,7 +1029,7 @@ module Azu
 
         handler_name = route.target.handler_name
 
-        {
+        info << {
           "method"      => route.method.to_s.upcase,
           "path"        => original_path.empty? ? "/" : original_path,
           "resource"    => route.resource,
@@ -1017,6 +1037,7 @@ module Azu
           "description" => route.summary || "#{route.method.to_s.upcase} route handler",
         }
       end
+      info
     end
   end
 end

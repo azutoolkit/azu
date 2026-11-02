@@ -150,29 +150,36 @@ module Azu::OpenAPI
       scheme = config.auth.security_scheme_name
       scopes = [] of Value
 
-      if requirement = req
-        if role = requirement.role
-          scopes << "role:#{role}"
-          object["x-required-role"] = role
-        end
-        unless requirement.all_permissions.empty?
-          requirement.all_permissions.each { |perm| scopes << perm }
-          object["x-required-permissions"] = requirement.all_permissions.map(&.as(Value))
-        end
-        unless requirement.any_permissions.empty?
-          requirement.any_permissions.each { |perm| scopes << perm }
-          object["x-required-any-permissions"] = requirement.any_permissions.map(&.as(Value))
-        end
-        if config.auth.document_requirements_in_description?
-          note = "Requires #{requirement.summary}."
-          existing = object["description"]?.try(&.as?(String))
-          object["description"] = existing ? "#{existing} #{note}" : note
-        end
-      end
+      apply_requirement_metadata!(object, scopes, req, config) if req
 
       object["x-enrolment-exempt"] = true if route.enrolment_exempt?
       object["security"] = [Map{scheme => scopes}.as(Value)] of Value
       true
+    end
+
+    private def apply_requirement_metadata!(object : Map, scopes : Array(Value), requirement : Access::Requirement, config : Configuration) : Nil
+      if role = requirement.role
+        scopes << "role:#{role}"
+        object["x-required-role"] = role
+      end
+      unless requirement.all_permissions.empty?
+        requirement.all_permissions.each { |perm| scopes << perm }
+        object["x-required-permissions"] = requirement.all_permissions.map(&.as(Value))
+      end
+      unless requirement.any_permissions.empty?
+        requirement.any_permissions.each { |perm| scopes << perm }
+        object["x-required-any-permissions"] = requirement.any_permissions.map(&.as(Value))
+      end
+      object["x-required-mfa"] = true if requirement.mfa?
+      object["x-required-amr"] = requirement.amr.map(&.as(Value)) unless requirement.amr.empty?
+      requirement.acr.try { |acr| object["x-required-acr"] = acr }
+      object["x-required-social"] = true if requirement.social?
+      object["x-required-social-providers"] = requirement.auth_providers.map(&.as(Value)) unless requirement.auth_providers.empty?
+      return unless config.auth.document_requirements_in_description?
+
+      note = "Requires #{requirement.summary}."
+      existing = object["description"]?.try(&.as?(String))
+      object["description"] = existing ? "#{existing} #{note}" : note
     end
 
     # Query parameters for a method without a body. For the others Azu reads a JSON body, or a form
@@ -249,7 +256,7 @@ module Azu::OpenAPI
       has_body : Bool,
       config : Configuration,
     ) : Map
-      responses = Map{"200" => success(operation)}
+      responses = Map{success_code(route) => success(operation, route.success_status)}
       if contract
         responses["400"] = problem(Problems::BAD_REQUEST)
         responses["422"] = problem(Problems::VALIDATION_FAILED)
@@ -271,8 +278,13 @@ module Azu::OpenAPI
     end
 
     # A `Negotiable` response lists every media type it renders; the JSON one carries the schema.
-    private def success(operation : Operation) : Map
-      response = Map{"description" => "Successful response"}
+    private def success_code(route : Router::Route) : String
+      (route.success_status || 200).to_s
+    end
+
+    private def success(operation : Operation, status : Int32?) : Map
+      response = Map{"description" => status == 204 ? "No content" : "Successful response"}
+      return response if status == 204
       schema = operation.response_schema
       if operation.response_types.empty?
         response["content"] = Map{"application/json" => Map{"schema" => schema}} if schema
