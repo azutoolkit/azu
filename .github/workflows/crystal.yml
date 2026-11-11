@@ -1,27 +1,79 @@
 name: Crystal CI
 
+# Pushes to master, by hand, and weekly (the Crystal `latest` leg floats, so a week with no push can still break).
+# Which jobs run follows the git diff of the push (see the `changes` job): a push that only touches documentation runs
+# the documentation checks and nothing else, and releases nothing.
 on:
   push:
     branches: [master]
-  pull_request:
-    branches: [master]
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-# One queue per branch: runs on master never wait behind, or get cancelled by, pull request runs, and
+# One queue per branch: runs on master never wait behind, or get cancelled by, other runs, and
 # the newest push to master always runs (the release job leaves a push it is behind to that run).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  # What the push changed. A path is code unless it is known to be documentation or ignorable, so a path nobody
+  # classified runs the tests, and a change to a workflow runs everything. A schedule, a manual run, a new or
+  # force-pushed ref and an API error run everything too.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+      docs: ${{ steps.classify.outputs.docs }}
+      spark: ${{ steps.classify.outputs.spark }}
+    steps:
+      - id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          code=false; docs=false; spark=false; files=""
+          if [ "$EVENT" = push ] && [ -n "${BEFORE//0/}" ]; then
+            files=$(gh api --paginate "repos/$REPO/compare/$BEFORE...$SHA" --jq '.files[].filename') || files=""
+          fi
+          if [ -z "$files" ]; then
+            code=true; docs=true; spark=true
+          else
+            while IFS= read -r f; do
+              case "$f" in
+                .github/workflows/*) code=true; docs=true; spark=true ;;
+                docs/*|README.md|scripts/check_doc*|scripts/mermaid/*) docs=true ;;
+                js/*) spark=true ;;
+                src/azu/spark/client/*) spark=true; code=true ;;
+                .claude/*|.github/ISSUE_TEMPLATE/*|.github/*.md|LICENSE) ;;
+                */*) code=true ;;
+                *.md) ;;
+                *) code=true ;;
+              esac
+            done <<< "$files"
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "docs=$docs" >> "$GITHUB_OUTPUT"
+          echo "spark=$spark" >> "$GITHUB_OUTPUT"
+          echo "code=$code docs=$docs spark=$spark"
+
   spark-client:
+    needs: changes
+    if: needs.changes.outputs.spark == 'true'
     uses: ./.github/workflows/spark-client.yml
 
   test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     container:
       image: crystallang/crystal:1.22.1
     services:
@@ -64,27 +116,9 @@ jobs:
         uses: actions/cache@v6
         with:
           path: lib
-          key: ${{ runner.os }}-shards-${{ hashFiles('shard.yml', 'playground/shard.yml') }}
+          key: ${{ runner.os }}-shards-${{ hashFiles('shard.yml', 'shard.lock', 'playground/shard.yml') }}
           restore-keys: |
             ${{ runner.os }}-shards-
-
-      - name: Cache Crystal build artifacts
-        uses: actions/cache@v6
-        with:
-          path: |
-            bin/
-            .crystal/
-          key: ${{ runner.os }}-crystal-build-${{ hashFiles('**/*.cr', '**/shard.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-crystal-build-
-
-      - name: Cache test results
-        uses: actions/cache@v6
-        with:
-          path: .crystal/
-          key: ${{ runner.os }}-test-cache-${{ hashFiles('**/*.cr', '**/shard.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-test-cache-
 
       - name: Install system dependencies
         run: apt-get update && apt-get install -y libsqlite3-dev
@@ -122,20 +156,26 @@ jobs:
           crystal build --no-codegen src/app.cr
 
   # Documentation examples must compile: the docs are only as good as the code they show. Only the
-  # files listed in docs/.checked are enforced; the list grows as the docs are brought up to date.
-  # The list is split over four runners (`--shard i/4` takes every 4th file), which together cover it all.
-  docs-shards:
-    name: docs-shards (${{ matrix.shard }}/4)
+  # files listed in docs/.checked are enforced; the list grows as the docs are brought up to date. The examples
+  # compile against src, so a code change runs this too. One runner (it used to be four shards and an aggregator, each
+  # paying the container and the shard install again).
+  docs:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true' || needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
+    timeout-minutes: 45
     container:
       image: crystallang/crystal:1.22.1
     steps:
       - uses: actions/checkout@v7
+
+      - name: Cache shards dependencies
+        uses: actions/cache@v6
+        with:
+          path: lib
+          key: ${{ runner.os }}-shards-${{ hashFiles('shard.yml', 'shard.lock', 'playground/shard.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-shards-
 
       - name: Install dependencies
         run: shards install
@@ -144,17 +184,18 @@ jobs:
         run: crystal run scripts/check_docs_listed.cr
 
       - name: Every relative link and anchor in README.md and docs/ resolves
-        if: matrix.shard == 1
         run: crystal run scripts/check_doc_links.cr
 
       - name: Compile the documented examples
-        run: crystal run scripts/check_docs.cr -- --shard ${{ matrix.shard }}/4 $(grep -v '^#' docs/.checked)
+        run: crystal run scripts/check_docs.cr -- $(grep -v '^#' docs/.checked)
 
-  # One stable check named `docs` for branch protection: it passes only when every shard passed.
   # Every mermaid block of the docs, through Mermaid's own parser: GitBook shows a block that does not parse as
   # an error box, which no other check notices.
   docs-diagrams:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
@@ -170,22 +211,13 @@ jobs:
       - name: Parse every diagram
         run: node scripts/mermaid/parse.mjs $(git ls-files 'docs/*.md' 'docs/**/*.md')
 
-  docs:
-    runs-on: ubuntu-latest
-    needs: [docs-shards, docs-diagrams]
-    if: always()
-    steps:
-      - name: All documentation shards passed
-        run: test "${{ needs.docs-shards.result }}" = "success"
-
-      - name: Every diagram parsed
-        run: test "${{ needs.docs-diagrams.result }}" = "success"
-
   # The same suite on the newest Crystal, so a release of the language never breaks the framework
   # unnoticed. It gates a release together with the job above (the oldest supported version).
   test-latest:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     container:
       image: crystallang/crystal:latest
     services:
@@ -233,9 +265,8 @@ jobs:
           shards install
           shards build example_app
 
-      - name: Check code style
-        run: crystal tool format --check --exclude lib --exclude playground/lib
-
+      # No format check here: the formatter's output is specific to a Crystal version, and the job above
+      # (the oldest supported version) is the gate for the style of the code.
       - name: Run all specs
         run: crystal spec $(find spec -name '*_spec.cr' | sort)
 
@@ -249,17 +280,16 @@ jobs:
   # Exercise both the legacy threaded scheduler and Crystal 1.22's execution contexts.
   # Modern execution contexts start with one worker; the spec flag explicitly resizes them.
   test-mt:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        flags: ["-Dpreview_mt", "-Dazu_parallel_spec"]
+    timeout-minutes: 30
     container:
       image: crystallang/crystal:1.22.1
     env:
       CRYSTAL_ENV: pipeline
       CRYSTAL_WORKERS: "16"
+      CONCURRENCY_SPECS: spec/azu/mt_stress_spec.cr spec/azu/app_scope_spec.cr spec/azu/graceful_shutdown_spec.cr spec/azu/performance_scope_spec.cr spec/azu/json_response_spec.cr spec/azu/template_body_limit_spec.cr
     steps:
       - uses: actions/checkout@v7
 
@@ -269,11 +299,15 @@ jobs:
       - name: Install dependencies
         run: shards install
 
-      - name: Run the concurrency specs with threads
-        run: crystal spec ${{ matrix.flags }} spec/azu/mt_stress_spec.cr spec/azu/app_scope_spec.cr spec/azu/graceful_shutdown_spec.cr spec/azu/performance_scope_spec.cr spec/azu/json_response_spec.cr spec/azu/template_body_limit_spec.cr
+      - name: Run the concurrency specs with threads (-Dpreview_mt)
+        run: crystal spec -Dpreview_mt $CONCURRENCY_SPECS
 
-  # Every push to master that passes every test job (the oldest and the newest Crystal, the threaded specs and the
-  # documentation checks) is a release: the job writes the version into shard.yml,
+      - name: Run the concurrency specs with execution contexts (-Dazu_parallel_spec)
+        if: ${{ !cancelled() }}
+        run: crystal spec -Dazu_parallel_spec $CONCURRENCY_SPECS
+
+  # Every push to master that changed code and passes every job (the oldest and the newest Crystal, the threaded specs
+  # and the documentation checks; jobs the diff skipped do not block it) is a release: the job writes the version into shard.yml,
   # commits it straight to master, tags that commit and creates the GitHub release. No version-bump pull
   # request, and the tagged shard.yml carries the tag's own version.
   #
@@ -285,15 +319,22 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    timeout-minutes: 15
     needs:
+      - changes
       - spark-client
       - test
       - test-latest
       - test-mt
       - docs
+      - docs-diagrams
     if: >-
+      always() &&
       github.ref == 'refs/heads/master' &&
       github.event_name == 'push' &&
+      needs.changes.outputs.code == 'true' &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled') &&
       !contains(github.event.head_commit.message, 'chore: bump version')
     steps:
       - name: Checkout

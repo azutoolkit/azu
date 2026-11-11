@@ -285,12 +285,16 @@ The dev dashboard, performance monitor, profiler and reporter live in `src/azu/d
 
 ## CI/CD Notes
 
+- **Triggers:** pushes to master, `workflow_dispatch` and a weekly run (the `latest` Crystal leg floats); no `pull_request`.
+  A `changes` job in `crystal.yml` classifies the push by its git diff (a path is code unless known to be docs, so a new
+  path runs the tests): docs-only pushes run only the docs jobs, `js/**` only the Spark client job, and the release needs
+  a push that changed code. A new job that must run for some paths goes into that classifier's `case`, not into a path filter
 - **Linter:** Ameba (`ameba ~> 1.7.0`, a development dependency) on `src/` in the `test` job, max cyclomatic complexity
   10; `.ameba.yml` excludes, per rule, the files that broke it when the step was added (a baseline to shrink)
 - **Container:** crystallang/crystal:1.22.1
 - **Services:** Redis required for cache tests
 - **Excluded from complexity:** dev/ (performance_monitor, performance_reporter, dev_dashboard_component), demo_reporting
-- **Releases:** every green push to master is a release: the `release` job commits the `shard.yml` version
+- **Releases:** every green push to master that changed code is a release: the `release` job commits the `shard.yml` version
   straight to master and tags that commit (no bump PR; it pushes with the `RELEASE_TOKEN` secret, as master is
   protected). Do not bump `shard.yml` by hand; put `(MINOR)` or `(MAJOR)` in a commit message to pick the bump
 

@@ -2,16 +2,11 @@ name: Spark client
 
 # Rebuilds the Spark browser client from js/azu-spark.js and fails when the checked-in script
 # (src/azu/spark/client/azu_spark.js) or the typings differ, and runs the node unit tests. The
-# Crystal suite needs no node. Crystal CI calls this workflow for its release gate;
-# standalone runs are limited to changes in the client or its tooling.
+# Crystal suite needs no node. Crystal CI calls this workflow, and only when the client or its tooling changed
+# (js/**, src/azu/spark/client/**, or a workflow); it has no push trigger of its own, which ran it twice.
 on:
   workflow_call:
-  push:
-    branches: [master]
-    paths: ["js/**", "src/azu/spark/client/**", ".github/workflows/spark-client.yml"]
-  pull_request:
-    branches: [master]
-    paths: ["js/**", "src/azu/spark/client/**", ".github/workflows/spark-client.yml"]
+  workflow_dispatch:
 
 permissions:
   contents: read
