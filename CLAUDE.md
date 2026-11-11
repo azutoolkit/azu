@@ -285,7 +285,7 @@ The dev dashboard, performance monitor, profiler and reporter live in `src/azu/d
 
 ## CI/CD Notes
 
-- **Triggers:** pushes to master, `workflow_dispatch` and a weekly run (the `latest` Crystal leg floats); no `pull_request`.
+- **Triggers:** pushes to master, `workflow_dispatch` and a nightly run (the `latest` Crystal leg floats); no `pull_request`.
   A `changes` job in `crystal.yml` classifies the push by its git diff (a path is code unless known to be docs, so a new
   path runs the tests): docs-only pushes run only the docs jobs, `js/**` only the Spark client job, and the release needs
   a push that changed code. A new job that must run for some paths goes into that classifier's `case`, not into a path filter

@@ -1,13 +1,13 @@
 name: Crystal CI
 
-# Pushes to master, by hand, and weekly (the Crystal `latest` leg floats, so a week with no push can still break).
+# Pushes to master, by hand, and nightly (the Crystal `latest` leg floats, so a day with no push can still break).
 # Which jobs run follows the git diff of the push (see the `changes` job): a push that only touches documentation runs
 # the documentation checks and nothing else, and releases nothing.
 on:
   push:
     branches: [master]
   schedule:
-    - cron: "23 5 * * 1"
+    - cron: "23 5 * * *"
   workflow_dispatch:
 
 permissions:
